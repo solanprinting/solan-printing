@@ -822,6 +822,7 @@ window._fbInit = () => true;
 <div id="view-orders" style="display:none">
   <div style="padding:12px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #eee">
     <strong style="font-size:1.05rem;flex:1">🛒 הזמנות מלקוחות</strong>
+    <button class="btn btn-sm" onclick="openIditManager()" style="background:#047857;color:white">🏭 אתרי עידית</button>
     <button class="btn btn-sm" onclick="openNewOrderModal()" style="background:#1a1a4e;color:white">➕ הזמנה חדשה</button>
     <button class="btn btn-sm" onclick="document.getElementById('order-file-input').click()" style="background:#374151;color:white">📎 העלה קובץ</button>
     <input type="file" id="order-file-input" accept="image/*,application/pdf" style="display:none" onchange="handleOrderFile(this)">
@@ -1781,6 +1782,8 @@ function filterOrdersArea(a) {
 function openNewOrderModal(prefill) {
   _editingOrderId = null;
   document.getElementById('order-modal-title').textContent = '🛒 הזמנה חדשה';
+  clearSiteField();
+  clearSiteField();
   document.getElementById('ord-customer').value  = (prefill && prefill.customer)  || '';
   document.getElementById('ord-desc').value      = (prefill && prefill.desc)      || '';
   document.getElementById('ord-qty').value       = (prefill && prefill.qty)       || '';
@@ -1808,6 +1811,7 @@ function editOrder(id) {
   document.getElementById('ord-area').value      = o.area         || '';
   document.getElementById('ord-address').value   = o.address      || '';
   document.getElementById('ord-file-preview').style.display = 'none';
+  clearSiteField();
   document.getElementById('order-modal').style.display = 'flex';
 }
 
@@ -5507,6 +5511,18 @@ connectFirebase();
       <button onclick="closeOrderModal()" style="background:none;border:none;font-size:1.4rem;cursor:pointer">✕</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="position:relative">
+        <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">מספר אתר (עידית) <span style="font-weight:400;color:#6b7280">— אופציונלי</span></label>
+        <div style="display:flex;gap:6px">
+          <input id="ord-site-num" placeholder="הקלד מספר או שם אתר..." autocomplete="off"
+                 oninput="siteSearch(this.value)"
+                 style="flex:1;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
+          <button type="button" onclick="clearSiteField()" title="נקה"
+                  style="padding:0 10px;border:1px solid #d1d5db;border-radius:8px;background:white;cursor:pointer;font-size:1rem">✕</button>
+        </div>
+        <div id="site-dropdown" style="display:none;position:absolute;top:100%;right:0;left:0;background:white;border:1px solid #d1d5db;border-radius:8px;z-index:9999;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
+      </div>
+      <div id="site-info-panel" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:9px 12px;font-size:.83rem;color:#1e3a5f"></div>
       <div>
         <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">שם לקוח *</label>
         <input id="ord-customer" placeholder="שם הלקוח" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
@@ -5555,5 +5571,215 @@ connectFirebase();
   </div>
 </div>
 
+<!-- מודל ניהול אתרי עידית -->
+<div id="idit-manager-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9100;align-items:flex-start;justify-content:center;padding-top:30px">
+  <div style="background:white;border-radius:14px;width:min(700px,96vw);direction:rtl;max-height:85vh;display:flex;flex-direction:column">
+    <div style="background:#1a1a4e;color:white;padding:14px 18px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+      <strong style="font-size:1.05rem">🏭 ניהול אתרי עידית</strong>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="openAddSiteForm()" style="background:#047857;color:white;border:none;border-radius:8px;padding:5px 14px;cursor:pointer;font-size:.88rem">+ אתר חדש</button>
+        <button onclick="closeIditManager()" style="background:none;border:none;color:white;font-size:1.4rem;cursor:pointer;line-height:1">✕</button>
+      </div>
+    </div>
+    <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb;flex-shrink:0">
+      <input id="idit-search" placeholder="חפש אתר לפי שם או מספר..." oninput="renderIditList()" autocomplete="off"
+             style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:.93rem;box-sizing:border-box">
+    </div>
+    <div style="display:flex;flex:1;overflow:hidden;min-height:400px">
+      <div id="idit-list-pane" style="width:220px;min-width:160px;border-left:1px solid #e5e7eb;overflow-y:auto;flex-shrink:0"></div>
+      <div id="idit-edit-pane" style="flex:1;overflow-y:auto;padding:16px">
+        <div style="color:#9ca3af;text-align:center;margin-top:60px;font-size:.9rem">בחר אתר מהרשימה לעריכה</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===== נתוני אתרי עידית ===== */
+var IDIT_SITES = (function(){
+  var stored = localStorage.getItem('iditSites');
+  if (stored) { try { return JSON.parse(stored); } catch(e){} }
+  return [{"name": "מכתשים 37 רמת חובב", "num": "37(33700)", "address": "שד דקל  רמת חובב", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "משה להב", "role": "מנהל אתר", "phone": "054-4401898"}, {"name": "ורדית", "role": "פקידה", "phone": "08-6560861"}]}, {"name": "מכתשים באר שבע", "num": "36(33600)", "address": "רח סעדיה מלל  3ב\"ש צפון", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "שמוליק", "role": "מנהל אתר", "phone": "054-5231285"}, {"name": "", "role": "משרד", "phone": "073-2156794"}]}, {"name": "דימונה", "num": "29(22900)", "address": "קמג דימונה", "notes": "נדרש למלא טפסים אישור כניסה לדימונה ולברר מול כרמית שמות נהגים מאושרי כניסה", "contacts": [{"name": "תומר", "role": "מנהל", "phone": "050-6244526"}, {"name": "יגאל", "role": "מחסנאי", "phone": "052-8452669"}, {"name": "כרמית", "role": "פקידה", "phone": "08-6567060"}, {"name": "כרמית", "role": "נייד", "phone": "053-9290011"}, {"name": "פקס", "role": "", "phone": "08-6568344"}]}, {"name": "אלביט", "num": "22(22222)", "address": "רח המחשב 2 נתניה", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "", "role": "משרד", "phone": "09-8357362"}, {"name": "אופיר דלאל", "role": "מנהל אתר", "phone": "054-3277915"}, {"name": "מאיה", "role": "פקידה", "phone": "054-3228987"}]}, {"name": "רוה\"מ איירפוט סיטי", "num": "45-44500", "address": "איירפורט סיטי", "notes": "אין כניסת ספקים - תיאום מול מנהל האתר", "contacts": [{"name": "ישראל", "role": "מנהל אתר", "phone": "055-6611373"}, {"name": "דובי", "role": "נהג", "phone": "050-6316690"}]}, {"name": "רפאל - מכון דוד (קריות)", "num": "48-44800", "address": "מול איזור תעשייה ביאליק כביש חיפה - עכו", "notes": "נדרש אישור כניסה ומילוי טפסים שאלון רמה 6 רפאל + תיאום מול שלי", "contacts": [{"name": "רועי דהאן", "role": "מנהל אתר", "phone": "050-2037029"}, {"name": "עליזה", "role": "פקידה", "phone": "050-2037764"}, {"name": "מירית", "role": "", "phone": "502037037"}, {"name": "חן", "role": "מנהל אתר", "phone": "052-690-0450"}, {"name": "משה", "role": "מנהל מחסן - לליווים ובדיקת ספקים", "phone": "054-5897712"}, {"name": "נטלי", "role": "פקידה", "phone": "050-7829349"}]}, {"name": "פוד קורד  רפאל מכון דויד", "num": "98600", "address": "", "notes": "", "contacts": [{"name": "משה", "role": "מחסנאי", "phone": "054-5897712"}, {"name": "נטלי", "role": "פקידה", "phone": "050-7829349"}]}, {"name": "רפאל - מכון לשם", "num": "49-44900", "address": "כביש 784 מול הישוב רקפת", "notes": "", "contacts": [{"name": "אייל", "role": "מנהל אתר", "phone": "052-2545154"}, {"name": "חמי", "role": "מנהל בתי קפה", "phone": ""}, {"name": "אוריאל", "role": "מחסנאי - לאישור הגעה, ליווי ובדיקת סחורות", "phone": "054-8632458"}, {"name": "נטלי", "role": "פקידה", "phone": "050-7829349"}, {"name": "חנניה", "role": "מנהל אתר", "phone": "054-3228966"}]}, {"name": "רפאל -הגבעה", "num": "50-45000", "address": "", "notes": "", "contacts": [{"name": "משה גבריאלוב", "role": "מנהל אתר", "phone": "054-3277917"}]}, {"name": "רפאל - פלמחים", "num": "51-45100", "address": "בסיס פלמחים", "notes": "נדרש אישור כניסה  + מילוי טפסים שאלון רמה 6 רפאל", "contacts": [{"name": "חנניה", "role": "מנהל אתר", "phone": "054-3228966"}, {"name": "משה גבריאלוב", "role": "מנהל אתר", "phone": "054-3277917"}]}, {"name": "כ\"ד מתקן חיפה", "num": "53-45300", "address": "לוחמי הגטאות 7 חיפה", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "תמי", "role": "מנהלת אתר", "phone": "052-3888040"}]}, {"name": "מתקן  כ\"ד רמת  השרון", "num": "54-45400", "address": "תעשייה צבאית  רמת השרון", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "ליזה", "role": "מנהלת אתר", "phone": "050-5580300"}]}, {"name": "כ\"ד אשקלון", "num": "52-45200", "address": "ליד משטרת אשקלון", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "גולן", "role": "מנהל אתר", "phone": "050-9449271"}]}, {"name": "נגב", "num": "82-48200", "address": "", "notes": "", "contacts": [{"name": "גולן", "role": "מנהל אתר", "phone": "050-9449271"}]}, {"name": "נגבה", "num": "61-46100", "address": "", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "דורון", "role": "מנהל אתר", "phone": "052-8967016"}, {"name": "משרד", "role": "", "phone": "076-802-4061"}, {"name": "שי", "role": "שף", "phone": "054-3228983"}]}, {"name": "רפאל- חג'ג'", "num": "60(46000)", "address": "", "notes": "", "contacts": [{"name": "ענת", "role": "מנהלת אתר", "phone": "054-3228941"}]}, {"name": "תדיראן", "num": "34-33400", "address": "שד' יצחק רבין 34 קרית עקרון.", "notes": "לא נדרש אישור כניסה", "contacts": [{"name": "יסמין", "role": "מנהלת אתר", "phone": "050-6373417"}]}, {"name": "ירושלים", "num": "71-47100", "address": "הרוזמרין, ירושלים", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "ירמי", "role": "מנהל אתר", "phone": "054-4555171"}, {"name": "מיטל", "role": "פקידה", "phone": "054-8019725"}]}, {"name": "כ\"ד בית ליד", "num": "75-47500", "address": "מחנה 21, בית ליד", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "אורי", "role": "מחסנאי", "phone": "055-8821955"}, {"name": "", "role": "", "phone": "09-8946884"}, {"name": "אריאל", "role": "", "phone": "054-3277931"}]}, {"name": "כ\"ד תל אביב", "num": "85-48500", "address": "רח בן ישי, ליד מכללת רידמן ת\"א", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "דודו", "role": "מנהל אתר", "phone": "054-3228915"}, {"name": "קאסיי", "role": "מחסנאי", "phone": "054-9285882"}, {"name": "אתי", "role": "פקידה", "phone": "054-3726209"}]}, {"name": "כ\"ד קיבוץ", "num": "38-33800", "address": "המכון המטראולוגי ראשון לציון", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "לירן", "role": "מנהל אתר", "phone": "052-8728174"}, {"name": "תמר", "role": "פקידה", "phone": "0504-403060"}, {"name": "אבי מיכאלוב", "role": "מנהל אתר", "phone": "053-3033238"}, {"name": "", "role": "יוליה פקידה", "phone": "050-9959722"}]}, {"name": "כלמוביל", "num": "31(43100)", "address": "העמל 20 פארק תעשיות ראש העין", "notes": "לא נדרש אישור כניסה", "contacts": [{"name": "אנדריי", "role": "מנהל אתר", "phone": "0544-250015"}]}, {"name": "גילת", "num": "25(42500)", "address": "יגיע כפיים 21 פתח תקווה", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "מיכאל", "role": "מנהל אתר", "phone": "054-8132979"}]}, {"name": "אינטל ירושלים", "num": "26(42600)", "address": "המרפא  9 הר החוצבים ירושלים", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "קובי", "role": "מנהל אתר", "phone": "054-3228945"}, {"name": "שירלי", "role": "פקידה", "phone": "054-4620913"}]}, {"name": "אינטל ירושלים - מטבחונים", "num": "27(42700)", "address": "המרפא  9 הר החוצבים ירושלים", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "קובי", "role": "מנהל אתר", "phone": "054-3228945"}, {"name": "אבי", "role": "מנהל חדר אוכל", "phone": "052-662-7223"}]}, {"name": "אגן אדמה אשדוד", "num": "24(42400)", "address": "האשלג 5, אשדוד", "notes": "לא נדרש  אישור כניסה מיוחד - יש צורך לעבור הדרכה בפעם הראשונה שמגיעים", "contacts": [{"name": "יניב", "role": "מנהל אתר", "phone": "503502207"}]}, {"name": "אינטל פ\"ת", "num": "23(42300(", "address": "החרוצים 7 פ\"ת", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "יוסי בן דוד", "role": "מנהל אתר", "phone": "050-7176611"}]}, {"name": "אינטל פ\"ת מטבחונים", "num": "28(42800)", "address": "החרוצים 7 פ\"ת", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "יוסי בן דוד", "role": "מנהל אתר", "phone": "050-7176611"}, {"name": "יוסי בן דוד", "role": "יוסי נייד נוסף", "phone": "052-8973764"}, {"name": "גיל סידלסקי", "role": "מחסנאי", "phone": "054-9252208"}]}];
+})();
+
+/* ===== חיפוש אתר בטופס הזמנה ===== */
+function _siteDropdownHide() {
+  var d = document.getElementById('site-dropdown');
+  if (d) d.style.display = 'none';
+}
+
+function siteSearch(val) {
+  var dd = document.getElementById('site-dropdown');
+  if (!val || val.length < 1) { dd.style.display = 'none'; return; }
+  var q = val.trim().toLowerCase();
+  var hits = IDIT_SITES.filter(function(s) {
+    return s.num.toLowerCase().indexOf(q) !== -1 ||
+           s.name.indexOf(q) !== -1 ||
+           s.num.replace(/[^\d]/g,'').indexOf(q.replace(/[^\d]/g,'')) !== -1;
+  });
+  if (!hits.length) { dd.style.display = 'none'; return; }
+  dd.innerHTML = '';
+  hits.forEach(function(s) {
+    var div = document.createElement('div');
+    div.className = 'site-dd-item';
+    div.innerHTML = '<span style="color:#1a1a4e;font-weight:700">' + s.num + '</span> — ' + s.name;
+    div.addEventListener('click', (function(num){ return function(){ _selectSite(num); }; })(s.num));
+    dd.appendChild(div);
+  });
+  dd.style.display = '';
+}
+
+function _selectSite(num) {
+  var s = IDIT_SITES.find(function(x) { return x.num === num; });
+  if (!s) return;
+  document.getElementById('ord-site-num').value = s.num + ' · ' + s.name;
+  if (s.address) document.getElementById('ord-address').value = s.address;
+  if (s.notes)   document.getElementById('ord-notes').value   = s.notes;
+  var contacts = s.contacts.filter(function(c) { return c.name || c.phone; });
+  var panel = document.getElementById('site-info-panel');
+  panel.innerHTML = '<strong style="color:#1a1a4e">\u{1F4CD} ' + s.name + '</strong>' +
+    (contacts.length ? '<div style="margin-top:5px;line-height:1.7">' +
+      contacts.map(function(c) {
+        var line = '';
+        if (c.name) line += '<b>' + c.name + '</b>';
+        if (c.role) line += ' <span style="color:#6b7280;font-size:.8rem">(' + c.role + ')</span>';
+        if (c.phone) line += ' <a href="tel:' + c.phone + '" style="color:#1d4ed8;text-decoration:none">' + c.phone + '</a>';
+        return '<div>' + line + '</div>';
+      }).join('') + '</div>' : '');
+  panel.style.display = '';
+  document.getElementById('site-dropdown').style.display = 'none';
+}
+
+function clearSiteField() {
+  var el = document.getElementById('ord-site-num');
+  if (el) el.value = '';
+  var panel = document.getElementById('site-info-panel');
+  if (panel) panel.style.display = 'none';
+  var dd = document.getElementById('site-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest || (!e.target.closest('#ord-site-num') && !e.target.closest('#site-dropdown')))
+    _siteDropdownHide();
+});
+
+/* ===== ניהול אתרי עידית ===== */
+var _iditEditIdx = null;
+
+function saveIditSites() {
+  localStorage.setItem('iditSites', JSON.stringify(IDIT_SITES));
+}
+
+function openIditManager() {
+  _iditEditIdx = null;
+  document.getElementById('idit-manager-modal').style.display = 'flex';
+  document.getElementById('idit-search').value = '';
+  renderIditList();
+  document.getElementById('idit-edit-pane').innerHTML =
+    '<div style="color:#9ca3af;text-align:center;margin-top:60px;font-size:.9rem">בחר אתר מהרשימה לעריכה</div>';
+}
+
+function closeIditManager() {
+  document.getElementById('idit-manager-modal').style.display = 'none';
+}
+
+function renderIditList() {
+  var q = (document.getElementById('idit-search').value || '').trim().toLowerCase();
+  var pane = document.getElementById('idit-list-pane');
+  pane.innerHTML = IDIT_SITES
+    .map(function(s, i) { return {s:s, i:i}; })
+    .filter(function(o) { return !q || o.s.name.indexOf(q) !== -1 || o.s.num.toLowerCase().indexOf(q) !== -1; })
+    .map(function(o) {
+      var active = _iditEditIdx === o.i;
+      return '<div onclick="openSiteEdit(' + o.i + ')" style="padding:9px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:.85rem;' +
+        (active ? 'background:#eff6ff;border-right:3px solid #1a1a4e;' : 'border-right:3px solid transparent;') + '">' +
+        '<div style="color:#111;font-weight:' + (active?'700':'400') + '">' + o.s.name + '</div>' +
+        '<div style="color:#9ca3af;font-size:.75rem">' + o.s.num + '</div></div>';
+    }).join('');
+}
+
+function _esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function _inp()  { return 'width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:.9rem;box-sizing:border-box;font-family:inherit;'; }
+
+function _renderContacts(contacts, siteIdx) {
+  if (!contacts || !contacts.length)
+    return '<div style="color:#9ca3af;font-size:.83rem;padding:4px 0">אין אנשי קשר</div>';
+  return contacts.map(function(c, ci) {
+    return '<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:5px;margin-bottom:6px;align-items:center">' +
+      '<input value="' + _esc(c.name) + '" placeholder="שם" ' +
+        'oninput="IDIT_SITES[' + siteIdx + '].contacts[' + ci + '].name=this.value" style="' + _inp() + '">' +
+      '<input value="' + _esc(c.role) + '" placeholder="תפקיד" ' +
+        'oninput="IDIT_SITES[' + siteIdx + '].contacts[' + ci + '].role=this.value" style="' + _inp() + '">' +
+      '<input value="' + _esc(c.phone) + '" placeholder="טלפון" dir="ltr" ' +
+        'oninput="IDIT_SITES[' + siteIdx + '].contacts[' + ci + '].phone=this.value" style="' + _inp() + '">' +
+      '<button onclick="removeContact(' + siteIdx + ',' + ci + ')" ' +
+        'style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:.85rem">✕</button>' +
+      '</div>';
+  }).join('');
+}
+
+function openSiteEdit(idx) {
+  _iditEditIdx = idx;
+  renderIditList();
+  var s = IDIT_SITES[idx];
+  document.getElementById('idit-edit-pane').innerHTML =
+    '<div style="display:flex;flex-direction:column;gap:11px">' +
+    '<div><label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:3px">שם האתר</label>' +
+    '<input id="ie-name" value="' + _esc(s.name) + '" style="' + _inp() + '"></div>' +
+    '<div><label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:3px">מספר אתר</label>' +
+    '<input id="ie-num" value="' + _esc(s.num) + '" style="' + _inp() + '"></div>' +
+    '<div><label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:3px">כתובת</label>' +
+    '<input id="ie-addr" value="' + _esc(s.address) + '" style="' + _inp() + '"></div>' +
+    '<div><label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:3px">הערות כניסה</label>' +
+    '<textarea id="ie-notes" rows="2" style="' + _inp() + 'resize:vertical">' + _esc(s.notes) + '</textarea></div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">' +
+    '<strong style="font-size:.88rem">👥 אנשי קשר</strong>' +
+    '<button onclick="addContact(' + idx + ')" style="background:#047857;color:white;border:none;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:.82rem">+ הוסף</button></div>' +
+    '<div id="ie-contacts">' + _renderContacts(s.contacts, idx) + '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:4px;padding-top:10px;border-top:1px solid #f3f4f6">' +
+    '<button onclick="saveSiteEdit(' + idx + ')" style="flex:1;background:#1a1a4e;color:white;border:none;border-radius:8px;padding:9px;cursor:pointer;font-weight:700;font-size:.9rem">💾 שמור שינויים</button>' +
+    '<button onclick="deleteSite(' + idx + ')" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:8px;padding:9px 14px;cursor:pointer" title="מחק אתר">🗑️</button>' +
+    '</div></div>';
+}
+
+function addContact(siteIdx) {
+  IDIT_SITES[siteIdx].contacts.push({name:'',role:'',phone:''});
+  document.getElementById('ie-contacts').innerHTML = _renderContacts(IDIT_SITES[siteIdx].contacts, siteIdx);
+}
+
+function removeContact(siteIdx, ci) {
+  IDIT_SITES[siteIdx].contacts.splice(ci,1);
+  document.getElementById('ie-contacts').innerHTML = _renderContacts(IDIT_SITES[siteIdx].contacts, siteIdx);
+}
+
+function saveSiteEdit(idx) {
+  IDIT_SITES[idx].name    = (document.getElementById('ie-name').value||'').trim();
+  IDIT_SITES[idx].num     = (document.getElementById('ie-num').value||'').trim();
+  IDIT_SITES[idx].address = (document.getElementById('ie-addr').value||'').trim();
+  IDIT_SITES[idx].notes   = (document.getElementById('ie-notes').value||'').trim();
+  saveIditSites();
+  renderIditList();
+  showToast('✅ האתר נשמר');
+}
+
+function deleteSite(idx) {
+  if (!confirm('למחוק את האתר "' + IDIT_SITES[idx].name + '"?')) return;
+  IDIT_SITES.splice(idx,1);
+  _iditEditIdx = null;
+  saveIditSites();
+  renderIditList();
+  document.getElementById('idit-edit-pane').innerHTML =
+    '<div style="color:#9ca3af;text-align:center;margin-top:60px;font-size:.9rem">בחר אתר מהרשימה לעריכה</div>';
+}
+
+function openAddSiteForm() {
+  IDIT_SITES.unshift({name:'',num:'',address:'',notes:'',contacts:[]});
+  _iditEditIdx = 0;
+  saveIditSites();
+  renderIditList();
+  openSiteEdit(0);
+}
+</script>
 </body>
 </html>
