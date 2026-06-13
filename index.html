@@ -1832,6 +1832,7 @@ function saveOrder() {
   var customer = (document.getElementById('ord-customer').value || '').trim();
   var desc     = (document.getElementById('ord-desc').value     || '').trim();
   if (!customer || !desc) { showToast('⚠️ שם לקוח ותיאור חובה'); return; }
+  addHistory('ord-customer', customer);
   var now = new Date().toISOString();
   if (_editingOrderId) {
     var o = orders.find(function(x) { return x.id === _editingOrderId; });
@@ -1987,7 +1988,10 @@ function acSugg(fieldId, q) {
     if (fieldId==='f-paper') return n.paper;
     return null;
   }).filter(Boolean);
-  const all = [...new Set([...hist, ...fromNP, ...seeds])].filter(Boolean);
+  const fromCust = (fieldId === 'ord-customer')
+    ? (typeof customers !== 'undefined' ? customers.map(c => c.name).filter(Boolean) : [])
+    : [];
+  const all = [...new Set([...hist, ...fromNP, ...fromCust, ...seeds])].filter(Boolean);
   if (!q || q.length===0) return all.slice(0,8);
   const lq = q.toLowerCase();
   return all.filter(s => s.toLowerCase().includes(lq)).slice(0,8);
@@ -5535,7 +5539,14 @@ connectFirebase();
       <div id="site-info-panel" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:9px 12px;font-size:.83rem;color:#1e3a5f"></div>
       <div>
         <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">שם לקוח *</label>
-        <input id="ord-customer" placeholder="שם הלקוח" oninput="_toggleSiteField(this.value)" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
+        <div class="ac-wrap">
+          <input id="ord-customer" placeholder="שם הלקוח" autocomplete="off"
+            oninput="_toggleSiteField(this.value);acInput(this,'ac-ord-cust',acSugg('ord-customer',this.value))"
+            onfocus="acInput(this,'ac-ord-cust',acSugg('ord-customer',this.value))"
+            onblur="acDelay('ac-ord-cust')"
+            style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
+          <div class="ac-list" id="ac-ord-cust"></div>
+        </div>
       </div>
       <div>
         <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">תיאור המוצר / העבודה *</label>
