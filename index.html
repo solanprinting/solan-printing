@@ -2342,6 +2342,23 @@ function restoreToWeek(id) {
   showToast('✅ העיתון הוחזר ליומן');
 }
 
+function moveNewspaper(id, dir) {
+  // find index in newspapers array
+  const idx = newspapers.findIndex(x => x.id === id);
+  if (idx === -1) return;
+  const day = newspapers[idx].day;
+  // get all same-day indexes
+  const dayIdxs = newspapers.map((n,i) => n.day===day ? i : -1).filter(i=>i!==-1);
+  const posInDay = dayIdxs.indexOf(idx);
+  const targetPos = posInDay + dir;
+  if (targetPos < 0 || targetPos >= dayIdxs.length) return;
+  // swap in newspapers array
+  const targetIdx = dayIdxs[targetPos];
+  [newspapers[idx], newspapers[targetIdx]] = [newspapers[targetIdx], newspapers[idx]];
+  persist();
+  renderWeek();
+}
+
 function openRestoreWeekModal() {
   const hidden = newspapers.filter(n => hiddenThisWeek.includes(n.id));
   if (!hidden.length) { showToast('אין עיתונים מוסתרים השבוע'); return; }
@@ -2422,18 +2439,26 @@ function renderWeek() {
             <div class="paper-btn-name" style="${done ? 'color:#15803d' : ''}">${done ? '✅ ' : ''}${n.name}</div>
             <div class="paper-btn-detail">${n.paper||''} · ${n.copies?parseInt(n.copies).toLocaleString()+' עותקים':''}</div>
           </div>
-          <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">
-            ${done ? `<button title="נקה סימון" onclick="clearSingleWeekMark('${n.name.replace(/'/g,"\\'")}")"
-              style="background:none;border:none;cursor:pointer;font-size:.75rem;color:#16a34a;padding:0;line-height:1">✕✅</button>` : ''}
-            <button title="הסר מהיומן השבוע" onclick="hideFromWeek(${n.id})"
-            style="background:none;border:none;cursor:pointer;color:#ccc;font-size:1rem;line-height:1;padding:0"
-            onmouseover="this.style.color='#c62828'" onmouseout="this.style.color='#ccc'">✕</button>
+          <div style="display:flex;flex-direction:column;gap:1px;flex-shrink:0">
+            <button title="הזז למעלה" onclick="moveNewspaper(${n.id},-1)"
+              style="background:none;border:none;cursor:pointer;color:#bbb;font-size:.75rem;line-height:1;padding:1px 3px"
+              onmouseover="this.style.color='var(--press)'" onmouseout="this.style.color='#bbb'">▲</button>
+            <button title="הזז למטה" onclick="moveNewspaper(${n.id},1)"
+              style="background:none;border:none;cursor:pointer;color:#bbb;font-size:.75rem;line-height:1;padding:1px 3px"
+              onmouseover="this.style.color='var(--press)'" onmouseout="this.style.color='#bbb'">▼</button>
           </div>
+          <button title="הסר מהיומן השבוע" onclick="hideFromWeek(${n.id})"
+            style="background:none;border:none;cursor:pointer;color:#ccc;font-size:1rem;line-height:1;padding:0;flex-shrink:0"
+            onmouseover="this.style.color='#c62828'" onmouseout="this.style.color='#ccc'">✕</button>
         </div>
-        <button class="pick-pages-btn" style="${done ? 'background:#dcfce7;color:#15803d;border-color:#86efac' : ''}"
-          onclick="openPagePicker(${n.id})">
-          ${done ? '✅ כרטיס נוצר — בחר שוב ▼' : 'בחר כמות עמודים השבוע ▼'}
-        </button>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+          <button class="pick-pages-btn" style="flex:1;margin-top:0;${done ? 'background:#dcfce7;color:#15803d;border-color:#86efac' : ''}"
+            onclick="openPagePicker(${n.id})">
+            ${done ? '✅ כרטיס נוצר — בחר שוב ▼' : 'בחר כמות עמודים השבוע ▼'}
+          </button>
+          ${done ? `<button title="נקה סימון" onclick="clearSingleWeekMark('${n.name.replace(/'/g,"\\'")}')"
+            style="background:#f0fdf4;border:1px solid #86efac;border-radius:5px;cursor:pointer;font-size:.72rem;color:#16a34a;padding:3px 7px;white-space:nowrap;flex-shrink:0">✕ נקה</button>` : ''}
+        </div>
       </div>`;
     }).join('') : '';
 
