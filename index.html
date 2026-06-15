@@ -912,8 +912,7 @@ window._fbInit = () => true;
           <option value="">-- בחר מכונה --</option>
           <option value="מכונה 4 צבעים">מכונה 4 צבעים</option>
           <option value="מכונה 8 צבעים">מכונה 8 צבעים</option>
-          <option value="פורמט גדול">פורמט גדול</option>
-        </select>
+                  </select>
       </div>
 
       <div class="field full" id="runs-field" style="display:none">
@@ -1594,6 +1593,7 @@ let _selectedPaperDay = null;
 let newspapers= JSON.parse(localStorage.getItem('solanNewspapers')|| '[]');
 let flyers    = JSON.parse(localStorage.getItem('solanFlyers')    || '[]');
 let historyDB = JSON.parse(localStorage.getItem('solanHistory')   || '{}');
+let printLog  = JSON.parse(localStorage.getItem('solanPrintLog') || '[]');
 
 // ===================================================================
 // USER & PERMISSIONS SYSTEM
@@ -2006,6 +2006,7 @@ function showToast(msg, duration) {
 function persist() {
   // Always write to localStorage (works offline too)
   localStorage.setItem('solanHistory',             JSON.stringify(historyDB));
+  localStorage.setItem('solanPrintLog',            JSON.stringify(printLog));
   localStorage.setItem('solanInventory',           JSON.stringify(inventory));
   localStorage.setItem('solanDocumentPrices',      JSON.stringify(documentPrices));
   localStorage.setItem('solanInventoryHistory',    JSON.stringify(inventoryHistory));
@@ -2688,9 +2689,31 @@ function calcRuns() {
   currentRuns = buildRuns(pages, copies, fs);
   currentRuns.forEach(r=>{ if(prev[r.num]) r.machine=prev[r.num]; });
 
+  _runsLabel = lbl; _runsPages = pages; _runsCopies = copies;
+  _renderCurrentRunsOutput();
+  field.style.display='';
+}
+
+var _runsLabel='', _runsPages=0, _runsCopies=0;
+
+function _renderCurrentRunsOutput() {
+  const out = document.getElementById('runs-output');
+  if (!out || !currentRuns.length) return;
   const rows = currentRuns.map((r,i)=>`
     <tr>
-      <td><strong>ריצה ${r.num}</strong></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:4px">
+          <div style="display:flex;flex-direction:column;gap:1px">
+            <button type="button" onclick="moveCurrentRun(${i},-1)"
+              style="background:none;border:1px solid #ccc;border-radius:3px;padding:0 5px;line-height:1.3;font-size:.7rem;cursor:pointer;color:#555"
+              ${i===0?'disabled style="opacity:.3;cursor:default"':''}>▲</button>
+            <button type="button" onclick="moveCurrentRun(${i},1)"
+              style="background:none;border:1px solid #ccc;border-radius:3px;padding:0 5px;line-height:1.3;font-size:.7rem;cursor:pointer;color:#555"
+              ${i===currentRuns.length-1?'disabled style="opacity:.3;cursor:default"':''}>▼</button>
+          </div>
+          <strong>ריצה ${i+1}</strong>
+        </div>
+      </td>
       <td>${r.pages} עמ'</td>
       <td style="font-size:.8rem;color:#444">${r.pageRange}</td>
       <td><strong>${r.copies.toLocaleString()}</strong></td>
@@ -2699,22 +2722,27 @@ function calcRuns() {
         <option value="">-- מכונה --</option>
         <option value="מכונה 4 צבעים" ${r.machine==='מכונה 4 צבעים'?'selected':''}>מכונה 4 צבעים</option>
         <option value="מכונה 8 צבעים" ${r.machine==='מכונה 8 צבעים'?'selected':''}>מכונה 8 צבעים</option>
-        <option value="פורמט גדול" ${r.machine==='פורמט גדול'?'selected':''}>פורמט גדול</option>
       </select></td>
     </tr>`).join('');
 
   out.innerHTML=`<div class="runs-box">
-    <div class="runs-box-title">🔢 ריצות הדפסה — ${lbl}</div>
+    <div class="runs-box-title">🔢 ריצות הדפסה — ${_runsLabel}</div>
     <table class="runs-table">
-      <thead><tr><th>ריצה</th><th>עמודים</th><th>טווח עמודים</th><th>כמות</th><th>קיפולים</th><th>מכונה</th></tr></thead>
+      <thead><tr><th></th><th>עמודים</th><th>טווח עמודים</th><th>כמות</th><th>קיפולים</th><th>מכונה</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="runs-summary">
       <span>ריצות: <strong>${currentRuns.length}</strong></span>
-      <span>עמודים: <strong>${pages}</strong></span>
-      <span>עותקים: <strong>${copies.toLocaleString()}</strong></span>
+      <span>עמודים: <strong>${_runsPages}</strong></span>
+      <span>עותקים: <strong>${_runsCopies.toLocaleString()}</strong></span>
     </div></div>`;
-  field.style.display='';
+}
+
+function moveCurrentRun(i, dir) {
+  var j = i + dir;
+  if (j < 0 || j >= currentRuns.length) return;
+  var tmp = currentRuns[i]; currentRuns[i] = currentRuns[j]; currentRuns[j] = tmp;
+  _renderCurrentRunsOutput();
 }
 
 // ========== MANUAL RUNS ==========
@@ -2733,11 +2761,25 @@ function removeManualRun(id) {
   showUndoToast('ריצה נמחקה', function() { manualRuns = snap; renderManualRuns(); });
 }
 
+function moveManualRun(i, dir) {
+  var j = i + dir;
+  if (j < 0 || j >= manualRuns.length) return;
+  var tmp = manualRuns[i]; manualRuns[i] = manualRuns[j]; manualRuns[j] = tmp;
+  renderManualRuns();
+}
 function renderManualRuns() {
   const list = document.getElementById('manual-runs-list');
   if (!manualRuns.length) { list.innerHTML=''; return; }
   list.innerHTML = manualRuns.map((r,i)=>`
     <div style="display:flex;align-items:center;gap:8px;background:#f8f9ff;border:1.5px solid #dde3f8;border-radius:8px;padding:10px 12px;flex-wrap:wrap">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <button type="button" onclick="moveManualRun(${i},-1)"
+          style="background:none;border:1px solid #ccc;border-radius:3px;padding:0 5px;line-height:1.3;font-size:.7rem;cursor:pointer;color:#555"
+          ${i===0?'disabled':''}>▲</button>
+        <button type="button" onclick="moveManualRun(${i},1)"
+          style="background:none;border:1px solid #ccc;border-radius:3px;padding:0 5px;line-height:1.3;font-size:.7rem;cursor:pointer;color:#555"
+          ${i===manualRuns.length-1?'disabled':''}>▼</button>
+      </div>
       <span style="font-weight:800;color:var(--press);white-space:nowrap;min-width:52px">ריצה ${i+1}</span>
       <input type="number" placeholder="עמודים" min="1"
         value="${r.pages}"
@@ -2752,7 +2794,7 @@ function renderManualRuns() {
         <option value="">-- מכונה --</option>
         <option value="מכונה 4 צבעים" ${r.machine==='מכונה 4 צבעים'?'selected':''}>מכונה 4 צבעים</option>
         <option value="מכונה 8 צבעים" ${r.machine==='מכונה 8 צבעים'?'selected':''}>מכונה 8 צבעים</option>
-        <option value="פורמט גדול" ${r.machine==='פורמט גדול'?'selected':''}>פורמט גדול</option>
+        
       </select>
       <button onclick="removeManualRun(${r.id})"
         style="background:none;border:none;color:#ccc;font-size:1.1rem;cursor:pointer;padding:0 2px"
@@ -3102,7 +3144,7 @@ function openRunsModal(n, pages) {
           <option value="">-- מכונה --</option>
           <option value="מכונה 4 צבעים">מכונה 4 צבעים</option>
           <option value="מכונה 8 צבעים">מכונה 8 צבעים</option>
-          <option value="פורמט גדול">פורמט גדול</option>
+          
         </select>
       </div>`;
     }).join('');
@@ -3665,28 +3707,29 @@ function buildPrintCard(c) {
     ['מס\' עמודים', c.pages||''],
     ['גודל סופי', c.size||''],
     ['סוג נייר', c.paper||''],
+    ['מכונה', c.machine||''],
     ['צבע', c.color||''],
     ['הערות', c.notes||''],
   ];
 
   const fieldRows = fields.map(([lbl,val]) => val ? `
-    <div style="display:flex;border-bottom:1px solid #eee;padding:6px 0">
-      <div style="width:130px;font-size:.78rem;font-weight:700;color:#333;flex-shrink:0">${lbl}</div>
-      <div style="font-size:.88rem;color:#111">${val}</div>
+    <div style="display:flex;border-bottom:1.5px solid #e0e0e0;padding:11px 0;align-items:baseline">
+      <div style="width:155px;font-size:.92rem;font-weight:700;color:#333;flex-shrink:0">${lbl}</div>
+      <div style="font-size:1.05rem;color:#111;font-weight:500;flex:1">${val}</div>
     </div>` : '').join('');
 
-  return `<div style="font-family:'Heebo',Arial,sans-serif;direction:rtl;max-width:720px;margin:0 auto;background:white;color:#111">
+  return `<div style="font-family:'Heebo',Arial,sans-serif;direction:rtl;width:100%;background:white;color:#111">
     <!-- כותרת כרטיס -->
-    <div style="padding:14px 28px 10px;display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111">
-      <div style="font-size:1.35rem;font-weight:900;color:#111">כרטיס עבודה</div>
-      <div style="font-size:.78rem;color:#555">נוצר: ${c.createdAt} &nbsp;|&nbsp; מס' עבודה: ${c.id}</div>
+    <div style="padding:18px 32px 14px;display:flex;justify-content:space-between;align-items:baseline;border-bottom:3px solid #111">
+      <div style="font-size:1.65rem;font-weight:900;color:#111">כרטיס עבודה</div>
+      <div style="font-size:.82rem;color:#555">נוצר: ${c.createdAt} &nbsp;|&nbsp; מס' עבודה: ${c.id}</div>
     </div>
     <!-- שדות -->
-    <div style="padding:4px 28px 16px">${fieldRows}${c.placementDetails?`<div style="display:flex;border-bottom:2px solid #111;padding:8px 0"><div style="width:130px;font-size:.78rem;font-weight:700;color:#333;flex-shrink:0">מפרט פלייסמנטים</div><div style="font-size:.95rem;font-weight:800;color:#111;white-space:pre-wrap">${c.placementDetails}</div></div>`:''}</div>
+    <div style="padding:6px 32px 20px;flex:1">${fieldRows}${c.placementDetails?`<div style="display:flex;border-bottom:2px solid #111;padding:12px 0;align-items:baseline"><div style="width:155px;font-size:.92rem;font-weight:700;color:#333;flex-shrink:0">מפרט פלייסמנטים</div><div style="font-size:1.05rem;font-weight:800;color:#111;white-space:pre-wrap;flex:1">${c.placementDetails}</div></div>`:''}</div>
     ${(c.runs&&c.runs.length)?`
     <!-- ריצות -->
-    <div style="margin:0 28px 6px;font-size:.85rem;font-weight:800;color:#111;padding:6px 0;border-top:2px solid #111">פירוט ריצות הדפסה</div>
-    <div style="padding:0 28px 16px">
+    <div style="margin:0 32px 6px;font-size:.9rem;font-weight:800;color:#111;padding:8px 0;border-top:2.5px solid #111">פירוט ריצות הדפסה</div>
+    <div style="padding:0 32px 20px">
       <table style="width:100%;border-collapse:collapse">
         <thead>
           <tr style="background:#111">
@@ -3703,7 +3746,7 @@ function buildPrintCard(c) {
       </table>
     </div>`:''}
     <!-- פוטר -->
-    <div style="border-top:1px solid #ccc;padding:8px 28px;font-size:.72rem;color:#777;text-align:center">
+    <div style="border-top:1px solid #ccc;padding:10px 32px;font-size:.78rem;color:#777;text-align:center;margin-top:auto">
       סולן הדפסות בע"מ
     </div>
   </div>`;
@@ -3720,6 +3763,7 @@ function buildPrintCardBlankRuns(c) {
     ['מס\' עמודים', c.pages||''],
     ['גודל סופי', c.size||''],
     ['סוג נייר', c.paper||''],
+    ['מכונה', c.machine||''],
     ['צבע', c.color||''],
     ['הערות', c.notes||''],
   ];
@@ -3830,6 +3874,7 @@ function doPrintBlankRuns() {
     <\/script>
     </body></html>`);
     w.document.close();
+    _recordPrintHistory(c);
   }
 
   document.getElementById('_br-keep').onclick   = function(){ doOpen(true);  };
@@ -3986,6 +4031,37 @@ function closePrintModal() {
   window._pendingDeduct = null;
   switchTab('saved');
 }
+function _recordPrintHistory(card) {
+  if (!card) return;
+  // autocomplete
+  if (card.name)    addHistory('f-name',  card.name);
+  if (card.type)    addHistory('f-type',  card.type);
+  if (card.paper)   addHistory('f-paper', card.paper);
+  if (card.size)    addHistory('f-size',  card.size);
+  if (card.notes)   addHistory('f-notes', card.notes);
+  if (card.machine) addHistory('f-machine', card.machine);
+  // print log entry
+  var entry = {
+    id:        card.id,
+    name:      card.name || '',
+    type:      card.type || '',
+    paper:     card.paper || '',
+    size:      card.size  || '',
+    machine:   card.machine || '',
+    copies:    card.copies || 0,
+    printedAt: new Date().toISOString()
+  };
+  printLog = [entry, ...printLog].slice(0, 200);
+  // mark card as printed
+  var live = cards.find(function(c){ return String(c.id) === String(card.id); });
+  if (live) {
+    live.printedAt = entry.printedAt;
+    live.printCount = (live.printCount || 0) + 1;
+  }
+  persist();
+  renderCards();
+}
+
 function doPrint() {
   const content=document.getElementById('print-card-content').innerHTML;
   const w=window.open('','_blank','width=860,height=1100');
@@ -4034,6 +4110,7 @@ function doPrint() {
   <\/script>
 </body></html>`);
   w.document.close();
+  _recordPrintHistory(window._previewCard);
 }
 
 // ========== INVENTORY DEDUCTIONS ==========
@@ -4829,10 +4906,15 @@ function _calcMachineTime(machine, sheets) {
     // מדפיסה שני צדדים → 8500/שעה
     return sheets / 8500;
   }
-  if (/פורמט גדול/.test(machine)) {
-    return sheets / 5000; // הערכה
-  }
   return null;
+}
+function _fmtEndTime(cumulativeHours) {
+  // Returns estimated clock finish time: now + cumulativeHours
+  var now = new Date();
+  var end = new Date(now.getTime() + cumulativeHours * 3600000);
+  var hh = end.getHours(), mm = end.getMinutes();
+  var pad = function(n){ return n < 10 ? '0'+n : String(n); };
+  return pad(hh) + ':' + pad(mm);
 }
 function _fmtHours(h) {
   if (h == null) return '—';
@@ -4840,9 +4922,73 @@ function _fmtHours(h) {
   const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
   return hh + "ש'" + (mm ? ' ' + mm + "ד'" : '');
 }
+function editJobTime(cardId, machine) {
+  var c = cards.find(function(x){ return String(x.id) === String(cardId); });
+  if (!c) return;
+  var cur = (c.customMachineTime && c.customMachineTime[machine]) ? c.customMachineTime[machine] : '';
+  var hrsLabel = cur ? _fmtHours(parseFloat(cur)) : '(אוטומטי)';
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10020;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:white;border-radius:12px;padding:24px 28px;max-width:360px;width:100%;direction:rtl;font-family:Heebo,sans-serif';
+  box.innerHTML =
+    '<div style="font-weight:900;font-size:1rem;margin-bottom:4px">&#9201; זמן מכונה מותאם</div>' +
+    '<div style="font-size:.82rem;color:#555;margin-bottom:16px">' + escHtml(c.name||'') + ' &#8212; ' + escHtml(machine) + '</div>' +
+    '<div style="margin-bottom:12px">' +
+    '<label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:6px">זמן בשעות (למשל: 1.5 = שעה וחצי)</label>' +
+    '<input id="_jt-hrs" type="number" step="0.25" min="0" value="' + escHtml(String(cur||'')) + '" placeholder="' + escHtml(hrsLabel) + '"' +
+    ' style="width:100%;padding:9px 12px;border:1.5px solid #c0ccf0;border-radius:8px;font-family:Heebo,sans-serif;font-size:1rem;box-sizing:border-box">' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+    '<button id="_jt-cancel" style="padding:8px 16px;border:1.5px solid #ccc;border-radius:7px;background:white;font-family:Heebo,sans-serif;cursor:pointer">ביטול</button>' +
+    '<button id="_jt-save"   style="padding:8px 18px;background:#2d3561;color:white;border:none;border-radius:7px;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">שמור</button>' +
+    '<button id="_jt-reset"  style="padding:8px 14px;background:none;border:1.5px solid #fca5a5;color:#dc2626;border-radius:7px;font-family:Heebo,sans-serif;font-size:.82rem;cursor:pointer">&#128465; אפס</button>' +
+    '</div>';
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  function closeModal(){ if(modal.parentNode) modal.parentNode.removeChild(modal); }
+  modal.addEventListener('click', function(e){ if(e.target===modal) closeModal(); });
+  document.getElementById('_jt-cancel').addEventListener('click', closeModal);
+  document.getElementById('_jt-save').addEventListener('click', function(){
+    setCustomJobTime(cardId, machine, document.getElementById('_jt-hrs').value);
+    closeModal();
+  });
+  document.getElementById('_jt-reset').addEventListener('click', function(){
+    setCustomJobTime(cardId, machine, '');
+    closeModal();
+  });
+  setTimeout(function(){ var el=document.getElementById('_jt-hrs'); if(el){el.focus();el.select();} }, 50);
+}
+
+function setCustomJobTime(cardId, machine, hoursStr) {
+  var c = cards.find(function(x){ return String(x.id) === String(cardId); });
+  if (!c) return;
+  if (!c.customMachineTime) c.customMachineTime = {};
+  var hrs = parseFloat(hoursStr);
+  if (!hoursStr || isNaN(hrs) || hrs <= 0) {
+    delete c.customMachineTime[machine];
+  } else {
+    c.customMachineTime[machine] = hrs;
+  }
+  persist();
+  renderMachineQueue();
+  showToast('⏱️ זמן מכונה עודכן');
+}
+
+function markJobPrinted(cardId) {
+  var c = cards.find(function(x){ return String(x.id) === String(cardId); });
+  if (!c) return;
+  c.status = 'done';
+  c.printedAt = new Date().toISOString();
+  persist();
+  renderMachineQueue();
+  renderCards();
+  showToast('✅ עבודה הועברה לסטטוס הודפס');
+}
+
 function renderMachineQueue() {
   const el = document.getElementById('queue-content');
-  const MACHINES = ['מכונה 4 צבעים','מכונה 8 צבעים','פורמט גדול'];
+  const MACHINES = ['מכונה 4 צבעים','מכונה 8 צבעים'];
   const active = (cards||[]).filter(c => c.status !== 'done');
 
   let html = '<div style="padding:12px 4px">';
@@ -4869,15 +5015,18 @@ function renderMachineQueue() {
       });
       if (!sheets && c.sheets) sheets = parseInt(c.sheets)||0;
 
-      const hrs = _calcMachineTime(machine, sheets);
+      // custom override time (per machine)
+      var customT = (c.customMachineTime && c.customMachineTime[machine]) ? parseFloat(c.customMachineTime[machine]) : null;
+      const hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
+      const isCustom = (customT != null);
       if (hrs != null) totalHours += hrs;
       else if (mCards.length) hasUnknown = true;
 
-      return { c, sheets, hrs };
+      return { c, sheets, hrs, isCustom };
     });
 
-    const colorMap = {'מכונה 4 צבעים':'#dbeafe','מכונה 8 צבעים':'#d1fae5','פורמט גדול':'#fef3c7'};
-    const iconMap  = {'מכונה 4 צבעים':'🔵','מכונה 8 צבעים':'🟢','פורמט גדול':'🟡'};
+    const colorMap = {'מכונה 4 צבעים':'#dbeafe','מכונה 8 צבעים':'#d1fae5'};
+    const iconMap  = {'מכונה 4 צבעים':'🔵','מכונה 8 צבעים':'🟢'};
 
     html += `<div style="margin-bottom:20px;border-radius:12px;overflow:hidden;border:1.5px solid #e5e7eb">
       <div style="background:${colorMap[machine]};padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
@@ -4891,15 +5040,33 @@ function renderMachineQueue() {
       html += '<div style="padding:14px 16px;color:#9ca3af;font-size:.88rem">אין עבודות פתוחות</div>';
     } else {
       html += '<table style="width:100%;border-collapse:collapse">';
-      html += '<tr style="background:#f9fafb;font-size:.78rem;color:#6b7280"><th style="padding:8px 12px;text-align:right;font-weight:700">עבודה</th><th style="padding:8px;text-align:center">לקוח</th><th style="padding:8px;text-align:center">גיליונות</th><th style="padding:8px;text-align:center">זמן משוער</th><th style="padding:8px;text-align:center">סטטוס</th></tr>';
-      rows.forEach(({c, sheets, hrs}, idx) => {
+      html += '<table style="width:100%;border-collapse:collapse">';
+      html += '<tr style="background:#f9fafb;font-size:.78rem;color:#6b7280"><th style="padding:8px 12px;text-align:right;font-weight:700">עבודה</th><th style="padding:8px;text-align:center">לקוח</th><th style="padding:8px;text-align:center">גיליונות</th><th style="padding:8px;text-align:center">זמן משוער</th><th style="padding:8px;text-align:center;color:#1d4ed8">סיום משוער</th><th style="padding:8px;text-align:center">סטטוס</th><th style="padding:8px;text-align:center">פעולה</th></tr>';
+      let cumHours = 0;
+      rows.forEach(({c, sheets, hrs, isCustom}, idx) => {
+        if (hrs != null) cumHours += hrs;
+        const finishTime = (hrs != null) ? _fmtEndTime(cumHours) : '—';
         const statusMap = {pending:'⏳ ממתין',inprogress:'🔄 בדפוס',done:'✅ הושלם'};
         html += `<tr style="border-top:1px solid #f3f4f6;font-size:.85rem;${idx%2?'background:#fafafa':''}">
           <td style="padding:9px 12px;font-weight:700">${c.name||c.customer||'ללא שם'}${c.docNum?' <span style="color:#9ca3af;font-size:.75rem">#'+c.docNum+'</span>':''}</td>
           <td style="padding:9px 8px;text-align:center;color:#374151">${c.customer||'—'}</td>
           <td style="padding:9px 8px;text-align:center">${sheets||'—'}</td>
-          <td style="padding:9px 8px;text-align:center;font-weight:700;color:${hrs&&hrs>4?'#b91c1c':hrs&&hrs>2?'#d97706':'#166534'}">${_fmtHours(hrs)}</td>
+          <td style="padding:9px 8px;text-align:center;font-weight:700;color:${hrs&&hrs>4?'#b91c1c':hrs&&hrs>2?'#d97706':'#166534'}">
+            ${_fmtHours(hrs)}${isCustom?' <span title="זמן מותאם אישית" style="font-size:.7rem;color:#7c3aed">✎</span>':''}
+            <button onclick="editJobTime('${c.id}','${machine.replace(/'/g,"\'")}')"
+              title="ערוך זמן מכונה"
+              style="background:none;border:none;cursor:pointer;font-size:.78rem;color:#9ca3af;padding:0 2px;vertical-align:middle">⏱️</button>
+          </td>
+          <td style="padding:9px 8px;text-align:center;font-weight:900;color:#1d4ed8;font-size:.95rem;letter-spacing:.5px">
+            ${hrs != null ? '~' + finishTime : '—'}
+          </td>
           <td style="padding:9px 8px;text-align:center;font-size:.78rem">${statusMap[c.status]||'—'}</td>
+          <td style="padding:6px 8px;text-align:center">
+            <button onclick="markJobPrinted('${c.id}')"
+              style="background:#16a34a;color:white;border:none;border-radius:7px;padding:5px 12px;font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;white-space:nowrap">
+              ✅ הודפס
+            </button>
+          </td>
         </tr>`;
       });
       html += '</table>';
@@ -5021,6 +5188,7 @@ function renderCards() {
         <div style="display:flex;align-items:center;gap:8px">
           ${c.type?'<span class="jc-type">'+c.type+'</span>':''}
           ${statusLabel(c.status)}
+          ${c.printedAt?'<span style="font-size:.72rem;background:#dcfce7;color:#15803d;border-radius:5px;padding:2px 7px;font-weight:700">🖨️ '+(c.printCount>1?c.printCount+'x ':'')+new Date(c.printedAt).toLocaleDateString("he-IL")+'</span>':''}
         </div>
       </div>
       <div class="jc-meta">
@@ -5047,6 +5215,60 @@ function renderCards() {
         <button class="btn btn-sm btn-danger" onclick="deleteCard(${c.id})">מחק</button>
       </div>
     </div>`).join('');
+  // כפתור היסטוריית הדפסות אם יש רשומות
+  if (printLog.length) {
+    el.insertAdjacentHTML('afterend',
+      '<div style="text-align:center;padding:12px 0">' +
+      '<button onclick="showPrintHistory()" style="background:none;border:1.5px solid #ccc;border-radius:8px;padding:6px 18px;font-family:Heebo,sans-serif;font-size:.82rem;color:#555;cursor:pointer">📋 היסטוריית הדפסות (' + printLog.length + ')</button></div>');
+  }
+}
+
+function _clearPrintLog(btn) {
+  if (!confirm('למחוק את כל היסטוריית ההדפסות?')) return;
+  printLog = [];
+  persist();
+  renderCards();
+  var modal = btn && btn.closest ? btn.closest('[data-ph-modal]') : null;
+  if (modal) modal.remove();
+  else { var m = document.querySelector('[data-ph-modal]'); if(m) m.remove(); }
+}
+function showPrintHistory() {
+  var rows = printLog.map(function(e, i) {
+    var d = new Date(e.printedAt);
+    var dateStr = d.toLocaleDateString('he-IL') + ' ' + d.toLocaleTimeString('he-IL', {hour:'2-digit',minute:'2-digit'});
+    return '<tr style="border-top:1px solid #f3f4f6;font-size:.84rem' + (i%2?' background:#fafafa':'') + '">' +
+      '<td style="padding:8px 12px;font-weight:700">' + (e.name||'—') + '</td>' +
+      '<td style="padding:8px 8px;text-align:center;color:#555">' + (e.type||'—') + '</td>' +
+      '<td style="padding:8px 8px;text-align:center;font-size:.78rem">' + (e.paper||'—') + '</td>' +
+      '<td style="padding:8px 8px;text-align:center">' + (e.machine||'—') + '</td>' +
+      '<td style="padding:8px 8px;text-align:center;color:#166534;font-weight:700">' + dateStr + '</td>' +
+      '</tr>';
+  }).join('');
+
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10010;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto';
+  modal.setAttribute('data-ph-modal','1');
+  modal.innerHTML =
+    '<div style="background:white;border-radius:14px;max-width:760px;width:100%;font-family:Heebo,sans-serif;direction:rtl;overflow:hidden">' +
+    '<div style="padding:16px 20px;background:#1a1a4e;color:white;display:flex;justify-content:space-between;align-items:center">' +
+    '<div style="font-weight:900;font-size:1rem">📋 היסטוריית הדפסות (' + printLog.length + ')</div>' +
+    '<button onclick="this.parentElement.parentElement.remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;line-height:1">✕</button>' +
+    '</div>' +
+    '<div style="overflow-x:auto">' +
+    '<table style="width:100%;border-collapse:collapse">' +
+    '<tr style="background:#f9fafb;font-size:.76rem;color:#6b7280">' +
+    '<th style="padding:9px 12px;text-align:right;font-weight:700">שם עבודה</th>' +
+    '<th style="padding:9px 8px;text-align:center">סוג</th>' +
+    '<th style="padding:9px 8px;text-align:center">נייר</th>' +
+    '<th style="padding:9px 8px;text-align:center">מכונה</th>' +
+    '<th style="padding:9px 8px;text-align:center">תאריך הדפסה</th>' +
+    '</tr>' + rows + '</table></div>' +
+    '<div style="padding:12px;text-align:center;border-top:1px solid #eee">' +
+    '<button onclick="_clearPrintLog(this)" ' +
+    'style="background:none;border:1.5px solid #fca5a5;color:#dc2626;border-radius:7px;padding:5px 16px;font-family:Heebo,sans-serif;font-size:.8rem;cursor:pointer">🗑️ נקה היסטוריה</button>' +
+    '</div></div>';
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
 }
 
 // ========== INVENTORY ==========
@@ -5748,6 +5970,28 @@ function validateCard(card) {
                ' בגיליון, הוזן: ' + plN + ' בגיליון' });
         break;
       }
+    }
+  }
+
+  // ── בדיקת התאמת כמות בהערות לגיליונות × בגיליון ──────────────
+  if (card.notes && card.notes.trim() && card.size && copies > 0) {
+    var ppMatch = (card.size||'').match(/(\d+)\s*בגיליון/);
+    if (ppMatch) {
+      var perSheet = parseInt(ppMatch[1]);
+      var expectedTotal = copies * perSheet;
+      // חלץ מספרים גדולים מהערות (מעל 1000)
+      var noteNums = (card.notes.match(/[\d,\.]+/g)||[])
+        .map(function(n){ return parseInt(n.replace(/[,\.]/g,'')); })
+        .filter(function(n){ return n > 1000; });
+      noteNums.forEach(function(noteNum) {
+        var ratio = Math.abs(noteNum - expectedTotal) / expectedTotal;
+        if (ratio > 0.05) { // חריגה של יותר מ-5%
+          warns.push({ code: 'notes_qty_mismatch', sev: 'warn',
+            msg: '⚠️ כמות בהערות (' + noteNum.toLocaleString() + ') לא תואמת: ' +
+                 copies.toLocaleString() + ' גיליונות × ' + perSheet + ' = ' +
+                 expectedTotal.toLocaleString() + ' דפים' });
+        }
+      });
     }
   }
 
@@ -7273,57 +7517,4 @@ setTimeout(autoBackup, 2000);
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div>
-          <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">כמות</label>
-          <input id="ord-qty" type="number" min="1" placeholder="1" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
-        </div>
-        <div>
-          <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">תאריך אספקה</label>
-          <input id="ord-date" type="date" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div>
-          <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">אזור משלוח</label>
-          <select id="ord-area" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
-            <option value="">— ללא אזור —</option>
-            <option value="מרכז">מרכז</option>
-            <option value="צפון">צפון</option>
-            <option value="דרום">דרום</option>
-            <option value="ירושלים">ירושלים</option>
-            <option value="שפלה">שפלה</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">כתובת למשלוח</label>
-          <input id="ord-address" placeholder="רחוב, עיר" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
-        </div>
-      </div>
-      <div>
-        <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">הערות מיוחדות</label>
-        <textarea id="ord-notes" rows="2" placeholder="הוראות נוספות..." style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;resize:vertical;box-sizing:border-box"></textarea>
-      </div>
-      <div id="ord-file-preview" style="display:none;background:#f9fafb;border-radius:8px;padding:8px 10px;font-size:.85rem;color:#374151"></div>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-      <button onclick="closeOrderModal()" style="padding:8px 18px;border:1px solid #d1d5db;border-radius:8px;background:white;cursor:pointer">ביטול</button>
-      <button onclick="saveOrder()" style="padding:8px 18px;border:none;border-radius:8px;background:#1a1a4e;color:white;cursor:pointer;font-weight:600">💾 שמור הזמנה</button>
-    </div>
-  </div>
-</div>
-
-<!-- מודל ניהול אתרי עידית -->
-<div id="idit-manager-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9100;align-items:flex-start;justify-content:center;padding-top:30px">
-  <div style="background:white;border-radius:14px;width:min(700px,96vw);direction:rtl;max-height:85vh;display:flex;flex-direction:column">
-    <div style="background:#1a1a4e;color:white;padding:14px 18px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
-      <strong style="font-size:1.05rem">🏭 ניהול אתרי עידית</strong>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button onclick="openAddSiteForm()" style="background:#047857;color:white;border:none;border-radius:8px;padding:5px 14px;cursor:pointer;font-size:.88rem">+ אתר חדש</button>
-        <button onclick="closeIditManager()" style="background:none;border:none;color:white;font-size:1.4rem;cursor:pointer;line-height:1">✕</button>
-      </div>
-    </div>
-    <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb;flex-shrink:0">
-      <input id="idit-search" placeholder="חפש אתר לפי שם או מספר..." oninput="renderIditList()" autocomplete="off"
-             style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:.93rem;box-sizing:border-box">
-    </div>
-    <div style="display:flex;flex:1;overflow:hidden;min-height:400px">
-      <div id="idit-list-pane" style="width:220px;min-width:160px;borde
+          <label style="font-size:.85rem;font-weight:600;display:block;margin-bott
