@@ -73,6 +73,7 @@ header h1 span{color:var(--gold);}
 
 /* ===== WEEKLY VIEW ===== */
 .week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;}
+.week-day-nav{display:none;} /* נראה רק במובייל */
 @media(max-width:700px){.week-grid{grid-template-columns:1fr;}}
 .day-col{background:white;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.08);overflow:hidden;}
 .day-header{background:var(--press);color:white;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;}
@@ -409,10 +410,24 @@ textarea.fi{resize:none;min-height:52px;}
   .jc-actions .btn-sm{flex:1 1 calc(50% - 6px);text-align:center;padding:10px 4px;font-size:.8rem;min-height:42px;}
 
   /* ── יומן שבועי — גלילה אופקית ── */
-  .week-grid{grid-template-columns:repeat(7,80vw);display:grid;
+  .week-grid{grid-template-columns:repeat(7,88vw);display:grid;
     gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;
-    -webkit-overflow-scrolling:touch;padding-bottom:6px;}
+    -webkit-overflow-scrolling:touch;padding-bottom:6px;scroll-behavior:smooth;}
   .week-grid > *{scroll-snap-align:start;}
+
+  /* ── בר בחירת יום ── */
+  .week-day-nav{display:flex;gap:5px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none;}
+  .week-day-nav::-webkit-scrollbar{display:none;}
+  .wdn-btn{flex:1;min-width:40px;border:1.5px solid #e0e4f0;border-radius:10px;padding:7px 4px 5px;
+    font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:3px;
+    background:#f5f7fb;color:#555;transition:background .15s,color .15s,border-color .15s;}
+  .wdn-btn.active{background:var(--press);color:white;border-color:var(--press);}
+  .wdn-btn.today-day{border-color:var(--gold);}
+  .wdn-btn.today-day:not(.active){background:#fffbeb;color:var(--press);}
+  .wdn-count-badge{font-size:.65rem;font-weight:800;background:var(--gold);color:#1a1a2e;
+    border-radius:10px;padding:1px 5px;min-width:16px;text-align:center;line-height:1.4;}
+  .wdn-btn.active .wdn-count-badge{background:rgba(255,255,255,.3);color:white;}
 
   /* ── מודאלים — עולים מלמטה ── */
   .modal-overlay{padding:0;align-items:flex-end;}
@@ -420,8 +435,10 @@ textarea.fi{resize:none;min-height:52px;}
   .modal-box{max-height:calc(92vh - 56px - env(safe-area-inset-bottom,0px));border-radius:18px 18px 0 0;max-width:100vw !important;}
   .modal-header{border-radius:18px 18px 0 0;}
   .modal-body{overflow-y:auto;-webkit-overflow-scrolling:touch;}
-  .modal-footer{flex-direction:column;}
+  .modal-footer{flex-direction:column;position:sticky;bottom:0;background:white;z-index:10;border-top:1px solid #e5e7eb;}
   .modal-footer .btn{width:100%;padding:13px;font-size:.95rem;}
+  .modal-footer > div{width:100%;display:flex;flex-direction:column;gap:8px;}
+  .modal-footer > div .btn{width:100%;}
   .mg{grid-template-columns:1fr !important;}
   .mg-field.full{grid-column:1 !important;}
   .mg-field input,.mg-field select,.mg-field textarea{font-size:16px;padding:11px 10px;}
@@ -818,6 +835,7 @@ window._fbInit = () => true;
     <button class="btn btn-sm btn-clear" onclick="clearWeekDoneMarks()"
       style="font-size:.82rem;border:1.5px solid #ccc">🔄 נקה סימוני שבוע</button>
   </div>
+  <div class="week-day-nav" id="week-day-nav"></div>
   <div class="week-grid" id="week-grid"></div>
 </div>
 
@@ -2110,6 +2128,7 @@ function switchTab(tab) {
     const v = document.getElementById('view-'+t); if (v) v.style.display = t===tab ? '' : 'none';
     const tb = document.getElementById('tab-'+t); if (tb) tb.classList.toggle('active', t===tab);
   });
+  if (tab!=='saved') _cardFilterQ='';
   if (tab==='week')      renderWeek();
   if (tab==='saved')     renderCards();
   if (tab==='papers')    { renderPaperMgmt(); renderFlyerMgmt(); }
@@ -3043,6 +3062,26 @@ function clearWeekDoneMarks() {
 
 function renderWeek() {
   const grid = document.getElementById('week-grid');
+  const todayIdx = new Date().getDay(); // 0=ראשון ... 6=שבת
+
+  // ── בר ימים (מובייל בלבד — CSS מסתיר בדסקטופ) ──
+  const DAY_SHORT = ['א','ב','ג','ד','ה','ו','ש'];
+  const dayCounts = DAYS.map(day =>
+    newspapers.filter(n => n.day===day && !hiddenThisWeek.includes(n.id)).length +
+    flyers.filter(f => f.day===day).length
+  );
+  const navEl = document.getElementById('week-day-nav');
+  if (navEl) {
+    navEl.innerHTML = DAYS.map((day, i) => `
+      <button class="wdn-btn${i===todayIdx?' today-day':''}" id="wdn-${i}" onclick="scrollToWeekDay(${i})">
+        <span>${DAY_SHORT[i]}</span>
+        ${dayCounts[i] ? `<span class="wdn-count-badge">${dayCounts[i]}</span>` : '<span style="font-size:.6rem;color:#ccc;line-height:1">—</span>'}
+      </button>`).join('');
+    // מסמן יום היום כפעיל בברירת מחדל
+    const initBtn = document.getElementById('wdn-'+todayIdx);
+    if (initBtn) initBtn.classList.add('active');
+  }
+
   grid.innerHTML = DAYS.map(day => {
     const dayPapers  = newspapers.filter(n => n.day===day && !hiddenThisWeek.includes(n.id));
     const dayFlyers  = flyers.filter(f => f.day===day);
@@ -3117,6 +3156,49 @@ function renderWeek() {
       </div>
     </div>`;
   }).join('');
+
+  // גלול ליום היום אוטומטית (במובייל)
+  setTimeout(() => scrollToWeekDay(todayIdx, false), 80);
+  // עקוב אחרי היום הנצפה בגלילה
+  _setupWeekNavObserver();
+}
+
+function scrollToWeekDay(idx, smooth) {
+  var g = document.getElementById('week-grid');
+  if (!g) return;
+  var cols = g.querySelectorAll('.day-col');
+  if (!cols[idx]) return;
+  cols[idx].scrollIntoView({behavior: smooth===false ? 'auto' : 'smooth', block:'nearest', inline:'start'});
+  // עדכן בר ימים
+  document.querySelectorAll('.wdn-btn').forEach(function(b, i) {
+    b.classList.toggle('active', i === idx);
+  });
+}
+
+var _weekNavObserver = null;
+function _setupWeekNavObserver() {
+  if (_weekNavObserver) { _weekNavObserver.disconnect(); _weekNavObserver = null; }
+  var g = document.getElementById('week-grid');
+  if (!g || !window.IntersectionObserver) return;
+  _weekNavObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+        var cols = Array.from(g.querySelectorAll('.day-col'));
+        var idx = cols.indexOf(entry.target);
+        if (idx >= 0) {
+          document.querySelectorAll('.wdn-btn').forEach(function(b, i) {
+            b.classList.toggle('active', i === idx);
+          });
+          // גלול את בר הימים כך שהכפתור הנבחר יהיה נראה
+          var activeBtn = document.getElementById('wdn-'+idx);
+          if (activeBtn) activeBtn.scrollIntoView({block:'nearest', inline:'center'});
+        }
+      }
+    });
+  }, { root: g, threshold: 0.5 });
+  g.querySelectorAll('.day-col').forEach(function(col) {
+    _weekNavObserver.observe(col);
+  });
 }
 
 // חלון בחירת עמודים
@@ -4586,7 +4668,7 @@ function buildOrderDeductView(orderNum) {
       "<td style='padding:8px 10px;font-weight:700;font-size:.88rem'>" + escHtml(m.name) + "</td>" +
       "<td style='padding:8px 10px;font-size:.82rem;color:#555;text-align:center'>" + (m.inv.inv||"—") + "</td>" +
       "<td style='padding:8px 10px;text-align:center;font-size:.85rem'>" + parseInt(m.inv.qty||0).toLocaleString() + "</td>" +
-      "<td style='padding:8px 6px'><input type='number' id='order-qty-" + i + "' data-item='" + m.itemIdx + "' data-inv='" + m.invIdx + "' data-name='" + escHtml(m.name) + "' min='0' max='" + parseInt(m.inv.qty||0) + "' value='" + parseInt(m.inv.qty||0) + "' style='width:90px;padding:5px 8px;border:1.5px solid var(--line);border-radius:6px;font-family:Heebo,sans-serif;font-size:.9rem;font-weight:700;text-align:center'></td>" +
+      "<td style='padding:8px 6px'><input type='number' id='order-qty-" + i + "' data-item='" + m.itemIdx + "' data-inv='" + m.invIdx + "' data-name='" + escHtml(m.name) + "' min='0' max='" + parseInt(m.inv.qty||0) + "' value='0' placeholder='0' style='width:90px;padding:5px 8px;border:1.5px solid var(--line);border-radius:6px;font-family:Heebo,sans-serif;font-size:.9rem;font-weight:700;text-align:center'></td>" +
       "</tr>";
   }).join("");
   wrap.innerHTML =
@@ -4606,6 +4688,12 @@ function confirmOrderDeduct() {
   var note = ((document.getElementById("deduct-note")||{}).value||"").trim();
   var inputs = document.querySelectorAll("[id^='order-qty-']");
   if (!inputs.length) { showToast("⚠️ בחר מספר הזמנה תחילה"); return; }
+  // וידוא שלא נבחרו יותר מסוג נייר אחד
+  var activeInputs = Array.from(inputs).filter(function(inp){ return (parseInt(inp.value)||0) > 0; });
+  if (activeInputs.length > 1) {
+    showToast("⚠️ נבחרו " + activeInputs.length + " סוגי נייר — ניתן להוריד סוג אחד בלבד בפעם אחת");
+    return;
+  }
   var count = 0;
   inputs.forEach(function(inp) {
     var qty = parseInt(inp.value) || 0;
@@ -5142,7 +5230,7 @@ function renderGlobalSearch(q) {
     if (hay.includes(lq)) hits.push({
       type:'כרטיס', icon:'📋', label: (c.name||c.customer||'ללא שם') + (c.docNum?' #'+c.docNum:''),
       sub: [c.size,c.paper,c.machine].filter(Boolean).join(' · '),
-      action: `switchTab('saved')`, raw: c.name||''
+      action: `openCustomerCards(${JSON.stringify(q)})`, raw: c.name||''
     });
   });
   // הזמנות
@@ -6161,12 +6249,42 @@ function editCardCopies(id) {
   showToast('✅ כמות עודכנה ל-'+c.copies.toLocaleString());
 }
 
+let _cardFilterQ = '';
+
+function openCustomerCards(q) {
+  _cardFilterQ = q || '';
+  switchTab('saved');
+}
+
+function clearCardFilter() {
+  _cardFilterQ = '';
+  renderCards();
+}
+
+function doPrintCard(id) {
+  var c = cards.find(function(x){ return x.id===id; });
+  if (c) showPrintModal(c);
+  window._previewCard = c;
+  document.getElementById('print-modal-save-btn').style.display = 'none';
+}
+
 function renderCards() {
   const el=document.getElementById('cards-container');
   let displayCards=cards;
   if(currentUser&&!currentUser.isAdmin){var wcp=(currentUser.permissions||{}).workCards;if(wcp==='none'){el.innerHTML='<div class="empty-state"><div class="icon">🔒</div><p>אין הרשאה לצפות בכרטיסי עבודה</p></div>';return;}if(wcp==='own')displayCards=cards.filter(function(x){return !x.createdBy||x.createdBy===currentUser.id;});}
+  // פילטר חיפוש
+  var filterBanner = '';
+  if (_cardFilterQ) {
+    var lf = _cardFilterQ.toLowerCase();
+    displayCards = displayCards.filter(function(c){
+      return [c.name,c.customer,c.size,c.paper,c.type,c.machine].join(' ').toLowerCase().includes(lf);
+    });
+    filterBanner = '<div style="display:flex;align-items:center;gap:10px;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:8px 14px;margin-bottom:12px;font-family:Heebo,sans-serif">' +
+      '<span style="font-size:.9rem;font-weight:700;color:#1d4ed8;flex:1">🔍 מציג כרטיסים עבור: <strong>' + _cardFilterQ + '</strong> (' + displayCards.length + ')</span>' +
+      '<button onclick="clearCardFilter()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:1rem;font-weight:700;padding:0 4px">✕ הצג הכל</button></div>';
+  }
   if(!displayCards.length){el.innerHTML='<div style="text-align:center;padding:60px 20px;color:#9ca3af"><div style="font-size:3rem;margin-bottom:16px">📋</div><div style="font-size:1.1rem;font-weight:700;color:#374151;margin-bottom:8px">אין כרטיסי עבודה עדיין</div><div style="font-size:.88rem;margin-bottom:20px">לחץ על <strong>➕ כרטיס חדש</strong> כדי ליצור את הכרטיס הראשון</div><button class="btn btn-primary" onclick="switchTab(\'new\')">➕ צור כרטיס חדש</button></div>';return;}
-  el.innerHTML=displayCards.map(c=>`
+  el.innerHTML=filterBanner+displayCards.map(c=>`
     <div class="job-card">
       <div class="jc-header">
         <div class="jc-title">${c.name}</div>
@@ -6196,7 +6314,8 @@ function renderCards() {
           <option value="done"       ${c.status==='done'?'selected':''}>הושלם</option>
         </select>
         <button class="btn btn-sm" style="background:#f0f4ff;color:#2d3561;border:1.5px solid #c0ccf0" onclick="editCard(${c.id})">✏️ ערוך</button>
-        <button class="btn btn-sm btn-gold" onclick="showPrintModal(cards.find(c=>c.id===${c.id}))">🖨️ הדפס</button>
+        <button class="btn btn-sm" style="background:#f0fdf4;color:#0f6347;border:1.5px solid #6ee7b7" onclick="showPrintModal(cards.find(c=>c.id===${c.id}))">👁️ צפה</button>
+        <button class="btn btn-sm btn-gold" onclick="doPrintCard(${c.id})">🖨️ הדפס</button>
         <button class="btn btn-sm" style="background:#0d6efd;color:white;border-color:#0d6efd" onclick="emailCardDirectToPP(${c.id})">📧 קדם דפוס</button>
         <button class="btn btn-sm" style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0" onclick="duplicateCard(${c.id})">📋 שכפל</button>
         <button class="btn btn-sm btn-danger" onclick="deleteCard(${c.id})">מחק</button>
