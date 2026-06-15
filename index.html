@@ -776,6 +776,8 @@ window._fbInit = () => true;
   <div class="tab"        onclick="switchTab('quotes')"    id="tab-quotes">💰 הצעות מחיר</div>
   <div class="tab"        onclick="switchTab('orders')"   id="tab-orders">🛒 הזמנות</div>
   <div class="tab"        onclick="switchTab('queue')"    id="tab-queue">🏭 תור מכונות</div>
+  <div class="tab"        onclick="switchTab('templates')" id="tab-templates">🗂️ תבניות</div>
+  <div class="tab"        onclick="switchTab('worklist')"  id="tab-worklist">📋 רשימת עבודות</div>
 </div>
 
 <div class="main">
@@ -783,6 +785,16 @@ window._fbInit = () => true;
 <!-- ===== MACHINE QUEUE VIEW ===== -->
 <div id="view-queue" style="display:none">
   <div id="queue-content"></div>
+</div>
+
+<!-- ===== TEMPLATES VIEW ===== -->
+<div id="view-templates" style="display:none">
+  <div id="templates-content"></div>
+</div>
+
+<!-- ===== WORK LIST VIEW ===== -->
+<div id="view-worklist" style="display:none">
+  <div id="worklist-content"></div>
 </div>
 
 <!-- ===== WEEKLY VIEW ===== -->
@@ -801,8 +813,12 @@ window._fbInit = () => true;
   <div class="card-form">
     <div class="card-form-header">
       <h2 id="form-title">יצירת כרטיס עבודה חדש</h2>
-      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span>מלא פרטים או בחר מהיומן השבועי</span>
+        <button class="btn btn-tpl" onclick="openApplyTemplateModal()"
+          style="font-size:.82rem;background:#f0f4ff;color:#2d3561;border:1.5px solid #c0ccf0;border-radius:8px;padding:5px 14px;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">
+          🗂️ בחר מתבנית
+        </button>
         <button class="btn btn-clear" onclick="clearForm()" style="margin-right:auto">נקה</button>
       </div>
     </div>
@@ -874,6 +890,13 @@ window._fbInit = () => true;
               <button type="button" class="size-btn" id="pp-btn-80" onclick="setPrinterGram('נ/ע 80 גרם 64*90')" style="font-size:.85rem">נ/ע 80 גרם</button>
               <button type="button" class="size-btn" id="pp-btn-90" onclick="setPrinterGram('נ/ע 90 גרם 64*90')" style="font-size:.85rem">נ/ע 90 גרם</button>
               <button type="button" onclick="clearPrinterPaper()" style="font-size:.78rem;padding:4px 10px;border:1.5px solid #c0ccf0;border-radius:6px;background:white;color:#666;cursor:pointer;font-family:Heebo,sans-serif">✕ נייר אחר</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:.76rem;font-weight:700;color:#2d3561;white-space:nowrap">דפים לקרטון?</span>
+              <input id="pp-carton" type="number" min="1" placeholder="500"
+                style="width:74px;padding:4px 8px;border:1.5px solid #c0ccf0;border-radius:6px;font-family:Heebo,sans-serif;font-size:.85rem"
+                oninput="_applyPrinterPaper()">
+              <span style="font-size:.73rem;color:#6b7280" id="pp-carton-result"></span>
             </div>
           </div>
           <div style="display:none">
@@ -1947,6 +1970,7 @@ let documentPrices = JSON.parse(localStorage.getItem('solanDocumentPrices') || '
 let inventoryPress = JSON.parse(localStorage.getItem('solanInventoryPress') || '[]');
 let invoiceLogs    = JSON.parse(localStorage.getItem('solanInvoiceLogs')    || '[]');
 let quotes         = JSON.parse(localStorage.getItem('solanQuotes')         || '[]');
+setTimeout(function(){ _loadTemplates(); }, 0);  // init templates
 let customers      = JSON.parse(localStorage.getItem('solanCustomers')      || '[]');
 let orders         = JSON.parse(localStorage.getItem('solanOrders')         || '[]');
 let inventoryDeductions = JSON.parse(localStorage.getItem('solanInventoryDeductions') || '[]');
@@ -2054,7 +2078,7 @@ function updateBadge() {
 // ========== TABS ==========
 function switchTab(tab) {
   if(currentUser&&!currentUser.isAdmin){var p=currentUser.permissions||{};if(tab==='inventory'&&p.inventory==='none'){showToast('🔒 אין הרשאה למלאי');return;}if(tab==='quotes'&&p.quotes==='none'){showToast('🔒 אין הרשאה להצעות מחיר');return;}if(tab==='papers'&&p.papers==='none'){showToast('🔒 אין הרשאה לניהול עיתונים');return;}if(tab==='new'&&p.createCard===false){showToast('🔒 אין הרשאה ליצירת כרטיס חדש');return;}if(tab==='week'&&p.weekView===false){showToast('🔒 אין הרשאה ליומן שבועי');return;}}
-  ['week','new','saved','papers','inventory','quotes','orders','queue'].forEach(t => {
+  ['week','new','saved','papers','inventory','quotes','orders','queue','templates','worklist'].forEach(t => {
     const v = document.getElementById('view-'+t); if (v) v.style.display = t===tab ? '' : 'none';
     const tb = document.getElementById('tab-'+t); if (tb) tb.classList.toggle('active', t===tab);
   });
@@ -2065,6 +2089,8 @@ function switchTab(tab) {
   if (tab==='quotes')    renderQuotesList();
   if (tab==='orders')    renderOrders();
   if (tab==='queue')     renderMachineQueue();
+  if (tab==='templates') renderTemplates();
+  if (tab==='worklist')  renderWorkList();
 }
 
 
@@ -2528,7 +2554,7 @@ function togglePrinterPaperPicker() {
 }
 function _applyPrinterPaper() {
   if (!_ppSheet) return;
-  var sizeVal = 'נייר מדפסת — ' + _ppSheet + ' בגיליון (גיליון 64×90)';
+  var sizeVal = 'נייר מדפסת A4 — ' + _ppSheet + ' בגיליון (גיליון 64×90)';
   document.getElementById('f-size').value = sizeVal;
   syncSizeBtns(sizeVal);
   calcRuns();
@@ -2536,6 +2562,35 @@ function _applyPrinterPaper() {
     document.getElementById('f-paper').value = _ppGram;
   }
   if (_ppSheet && _ppGram) {
+    // auto-add note about total pages
+    var _copiesEl = document.getElementById('f-copies');
+    var _notesEl  = document.getElementById('f-notes');
+    if (_copiesEl && _notesEl) {
+      var _copies = parseInt(_copiesEl.value) || 0;
+      if (_copies > 0) {
+        var _totalPages = _copies * _ppSheet;
+        var _cartonEl = document.getElementById('pp-carton');
+        var _perCarton = parseInt(_cartonEl && _cartonEl.value) || 0;
+        var _cartonLine = '';
+        if (_perCarton > 0) {
+          var _cartons = Math.ceil(_totalPages / _perCarton);
+          _cartonLine = ' | אריזה: ' + _cartons + ' קרטונים';
+          var _res = document.getElementById('pp-carton-result');
+          if (_res) _res.textContent = '→ ' + _cartons + ' קרטונים';
+        } else {
+          var _res2 = document.getElementById('pp-carton-result');
+          if (_res2) _res2.textContent = '';
+        }
+        var _noteTag = 'סה"כ ' + _totalPages.toLocaleString() + ' דפים A4' + _cartonLine;
+        var _cur = _notesEl.value.trim();
+        // replace old auto-tag if exists, else append
+        if (_cur.match(/סה"כ [\d,]+ דפים A4/)) {
+          _notesEl.value = _cur.replace(/סה"כ [\d,]+ דפים A4[^\n]*/, _noteTag);
+        } else {
+          _notesEl.value = (_cur ? _cur + '\n' : '') + _noteTag;
+        }
+      }
+    }
     document.getElementById('printer-paper-picker').style.display = 'none';
   }
 }
@@ -3097,6 +3152,14 @@ const NEWSPAPER_DEFAULT_PAPERS = {
   'דירה בשקל': ['כרומו מבריק 130 גרם 70*100', 'כרומו מבריק 105 גרם 70*100']
 };
 
+function moveQuickRun(i, dir) {
+  var j = i + dir;
+  if (j < 0 || j >= currentRuns.length) return;
+  var tmp = currentRuns[i]; currentRuns[i] = currentRuns[j]; currentRuns[j] = tmp;
+  // re-open modal to reflect new order
+  var pending = window._pendingCard;
+  if (pending) openRunsModal(pending.n, pending.pages);
+}
 function openRunsModal(n, pages) {
   document.getElementById('runs-modal-title').textContent = n.name + ' — ' + pages + ' עמודים';
 
@@ -3129,8 +3192,16 @@ function openRunsModal(n, pages) {
       const defPaper = defaultPapers[i] || paperForThis || '';
       return `
       <div class="runs-modal-row">
+        <div style="display:flex;flex-direction:column;gap:2px;margin-left:4px">
+          <button type="button" onclick="moveQuickRun(${i},-1)"
+            style="background:none;border:1px solid #ccc;border-radius:3px;padding:0 5px;line-height:1.4;font-size:.7rem;cursor:pointer;color:#555"
+            ${i===0?'disabled':''}>▲</button>
+          <button type="button" onclick="moveQuickRun(${i},1)"
+            style="background:none;border:1px solid #ccc;border-radius:3px;padding:0 5px;line-height:1.4;font-size:.7rem;cursor:pointer;color:#555"
+            ${i===currentRuns.length-1?'disabled':''}>▼</button>
+        </div>
         <div class="run-info" style="flex:1">
-          <div class="run-num">ריצה ${r.num}</div>
+          <div class="run-num">ריצה ${i+1}</div>
           <div class="run-detail">${r.pages} עמ' · ${r.pageRange} · ${r.folds}</div>
           <input type="text" id="run-paper-${r.num}" value="${defPaper}"
             placeholder="נייר לריצה זו"
@@ -3557,6 +3628,39 @@ function selectPaperDay(day) {
 
 
 // ========== FORM ==========
+function editCard(id) {
+  var c = cards.find(function(x){ return x.id === id; });
+  if (!c) return;
+  clearForm();
+  // fill all fields
+  var setVal = function(elId, val){ var e=document.getElementById(elId); if(e) e.value=val||''; };
+  setVal('f-name',          c.name);
+  setVal('f-type',          c.type);
+  setVal('f-order-date',    c.orderDate);
+  setVal('f-delivery-date', c.deliveryDate);
+  setVal('f-copies',        c.copies);
+  setVal('f-pages',         c.pages);
+  setVal('f-size',          c.size);
+  setVal('f-paper',         c.paper);
+  setVal('f-notes',         c.notes);
+  setVal('f-machine',       c.machine);
+  setVal('f-placement-details', c.placementDetails);
+  // color radio
+  if (c.color) {
+    var r = document.querySelector('input[name="color"][value="'+c.color+'"]');
+    if (r) r.checked = true;
+  }
+  // runs
+  if (c.runs && c.runs.length) {
+    manualRuns = c.runs.map(function(r){ return { id: Date.now()+Math.random(), pages: r.pages||'', copies: r.copies||'', machine: r.machine||'' }; });
+    renderManualRuns();
+  }
+  // mark as editing
+  window._editingCardId = id;
+  document.getElementById('form-title').textContent = 'עריכת כרטיס — ' + (c.name||'');
+  switchTab('new');
+  window.scrollTo(0,0);
+}
 function clearForm() {
   ['f-name','f-type','f-order-date','f-delivery-date','f-copies','f-pages','f-size','f-paper','f-notes','f-machine','f-placement-details']
     .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
@@ -3565,6 +3669,7 @@ function clearForm() {
   document.getElementById('runs-field').style.display='none';
   document.getElementById('runs-output').innerHTML='';
   document.getElementById('form-title').textContent='יצירת כרטיס עבודה חדש';
+  window._editingCardId = null;
   var _pdw=document.getElementById('placement-details-wrap'); if(_pdw)_pdw.style.display='none';
   var _plp=document.getElementById('placement-picker'); if(_plp)_plp.style.display='none';
   var _prp=document.getElementById('printer-paper-picker'); if(_prp)_prp.style.display='none';
@@ -3580,6 +3685,33 @@ function getColor() {
 
 // ========== SAVE CARD ==========
 function saveCard() {
+  // if editing an existing card — update it instead of creating new
+  if (window._editingCardId) {
+    var existing = cards.find(function(c){ return c.id === window._editingCardId; });
+    if (existing) {
+      var name = document.getElementById('f-name').value.trim();
+      if (!name) { showToast('⚠️ חסר שם עבודה'); return; }
+      var updated = buildTempCard();
+      updated.id = existing.id;
+      updated.status = existing.status;
+      updated.createdAt = existing.createdAt;
+      updated.createdBy = existing.createdBy;
+      updated.printedAt = existing.printedAt;
+      updated.printCount = existing.printCount;
+      Object.assign(existing, updated);
+      persist();
+      renderCards();
+      window._editingCardId = null;
+      clearForm();
+      showToast('✅ כרטיס עודכן!');
+      setTimeout(function(){ switchTab('saved'); }, 500);
+      return;
+    }
+  }
+  // else — normal new card flow below
+  _saveCardNew();
+}
+function _saveCardNew() {
   const name=document.getElementById('f-name').value.trim();
   if (!name) { showToast('⚠️ חסר שם עבודה'); return; }
   addHistory('f-name',  name);
@@ -3726,7 +3858,7 @@ function buildPrintCard(c) {
     </div>
     <!-- שדות -->
     <div style="padding:6px 32px 20px;flex:1">${fieldRows}${c.placementDetails?`<div style="display:flex;border-bottom:2px solid #111;padding:12px 0;align-items:baseline"><div style="width:155px;font-size:.92rem;font-weight:700;color:#333;flex-shrink:0">מפרט פלייסמנטים</div><div style="font-size:1.05rem;font-weight:800;color:#111;white-space:pre-wrap;flex:1">${c.placementDetails}</div></div>`:''}</div>
-    ${(c.runs&&c.runs.length)?`
+    ${(c.runs&&c.runs.length&&!(c.size&&c.size.includes('פלייסמנטים')))?`
     <!-- ריצות -->
     <div style="margin:0 32px 6px;font-size:.9rem;font-weight:800;color:#111;padding:8px 0;border-top:2.5px solid #111">פירוט ריצות הדפסה</div>
     <div style="padding:0 32px 20px">
@@ -4060,9 +4192,28 @@ function _recordPrintHistory(card) {
   }
   persist();
   renderCards();
+  // auto-add to machine work list
+  _syncWorkOrder();
+  if (document.getElementById('view-worklist') &&
+      document.getElementById('view-worklist').style.display !== 'none') {
+    renderWorkList();
+  }
 }
 
 function doPrint() {
+  // run validation on the card being printed
+  var _card = window._previewCard;
+  if (_card) {
+    var _w = validateCard(_card);
+    var _serious = _w.filter(function(x){ return x.sev==='error'||x.sev==='warn'; });
+    if (_serious.length) {
+      showCardValidationModal(_serious, function(){ _doPrintNow(); });
+      return;
+    }
+  }
+  _doPrintNow();
+}
+function _doPrintNow() {
   const content=document.getElementById('print-card-content').innerHTML;
   const w=window.open('','_blank','width=860,height=1100');
   w.document.write(`<html dir="rtl"><head><meta charset="UTF-8">
@@ -4975,6 +5126,438 @@ function setCustomJobTime(cardId, machine, hoursStr) {
   showToast('⏱️ זמן מכונה עודכן');
 }
 
+// ═══════════════════════════════════════════════════════
+// CARD TEMPLATES — תבניות כרטיסי עבודה
+// ═══════════════════════════════════════════════════════
+var cardTemplates = [];
+
+var DEFAULT_TEMPLATES = [
+  {
+    id: 'tpl_pp_a4',
+    name: 'נייר מדפסת A4',
+    type: 'נייר מדפסת',
+    size: 'נייר מדפסת A4 — 8 בגיליון (גיליון 64×90)',
+    paper: 'נ/ע 80 גרם 64*90',
+    machine: '',
+    color: '4 צבעים',
+    notes: '',
+    ppSheet: 8,
+    ppGram: 'נ/ע 80 גרם 64*90'
+  },
+  {
+    id: 'tpl_pl100',
+    name: 'פלייסמנט 70*100',
+    type: 'פלייסמנט',
+    size: 'פלייסמנטים — 5 בגיליון',
+    paper: 'כרומו מט 135 גרם',
+    machine: '',
+    color: '4 צבעים',
+    notes: ''
+  },
+  {
+    id: 'tpl_pl88',
+    name: 'פלייסמנט 70*88',
+    type: 'פלייסמנט',
+    size: 'פלייסמנטים — 8 בגיליון',
+    paper: 'כרומו מט 135 גרם',
+    machine: '',
+    color: '4 צבעים',
+    notes: ''
+  }
+];
+
+// ═══════════════════════════════════════════════════════
+// WORK LIST — רשימת עבודות למכונות
+// ═══════════════════════════════════════════════════════
+var WORKLIST_MACHINES = ['מכונה 4 צבעים', 'מכונה 8 צבעים'];
+var _workOrder = {};  // { machine: [cardId, ...] }
+
+function _loadWorkOrder() {
+  try {
+    var raw = localStorage.getItem('machineWorkOrder');
+    _workOrder = raw ? JSON.parse(raw) : {};
+  } catch(e) { _workOrder = {}; }
+}
+function _saveWorkOrder() {
+  localStorage.setItem('machineWorkOrder', JSON.stringify(_workOrder));
+}
+
+// Sync: ensure every active card that belongs to a machine is in its order list,
+// and remove cards that are done or no longer belong.
+function _syncWorkOrder() {
+  _loadWorkOrder();
+  var active = (cards||[]).filter(function(c){ return c.status !== 'done'; });
+  WORKLIST_MACHINES.forEach(function(machine) {
+    var order = _workOrder[machine] || [];
+    // collect card IDs that belong to this machine
+    var belonging = active.filter(function(c){
+      if (c.machine === machine) return true;
+      if (c.runs && c.runs.some(function(r){ return r.machine === machine; })) return true;
+      return false;
+    }).map(function(c){ return c.id; });
+    // keep existing order for cards still present
+    var kept = order.filter(function(id){ return belonging.indexOf(id) >= 0; });
+    // append new ones not yet in order
+    belonging.forEach(function(id){ if (kept.indexOf(id) < 0) kept.push(id); });
+    _workOrder[machine] = kept;
+  });
+  _saveWorkOrder();
+}
+
+function moveWorkItem(machine, cardId, dir) {
+  var order = _workOrder[machine];
+  if (!order) return;
+  var idx = order.indexOf(cardId);
+  if (idx < 0) return;
+  var newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= order.length) return;
+  var tmp = order[idx]; order[idx] = order[newIdx]; order[newIdx] = tmp;
+  _saveWorkOrder();
+  renderWorkList();
+}
+
+// Inline edit row: edit notes/name/paper/size for a card quickly
+function openWorkItemEdit(cardId) {
+  var c = cards.find(function(x){ return String(x.id) === String(cardId); });
+  if (!c) return;
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10040;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:white;border-radius:14px;padding:24px 24px 18px;max-width:480px;width:100%;direction:rtl;font-family:Heebo,sans-serif;max-height:88vh;overflow-y:auto';
+
+  var FIELDS = [
+    ['שם העבודה', 'we-name', c.name||''],
+    ['סוג נייר', 'we-paper', c.paper||''],
+    ['גודל סופי', 'we-size', c.size||''],
+  ];
+  var fhtml = FIELDS.map(function(f){
+    return '<div style="margin-bottom:12px">'
+      + '<label style="font-size:.8rem;font-weight:700;display:block;margin-bottom:4px">' + f[0] + '</label>'
+      + '<input id="' + f[1] + '" type="text" value="' + escHtml(f[2]) + '"'
+      + ' style="width:100%;padding:8px 10px;border:1.5px solid #c0ccf0;border-radius:8px;font-family:Heebo,sans-serif;font-size:.9rem;box-sizing:border-box">'
+      + '</div>';
+  }).join('');
+
+  box.innerHTML = '<div style="font-weight:900;font-size:1.05rem;margin-bottom:16px">✏️ עריכת עבודה ברשימה</div>'
+    + fhtml
+    + '<div style="margin-bottom:14px">'
+    + '<label style="font-size:.8rem;font-weight:700;display:block;margin-bottom:4px">הערות</label>'
+    + '<textarea id="we-notes" rows="3" style="width:100%;padding:8px 10px;border:1.5px solid #c0ccf0;border-radius:8px;font-family:Heebo,sans-serif;font-size:.9rem;resize:vertical;box-sizing:border-box">' + escHtml(c.notes||'') + '</textarea>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    + '<button id="_we-cancel" style="padding:8px 18px;border:1.5px solid #ccc;border-radius:8px;background:white;font-family:Heebo,sans-serif;cursor:pointer;color:#555">ביטול</button>'
+    + '<button id="_we-full"   style="padding:8px 14px;background:#f0f4ff;color:#2d3561;border:1.5px solid #c0ccf0;border-radius:8px;font-family:Heebo,sans-serif;cursor:pointer;font-size:.85rem">⚙️ עריכה מלאה</button>'
+    + '<button id="_we-save"   style="padding:8px 22px;background:#2d3561;color:white;border:none;border-radius:8px;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">שמור</button>'
+    + '</div>';
+
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+
+  function closeModal(){ if(modal.parentNode) modal.parentNode.removeChild(modal); }
+  modal.addEventListener('click', function(e){ if(e.target===modal) closeModal(); });
+  document.getElementById('_we-cancel').addEventListener('click', closeModal);
+  document.getElementById('_we-full').addEventListener('click', function(){
+    closeModal();
+    editCard(cardId);
+  });
+  document.getElementById('_we-save').addEventListener('click', function(){
+    c.name  = document.getElementById('we-name').value.trim();
+    c.paper = document.getElementById('we-paper').value.trim();
+    c.size  = document.getElementById('we-size').value.trim();
+    c.notes = document.getElementById('we-notes').value.trim();
+    persist();
+    closeModal();
+    renderWorkList();
+    showToast('✅ עבודה עודכנה ברשימה');
+  });
+  setTimeout(function(){ var el=document.getElementById('we-name'); if(el){el.focus();el.select();} }, 60);
+}
+
+function renderWorkList() {
+  _syncWorkOrder();
+  var el = document.getElementById('worklist-content');
+  if (!el) return;
+
+  var html = '<div style="padding:12px 4px">'
+    + '<div style="font-size:1rem;font-weight:900;margin-bottom:18px;color:#1a1a4e">📋 רשימות עבודה למכונות</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px">';
+
+  var colorMap = {'מכונה 4 צבעים':'#dbeafe','מכונה 8 צבעים':'#d1fae5'};
+  var iconMap  = {'מכונה 4 צבעים':'🔵','מכונה 8 צבעים':'🟢'};
+
+  WORKLIST_MACHINES.forEach(function(machine) {
+    var order = _workOrder[machine] || [];
+    var cardMap = {};
+    (cards||[]).forEach(function(c){ cardMap[c.id] = c; });
+    var rows = order.map(function(id){ return cardMap[id]; }).filter(Boolean);
+
+    html += '<div style="border-radius:13px;overflow:hidden;border:1.5px solid #e5e7eb">'
+      + '<div style="background:' + colorMap[machine] + ';padding:12px 16px;display:flex;justify-content:space-between;align-items:center">'
+      + '<div style="font-weight:900;font-size:.95rem">' + iconMap[machine] + ' ' + escHtml(machine) + '</div>'
+      + '<div style="font-size:.82rem;color:#374151;font-weight:700">' + rows.length + ' עבודות</div>'
+      + '</div>';
+
+    if (!rows.length) {
+      html += '<div style="padding:24px 16px;color:#9ca3af;font-size:.88rem;text-align:center">אין עבודות מוקצות למכונה זו</div>';
+    } else {
+      rows.forEach(function(c, idx) {
+        var machineSafe = machine.replace(/'/g, "\\'");
+        html += '<div style="border-top:1px solid #f3f4f6;padding:10px 14px;' + (idx%2?'background:#fafafa':'background:white') + '">'
+          + '<div style="display:flex;align-items:flex-start;gap:8px">'
+          // order buttons
+          + '<div style="display:flex;flex-direction:column;gap:2px;padding-top:2px">'
+          + '<button onclick="moveWorkItem(\'' + machineSafe + '\',' + c.id + ',-1)" '
+          + 'title="הזז למעלה" style="background:none;border:1px solid #e5e7eb;border-radius:4px;width:22px;height:20px;cursor:pointer;font-size:.7rem;line-height:1;color:#6b7280;padding:0"'
+          + (idx===0 ? ' disabled style="background:none;border:1px solid #e5e7eb;border-radius:4px;width:22px;height:20px;cursor:not-allowed;font-size:.7rem;line-height:1;color:#d1d5db;padding:0"' : '') + '>▲</button>'
+          + '<button onclick="moveWorkItem(\'' + machineSafe + '\',' + c.id + ',1)" '
+          + 'title="הזז למטה" style="background:none;border:1px solid #e5e7eb;border-radius:4px;width:22px;height:20px;cursor:pointer;font-size:.7rem;line-height:1;color:#6b7280;padding:0"'
+          + (idx===rows.length-1 ? ' disabled style="background:none;border:1px solid #e5e7eb;border-radius:4px;width:22px;height:20px;cursor:not-allowed;font-size:.7rem;line-height:1;color:#d1d5db;padding:0"' : '') + '>▼</button>'
+          + '</div>'
+          // content
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">'
+          + '<span style="font-size:.72rem;font-weight:900;color:#9ca3af;min-width:18px">' + (idx+1) + '.</span>'
+          + '<span style="font-weight:800;font-size:.9rem;color:#1a1a4e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(c.name||'ללא שם') + '</span>'
+          + (c.docNum ? '<span style="font-size:.72rem;color:#9ca3af">#' + escHtml(String(c.docNum)) + '</span>' : '')
+          + '</div>'
+          + '<div style="font-size:.78rem;color:#374151;line-height:1.55">'
+          + (c.paper ? '<div>🗒️ <strong>נייר:</strong> ' + escHtml(c.paper) + '</div>' : '')
+          + (c.size  ? '<div>📐 <strong>גודל:</strong> ' + escHtml(c.size)  + '</div>' : '')
+          + (c.notes ? '<div style="color:#555;margin-top:2px">📝 ' + escHtml(c.notes.length > 80 ? c.notes.slice(0,80)+'…' : c.notes) + '</div>' : '')
+          + '</div>'
+          + '</div>'
+          // edit button
+          + '<button onclick="openWorkItemEdit(' + c.id + ')" title="ערוך" '
+          + 'style="background:none;border:1px solid #e5e7eb;border-radius:7px;padding:4px 8px;cursor:pointer;font-size:.8rem;color:#6b7280;white-space:nowrap;align-self:flex-start">✏️ ערוך</button>'
+          + '</div>'
+          + '</div>';
+      });
+    }
+    html += '</div>';
+  });
+
+  html += '</div></div>';
+  el.innerHTML = html;
+}
+
+function _loadTemplates() {
+  try {
+    var raw = localStorage.getItem('cardTemplates');
+    cardTemplates = raw ? JSON.parse(raw) : JSON.parse(JSON.stringify(DEFAULT_TEMPLATES));
+  } catch(e) {
+    cardTemplates = JSON.parse(JSON.stringify(DEFAULT_TEMPLATES));
+  }
+}
+function _saveTemplates() {
+  localStorage.setItem('cardTemplates', JSON.stringify(cardTemplates));
+}
+
+// ── Apply template to new-card form ─────────────────────
+function applyTemplate(tplId) {
+  var tpl = cardTemplates.find(function(t){ return t.id === tplId; });
+  if (!tpl) return;
+  clearForm();
+  // Fill shared fields
+  if (tpl.type)    { var el = document.getElementById('f-type'); if(el) { el.value = tpl.type; } }
+  if (tpl.size)    { var el2 = document.getElementById('f-size'); if(el2) el2.value = tpl.size; }
+  if (tpl.paper)   { var el3 = document.getElementById('f-paper'); if(el3) el3.value = tpl.paper; }
+  if (tpl.machine) { var el4 = document.getElementById('f-machine'); if(el4) el4.value = tpl.machine; }
+  if (tpl.color)   { var el5 = document.getElementById('f-color'); if(el5) el5.value = tpl.color; }
+  if (tpl.notes)   { var el6 = document.getElementById('f-notes'); if(el6) el6.value = tpl.notes; }
+  if (tpl.deliveryDate) { var el7 = document.getElementById('f-delivery'); if(el7) el7.value = tpl.deliveryDate; }
+  // Sync size buttons
+  if (tpl.size) syncSizeBtns(tpl.size);
+  // Printer paper picker auto-apply
+  if (tpl.ppSheet) {
+    _ppSheet = tpl.ppSheet;
+    if (tpl.ppGram) _ppGram = tpl.ppGram;
+    var pp = document.getElementById('printer-paper-picker');
+    if (pp) pp.style.display = 'flex';
+    document.getElementById('pp-btn-8') && document.getElementById('pp-btn-8').classList.toggle('active', tpl.ppSheet === 8);
+    document.getElementById('pp-btn-9') && document.getElementById('pp-btn-9').classList.toggle('active', tpl.ppSheet === 9);
+    document.getElementById('pp-btn-80') && document.getElementById('pp-btn-80').classList.toggle('active', tpl.ppGram === 'נ/ע 80 גרם 64*90');
+    document.getElementById('pp-btn-90') && document.getElementById('pp-btn-90').classList.toggle('active', tpl.ppGram === 'נ/ע 90 גרם 64*90');
+  }
+  // Placement details
+  if (tpl.type === 'פלייסמנט') {
+    var pdw = document.getElementById('placement-details-wrap');
+    if (pdw) pdw.style.display = '';
+  }
+  calcRuns();
+  switchTab('new');
+  // Focus on customer/name field
+  setTimeout(function(){
+    var fn = document.getElementById('f-name'); if(fn) fn.focus();
+  }, 120);
+  showToast('🗂️ תבנית הוחלה — מלא שם לקוח וכמות');
+}
+
+// ── Template list modal (quick-apply) ───────────────────
+function openApplyTemplateModal() {
+  _loadTemplates();
+  if (!cardTemplates.length) { showToast('אין תבניות שמורות — עבור לטאב תבניות ליצירת תבנית'); return; }
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10030;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:white;border-radius:14px;padding:24px 24px 16px;max-width:460px;width:100%;direction:rtl;font-family:Heebo,sans-serif;max-height:80vh;overflow-y:auto';
+  var inner = '<div style="font-weight:900;font-size:1.05rem;margin-bottom:16px">🗂️ בחר תבנית</div>';
+  cardTemplates.forEach(function(tpl) {
+    inner += '<div style="border:1.5px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:10px;cursor:pointer;transition:border-color .15s" '
+           + 'onclick="applyTemplate(\'' + tpl.id + '\');if(this.closest(\'[style*=fixed]\'))this.closest(\'[style*=fixed]\').remove()">'
+           + '<div style="font-weight:800;font-size:.95rem;margin-bottom:4px">' + escHtml(tpl.name) + '</div>'
+           + '<div style="font-size:.78rem;color:#6b7280">'
+           + (tpl.size ? escHtml(tpl.size) + ' · ' : '')
+           + (tpl.paper ? escHtml(tpl.paper) + ' · ' : '')
+           + (tpl.machine ? escHtml(tpl.machine) : 'מכונה לא הוגדרה')
+           + '</div></div>';
+  });
+  inner += '<div style="text-align:center;margin-top:6px">'
+         + '<button onclick="this.closest(\'[style*=fixed]\').remove()" '
+         + 'style="padding:8px 22px;border:1.5px solid #ccc;border-radius:8px;background:white;font-family:Heebo,sans-serif;cursor:pointer;color:#555">סגור</button>'
+         + '</div>';
+  box.innerHTML = inner;
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+}
+
+// ── Template editor modal ────────────────────────────────
+function openTemplateEditor(tplId) {
+  var tpl = tplId ? cardTemplates.find(function(t){ return t.id === tplId; }) : null;
+  var isNew = !tpl;
+  if (!tpl) tpl = { id: 'tpl_' + Date.now(), name: '', type: '', size: '', paper: '', machine: '', color: '', notes: '', ppSheet: 0, ppGram: '' };
+
+  var modal = document.createElement('div');
+  modal.id = '_tpl-editor-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10035;display:flex;align-items:center;justify-content:center;padding:16px';
+
+  var MACHINE_OPTS = ['', 'מכונה 4 צבעים', 'מכונה 8 צבעים'].map(function(m){
+    return '<option value="' + escHtml(m) + '"' + (tpl.machine === m ? ' selected' : '') + '>' + (m || '— בחר מכונה —') + '</option>';
+  }).join('');
+
+  var FIELDS = [
+    ['שם התבנית (חובה)', 'te-name', 'text', tpl.name, ''],
+    ['סוג עבודה', 'te-type', 'text', tpl.type, 'נייר מדפסת / פלייסמנט / עלון...'],
+    ['גודל סופי', 'te-size', 'text', tpl.size, 'נייר מדפסת A4 — 8 בגיליון...'],
+    ['סוג נייר', 'te-paper', 'text', tpl.paper, 'כרומו מט 135 גרם...'],
+    ['צבע', 'te-color', 'text', tpl.color, '4 צבעים / שחור לבן...'],
+  ];
+
+  var fieldsHtml = FIELDS.map(function(f){
+    return '<div style="margin-bottom:12px">'
+         + '<label style="font-size:.8rem;font-weight:700;display:block;margin-bottom:4px">' + f[0] + '</label>'
+         + '<input id="' + f[1] + '" type="' + f[2] + '" value="' + escHtml(f[3]) + '" placeholder="' + escHtml(f[4]) + '"'
+         + ' style="width:100%;padding:8px 10px;border:1.5px solid #c0ccf0;border-radius:8px;font-family:Heebo,sans-serif;font-size:.9rem;box-sizing:border-box">'
+         + '</div>';
+  }).join('');
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:white;border-radius:14px;padding:24px 24px 18px;max-width:480px;width:100%;direction:rtl;font-family:Heebo,sans-serif;max-height:88vh;overflow-y:auto';
+  box.innerHTML = '<div style="font-weight:900;font-size:1.05rem;margin-bottom:18px">' + (isNew ? '➕ תבנית חדשה' : '✏️ עריכת תבנית') + '</div>'
+    + fieldsHtml
+    + '<div style="margin-bottom:12px">'
+    + '<label style="font-size:.8rem;font-weight:700;display:block;margin-bottom:4px">מכונה</label>'
+    + '<select id="te-machine" style="width:100%;padding:8px 10px;border:1.5px solid #c0ccf0;border-radius:8px;font-family:Heebo,sans-serif;font-size:.9rem;box-sizing:border-box">' + MACHINE_OPTS + '</select>'
+    + '</div>'
+    + '<div style="margin-bottom:12px">'
+    + '<label style="font-size:.8rem;font-weight:700;display:block;margin-bottom:4px">הערות בסיס (יתווספו לכל כרטיס חדש)</label>'
+    + '<textarea id="te-notes" rows="3" style="width:100%;padding:8px 10px;border:1.5px solid #c0ccf0;border-radius:8px;font-family:Heebo,sans-serif;font-size:.9rem;resize:vertical;box-sizing:border-box">' + escHtml(tpl.notes||'') + '</textarea>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px">'
+    + '<button id="_te-cancel" style="padding:8px 18px;border:1.5px solid #ccc;border-radius:8px;background:white;font-family:Heebo,sans-serif;cursor:pointer;color:#555">ביטול</button>'
+    + (!isNew ? '<button id="_te-delete" style="padding:8px 14px;background:none;border:1.5px solid #fca5a5;color:#dc2626;border-radius:8px;font-family:Heebo,sans-serif;cursor:pointer;font-size:.85rem">🗑️ מחק תבנית</button>' : '')
+    + '<button id="_te-save" style="padding:8px 22px;background:#2d3561;color:white;border:none;border-radius:8px;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">שמור</button>'
+    + '</div>';
+
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+
+  function closeModal(){ if(modal.parentNode) modal.parentNode.removeChild(modal); }
+  modal.addEventListener('click', function(e){ if(e.target===modal) closeModal(); });
+  document.getElementById('_te-cancel').addEventListener('click', closeModal);
+
+  document.getElementById('_te-save').addEventListener('click', function(){
+    var name = document.getElementById('te-name').value.trim();
+    if (!name) { alert('חובה להזין שם תבנית'); return; }
+    tpl.name    = name;
+    tpl.type    = document.getElementById('te-type').value.trim();
+    tpl.size    = document.getElementById('te-size').value.trim();
+    tpl.paper   = document.getElementById('te-paper').value.trim();
+    tpl.machine = document.getElementById('te-machine').value;
+    tpl.color   = document.getElementById('te-color').value.trim();
+    tpl.notes   = document.getElementById('te-notes').value.trim();
+    if (isNew) {
+      cardTemplates.push(tpl);
+    } else {
+      var idx = cardTemplates.findIndex(function(t){ return t.id === tpl.id; });
+      if (idx >= 0) cardTemplates[idx] = tpl;
+    }
+    _saveTemplates();
+    closeModal();
+    renderTemplates();
+    showToast(isNew ? '✅ תבנית חדשה נשמרה' : '✅ תבנית עודכנה');
+  });
+
+  if (!isNew) {
+    document.getElementById('_te-delete').addEventListener('click', function(){
+      if (!confirm('למחוק את התבנית "' + tpl.name + '"?')) return;
+      cardTemplates = cardTemplates.filter(function(t){ return t.id !== tpl.id; });
+      _saveTemplates();
+      closeModal();
+      renderTemplates();
+      showToast('🗑️ תבנית נמחקה');
+    });
+  }
+
+  setTimeout(function(){ var el = document.getElementById('te-name'); if(el){el.focus();el.select();} }, 60);
+}
+
+// ── Templates tab renderer ───────────────────────────────
+function renderTemplates() {
+  if (!cardTemplates.length && !localStorage.getItem('cardTemplates')) _loadTemplates();
+  var el = document.getElementById('templates-content');
+  if (!el) return;
+  var html = '<div style="padding:12px 4px">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">'
+    + '<div style="font-size:1rem;font-weight:900;color:#1a1a4e">🗂️ תבניות כרטיסי עבודה</div>'
+    + '<button onclick="openTemplateEditor(null)" style="background:#2d3561;color:white;border:none;border-radius:9px;padding:7px 18px;font-family:Heebo,sans-serif;font-weight:800;font-size:.88rem;cursor:pointer">+ תבנית חדשה</button>'
+    + '</div>';
+
+  if (!cardTemplates.length) {
+    html += '<div style="text-align:center;padding:48px 20px;color:#9ca3af">'
+          + '<div style="font-size:2.8rem;margin-bottom:12px">🗂️</div>'
+          + '<div style="font-size:1rem;font-weight:700;color:#374151;margin-bottom:6px">אין תבניות עדיין</div>'
+          + '<div style="font-size:.85rem;margin-bottom:18px">צור תבנית פעם אחת ותשתמש שוב ושוב</div>'
+          + '<button onclick="openTemplateEditor(null)" style="background:#2d3561;color:white;border:none;border-radius:9px;padding:9px 22px;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">+ תבנית ראשונה</button>'
+          + '</div>';
+  } else {
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">';
+    cardTemplates.forEach(function(tpl) {
+      html += '<div style="border:1.5px solid #e5e7eb;border-radius:12px;padding:16px 18px;background:white;display:flex;flex-direction:column;gap:10px">'
+            + '<div style="display:flex;justify-content:space-between;align-items:flex-start">'
+            + '<div style="font-weight:900;font-size:.98rem;color:#1a1a4e">' + escHtml(tpl.name) + '</div>'
+            + '<button onclick="openTemplateEditor(\'' + tpl.id + '\')" title="ערוך תבנית" '
+            + 'style="background:none;border:none;cursor:pointer;font-size:1rem;color:#9ca3af;padding:0 2px">✏️</button>'
+            + '</div>'
+            + '<div style="font-size:.8rem;color:#6b7280;line-height:1.6">'
+            + (tpl.type    ? '<div>📌 ' + escHtml(tpl.type) + '</div>' : '')
+            + (tpl.size    ? '<div>📐 ' + escHtml(tpl.size) + '</div>' : '')
+            + (tpl.paper   ? '<div>🗒️ ' + escHtml(tpl.paper) + '</div>' : '')
+            + (tpl.machine ? '<div>⚙️ ' + escHtml(tpl.machine) + '</div>' : '<div style="color:#d97706">⚙️ מכונה לא הוגדרה</div>')
+            + (tpl.color   ? '<div>🎨 ' + escHtml(tpl.color) + '</div>' : '')
+            + '</div>'
+            + '<button onclick="applyTemplate(\'' + tpl.id + '\');switchTab(\'new\')" '
+            + 'style="background:#2d3561;color:white;border:none;border-radius:8px;padding:8px 0;font-family:Heebo,sans-serif;font-weight:800;font-size:.88rem;cursor:pointer;width:100%">'
+            + '→ השתמש בתבנית זו'
+            + '</button>'
+            + '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
 function markJobPrinted(cardId) {
   var c = cards.find(function(x){ return String(x.id) === String(cardId); });
   if (!c) return;
@@ -4986,87 +5569,181 @@ function markJobPrinted(cardId) {
   showToast('✅ עבודה הועברה לסטטוס הודפס');
 }
 
+function editRunTime(cardId, runIdx, machine) {
+  // runIdx === -1 means card-level (no runs array)
+  if (runIdx < 0) { editJobTime(cardId, machine); return; }
+  var c = cards.find(function(x){ return String(x.id) === String(cardId); });
+  if (!c || !c.runs || !c.runs[runIdx]) return;
+  var run = c.runs[runIdx];
+  var cur = (run.customTime != null) ? run.customTime : '';
+  var hrsLabel = cur ? _fmtHours(parseFloat(cur)) : '(אוטומטי)';
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10020;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:white;border-radius:12px;padding:24px 28px;max-width:360px;width:100%;direction:rtl;font-family:Heebo,sans-serif';
+  box.innerHTML =
+    '<div style="font-weight:900;font-size:1rem;margin-bottom:4px">&#9201; זמן ריצה מותאם</div>' +
+    '<div style="font-size:.82rem;color:#555;margin-bottom:16px">' + escHtml(c.name||'') + ' &mdash; ' + escHtml(run.label||('ריצה '+(runIdx+1))) + '</div>' +
+    '<div style="margin-bottom:12px">' +
+    '<label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:6px">זמן בשעות (למשל: 1.5 = שעה וחצי)</label>' +
+    '<input id="_rt-hrs" type="number" step="0.25" min="0" value="' + escHtml(String(cur||'')) + '" placeholder="' + escHtml(hrsLabel) + '"' +
+    ' style="width:100%;padding:9px 12px;border:1.5px solid #c0ccf0;border-radius:8px;font-family:Heebo,sans-serif;font-size:1rem;box-sizing:border-box">' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+    '<button id="_rt-cancel" style="padding:8px 16px;border:1.5px solid #ccc;border-radius:7px;background:white;font-family:Heebo,sans-serif;cursor:pointer">ביטול</button>' +
+    '<button id="_rt-save"   style="padding:8px 18px;background:#2d3561;color:white;border:none;border-radius:7px;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">שמור</button>' +
+    '<button id="_rt-reset"  style="padding:8px 14px;background:none;border:1.5px solid #fca5a5;color:#dc2626;border-radius:7px;font-family:Heebo,sans-serif;font-size:.82rem;cursor:pointer">&#128465; אפס</button>' +
+    '</div>';
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  function closeModal(){ if(modal.parentNode) modal.parentNode.removeChild(modal); }
+  modal.addEventListener('click', function(e){ if(e.target===modal) closeModal(); });
+  document.getElementById('_rt-cancel').addEventListener('click', closeModal);
+  document.getElementById('_rt-save').addEventListener('click', function(){
+    var hrs = parseFloat(document.getElementById('_rt-hrs').value);
+    if (!isNaN(hrs) && hrs > 0) { run.customTime = hrs; }
+    else { delete run.customTime; }
+    persist(); closeModal(); renderMachineQueue(); showToast('⏱️ זמן ריצה עודכן');
+  });
+  document.getElementById('_rt-reset').addEventListener('click', function(){
+    delete run.customTime;
+    persist(); closeModal(); renderMachineQueue(); showToast('⏱️ זמן ריצה אופס');
+  });
+  setTimeout(function(){ var el=document.getElementById('_rt-hrs'); if(el){el.focus();el.select();} }, 50);
+}
+
+function markRunDone(cardId, runIdx, machine) {
+  var c = cards.find(function(x){ return String(x.id) === String(cardId); });
+  if (!c) return;
+  if (runIdx < 0) { markJobPrinted(cardId); return; }
+  if (!c.runs || !c.runs[runIdx]) return;
+  c.runs[runIdx].done = true;
+  // If ALL runs for this card (across all machines) are done → mark card done
+  var allDone = c.runs.every(function(r){ return !!r.done; });
+  if (allDone) {
+    c.status = 'done';
+    c.printedAt = new Date().toISOString();
+    persist(); renderMachineQueue(); renderCards();
+    showToast('✅ כל הריצות הסתיימו — עבודה הועברה להושלם');
+  } else {
+    persist(); renderMachineQueue();
+    showToast('✅ ריצה הסומנה כהודפסה');
+  }
+}
+
+function unmarkRunDone(cardId, runIdx, machine) {
+  var c = cards.find(function(x){ return String(x.id) === String(cardId); });
+  if (!c || !c.runs || !c.runs[runIdx]) return;
+  c.runs[runIdx].done = false;
+  // If card was marked done, re-open it
+  if (c.status === 'done') {
+    c.status = 'inprogress';
+    delete c.printedAt;
+    renderCards();
+  }
+  persist(); renderMachineQueue();
+  showToast('↩ ריצה בוטלה — חזרה לתור');
+}
+
 function renderMachineQueue() {
   const el = document.getElementById('queue-content');
   const MACHINES = ['מכונה 4 צבעים','מכונה 8 צבעים'];
   const active = (cards||[]).filter(c => c.status !== 'done');
 
   let html = '<div style="padding:12px 4px">';
-  html += '<div style="font-size:1rem;font-weight:900;margin-bottom:16px;color:#1a1a4e">🏭 תור מכונות — עבודות פתוחות</div>';
+  html += '<div style="font-size:1rem;font-weight:900;margin-bottom:16px;color:#1a1a4e">&#127981; תור מכונות — עבודות פתוחות</div>';
 
   MACHINES.forEach(machine => {
-    // כרטיסים שמשויכים למכונה זו (לפי שדה machine ראשי או לפי runs)
-    const mCards = active.filter(c => {
-      if (c.machine === machine) return true;
-      if (c.runs && c.runs.some(r => r.machine === machine)) return true;
-      return false;
+    // Build a flat list of run-rows for this machine
+    // Each row: { c, runIdx (-1 = card-level), runLabel, sheets, hrs, isCustom, done }
+    let runRows = [];
+
+    active.forEach(c => {
+      const runsForMachine = (c.runs||[])
+        .map(function(r,i){ return {r:r, i:i}; })
+        .filter(function(x){ return x.r.machine === machine || (!x.r.machine && c.machine === machine); });
+
+      if (runsForMachine.length > 0) {
+        runsForMachine.forEach(function(x) {
+          var r = x.r, i = x.i;
+          var sheets = parseInt(r.sheets||r.papers||0)||0;
+          var customT = (r.customTime != null) ? parseFloat(r.customTime) : null;
+          var hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
+          var isCustom = (customT != null);
+          runRows.push({ c:c, runIdx:i, runLabel:r.label||('ריצה '+(i+1)), sheets:sheets, hrs:hrs, isCustom:isCustom, done:!!r.done });
+        });
+      } else if (c.machine === machine) {
+        // Card with no runs array — single row
+        var sheets = parseInt(c.sheets||0)||0;
+        var customT = (c.customMachineTime && c.customMachineTime[machine]) ? parseFloat(c.customMachineTime[machine]) : null;
+        var hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
+        var isCustom = (customT != null);
+        runRows.push({ c:c, runIdx:-1, runLabel:null, sheets:sheets, hrs:hrs, isCustom:isCustom, done:false });
+      }
     });
 
+    const activeRows = runRows.filter(function(r){ return !r.done; });
     let totalHours = 0;
     let hasUnknown = false;
-
-    const rows = mCards.map(c => {
-      // חישוב גיליונות לפי runs
-      let sheets = 0;
-      const runsForMachine = (c.runs||[]).filter(r => r.machine === machine || (!r.machine && c.machine === machine));
-      runsForMachine.forEach(r => {
-        const s = parseInt(r.sheets||r.papers||0) || 0;
-        sheets += s;
-      });
-      if (!sheets && c.sheets) sheets = parseInt(c.sheets)||0;
-
-      // custom override time (per machine)
-      var customT = (c.customMachineTime && c.customMachineTime[machine]) ? parseFloat(c.customMachineTime[machine]) : null;
-      const hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
-      const isCustom = (customT != null);
-      if (hrs != null) totalHours += hrs;
-      else if (mCards.length) hasUnknown = true;
-
-      return { c, sheets, hrs, isCustom };
-    });
+    activeRows.forEach(function(r){ if(r.hrs!=null) totalHours+=r.hrs; else hasUnknown=true; });
 
     const colorMap = {'מכונה 4 צבעים':'#dbeafe','מכונה 8 צבעים':'#d1fae5'};
-    const iconMap  = {'מכונה 4 צבעים':'🔵','מכונה 8 צבעים':'🟢'};
+    const iconMap  = {'מכונה 4 צבעים':'&#128309;','מכונה 8 צבעים':'&#128994;'};
 
     html += `<div style="margin-bottom:20px;border-radius:12px;overflow:hidden;border:1.5px solid #e5e7eb">
       <div style="background:${colorMap[machine]};padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
         <div style="font-weight:900;font-size:.95rem">${iconMap[machine]} ${machine}</div>
         <div style="font-size:.85rem;font-weight:700;color:#374151">
-          ${mCards.length} עבודות · סה"כ: <strong>${_fmtHours(totalHours || null)}${hasUnknown?' (+עבודות ללא גיליונות)':''}</strong>
+          ${activeRows.length} ריצות · סה"כ: <strong>${_fmtHours(totalHours||null)}${hasUnknown?' (+ריצות ללא גיליונות)':''}</strong>
         </div>
       </div>`;
 
-    if (!rows.length) {
+    if (!runRows.length) {
       html += '<div style="padding:14px 16px;color:#9ca3af;font-size:.88rem">אין עבודות פתוחות</div>';
     } else {
       html += '<table style="width:100%;border-collapse:collapse">';
-      html += '<table style="width:100%;border-collapse:collapse">';
-      html += '<tr style="background:#f9fafb;font-size:.78rem;color:#6b7280"><th style="padding:8px 12px;text-align:right;font-weight:700">עבודה</th><th style="padding:8px;text-align:center">לקוח</th><th style="padding:8px;text-align:center">גיליונות</th><th style="padding:8px;text-align:center">זמן משוער</th><th style="padding:8px;text-align:center;color:#1d4ed8">סיום משוער</th><th style="padding:8px;text-align:center">סטטוס</th><th style="padding:8px;text-align:center">פעולה</th></tr>';
+      html += '<tr style="background:#f9fafb;font-size:.78rem;color:#6b7280">'
+            + '<th style="padding:8px 12px;text-align:right;font-weight:700">עבודה</th>'
+            + '<th style="padding:8px;text-align:center">ריצה</th>'
+            + '<th style="padding:8px;text-align:center">גיליונות</th>'
+            + '<th style="padding:8px;text-align:center">זמן משוער</th>'
+            + '<th style="padding:8px;text-align:center;color:#1d4ed8">סיום משוער</th>'
+            + '<th style="padding:8px;text-align:center">פעולה</th></tr>';
+
       let cumHours = 0;
-      rows.forEach(({c, sheets, hrs, isCustom}, idx) => {
-        if (hrs != null) cumHours += hrs;
-        const finishTime = (hrs != null) ? _fmtEndTime(cumHours) : '—';
-        const statusMap = {pending:'⏳ ממתין',inprogress:'🔄 בדפוס',done:'✅ הושלם'};
-        html += `<tr style="border-top:1px solid #f3f4f6;font-size:.85rem;${idx%2?'background:#fafafa':''}">
+      runRows.forEach(function({c, runIdx, runLabel, sheets, hrs, isCustom, done}, idx) {
+        if (!done && hrs != null) cumHours += hrs;
+        const finishTime = (!done && hrs != null) ? _fmtEndTime(cumHours) : '—';
+        const rowBg = done ? 'background:#f3f4f6;' : (idx%2 ? 'background:#fafafa;' : '');
+        const rowStyle = done ? rowBg + 'opacity:.48;' : rowBg;
+        const machineSafe = machine.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+        const editBtn = !done
+          ? `<button onclick="editRunTime('${c.id}',${runIdx},'${machineSafe}')"
+               title="ערוך זמן ריצה"
+               style="background:none;border:none;cursor:pointer;font-size:.78rem;color:#9ca3af;padding:0 2px;vertical-align:middle">&#9201;</button>`
+          : '';
+        const actionBtn = done
+          ? `<button onclick="unmarkRunDone('${c.id}',${runIdx},'${machineSafe}')"
+               style="background:#e5e7eb;color:#374151;border:none;border-radius:7px;padding:5px 12px;font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer">
+               &#8617; בטל
+             </button>`
+          : `<button onclick="markRunDone('${c.id}',${runIdx},'${machineSafe}')"
+               style="background:#16a34a;color:white;border:none;border-radius:7px;padding:5px 12px;font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;white-space:nowrap">
+               &#10003; הודפס
+             </button>`;
+
+        html += `<tr style="border-top:1px solid #f3f4f6;font-size:.85rem;${rowStyle}">
           <td style="padding:9px 12px;font-weight:700">${c.name||c.customer||'ללא שם'}${c.docNum?' <span style="color:#9ca3af;font-size:.75rem">#'+c.docNum+'</span>':''}</td>
-          <td style="padding:9px 8px;text-align:center;color:#374151">${c.customer||'—'}</td>
+          <td style="padding:9px 8px;text-align:center;color:#374151;font-size:.8rem">${runLabel||'—'}</td>
           <td style="padding:9px 8px;text-align:center">${sheets||'—'}</td>
-          <td style="padding:9px 8px;text-align:center;font-weight:700;color:${hrs&&hrs>4?'#b91c1c':hrs&&hrs>2?'#d97706':'#166534'}">
-            ${_fmtHours(hrs)}${isCustom?' <span title="זמן מותאם אישית" style="font-size:.7rem;color:#7c3aed">✎</span>':''}
-            <button onclick="editJobTime('${c.id}','${machine.replace(/'/g,"\'")}')"
-              title="ערוך זמן מכונה"
-              style="background:none;border:none;cursor:pointer;font-size:.78rem;color:#9ca3af;padding:0 2px;vertical-align:middle">⏱️</button>
+          <td style="padding:9px 8px;text-align:center;font-weight:700;color:${done?'#9ca3af':hrs&&hrs>4?'#b91c1c':hrs&&hrs>2?'#d97706':'#166534'}">
+            ${done ? '<span style="color:#9ca3af">&#10003;</span>' : (_fmtHours(hrs) + (isCustom?' <span title="זמן מותאם אישית" style="font-size:.7rem;color:#7c3aed">&#9998;</span>':''))}
+            ${editBtn}
           </td>
-          <td style="padding:9px 8px;text-align:center;font-weight:900;color:#1d4ed8;font-size:.95rem;letter-spacing:.5px">
-            ${hrs != null ? '~' + finishTime : '—'}
+          <td style="padding:9px 8px;text-align:center;font-weight:900;font-size:.95rem;letter-spacing:.5px;color:${done?'#9ca3af':'#1d4ed8'}">
+            ${!done && hrs != null ? '~' + finishTime : '—'}
           </td>
-          <td style="padding:9px 8px;text-align:center;font-size:.78rem">${statusMap[c.status]||'—'}</td>
-          <td style="padding:6px 8px;text-align:center">
-            <button onclick="markJobPrinted('${c.id}')"
-              style="background:#16a34a;color:white;border:none;border-radius:7px;padding:5px 12px;font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;white-space:nowrap">
-              ✅ הודפס
-            </button>
-          </td>
+          <td style="padding:6px 8px;text-align:center">${actionBtn}</td>
         </tr>`;
       });
       html += '</table>';
@@ -5209,6 +5886,7 @@ function renderCards() {
           <option value="inprogress" ${c.status==='inprogress'?'selected':''}>בדפוס</option>
           <option value="done"       ${c.status==='done'?'selected':''}>הושלם</option>
         </select>
+        <button class="btn btn-sm" style="background:#f0f4ff;color:#2d3561;border:1.5px solid #c0ccf0" onclick="editCard(${c.id})">✏️ ערוך</button>
         <button class="btn btn-sm btn-gold" onclick="showPrintModal(cards.find(c=>c.id===${c.id}))">🖨️ הדפס</button>
         <button class="btn btn-sm" style="background:#0d6efd;color:white;border-color:#0d6efd" onclick="emailCardDirectToPP(${c.id})">📧 קדם דפוס</button>
         <button class="btn btn-sm" style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0" onclick="duplicateCard(${c.id})">📋 שכפל</button>
@@ -5934,12 +6612,20 @@ function validateCard(card) {
     warns.push({ code: 'no_type',     msg: 'סוג עבודה לא הוזן',      sev: 'warn' });
   if (!card.size || !card.size.trim())
     warns.push({ code: 'no_size',     msg: 'גודל סופי לא הוזן',      sev: 'warn' });
-  if (pages === 0)
-    warns.push({ code: 'no_pages',    msg: 'מספר עמודים לא הוזן',    sev: 'warn' });
+  var _isNoPagesType = card.size && (
+    (card.size.includes('נייר מדפסת') || card.size.includes('נייר מדפסת A4')) ||
+    card.size.includes('פלייסמנטים') ||
+    card.size.includes('פוסטר'));
+  if (pages === 0 && !_isNoPagesType)
+    warns.push({ code: 'no_pages', msg: 'מספר עמודים לא הוזן', sev: 'warn' });
   if (!card.color || !card.color.trim())
     warns.push({ code: 'no_color',    msg: 'צבע הדפסה לא נבחר',      sev: 'warn' });
-  if (!card.machine || !card.machine.trim())
-    warns.push({ code: 'no_machine',  msg: 'מכונה לא נבחרה',         sev: 'warn' });
+  if (!card.machine || !card.machine.trim()) {
+    var runsHaveMachines = card.runs && card.runs.length > 0 &&
+      card.runs.every(function(r){ return r.machine && r.machine.trim(); });
+    if (!runsHaveMachines)
+      warns.push({ code: 'no_machine', msg: 'מכונה לא נבחרה', sev: 'warn' });
+  }
   if (!card.deliveryDate)
     warns.push({ code: 'no_delivery', msg: 'תאריך אספקה חסר',        sev: 'warn' });
 
@@ -5979,9 +6665,10 @@ function validateCard(card) {
     if (ppMatch) {
       var perSheet = parseInt(ppMatch[1]);
       var expectedTotal = copies * perSheet;
-      // חלץ מספרים גדולים מהערות (מעל 1000)
-      var noteNums = (card.notes.match(/[\d,\.]+/g)||[])
-        .map(function(n){ return parseInt(n.replace(/[,\.]/g,'')); })
+      // חלץ מספרים גדולים מהערות (מעל 1000) — עם ובלי פסיקים
+      var _rawNotes = card.notes.replace(/[,\.]/g,''); // הסר מפרידים
+      var noteNums = (_rawNotes.match(/\d+/g)||[])
+        .map(function(n){ return parseInt(n); })
         .filter(function(n){ return n > 1000; });
       noteNums.forEach(function(noteNum) {
         var ratio = Math.abs(noteNum - expectedTotal) / expectedTotal;
