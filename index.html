@@ -5298,6 +5298,86 @@ function openWorkItemEdit(cardId) {
   setTimeout(function(){ var el=document.getElementById('we-name'); if(el){el.focus();el.select();} }, 60);
 }
 
+function addWorkItem(machine) {
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10040;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:white;border-radius:14px;padding:24px 24px 18px;max-width:440px;width:100%;direction:rtl;font-family:Heebo,sans-serif';
+
+  var FIELDS = [
+    ['שם העבודה (חובה)', 'awi-name', 'text', '', 'שם לקוח / שם עבודה'],
+    ['סוג נייר',         'awi-paper','text', '', 'כרומו מט 135 גרם...'],
+    ['כמות',             'awi-copies','number','','5000'],
+  ];
+  var fhtml = FIELDS.map(function(f){
+    return '<div style="margin-bottom:12px">'
+      + '<label style="font-size:.8rem;font-weight:700;display:block;margin-bottom:4px">' + f[0] + '</label>'
+      + '<input id="' + f[1] + '" type="' + f[2] + '" placeholder="' + f[4] + '"'
+      + ' style="width:100%;padding:8px 10px;border:1.5px solid #c0ccf0;border-radius:8px;font-family:Heebo,sans-serif;font-size:.9rem;box-sizing:border-box">'
+      + '</div>';
+  }).join('');
+
+  box.innerHTML = '<div style="font-weight:900;font-size:1.05rem;margin-bottom:6px">+ הוסף עבודה לרשימה</div>'
+    + '<div style="font-size:.8rem;color:#6b7280;margin-bottom:16px">מכונה: <strong>' + escHtml(machine) + '</strong></div>'
+    + fhtml
+    + '<div style="margin-bottom:14px">'
+    + '<label style="font-size:.8rem;font-weight:700;display:block;margin-bottom:4px">הערות</label>'
+    + '<textarea id="awi-notes" rows="2" placeholder="הערות נוספות..." style="width:100%;padding:8px 10px;border:1.5px solid #c0ccf0;border-radius:8px;font-family:Heebo,sans-serif;font-size:.9rem;resize:vertical;box-sizing:border-box"></textarea>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    + '<button id="_awi-cancel" style="padding:8px 18px;border:1.5px solid #ccc;border-radius:8px;background:white;font-family:Heebo,sans-serif;cursor:pointer;color:#555">ביטול</button>'
+    + '<button id="_awi-save" style="padding:8px 22px;background:#16a34a;color:white;border:none;border-radius:8px;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">+ הוסף לרשימה</button>'
+    + '</div>';
+
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  function closeModal(){ if(modal.parentNode) modal.parentNode.removeChild(modal); }
+  modal.addEventListener('click', function(e){ if(e.target===modal) closeModal(); });
+  document.getElementById('_awi-cancel').addEventListener('click', closeModal);
+  document.getElementById('_awi-save').addEventListener('click', function(){
+    var name = document.getElementById('awi-name').value.trim();
+    if (!name) { document.getElementById('awi-name').focus(); return; }
+    var newCard = {
+      id:         Date.now(),
+      name:       name,
+      paper:      document.getElementById('awi-paper').value.trim(),
+      copies:     document.getElementById('awi-copies').value.trim(),
+      notes:      document.getElementById('awi-notes').value.trim(),
+      machine:    machine,
+      status:     'pending',
+      wlistOnly:  true,
+      createdAt:  new Date().toISOString().slice(0,10)
+    };
+    cards.push(newCard);
+    persist();
+    // add to work order for this machine
+    if (!_workOrder[machine]) _workOrder[machine] = [];
+    _workOrder[machine].push(newCard.id);
+    _saveWorkOrder();
+    closeModal();
+    renderWorkList();
+    showToast('✅ עבודה נוספה לרשימת ' + machine);
+  });
+  setTimeout(function(){ var el=document.getElementById('awi-name'); if(el) el.focus(); }, 60);
+}
+
+function removeFromWorkList(cardId, machine, isWlistOnly) {
+  var label = isWlistOnly ? 'למחוק עבודה זו לחלוטין?' : 'להסיר עבודה זו מרשימת המכונה? (הכרטיס יישמר)';
+  if (!confirm(label)) return;
+  if (isWlistOnly) {
+    // delete the card entirely
+    cards = cards.filter(function(c){ return c.id !== cardId; });
+    persist();
+  }
+  // remove from work order
+  WORKLIST_MACHINES.forEach(function(m){
+    if (_workOrder[m]) _workOrder[m] = _workOrder[m].filter(function(id){ return id !== cardId; });
+  });
+  _saveWorkOrder();
+  renderWorkList();
+  showToast(isWlistOnly ? '🗑️ עבודה נמחקה' : '↩ עבודה הוסרה מהרשימה');
+}
+
 function printWorkList(machine) {
   _syncWorkOrder();
   var order   = _workOrder[machine] || [];
@@ -5402,6 +5482,9 @@ function renderWorkList() {
       + '<div style="font-weight:900;font-size:.95rem">' + iconMap[machine] + ' ' + escHtml(machine) + '</div>'
       + '<div style="display:flex;align-items:center;gap:10px">'
       + '<span style="font-size:.82rem;color:#374151;font-weight:700">' + rows.length + ' עבודות</span>'
+      + '<button onclick="addWorkItem(\'' + machineSafeHdr + '\')" '
+      + 'style="background:#16a34a;color:white;border:none;border-radius:7px;padding:5px 13px;font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer">'
+      + '+ הוסף עבודה</button>'
       + '<button onclick="printWorkList(\'' + machineSafeHdr + '\')" '
       + 'style="background:#2d3561;color:white;border:none;border-radius:7px;padding:5px 13px;font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer">'
       + '🖨️ הדפס רשימה</button>'
@@ -5438,8 +5521,10 @@ function renderWorkList() {
           + '</div>'
           + '</div>'
           // edit button
+          + (c.wlistOnly ? '<span style="font-size:.68rem;background:#fef3c7;color:#92400e;border-radius:4px;padding:2px 6px;font-weight:700;white-space:nowrap">ידני</span>' : '')
           + '<button onclick="openWorkItemEdit(' + c.id + ')" title="ערוך" '
           + 'style="background:none;border:1px solid #e5e7eb;border-radius:7px;padding:4px 8px;cursor:pointer;font-size:.8rem;color:#6b7280;white-space:nowrap;align-self:flex-start">✏️ ערוך</button>'
+          + '<button onclick="removeFromWorkList(' + c.id + ',\'' + machineSafe + '\',Boolean(' + (c.wlistOnly||false) + '))" title="הסר מרשימה" style="background:none;border:1px solid #fca5a5;border-radius:7px;padding:4px 8px;cursor:pointer;font-size:.8rem;color:#dc2626;white-space:nowrap;align-self:flex-start">🗑️</button>'
           + '</div>'
           + '</div>';
       });
