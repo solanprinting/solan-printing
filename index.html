@@ -1663,6 +1663,10 @@ let _loginUserId   = null;
 
 function saveUsers() {
   localStorage.setItem('solanUsers', JSON.stringify(solanUsers));
+  // push to Firebase so other devices get the update
+  if (window._fbConnected && window._fbPut) {
+    window._fbPut('solanUsers', solanUsers);
+  }
 }
 
 function hasPermission(perm) {
@@ -7941,7 +7945,12 @@ async function _fbPollAll() {
     var uv = await window._fbGet('solanUsers');
     if (uv !== null) {
       var incoming = Array.isArray(uv) ? uv : Object.values(uv);
-      solanUsers = incoming;
+      // merge: keep local users not in Firebase (added offline), update existing
+      var merged = incoming.slice();
+      solanUsers.forEach(function(lu) {
+        if (!merged.find(function(x){ return x.id === lu.id; })) merged.push(lu);
+      });
+      solanUsers = merged;
       localStorage.setItem('solanUsers', JSON.stringify(solanUsers));
       if (currentUser) {
         var me = solanUsers.find(function(u){ return u.id === currentUser.id; });
