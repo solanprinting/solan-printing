@@ -1356,6 +1356,20 @@ window._fbInit = () => true;
   </div>
 </div>
 
+<!-- ===== INVENTORY ITEM HISTORY MODAL (read-only) ===== -->
+<div class="modal-overlay" id="history-modal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h3 id="history-modal-title">📜 היסטוריית עדכונים</h3>
+      <button class="modal-close" onclick="closeHistoryModal()">×</button>
+    </div>
+    <div class="modal-body" id="history-modal-body" style="padding:14px 20px"></div>
+    <div class="modal-footer" style="justify-content:flex-end">
+      <button class="btn btn-clear" onclick="closeHistoryModal()">סגור</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== RUNS MACHINE MODAL ===== -->
 <div class="modal-overlay" id="runs-modal">
   <div class="modal" style="max-width:500px">
@@ -2135,6 +2149,9 @@ function persist() {
   localStorage.setItem('solanUsers',               JSON.stringify(solanUsers));
   if (apiKey) localStorage.setItem('solanApiKey', apiKey);
   updateBadge();
+  // סמן שבוצע כתיבה מקומית עכשיו — כדי שה-poll מה-Firebase לא ידרוס אותה
+  // ברגע שהיא עדיין לא הגיעה לשרת (למשל מחיקת כרטיס שמוחזרת ע"י נתון ישן)
+  window._lastLocalWriteAt = Date.now();
   // Sync to Firebase via REST API
   if (_fbConnected) {
     var _paths = {
@@ -2926,8 +2943,12 @@ function _recalcPageRanges() {
 function moveCurrentRun(i, dir) {
   var j = i + dir;
   if (j < 0 || j >= currentRuns.length) return;
+  // החלפה מלאה של אובייקטי הריצה (כולל pages/pageRange/copies) — מיקום הריצה
+  // הוא רק סדר ההצגה/הדפסה, אבל טווח העמודים הפיזי שלה לא משתנה ולכן עובר איתה.
+  // לפנים הקוד קרא ל-_recalcPageRanges() אחרי ההחלפה, שחישב טווחי עמודים שגויים
+  // מאפס לפי המיקום החדש (כאילו שכבות ה"חיתוך" תלויות בסדר התצוגה) — זה בדיוק
+  // הבאג שגרם לטווחי העמודים להתבלבל בעת החלפת מיקום ריצות.
   var tmp = currentRuns[i]; currentRuns[i] = currentRuns[j]; currentRuns[j] = tmp;
-  _recalcPageRanges();
   _renderCurrentRunsOutput();
 }
 
@@ -3918,6 +3939,12 @@ function saveCard() {
       updated.printedAt = existing.printedAt;
       updated.printCount = existing.printCount;
       Object.assign(existing, updated);
+      // עריכה מחדש של הכרטיס היא פעולה מפורשת — אם הוא הוסר בעבר מרשימת מכונה כלשהי, אפשר שיופיע בה שוב
+      _loadWorkOrder();
+      WORKLIST_MACHINES.forEach(function(m){
+        if (_workOrderExcluded[m]) _workOrderExcluded[m] = _workOrderExcluded[m].filter(function(id){ return id !== existing.id; });
+      });
+      _saveWorkOrder();
       persist();
       renderCards();
       window._editingCardId = null;
@@ -4271,6 +4298,8 @@ function doPrintBlankRuns() {
     <\/script>
     </body></html>`);
     w.document.close();
+    c = _autoSaveIfPreview(c);
+    window._previewCard = c;
     _recordPrintHistory(c);
   }
 
@@ -4400,7 +4429,10 @@ function showPrintModal(card) {
   document.getElementById('print-card-content').innerHTML = buildPrintCard(card);
   document.getElementById('print-modal-save-btn').style.display = 'none';
   document.getElementById('print-modal').classList.add('open');
-  window._previewCard = null;
+  // card שמגיע לכאן הוא כרטיס שכבר שמור (id אמיתי) — יש לשמור את הרפרנס אליו
+  // כדי שלחיצה על "הדפס" תוך כדי הצפייה תרשום printedAt/היסטוריית הדפסה כראוי
+  // (לפני התיקון השדה אופס ל-null וגרם להדפסה "שקטה" שלא נרשמה בשום מקום)
+  window._previewCard = card;
 }
 
 function saveFromPreview() {
@@ -4478,6 +4510,30 @@ function doPrint() {
   }
   _doPrintNow();
 }
+function _autoSaveIfPreview(card) {
+  // אם זה כרטיס "תצוגה מקדימה" בלבד (id==='preview') שלא נשמר במפורש ע"י המשתמש
+  // (למשל לחיצה על "הדפס" ישירות מתצוגה מקדימה בלי "💾 שמור כרטיס") —
+  // שומרים אותו עכשיו אוטומטית לרשימת הכרטיסים כדי שיתעדכן בקטגוריות המתאימות
+  if (!card || card.id !== 'preview') return card;
+  var saved = Object.assign({}, card, {
+    id: Date.now(),
+    status: 'pending',
+    createdAt: card.createdAt || new Date().toLocaleDateString('he-IL'),
+    createdBy: currentUser ? currentUser.id : 'admin'
+  });
+  cards.unshift(saved);
+  addHistory('f-name',  saved.name);
+  addHistory('f-type',  saved.type);
+  addHistory('f-paper', saved.paper);
+  addHistory('f-size',  saved.size);
+  addHistory('f-notes', saved.notes);
+  persist();
+  renderCards();
+  var saveBtn = document.getElementById('print-modal-save-btn');
+  if (saveBtn) saveBtn.style.display = 'none';
+  showToast('✅ הכרטיס נשמר אוטומטית עם ההדפסה');
+  return saved;
+}
 function _doPrintNow() {
   const content=document.getElementById('print-card-content').innerHTML;
   const w=window.open('','_blank','width=860,height=1100');
@@ -4524,6 +4580,7 @@ function _doPrintNow() {
   <\/script>
 </body></html>`);
   w.document.close();
+  window._previewCard = _autoSaveIfPreview(window._previewCard);
   _recordPrintHistory(window._previewCard);
 }
 
@@ -4596,14 +4653,23 @@ function confirmDeduct() {
   var item2 = inventory.find(function(it){ return it.name === _pname2; });
   if (!item2) { showToast("⚠️ בחר סוג נייר מהרשימה"); return; }
   if (qty <= 0) { showToast("⚠️ הכנס כמות תקינה"); return; }
-  _pushInventoryUndo();
   // הורד מחשבונית ספציפית
   var _invIdxEl2 = document.getElementById("del-invoice-idx");
   var _invIdx2 = _invIdxEl2 ? parseInt(_invIdxEl2.value) : -1;
+  // אם יש כמה חשבוניות לנייר זה — אסור להוריד בלי לבחור באיזו חשבונית/הזמנה,
+  // אחרת המלאי יורד מהנייר הנכון אבל מהזמנה לא נכונה
+  if (item2.invoices && item2.invoices.length > 1 && _invIdx2 < 0) {
+    showToast("⚠️ בחר חשבונית / מספר הזמנה ספציפי להורדה — יש כמה חשבוניות לנייר זה");
+    return;
+  }
+  _pushInventoryUndo();
+  var _matchedOrderNum = "", _matchedInvNum = "";
   if (_invIdx2 >= 0 && item2.invoices && item2.invoices[_invIdx2]) {
     var _inv2 = item2.invoices[_invIdx2];
-    if (qty > (_inv2.qty||0)) { showToast("⚠️ כמות גדולה מהזמין בחשבונית זו (" + parseInt(_inv2.qty||0).toLocaleString() + ")"); return; }
+    if (qty > (_inv2.qty||0)) { _inventoryUndoStack.pop(); _updateInventoryUndoBtn(); showToast("⚠️ כמות גדולה מהזמין בחשבונית זו (" + parseInt(_inv2.qty||0).toLocaleString() + ")"); return; }
     _inv2.qty = (_inv2.qty||0) - qty;
+    _matchedOrderNum = _inv2.orderNum || "";
+    _matchedInvNum = _inv2.inv || "";
   }
   // חשב מחדש סה"כ מלאי
   item2.qty = (item2.invoices||[]).reduce(function(s,x){ return s+(x.qty||0); }, 0);
@@ -4612,13 +4678,14 @@ function confirmDeduct() {
   inventoryDeductions.push({
     id: Date.now(), date: date, time: _timeStr, paperName: item2.name, qty: qty,
     invoiceIdx: (_invIdx2 >= 0 ? _invIdx2 : undefined),
+    orderNum: _matchedOrderNum, invNum: _matchedInvNum,
     cardId: card.id||null, cardName: card.name||"", note: note
   });
   persist();
   renderInventory();
   document.getElementById("inv-modal").classList.remove("open");
   window._deductCard = null;
-  showToast("✅ הורד " + qty.toLocaleString() + " גיליינות מ-" + item2.name);
+  showToast("✅ הורד " + qty.toLocaleString() + " גיליינות מ-" + item2.name + (_matchedOrderNum ? " (הזמנה " + _matchedOrderNum + ")" : ""));
   switchTab("saved");
 }
 
@@ -4646,6 +4713,8 @@ function openManualDeductModal(mode) {
       "<div style='position:relative'>" +
       "<input id='del-paper-name' type='text' autocomplete='off' placeholder='התחל להקליד...' style='width:100%;padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.9rem;box-sizing:border-box' oninput='delPaperAcInput(this.value)' onfocus='delPaperAcInput(this.value)' onblur='delPaperAcHide()'>" +
       "<div id='del-paper-ac' class='ac-list'></div></div></div>" +
+      "<div class='mg-field full'><label>מספר הזמנה (כדי לבחור אוטומטית את החשבונית הנכונה)</label>" +
+      "<input id='del-order-hint' type='text' placeholder='אופציונלי — לדוגמה 171.123' style='padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.9rem;width:100%' oninput='delOrderHintChanged(this.value)'></div>" +
       "<div id='del-invoice-wrap' style='margin-top:8px'></div>" +
       "<div class='mg-field'><label>כמות גיליינות</label>" +
       "<input id='deduct-qty' type='number' placeholder='0' style='padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.95rem;font-weight:700;width:100%'></div>" +
@@ -4739,8 +4808,11 @@ function confirmOrderDeduct() {
     showToast("⚠️ נבחרו " + activeInputs.length + " סוגי נייר — ניתן להוריד סוג אחד בלבד בפעם אחת");
     return;
   }
+  var orderNumUsed = ((document.getElementById("order-num-input")||{}).value||"").trim();
   _pushInventoryUndo();
   var count = 0;
+  var _now = new Date();
+  var _timeStr = _now.toLocaleTimeString("he-IL", {hour:"2-digit",minute:"2-digit"});
   inputs.forEach(function(inp) {
     var qty = parseInt(inp.value) || 0;
     if (qty <= 0) return;
@@ -4754,7 +4826,8 @@ function confirmOrderDeduct() {
     inv.qty = (inv.qty||0) - qty;
     it.qty = (it.invoices||[]).reduce(function(s,x){ return s+(x.qty||0); }, 0);
     inventoryDeductions.push({
-      id: Date.now() + count, date: date, paperName: paperName, qty: qty,
+      id: Date.now() + count, date: date, time: _timeStr, paperName: paperName, qty: qty,
+      orderNum: inv.orderNum || orderNumUsed || "", invNum: inv.inv || "",
       cardId: null, cardName: "", note: note
     });
     count++;
@@ -4865,7 +4938,7 @@ function renderDeductionsList() {
     var realIdx = inventoryDeductions.indexOf(d);
     return "<tr style='border-bottom:1px solid #eee'>" +
       "<td style='padding:7px 10px;font-size:.82rem;color:#888'>" + (d.date||"—") + (d.time ? "<br><span style='font-size:.75rem;color:#aaa'>" + d.time + "</span>" : "") + "</td>" +
-      "<td style='padding:7px 10px;font-weight:700'>" + escHtml(d.paperName||"") + "</td>" +
+      "<td style='padding:7px 10px;font-weight:700'>" + escHtml(d.paperName||"") + (d.orderNum ? "<br><span style='font-size:.72rem;color:#888;font-weight:400'>הזמנה: " + escHtml(d.orderNum) + "</span>" : "") + "</td>" +
       "<td style='padding:7px 10px;text-align:center;font-weight:700;color:#e53935'>" + parseInt(d.qty||0).toLocaleString() + "</td>" +
       "<td style='padding:7px 10px;font-size:.82rem;color:#555'>" + escHtml(d.cardName||"") + (d.note ? " — " + escHtml(d.note) : "") + "</td>" +
       "<td style='padding:7px 10px;text-align:center'>" +
@@ -4948,10 +5021,11 @@ function delPaperAcPick(name) {
   if (inp) inp.value = name;
   var list = document.getElementById("del-paper-ac");
   if (list) list.classList.remove("open");
-  delBuildInvoiceSelector(name);
+  var hintEl = document.getElementById("del-order-hint");
+  delBuildInvoiceSelector(name, hintEl ? hintEl.value : "");
 }
 
-function delBuildInvoiceSelector(paperName) {
+function delBuildInvoiceSelector(paperName, wantedOrderNum) {
   var wrap = document.getElementById("del-invoice-wrap");
   if (!wrap) return;
   var item = inventory.find(function(it){ return it.name === paperName; });
@@ -4959,20 +5033,35 @@ function delBuildInvoiceSelector(paperName) {
     wrap.innerHTML = "<div style='color:#aaa;font-size:.82rem;padding:4px 0'>אין חשבוניות רשומות לנייר זה</div>";
     return;
   }
+  var wanted = (wantedOrderNum||"").trim();
+  var matchIdx = -1;
   var opts = item.invoices.map(function(inv, j) {
     var label = [];
     if (inv.inv) label.push("חשבונית " + inv.inv);
     if (inv.orderNum) label.push("הזמנה " + inv.orderNum);
     if (inv.date) label.push(inv.date);
     label.push("כמות: " + parseInt(inv.qty||0).toLocaleString() + " גיל");
-    return '<option value="' + j + '">' + label.join(" | ") + '</option>';
+    var isMatch = !!(wanted && (inv.orderNum||"") === wanted);
+    if (isMatch && matchIdx < 0) matchIdx = j;
+    return '<option value="' + j + '"' + (isMatch ? " selected" : "") + '>' + label.join(" | ") + '</option>';
   }).join("");
+  // אם יש כמה חשבוניות ולא נמצאה התאמה חד-משמעית למספר הזמנה — אל תבחר ברירת מחדל שקטה,
+  // חייב את המשתמש לבחור בעצמו כדי שלא יורד בטעות ממספר הזמנה שגוי
+  var needsExplicitPick = (item.invoices.length > 1 && matchIdx < 0);
+  var placeholder = needsExplicitPick ? '<option value="-1" selected>-- בחר חשבונית / הזמנה --</option>' : '';
+  var warn = (wanted && matchIdx < 0)
+    ? "<div style='color:#e65100;font-size:.78rem;margin-top:4px'>⚠️ לא נמצאה חשבונית עם מספר הזמנה " + escHtml(wanted) + " לנייר זה — בחר ידנית מהרשימה למטה</div>"
+    : "";
   wrap.innerHTML =
     "<label style='display:block;font-size:.82rem;font-weight:700;color:#555;margin-bottom:4px'>הורד מחשבונית / הזמנה</label>" +
-    "<select id='del-invoice-idx' style='width:100%;padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.88rem'>" + opts + "</select>";
+    "<select id='del-invoice-idx' style='width:100%;padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.88rem'>" + placeholder + opts + "</select>" + warn;
 }
 function delPaperAcHide() {
   setTimeout(function(){ var l=document.getElementById("del-paper-ac"); if(l) l.classList.remove("open"); }, 150);
+}
+function delOrderHintChanged(val) {
+  var pname = (document.getElementById("del-paper-name")||{}).value || "";
+  if (pname) delBuildInvoiceSelector(pname, val);
 }
 
 // ========== DELIVERY DOC (תעודת משלוח — מלאי רונימאר) ==========
@@ -5064,11 +5153,7 @@ function buildDeliveryForm(pre, mode) {
   var isDeduct = (mode === "deduct");
   var accentColor = isDeduct ? "#e65100" : "#2e7d32";
   var aiBg = isDeduct ? "#fff3e0" : "#e8f5e9";
-  var invOpts = inventory.map(function(it,i){
-    var sel = (pre.paperName && it.name && it.name.toLowerCase().includes((pre.paperName||"").toLowerCase().split(" ")[0])) ? " selected" : "";
-    var avail = isDeduct ? (" — זמין: " + getAvailableQty(it).toLocaleString()) : "";
-    return "<option value=" + i + sel + ">" + escHtml(it.name) + avail + "</option>";
-  }).join("");
+  var preNameVal = pre.paperName || "";
   document.getElementById("delivery-confirm-btn").textContent = isDeduct ? "✅ הורד ממלאי" : "✅ הוסף למלאי";
   document.getElementById("delivery-modal-body").innerHTML =
     "<div style='padding:18px 20px;direction:rtl'>" +
@@ -5076,8 +5161,10 @@ function buildDeliveryForm(pre, mode) {
     "<div class='mg' style='gap:12px'>" +
     "<div class='mg-field full'><label>סוג נייר</label>" +
     "<div style='position:relative'>" +
-    "<input id='del-paper-name' type='text' autocomplete='off' value='" + escHtml(_preNameVal) + "' placeholder='התחל להקליד...' style='width:100%;padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.9rem;box-sizing:border-box' oninput='delPaperAcInput(this.value)' onfocus='delPaperAcInput(this.value)' onblur='delPaperAcHide()'>" +
+    "<input id='del-paper-name' type='text' autocomplete='off' value='" + escHtml(preNameVal) + "' placeholder='התחל להקליד...' style='width:100%;padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.9rem;box-sizing:border-box' oninput='delPaperAcInput(this.value)' onfocus='delPaperAcInput(this.value)' onblur='delPaperAcHide()'>" +
     "<div id='del-paper-ac' class='ac-list'></div></div></div>" +
+    "<div class='mg-field full'><label>מספר הזמנה" + (isDeduct ? " (כדי לבחור אוטומטית את החשבונית הנכונה)" : " (אופציונלי)") + "</label>" +
+    "<input id='del-order-hint' type='text' value='" + escHtml(pre.orderNum||"") + "' placeholder='לדוגמה 171.123' style='padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.9rem;width:100%' oninput='delOrderHintChanged(this.value)'></div>" +
     "<div id='del-invoice-wrap' style='margin-top:8px'></div>" +
     "<div class='mg-field'><label>כמות גיליינות</label>" +
     "<input id='del-qty' type='number' value='" + (pre.qty||"") + "' placeholder='0' style='padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.95rem;font-weight:700;width:100%'></div>" +
@@ -5090,38 +5177,54 @@ function buildDeliveryForm(pre, mode) {
     "<input id='del-docnum' type='text' value='" + escHtml(pre.docNum||"") + "' placeholder='111.xxx' style='padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.9rem;width:100%'></div>" +
     "</div></div>";
   document.getElementById("delivery-confirm-btn").style.display = "inline-flex";
+  // אם המסמך כבר מציין נייר קיים — בנה את בורר החשבוניות מיד (חשוב במיוחד למצב הורדה)
+  if (preNameVal) {
+    setTimeout(function(){ delBuildInvoiceSelector(preNameVal, pre.orderNum||""); }, 30);
+  }
 }
 
 function confirmDelivery() {
-  var qty    = parseInt(document.getElementById("del-qty").value) || 0;
-  var date   = document.getElementById("del-date").value || new Date().toISOString().slice(0,10);
-  var docNum = (document.getElementById("del-docnum").value||"").trim();
+  var qty      = parseInt(document.getElementById("del-qty").value) || 0;
+  var date     = document.getElementById("del-date").value || new Date().toISOString().slice(0,10);
+  var docNum   = (document.getElementById("del-docnum").value||"").trim();
+  var orderNum = ((document.getElementById("del-order-hint")||{}).value||"").trim();
   if (qty <= 0) { showToast("⚠️ הכנס כמות"); return; }
   var _pname = ((document.getElementById("del-paper-name")||{}).value||"").trim();
   var item = inventory.find(function(it){ return it.name === _pname; });
+  var _now = new Date();
+  var _timeStr = _now.toLocaleTimeString("he-IL", {hour:"2-digit",minute:"2-digit"});
 
   if (_deliveryMode === "deduct") {
     // תעודת משלוח — הורד מחשבונית ספציפית ועדכן מלאי
     if (!item) { showToast("⚠️ בחר נייר"); return; }
     var invIdxEl = document.getElementById("del-invoice-idx");
     var invIdx = invIdxEl ? parseInt(invIdxEl.value) : -1;
+    // אם יש כמה חשבוניות לנייר זה — אסור להוריד בלי לבחור באיזו חשבונית/הזמנה
+    if (item.invoices && item.invoices.length > 1 && invIdx < 0) {
+      showToast("⚠️ בחר חשבונית / מספר הזמנה ספציפי להורדה — יש כמה חשבוניות לנייר זה");
+      return;
+    }
+    var _matchedOrderNum = orderNum, _matchedInvNum = "";
     if (invIdx >= 0 && item.invoices && item.invoices[invIdx]) {
       var inv = item.invoices[invIdx];
       if (qty > (inv.qty||0)) { showToast("⚠️ כמות גדולה מהזמין בחשבונית זו (" + parseInt(inv.qty||0).toLocaleString() + ")"); return; }
       inv.qty = (inv.qty||0) - qty;
+      _matchedOrderNum = inv.orderNum || orderNum;
+      _matchedInvNum = inv.inv || "";
     }
     // חשב מחדש סה"כ מלאי
     item.qty = (item.invoices||[]).reduce(function(s,x){ return s+(x.qty||0); }, 0);
     // שמור היסטוריה
     inventoryDeductions.push({
-      id: Date.now(), date: date, paperName: item.name, qty: qty,
+      id: Date.now(), date: date, time: _timeStr, paperName: item.name, qty: qty,
       invoiceIdx: (invIdx >= 0 ? invIdx : undefined),
+      orderNum: _matchedOrderNum, invNum: _matchedInvNum,
       cardId: null, cardName: "", note: docNum
     });
     persist();
     closeDeliveryModal();
     renderInventory();
-    showToast("✅ הורד " + qty.toLocaleString() + " גיליינות מ-" + item.name);
+    showToast("✅ הורד " + qty.toLocaleString() + " גיליינות מ-" + item.name + (_matchedOrderNum ? " (הזמנה " + _matchedOrderNum + ")" : ""));
   } else {
     // חשבונית — הוסף למלאי
     var newNameEl = document.getElementById("del-paper-new");
@@ -5129,13 +5232,17 @@ function confirmDelivery() {
     var priceEl = document.getElementById("del-price");
     var priceK  = priceEl ? (parseFloat(priceEl.value) || 0) : 0;
     var price   = priceK / 1000;
+    if (!item && _pname) {
+      item = { name: _pname, qty: 0, invoices: [] };
+      inventory.push(item);
+    }
     if (newName) {
       item = { name: newName, qty: 0, invoices: [] };
       inventory.push(item);
     }
     if (!item) { showToast("⚠️ בחר נייר"); return; }
     if (!item.invoices) item.invoices = [];
-    item.invoices.push({ date: date, inv: docNum, orderNum: "", qty: qty, price: price });
+    item.invoices.push({ date: date, time: _timeStr, inv: docNum, orderNum: orderNum, qty: qty, price: price });
     item.qty = item.invoices.reduce(function(s,x){ return s+(x.qty||0); }, 0);
     persist();
     closeDeliveryModal();
@@ -5484,15 +5591,21 @@ var DEFAULT_TEMPLATES = [
 // ═══════════════════════════════════════════════════════
 var WORKLIST_MACHINES = ['מכונה 4 צבעים', 'מכונה 8 צבעים'];
 var _workOrder = {};  // { machine: [cardId, ...] }
+var _workOrderExcluded = {};  // { machine: [cardId, ...] } — כרטיסים שהוסרו ידנית מרשימת המכונה ולא יוחזרו אוטומטית ע"י _syncWorkOrder
 
 function _loadWorkOrder() {
   try {
     var raw = localStorage.getItem('machineWorkOrder');
     _workOrder = raw ? JSON.parse(raw) : {};
   } catch(e) { _workOrder = {}; }
+  try {
+    var rawEx = localStorage.getItem('machineWorkOrderExcluded');
+    _workOrderExcluded = rawEx ? JSON.parse(rawEx) : {};
+  } catch(e) { _workOrderExcluded = {}; }
 }
 function _saveWorkOrder() {
   localStorage.setItem('machineWorkOrder', JSON.stringify(_workOrder));
+  localStorage.setItem('machineWorkOrderExcluded', JSON.stringify(_workOrderExcluded));
 }
 
 // Sync: ensure every active card that belongs to a machine is in its order list,
@@ -5502,8 +5615,10 @@ function _syncWorkOrder() {
   var active = (cards||[]).filter(function(c){ return c.status !== 'done'; });
   WORKLIST_MACHINES.forEach(function(machine) {
     var order = _workOrder[machine] || [];
+    var excluded = _workOrderExcluded[machine] || [];
     // collect card IDs that belong to this machine
     var belonging = active.filter(function(c){
+      if (excluded.indexOf(c.id) >= 0) return false; // הוסר ידנית — לא יוחזר אוטומטית
       if (c.machine === machine) return true;
       if (c.runs && c.runs.some(function(r){ return r.machine === machine; })) return true;
       return false;
@@ -5656,6 +5771,12 @@ function removeFromWorkList(cardId, machine, isWlistOnly) {
     // delete the card entirely
     cards = cards.filter(function(c){ return c.id !== cardId; });
     persist();
+  } else {
+    // הכרטיס נשאר קיים ועדיין "שייך" למכונה הזו (c.machine / run.machine) —
+    // בלי רשימת חסימה, _syncWorkOrder היה מחזיר אותו אוטומטית ברינדור הבא
+    // (זו הייתה הסיבה שההסרה "לא עבדה"). שמור אותו ברשימת מוחרגים לפי מכונה.
+    if (!_workOrderExcluded[machine]) _workOrderExcluded[machine] = [];
+    if (_workOrderExcluded[machine].indexOf(cardId) < 0) _workOrderExcluded[machine].push(cardId);
   }
   // remove from work order
   WORKLIST_MACHINES.forEach(function(m){
@@ -6475,14 +6596,18 @@ function renderMachineQueue() {
       if (runsForMachine.length > 0) {
         runsForMachine.forEach(function(x) {
           var r = x.r, i = x.i;
-          var sheets = parseInt(r.sheets||r.papers||0)||0;
+          // מספר הגיליונות הפיזיים לריצה זו הוא r.copies (כך buildRuns/getEffectiveRuns
+          // בונה אותו — לא היה אי-פעם שדה r.sheets/r.papers, מה שגרם לזמן 0 בתור)
+          var sheets = parseInt(r.sheets||r.papers||r.copies||0)||0;
           var customT = (r.customTime != null) ? parseFloat(r.customTime) : null;
           var hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
           var isCustom = (customT != null);
           runRows.push({ c:c, runIdx:i, runLabel:r.label||('ריצה '+(i+1)), sheets:sheets, hrs:hrs, isCustom:isCustom, done:!!r.done });
         });
       } else if (c.machine === machine) {
-        var sheets = parseInt(c.sheets||0)||0;
+        // לכרטיס בלי פירוט ריצות — כמות הגיליונות הפיזיים היא כמות העותקים (c.copies);
+        // c.sheets לא קיים בשום מקום באפליקציה
+        var sheets = parseInt(c.sheets||c.copies||0)||0;
         var customT = (c.customMachineTime && c.customMachineTime[machine]) ? parseFloat(c.customMachineTime[machine]) : null;
         var hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
         var isCustom = (customT != null);
@@ -6619,6 +6744,13 @@ function deleteCard(id) {
   const snap = [...cards];
   cards = cards.filter(c=>c.id!==id);
   persist(); renderCards();
+  // ניקוי רשימות חסימה/סדר עבודה כדי שלא יישארו אסמכתאות לכרטיס שנמחק
+  _loadWorkOrder();
+  WORKLIST_MACHINES.forEach(function(m){
+    if (_workOrder[m]) _workOrder[m] = _workOrder[m].filter(function(cid){ return cid !== id; });
+    if (_workOrderExcluded[m]) _workOrderExcluded[m] = _workOrderExcluded[m].filter(function(cid){ return cid !== id; });
+  });
+  _saveWorkOrder();
   showUndoToast('כרטיס "' + (item.name||item.customer||'ללא שם') + '" נמחק', function() {
     cards = snap; persist(); renderCards();
   });
@@ -7299,6 +7431,9 @@ function renderInventory() {
           <div style="margin-top:2px">${rowValStr}</div>
         </td>
         <td style="text-align:center;vertical-align:middle">
+          <button onclick="showOrderHistory('${item.name.replace(/'/g,"\\'")}','${(inv.orderNum||'').replace(/'/g,"\\'")}')"
+            style="background:none;border:none;color:#aaa;font-size:.88rem;cursor:pointer;padding:2px 5px"
+            onmouseover="this.style.color='var(--press)'" onmouseout="this.style.color='#aaa'" title="היסטוריית עדכונים">📜</button>
           <button onclick="deleteInvoiceEntry(${i},${j})"
             style="background:none;border:none;color:#ddd;font-size:.9rem;cursor:pointer;padding:2px 5px"
             onmouseover="this.style.color='#c62828'" onmouseout="this.style.color='#ddd'" title="מחק חשבונית זו">✕</button>
@@ -7370,6 +7505,66 @@ function renderInventory() {
 `;
 }
 
+function closeHistoryModal() {
+  document.getElementById("history-modal").classList.remove("open");
+}
+
+function showOrderHistory(paperName, orderNum) {
+  var item = inventory.find(function(it){ return it.name === paperName; });
+  var events = [];
+  if (item && item.invoices) {
+    item.invoices.forEach(function(inv) {
+      if (orderNum && (inv.orderNum||"") !== orderNum) return;
+      events.push({
+        kind: "add", date: inv.date||"", time: inv.time||"",
+        qty: inv.qty||0, label: (inv.inv ? "חשבונית " + inv.inv : "") + (inv.orderNum ? " | הזמנה " + inv.orderNum : ""), note: ""
+      });
+    });
+  }
+  inventoryDeductions.forEach(function(d) {
+    if (d.paperName !== paperName) return;
+    if (orderNum && (d.orderNum||"") !== orderNum) return;
+    events.push({
+      kind: "deduct", date: d.date||"", time: d.time||"",
+      qty: d.qty||0, label: d.cardName || "", note: d.note||"",
+      orderNum: d.orderNum||""
+    });
+  });
+  events.sort(function(a,b) {
+    var ka = (a.date||"") + " " + (a.time||"");
+    var kb = (b.date||"") + " " + (b.time||"");
+    return kb.localeCompare(ka);
+  });
+  document.getElementById("history-modal-title").textContent =
+    "📜 היסטוריית עדכונים — " + paperName + (orderNum ? " (הזמנה " + orderNum + ")" : "");
+  var body = document.getElementById("history-modal-body");
+  if (!events.length) {
+    body.innerHTML = "<div style='color:#aaa;text-align:center;padding:24px'>אין עדכונים רשומים</div>";
+  } else {
+    var rows = events.map(function(e) {
+      var isAdd = e.kind === "add";
+      var color = isAdd ? "#2e7d32" : "#c62828";
+      var sign = isAdd ? "+ " : "− ";
+      var typeLabel = isAdd ? "➕ הוספה" : "📤 הורדה";
+      var sub = isAdd ? e.label : (e.label + (e.note ? " — " + e.note : "") + (e.orderNum ? " (הזמנה " + e.orderNum + ")" : ""));
+      return "<tr style='border-bottom:1px solid #eee'>" +
+        "<td style='padding:7px 8px;font-size:.8rem;color:#888;white-space:nowrap'>" + (e.date||"—") + (e.time ? "<br><span style='font-size:.72rem;color:#aaa'>" + e.time + "</span>" : "") + "</td>" +
+        "<td style='padding:7px 8px;font-size:.82rem;font-weight:700;color:" + color + "'>" + typeLabel + "</td>" +
+        "<td style='padding:7px 8px;text-align:center;font-weight:800;color:" + color + "'>" + sign + parseInt(e.qty||0).toLocaleString() + "</td>" +
+        "<td style='padding:7px 8px;font-size:.8rem;color:#555'>" + escHtml(sub||"") + "</td>" +
+        "</tr>";
+    }).join("");
+    body.innerHTML = "<table style='width:100%;border-collapse:collapse;font-size:.85rem'>" +
+      "<thead><tr style='background:var(--press);color:white'>" +
+      "<th style='padding:7px 8px;text-align:right'>תאריך/שעה</th>" +
+      "<th style='padding:7px 8px;text-align:right'>סוג</th>" +
+      "<th style='padding:7px 8px;text-align:center'>כמות</th>" +
+      "<th style='padding:7px 8px;text-align:right'>פרטים</th>" +
+      "</tr></thead><tbody>" + rows + "</tbody></table>";
+  }
+  document.getElementById("history-modal").classList.add("open");
+}
+
 function escHtml(s) {
   return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 }
@@ -7425,7 +7620,8 @@ function addManualInvoice(i) {
   const priceStr = prompt('מחיר לאלף גיליונות (₪) — ריק לדלג:', '');
   const qty   = parseInt(qtyStr.replace(/,/g,''))   || 0;
   const price = priceStr ? ((parseFloat(priceStr.replace(/,/g,''))||0) / 1000) : 0;
-  inventory[i].invoices.push({ date: dateStr, inv, orderNum, qty, price });
+  const timeStr = new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'});
+  inventory[i].invoices.push({ date: dateStr, time: timeStr, inv, orderNum, qty, price });
   persist();
   renderInventory();
   showToast('✅ חשבונית נוספה');
@@ -8643,6 +8839,9 @@ function setupFBListeners() {
 }
 
 async function _fbPollAll() {
+  // אם הייתה כתיבה מקומית בשניות האחרונות (למשל מחיקת כרטיס) — דלג על הסבב הזה
+  // כדי שלא נמשוך מהשרת נתון ישן (לפני שהכתיבה שלנו הגיעה) וננטרל את השינוי המקומי
+  if (Date.now() - (window._lastLocalWriteAt||0) < 4000) return;
   try {
     // כרטיסים
     var v = await window._fbGet('cards');
