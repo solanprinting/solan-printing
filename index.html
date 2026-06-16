@@ -768,6 +768,11 @@ window._fbPut = async (path, data) => {
   } catch(e) { return false; }
 };
 window._fbInit = () => true;
+// תמונת-מצב אחרונה ידועה של כל collection כפי שהתקבלה מהשרת (poll) או נשלחה אליו (push).
+// משמש כדי שלא נדרוס את השרת עם נתון מקומי "תקוע" (לדוגמה: כרטיס שנפתח בלשונית B
+// ולא נגעו בו, אבל לשונית A מחקה פריט ממנו בינתיים) — דוחפים collection לשרת רק אם
+// הוא השתנה אצלנו באמת מאז הסנכרון האחרון, לא בכל persist().
+window._fbSnapshot = {};
 </script>
 </head>
 <body>
@@ -2161,6 +2166,12 @@ function persist() {
       quotes: quotes, customers: customers, orders: orders
     };
     Object.keys(_paths).forEach(function(p) {
+      var _json = JSON.stringify(_paths[p]);
+      // אם ה-collection הזה לא השתנה אצלנו מאז הסנכרון האחרון מהשרת — לא דוחפים אותו.
+      // זה מונע ממסך/לשונית "תקוע" (שלא נגע ב-collection הזה) לדרוס בטעות מחיקה
+      // שבוצעה במקום אחר רק בגלל ש-persist() נקרא על שינוי בקולקציה אחרת.
+      if (window._fbSnapshot && window._fbSnapshot[p] === _json) return;
+      window._fbSnapshot[p] = _json;
       window._fbPut(p, _paths[p]);
     });
     updateFBStatus(true);
@@ -6602,7 +6613,10 @@ function renderMachineQueue() {
           var customT = (r.customTime != null) ? parseFloat(r.customTime) : null;
           var hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
           var isCustom = (customT != null);
-          runRows.push({ c:c, runIdx:i, runLabel:r.label||('ריצה '+(i+1)), sheets:sheets, hrs:hrs, isCustom:isCustom, done:!!r.done });
+          // done אם הריצה הספציפית סומנה, או אם הכרטיס כולו סומן "הושלם" (למשל מהתפריט
+          // ברשימת הכרטיסים השמורים, setStatus) — בלי זה, סימון כרטיס שלם כהושלם
+          // לא היה משפיע על דגלי r.done הפרטניים והעבודה היתה נשארת תקועה בתור
+          runRows.push({ c:c, runIdx:i, runLabel:r.label||('ריצה '+(i+1)), sheets:sheets, hrs:hrs, isCustom:isCustom, done: !!r.done || c.status === 'done' });
         });
       } else if (c.machine === machine) {
         // לכרטיס בלי פירוט ריצות — כמות הגיליונות הפיזיים היא כמות העותקים (c.copies);
@@ -8848,6 +8862,7 @@ async function _fbPollAll() {
     if (v !== null) {
       cards = Array.isArray(v) ? v : Object.values(v);
       localStorage.setItem('solanCards', JSON.stringify(cards));
+      window._fbSnapshot.cards = JSON.stringify(cards);
       updateBadge(); updateFBStatus(true); _fbConnected = true;
       if (document.getElementById('view-saved').style.display!=='none') renderCards();
       if (document.getElementById('view-week').style.display!=='none')  renderWeek();
@@ -8857,6 +8872,7 @@ async function _fbPollAll() {
     if (ov !== null) {
       orders = Array.isArray(ov) ? ov : Object.values(ov);
       localStorage.setItem('solanOrders', JSON.stringify(orders));
+      window._fbSnapshot.orders = JSON.stringify(orders);
       if (document.getElementById('view-orders') && document.getElementById('view-orders').style.display!=='none') renderOrders();
     }
     // מלאי
@@ -8864,6 +8880,7 @@ async function _fbPollAll() {
     if (inv !== null) {
       inventory = Array.isArray(inv) ? inv : Object.values(inv);
       localStorage.setItem('solanInventory', JSON.stringify(inventory));
+      window._fbSnapshot.inventory = JSON.stringify(inventory);
       if (document.getElementById('view-inventory').style.display!=='none') renderInventory();
     }
     // עיתונים
@@ -8871,18 +8888,21 @@ async function _fbPollAll() {
     if (nv !== null) {
       newspapers = Array.isArray(nv) ? nv : Object.values(nv);
       localStorage.setItem('solanNewspapers', JSON.stringify(newspapers));
+      window._fbSnapshot.newspapers = JSON.stringify(newspapers);
     }
     // הצעות מחיר
     var qv = await window._fbGet('quotes');
     if (qv !== null) {
       quotes = Array.isArray(qv) ? qv : Object.values(qv);
       localStorage.setItem('solanQuotes', JSON.stringify(quotes));
+      window._fbSnapshot.quotes = JSON.stringify(quotes);
     }
     // לקוחות
     var cv = await window._fbGet('customers');
     if (cv !== null) {
       customers = Array.isArray(cv) ? cv : Object.values(cv);
       localStorage.setItem('solanCustomers', JSON.stringify(customers));
+      window._fbSnapshot.customers = JSON.stringify(customers);
     }
     // משתמשים
     var uv = await window._fbGet('solanUsers');
