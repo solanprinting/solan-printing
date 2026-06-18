@@ -871,10 +871,42 @@ textarea.fi{resize:none;min-height:52px;}
 .dash-activity-user{color:var(--d-sub);font-weight:700;}
 .dash-board-card-by{font-size:.68rem;color:var(--d-sub);margin-top:3px;}
 
+/* department schedule (קיפול/כריכייה) */
+.dept-sched-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.dept-sched-col{background:var(--d-bg);border-radius:12px;padding:12px;}
+.dept-sched-col-head{display:flex;justify-content:space-between;align-items:center;font-size:.9rem;font-weight:900;margin-bottom:10px;color:var(--d-text);}
+.dept-sched-col-actions{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+.dept-sched-col-actions .dash-btn{font-size:.72rem;padding:5px 10px;}
+.dept-sched-list{display:flex;flex-direction:column;gap:6px;min-height:50px;}
+.dept-sched-item{display:flex;align-items:center;gap:8px;background:var(--d-card);border:1.5px solid var(--d-line);
+  border-radius:9px;padding:8px 10px;cursor:grab;transition:all .15s;}
+.dept-sched-item:hover{border-color:var(--gold);}
+.dept-sched-item-dragging{opacity:.4;cursor:grabbing;}
+.dept-sched-item-over{outline:2px dashed var(--d-blue);background:var(--d-blue-bg);}
+.dept-sched-item-manual{background:repeating-linear-gradient(45deg,var(--d-card),var(--d-card) 10px,var(--d-gray-bg) 10px,var(--d-gray-bg) 20px);border-style:dashed;}
+.dept-sched-item-idx{font-size:.72rem;font-weight:900;color:var(--d-sub);min-width:16px;flex-shrink:0;}
+.dept-sched-item-main{flex:1;min-width:0;}
+.dept-sched-item-name{font-weight:800;font-size:.84rem;color:var(--d-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dept-sched-item-date{font-size:.72rem;color:var(--d-sub);margin-top:1px;}
+.dept-sched-item-overdue{color:var(--d-red);font-weight:800;}
+.dept-sched-item-badge{font-size:.66rem;font-weight:800;border-radius:7px;padding:3px 8px;white-space:nowrap;flex-shrink:0;}
+.dept-sched-badge-card{background:var(--d-blue-bg);color:var(--d-blue);}
+.dept-sched-badge-weekly{background:var(--d-orange-bg);color:var(--d-orange);}
+.dept-sched-badge-manual{background:var(--d-gray-bg);color:var(--d-sub);}
+.dept-sched-item-rm{background:none;border:none;cursor:pointer;font-size:.85rem;color:var(--d-sub);padding:2px 4px;flex-shrink:0;}
+.dept-sched-item-rm:hover{color:var(--d-red);}
+.dept-sched-item-moves{display:flex;flex-direction:column;gap:1px;flex-shrink:0;}
+.dept-sched-item-moves button{background:none;border:1px solid var(--d-line);border-radius:4px;width:18px;height:16px;cursor:pointer;
+  font-size:.62rem;line-height:1;color:var(--d-sub);padding:0;}
+.dept-sched-item-moves button:disabled{cursor:not-allowed;opacity:.4;}
+.dept-sched-manual-input{flex:1;min-width:0;border:1px solid var(--d-line);border-radius:6px;padding:5px 8px;
+  font-family:Heebo,sans-serif;font-size:.82rem;background:var(--d-card);color:var(--d-text);}
+
 @media(max-width:900px){
   .dash-kpis{grid-template-columns:repeat(3,1fr);}
   .dash-grid{grid-template-columns:1fr;}
   .dash-board-cols{grid-template-columns:1fr;}
+  .dept-sched-cols{grid-template-columns:1fr;}
 }
 @media(max-width:640px){
   .dash-kpis{grid-template-columns:repeat(2,1fr);}
@@ -995,6 +1027,7 @@ window._fbSnapshot = {};
       <div class="dash-card" id="dash-machines"></div>
     </div>
     <div class="dash-card" id="dash-board"></div>
+    <div class="dash-card" id="dash-dept-schedule"></div>
     <div class="dash-card" id="dash-activity"></div>
   </div>
 </div>
@@ -1164,6 +1197,15 @@ window._fbSnapshot = {};
         <label style="color:#b45309;display:flex;align-items:center;gap:5px">🔒 הערות פנימיות <span style="font-weight:400;font-size:.78rem;color:#92400e">(לא מודפסות בכרטיס)</span></label>
         <textarea class="fi" id="f-internal-notes" placeholder="הערות למכין הכרטיס בלבד..." rows="2"
           style="border-color:#f59e0b;background:#fffbeb"></textarea>
+      </div>
+
+      <div class="field full" style="display:flex;gap:22px;align-items:center">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+          <input type="checkbox" id="f-needs-folding" style="width:17px;height:17px;cursor:pointer"> דורש קיפול
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+          <input type="checkbox" id="f-needs-binding" style="width:17px;height:17px;cursor:pointer"> דורש כריכה
+        </label>
       </div>
 
       <div class="field full" id="manual-runs-field">
@@ -3506,6 +3548,13 @@ function renderWeek() {
     }).join('');
 
     const weeklyHTML = dayWeekly.map(w => {
+      const deptBtns = (!w.cardCreated && (w.needsFolding || w.needsBinding)) ? `
+        <div style="display:flex;gap:5px;margin-top:5px">
+          ${w.needsFolding?`<button title="הוסף לסידור קיפול" onclick="addWeeklyJobToDept('קיפול',${w.id})"
+            style="flex:1;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:6px;padding:4px 6px;font-size:.72rem;font-weight:700;cursor:pointer">📐 לסידור קיפול</button>`:''}
+          ${w.needsBinding?`<button title="הוסף לסידור כריכה" onclick="addWeeklyJobToDept('כריכייה',${w.id})"
+            style="flex:1;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:6px;padding:4px 6px;font-size:.72rem;font-weight:700;cursor:pointer">📚 לסידור כריכה</button>`:''}
+        </div>` : '';
       return `
       <div class="paper-btn" style="border-right:3px solid #f97316">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
@@ -3523,6 +3572,7 @@ function renderWeek() {
           onclick="quickWeeklyJobCard(${w.id})">
           ➕ צור כרטיס עבודה ▶
         </button>
+        ${deptBtns}
       </div>`;
     }).join('');
 
@@ -3869,6 +3919,8 @@ function confirmRunsAndSave() {
     size:         n.size,
     paper:        _paperUsed,
     notes:        n.notes||'',
+    needsFolding: n.needsFolding||false,
+    needsBinding: n.needsBinding||false,
     status:       'pending',
     createdAt:    new Date().toLocaleDateString('he-IL'),
     runs:         currentRuns.map(function(r) {
@@ -4204,6 +4256,9 @@ function editCard(id) {
   setVal('f-internal-notes', c.internalNotes);
   setVal('f-machine',       c.machine);
   setVal('f-placement-details', c.placementDetails);
+  // checkboxes
+  if (document.getElementById('f-needs-folding')) document.getElementById('f-needs-folding').checked = !!c.needsFolding;
+  if (document.getElementById('f-needs-binding')) document.getElementById('f-needs-binding').checked = !!c.needsBinding;
   // color radio
   if (c.color) {
     var r = document.querySelector('input[name="color"][value="'+c.color+'"]');
@@ -4224,6 +4279,7 @@ function clearForm() {
   ['f-name','f-type','f-order-date','f-delivery-date','f-copies','f-pages','f-size','f-paper','f-notes','f-internal-notes','f-machine','f-placement-details']
     .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   document.querySelectorAll('input[name="color"]').forEach(r=>r.checked=false);
+  ['f-needs-folding','f-needs-binding'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=false; });
   document.querySelectorAll('#view-new .size-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('runs-field').style.display='none';
   document.getElementById('runs-output').innerHTML='';
@@ -4298,6 +4354,8 @@ function _saveCardNew() {
     internalNotes: (document.getElementById('f-internal-notes')||{value:''}).value.trim(),
     placementDetails: (document.getElementById('f-placement-details')||{value:''}).value.trim(),
     machine:      document.getElementById('f-machine').value,
+    needsFolding: document.getElementById('f-needs-folding')?document.getElementById('f-needs-folding').checked:false,
+    needsBinding: document.getElementById('f-needs-binding')?document.getElementById('f-needs-binding').checked:false,
     status:       'pending',
     createdAt:    new Date().toLocaleDateString('he-IL'),
     createdBy:    currentUser?currentUser.id:'admin',
@@ -4342,6 +4400,8 @@ function buildTempCard() {
     internalNotes: (document.getElementById('f-internal-notes')||{value:''}).value.trim(),
     placementDetails: (document.getElementById('f-placement-details')||{value:''}).value.trim(),
     machine:      document.getElementById('f-machine').value,
+    needsFolding: document.getElementById('f-needs-folding')?document.getElementById('f-needs-folding').checked:false,
+    needsBinding: document.getElementById('f-needs-binding')?document.getElementById('f-needs-binding').checked:false,
     createdAt:    new Date().toLocaleDateString('he-IL'),
     runs:         getEffectiveRuns()
   };
@@ -4420,15 +4480,20 @@ function buildPrintCard(c) {
     : null;
   const _copiesNum = parseInt(c.copies)||0;
 
-  // שדה "מס' גיליונות" / "מס' עותקים"
-  const _sheetsLabel = _hasRuns ? 'מס\' גיליונות' : 'מס\' עותקים';
+  // שדה "מס' גיליונות" — מוצג תמיד (ריק וניתן למילוי ביד כשאין ריצות מחושבות)
+  const _sheetsLabel = 'מס\' גיליונות';
   const _sheetsVal   = _hasRuns
     ? _runs.map(function(r,i){ return (i>0?'<div style="border-top:1px solid #e0e0e0;margin:4px 0"></div>':'')+
         '<div style="font-size:1.2rem;font-weight:900;line-height:1.9;display:flex;align-items:center;gap:10px">'+
           'ריצה '+r.num+' — '+(parseInt(r.copies)||0).toLocaleString()+
           ((r.tumble&&parseInt(r.folds||'0')>=3)?' <span style="font-size:.7rem;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:5px;padding:1px 6px;white-space:nowrap">מתהפך</span>':'')+
         '</div>'; }).join('')
-    : (_copiesNum ? '<strong style="font-size:1.35rem;font-weight:900">'+_copiesNum.toLocaleString()+'</strong>' : '');
+    : '<span style="display:inline-block;min-width:170px;border-bottom:1.5px solid #999;height:1.5em"></span>';
+
+  // "סה״כ עותקים" — יורד לחלק התחתון של הכרטיס כשאין ריצות מחושבות (במקום להיות מוצג כ"מס' גיליונות")
+  const _totalCopiesBottomRow = (!_hasRuns && _copiesNum)
+    ? '<strong style="font-size:1.35rem;font-weight:900">'+_copiesNum.toLocaleString()+'</strong>'
+    : '';
 
   // הערות: אם יש ריצות — מוסיפים שורת "מספר עותקים"
   const _copiesLine = (_hasRuns && _copiesNum)
@@ -4461,6 +4526,7 @@ function buildPrintCard(c) {
     ['סוג נייר', c.paper||''],
     ['מכונה', c.machine||''],
     ['צבע', c.color||''],
+    ['סה"כ עותקים', _totalCopiesBottomRow],
   ].map(([l,v])=>_fldRow(l,v)).join('');
 
   const notesRow = _notesVal ? _fldRow('הערות', _notesVal) : '';
@@ -5996,6 +6062,346 @@ function _syncWorkOrder() {
   _saveWorkOrder();
 }
 
+// ═══════════════════════════════════════════════════════
+// סידור עבודה למחלקות (קיפול / כריכייה) — דשבורד
+// ═══════════════════════════════════════════════════════
+var DEPARTMENTS = ['קיפול', 'כריכייה'];
+var _deptOrder = {};     // { dept: [ {type:'card',cardId} | {type:'weekly',weeklyId} | {type:'manual',id,label}, ... ] }
+var _deptExcluded = {};  // { dept: [entryKey, ...] } — הוסרו ידנית, לא יוחזרו אוטומטית ע"י _syncDeptOrder
+
+function _deptNeedsKey(dept) { return dept === 'קיפול' ? 'needsFolding' : 'needsBinding'; }
+
+function _deptEntryKey(entry) {
+  if (!entry) return '';
+  if (entry.type === 'card')   return 'card:' + entry.cardId;
+  if (entry.type === 'weekly') return 'weekly:' + entry.weeklyId;
+  return 'manual:' + entry.id;
+}
+
+function _loadDeptOrder() {
+  try {
+    var raw = localStorage.getItem('solanDeptOrder');
+    _deptOrder = raw ? JSON.parse(raw) : {};
+  } catch(e) { _deptOrder = {}; }
+  DEPARTMENTS.forEach(function(d){ if (!_deptOrder[d]) _deptOrder[d] = []; });
+  try {
+    var rawEx = localStorage.getItem('solanDeptOrderExcluded');
+    _deptExcluded = rawEx ? JSON.parse(rawEx) : {};
+  } catch(e) { _deptExcluded = {}; }
+  DEPARTMENTS.forEach(function(d){ if (!_deptExcluded[d]) _deptExcluded[d] = []; });
+}
+
+function _saveDeptOrder() {
+  localStorage.setItem('solanDeptOrder', JSON.stringify(_deptOrder));
+  localStorage.setItem('solanDeptOrderExcluded', JSON.stringify(_deptExcluded));
+  if (window._fbConnected && window._fbPut) window._fbPut('deptOrder', _deptOrder);
+}
+
+// מסנכרן: מוסיף כרטיסים זכאים חדשים (סטטוס לא 'done' + מסומנים כצריכים את המחלקה) שלא ברשימה,
+// ומסיר ערכים שהכרטיס/העבודה השבועית שלהם נמחקו, הושלמו, או כבר לא זכאים.
+function _syncDeptOrder(dept) {
+  _loadDeptOrder();
+  var needsKey = _deptNeedsKey(dept);
+  var order = _deptOrder[dept] || [];
+  var excluded = _deptExcluded[dept] || [];
+
+  var eligibleCards = (cards||[]).filter(function(c){ return c.status !== 'done' && c[needsKey]; });
+  var eligibleIds = eligibleCards.map(function(c){ return c.id; });
+
+  // נקה ערכים לא תקפים
+  var kept = order.filter(function(entry){
+    if (entry.type === 'card') {
+      return eligibleIds.indexOf(entry.cardId) >= 0;
+    }
+    if (entry.type === 'weekly') {
+      var w = (weeklyJobs||[]).find(function(x){ return x.id === entry.weeklyId; });
+      // אם נוצר כרטיס אמיתי לעבודה השבועית הזו — מסירים את ה-placeholder (הכרטיס האמיתי יוצג דרך הסעיף 'card' אם זכאי)
+      if (!w || w.cardCreated) return false;
+      return true;
+    }
+    return true; // manual — תמיד נשאר עד הסרה ידנית
+  });
+
+  // הוסף כרטיסים זכאים חדשים שלא ברשימה ולא הוסרו ידנית
+  eligibleCards.forEach(function(c){
+    var key = 'card:' + c.id;
+    if (excluded.indexOf(key) >= 0) return;
+    var already = kept.some(function(e){ return e.type === 'card' && e.cardId === c.id; });
+    if (!already) kept.push({ type: 'card', cardId: c.id });
+  });
+
+  _deptOrder[dept] = kept;
+  _saveDeptOrder();
+}
+
+function moveDeptItem(dept, entryKey, dir) {
+  var order = _deptOrder[dept];
+  if (!order) return;
+  var idx = order.findIndex(function(e){ return _deptEntryKey(e) === entryKey; });
+  if (idx < 0) return;
+  var newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= order.length) return;
+  var tmp = order[idx]; order[idx] = order[newIdx]; order[newIdx] = tmp;
+  _saveDeptOrder();
+  if (typeof renderDeptSchedule === 'function') renderDeptSchedule(dept);
+}
+
+function removeDeptItem(dept, entryKey) {
+  var order = _deptOrder[dept];
+  if (!order) return;
+  var idx = order.findIndex(function(e){ return _deptEntryKey(e) === entryKey; });
+  if (idx < 0) return;
+  var entry = order[idx];
+  // אם זה כרטיס/עבודה שבועית — נסמן כ"הוסר ידנית" כדי ש-_syncDeptOrder לא יחזיר אותו אוטומטית
+  if (entry.type === 'card' || entry.type === 'weekly') {
+    if (!_deptExcluded[dept]) _deptExcluded[dept] = [];
+    if (_deptExcluded[dept].indexOf(entryKey) < 0) _deptExcluded[dept].push(entryKey);
+  }
+  order.splice(idx, 1);
+  _saveDeptOrder();
+  if (typeof renderDeptSchedule === 'function') renderDeptSchedule(dept);
+}
+
+function addManualDeptSlot(dept, label) {
+  _loadDeptOrder();
+  if (!_deptOrder[dept]) _deptOrder[dept] = [];
+  _deptOrder[dept].push({ type: 'manual', id: Date.now() + Math.random(), label: label || '' });
+  _saveDeptOrder();
+  if (typeof renderDeptSchedule === 'function') renderDeptSchedule(dept);
+}
+
+function updateManualDeptSlotLabel(dept, entryId, label) {
+  var order = _deptOrder[dept];
+  if (!order) return;
+  var entry = order.find(function(e){ return e.type === 'manual' && String(e.id) === String(entryId); });
+  if (!entry) return;
+  entry.label = label;
+  _saveDeptOrder();
+}
+
+function addWeeklyJobToDept(dept, weeklyJobId) {
+  _loadDeptOrder();
+  var w = (weeklyJobs||[]).find(function(x){ return x.id === weeklyJobId; });
+  if (!w) return;
+  if (w.cardCreated) { if (typeof showToast === 'function') showToast('⚠️ לעבודה הזו כבר נוצר כרטיס'); return; }
+  var already = (_deptOrder[dept]||[]).some(function(e){ return e.type === 'weekly' && e.weeklyId === weeklyJobId; });
+  if (already) { if (typeof showToast === 'function') showToast('⚠️ העבודה כבר בסידור'); return; }
+  if (!_deptOrder[dept]) _deptOrder[dept] = [];
+  _deptOrder[dept].push({ type: 'weekly', weeklyId: weeklyJobId });
+  // הסר מרשימת ההסרות הידניות אם הייתה שם (הוספה מפורשת)
+  if (_deptExcluded[dept]) _deptExcluded[dept] = _deptExcluded[dept].filter(function(k){ return k !== ('weekly:'+weeklyJobId); });
+  _saveDeptOrder();
+  if (typeof showToast === 'function') showToast('✅ נוסף לסידור ' + dept);
+  if (typeof renderDeptSchedule === 'function') renderDeptSchedule(dept);
+}
+
+// סידור אוטומטי: ממיין את הכרטיסים/העבודות לפי תאריך אספקה (או הזמנה כברירת מחדל), ומשמר את מקומם
+// של "תאים פנויים" (מילוי ידני) במקום היחסי שלהם — כך שניתן למלא אותם ביד מבלי שהמיון ידרוס אותם.
+function autoArrangeDept(dept) {
+  _syncDeptOrder(dept);
+  var order = _deptOrder[dept] || [];
+
+  function sortDateOf(entry) {
+    if (entry.type === 'card') {
+      var c = (cards||[]).find(function(x){ return x.id === entry.cardId; });
+      return (c && (c.deliveryDate || c.orderDate)) || '9999-99-99';
+    }
+    if (entry.type === 'weekly') {
+      var w = (weeklyJobs||[]).find(function(x){ return x.id === entry.weeklyId; });
+      return (w && w.deliveryDate) || '9999-99-99';
+    }
+    return null; // manual — לא ממוין
+  }
+
+  var manualPositions = [];
+  var schedulable = [];
+  order.forEach(function(entry, i){
+    if (entry.type === 'manual') manualPositions.push(i);
+    else schedulable.push(entry);
+  });
+  schedulable.sort(function(a,b){
+    var da = sortDateOf(a), db = sortDateOf(b);
+    return da < db ? -1 : (da > db ? 1 : 0);
+  });
+
+  var result = new Array(order.length);
+  manualPositions.forEach(function(pos){ result[pos] = order[pos]; });
+  var si = 0;
+  for (var i = 0; i < result.length; i++) {
+    if (result[i] === undefined) { result[i] = schedulable[si++]; }
+  }
+  // אם נוספו עוד פריטים זכאים אחרי הסנכרון (longer than original) — הוסף בסוף
+  while (si < schedulable.length) { result.push(schedulable[si++]); }
+
+  _deptOrder[dept] = result;
+  _saveDeptOrder();
+  if (typeof renderDeptSchedule === 'function') renderDeptSchedule(dept);
+  if (typeof showToast === 'function') showToast('✅ סידור ' + dept + ' עודכן אוטומטית');
+}
+
+// ── תצוגת סידור עבודה למחלקות (קיפול/כריכייה) בדשבורד ──────
+function _deptEntryDisplay(entry) {
+  if (entry.type === 'card') {
+    var c = (cards||[]).find(function(x){ return x.id === entry.cardId; });
+    if (!c) return null;
+    return { title: c.name||c.customer||'ללא שם', sub: c.customer||'', date: c.deliveryDate||c.orderDate||'', badge: '📋 כרטיס' };
+  }
+  if (entry.type === 'weekly') {
+    var w = (weeklyJobs||[]).find(function(x){ return x.id === entry.weeklyId; });
+    if (!w) return null;
+    return { title: w.name||'ללא שם', sub: w.customer||'', date: w.deliveryDate||'', badge: '🔁 יומן שבועי' };
+  }
+  return { title: entry.label||'', sub: '', date: '', badge: '✏️ ריק' };
+}
+
+function _renderDeptEntry(dept, entry, idx, total) {
+  var key = _deptEntryKey(entry);
+  var keySafe = key.replace(/'/g, "\\'");
+  var dSafe = dept.replace(/'/g, "\\'");
+  var dragAttrs = 'draggable="true" '
+    + 'ondragstart="_deptDragStart(event,\''+dSafe+'\',\''+keySafe+'\')" ondragend="_deptDragEnd(event)" '
+    + 'ondragover="_deptItemDragOver(event,\''+dSafe+'\',\''+keySafe+'\')" ondragleave="_deptItemDragLeave(event)" '
+    + 'ondrop="event.stopPropagation();_deptItemDrop(event,\''+dSafe+'\',\''+keySafe+'\')"';
+  var movesHtml = '<div class="dept-sched-item-moves">'
+    + '<button title="הזז למעלה" '+(idx===0?'disabled':'')+' onclick="moveDeptItem(\''+dSafe+'\',\''+keySafe+'\',-1)">▲</button>'
+    + '<button title="הזז למטה" '+(idx===total-1?'disabled':'')+' onclick="moveDeptItem(\''+dSafe+'\',\''+keySafe+'\',1)">▼</button>'
+    + '</div>';
+
+  if (entry.type === 'manual') {
+    return '<div class="dept-sched-item dept-sched-item-manual" '+dragAttrs+'>'
+      + '<span class="dept-sched-item-idx">'+(idx+1)+'.</span>'
+      + movesHtml
+      + '<input type="text" class="dept-sched-manual-input" placeholder="תיאור עבודה להשלמה ידנית..." value="'+escHtml(entry.label||'')+'" '
+      + 'onchange="updateManualDeptSlotLabel(\''+dSafe+'\','+JSON.stringify(String(entry.id))+',this.value)">'
+      + '<span class="dept-sched-item-badge dept-sched-badge-manual">✏️ ריק</span>'
+      + '<button class="dept-sched-item-rm" title="הסר" onclick="removeDeptItem(\''+dSafe+'\',\''+keySafe+'\')">🗑️</button>'
+      + '</div>';
+  }
+
+  var disp = _deptEntryDisplay(entry);
+  if (!disp) return '';
+  var today = _todayStr();
+  var overdue = disp.date && disp.date < today;
+  return '<div class="dept-sched-item" '+dragAttrs+'>'
+    + '<span class="dept-sched-item-idx">'+(idx+1)+'.</span>'
+    + movesHtml
+    + '<div class="dept-sched-item-main">'
+    + '<div class="dept-sched-item-name">'+escHtml(disp.title)+(disp.sub?' · '+escHtml(disp.sub):'')+'</div>'
+    + (disp.date?'<div class="dept-sched-item-date'+(overdue?' dept-sched-item-overdue':'')+'">📅 '+disp.date+'</div>':'')
+    + '</div>'
+    + '<span class="dept-sched-item-badge dept-sched-badge-'+(entry.type==='card'?'card':'weekly')+'">'+disp.badge+'</span>'
+    + '<button class="dept-sched-item-rm" title="הסר מהסידור" onclick="removeDeptItem(\''+dSafe+'\',\''+keySafe+'\')">🗑️</button>'
+    + '</div>';
+}
+
+function renderDeptSchedule(dept) {
+  var el = document.getElementById('dash-dept-schedule');
+  if (!el) return;
+  DEPARTMENTS.forEach(function(d){ _syncDeptOrder(d); });
+
+  var colsHtml = DEPARTMENTS.map(function(d){
+    var order = _deptOrder[d] || [];
+    var dSafe = d.replace(/'/g, "\\'");
+    var itemsHtml = order.map(function(entry, idx){ return _renderDeptEntry(d, entry, idx, order.length); }).join('');
+    var icon = d === 'קיפול' ? '📐' : '📚';
+    return '<div class="dept-sched-col">'
+      + '<div class="dept-sched-col-head"><span>'+icon+' '+d+'</span><span class="dash-card-count">'+order.length+'</span></div>'
+      + '<div class="dept-sched-col-actions">'
+      + '<button class="dash-btn" onclick="autoArrangeDept(\''+dSafe+'\')">🔀 סידור אוטומטי</button>'
+      + '<button class="dash-btn" onclick="addManualDeptSlot(\''+dSafe+'\')">+ ריק להשלמה</button>'
+      + '<button class="dash-btn" onclick="_openAddWeeklyToDeptPicker(\''+dSafe+'\')">+ מהיומן השבועי</button>'
+      + '</div>'
+      + '<div class="dept-sched-list" data-dept="'+escHtml(d)+'" ondragover="event.preventDefault()" ondrop="_deptDrop(event,\''+dSafe+'\')">'
+      + (itemsHtml || '<div class="dash-empty" style="padding:14px 4px">אין עבודות בתור</div>')
+      + '</div>'
+      + '</div>';
+  }).join('');
+
+  el.innerHTML = '<div class="dash-card-head"><span>🗂️ סידור עבודה למחלקות <span style="font-size:.72rem;color:var(--d-sub);font-weight:600">(ניתן לגרור לסידור מחדש)</span></span></div>'
+    + '<div class="dept-sched-cols">' + colsHtml + '</div>';
+}
+
+// ── גרירה לסידור מחדש בתוך רשימת מחלקה ─────────────────────
+var _deptDragInfo = null; // { dept, key }
+function _deptDragStart(ev, dept, key) {
+  _deptDragInfo = { dept: dept, key: key };
+  if (ev.dataTransfer) {
+    ev.dataTransfer.effectAllowed = 'move';
+    try { ev.dataTransfer.setData('text/plain', key); } catch(e) {}
+  }
+  if (ev.currentTarget) ev.currentTarget.classList.add('dept-sched-item-dragging');
+}
+function _deptDragEnd(ev) {
+  if (ev.currentTarget) ev.currentTarget.classList.remove('dept-sched-item-dragging');
+  document.querySelectorAll('.dept-sched-item-over').forEach(function(n){ n.classList.remove('dept-sched-item-over'); });
+}
+function _deptItemDragOver(ev, dept, key) {
+  ev.preventDefault();
+  if (!_deptDragInfo || _deptDragInfo.dept !== dept || _deptDragInfo.key === key) return;
+  if (ev.currentTarget) ev.currentTarget.classList.add('dept-sched-item-over');
+}
+function _deptItemDragLeave(ev) {
+  if (ev.currentTarget) ev.currentTarget.classList.remove('dept-sched-item-over');
+}
+function _deptItemDrop(ev, dept, targetKey) {
+  ev.preventDefault();
+  if (ev.currentTarget) ev.currentTarget.classList.remove('dept-sched-item-over');
+  if (!_deptDragInfo || _deptDragInfo.dept !== dept) { _deptDragInfo = null; return; }
+  var srcKey = _deptDragInfo.key;
+  _deptDragInfo = null;
+  if (srcKey === targetKey) return;
+  var order = _deptOrder[dept];
+  if (!order) return;
+  var srcIdx = order.findIndex(function(e){ return _deptEntryKey(e) === srcKey; });
+  var tgtIdx = order.findIndex(function(e){ return _deptEntryKey(e) === targetKey; });
+  if (srcIdx < 0 || tgtIdx < 0) return;
+  var item = order.splice(srcIdx, 1)[0];
+  order.splice(tgtIdx, 0, item);
+  _saveDeptOrder();
+  renderDeptSchedule(dept);
+}
+function _deptDrop(ev, dept) {
+  // שחרור על שטח ריק בעמודה (לא על פריט ספציפי) — מעביר לסוף הרשימה
+  ev.preventDefault();
+  if (!_deptDragInfo || _deptDragInfo.dept !== dept) { _deptDragInfo = null; return; }
+  var srcKey = _deptDragInfo.key;
+  _deptDragInfo = null;
+  var order = _deptOrder[dept];
+  if (!order) return;
+  var srcIdx = order.findIndex(function(e){ return _deptEntryKey(e) === srcKey; });
+  if (srcIdx < 0) return;
+  var item = order.splice(srcIdx, 1)[0];
+  order.push(item);
+  _saveDeptOrder();
+  renderDeptSchedule(dept);
+}
+
+// ── הוספת עבודה מהיומן השבועי (שאין לה עדיין כרטיס) לסידור מחלקה ──
+function _openAddWeeklyToDeptPicker(dept) {
+  var dSafe = dept.replace(/'/g, "\\'");
+  var already = (_deptOrder[dept]||[]).filter(function(e){ return e.type==='weekly'; }).map(function(e){ return e.weeklyId; });
+  var avail = (weeklyJobs||[]).filter(function(w){ return !w.cardCreated && already.indexOf(w.id) < 0; });
+  var listHtml = avail.length
+    ? avail.map(function(w){
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)">'
+          + '<div><div style="font-weight:700">'+escHtml(w.name||'ללא שם')+'</div>'
+          + '<div style="font-size:.78rem;color:var(--gray)">יום '+escHtml(w.day||'')+(w.customer?' · '+escHtml(w.customer):'')+'</div></div>'
+          + '<button class="btn btn-sm btn-tpl" onclick="addWeeklyJobToDept(\''+dSafe+'\','+w.id+');document.getElementById(\'dept-weekly-pick-modal\').remove()">+ הוסף</button>'
+          + '</div>';
+      }).join('')
+    : '<div style="padding:14px 0;color:var(--gray);text-align:center">אין עבודות מהיומן השבועי שמתאימות (ללא כרטיס קיים)</div>';
+
+  var html = '<div class="modal-overlay open" id="dept-weekly-pick-modal" onclick="if(event.target===this)document.getElementById(\'dept-weekly-pick-modal\').remove()">'
+    + '<div class="modal" style="max-width:380px">'
+    + '<div class="modal-header"><h3>+ הוסף מהיומן השבועי — '+escHtml(dept)+'</h3>'
+    + '<button class="modal-close" onclick="document.getElementById(\'dept-weekly-pick-modal\').remove()">×</button></div>'
+    + '<div class="modal-body" style="padding:12px 16px">'+listHtml+'</div>'
+    + '</div></div>';
+  var existing = document.getElementById('dept-weekly-pick-modal');
+  if (existing) existing.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
 function moveWorkItem(machine, cardId, dir) {
   var order = _workOrder[machine];
   if (!order) return;
@@ -7157,7 +7563,9 @@ function confirmMakeCardWeekly(cardId, day) {
     size:          c.size || '',
     paper:         c.paper || '',
     notes:         c.notes || '',
-    internalNotes: c.internalNotes || ''
+    internalNotes: c.internalNotes || '',
+    needsFolding:  c.needsFolding || false,
+    needsBinding:  c.needsBinding || false
   });
   persist();
   renderWeek();
@@ -7212,11 +7620,14 @@ function quickWeeklyJobCard(weeklyJobId) {
     paper:         w.paper || '',
     notes:         w.notes || '',
     internalNotes: w.internalNotes || '',
+    needsFolding:  w.needsFolding || false,
+    needsBinding:  w.needsBinding || false,
     status:        'pending',
     createdAt:     new Date().toLocaleDateString('he-IL'),
     runs:          []
   };
   cards.unshift(card);
+  w.cardCreated = card.id;
   persist();
   renderCards();
   showPrintModal(card);
@@ -7280,6 +7691,14 @@ function editWeeklyJob(id) {
             <input type="number" id="wej-copies" value="${w.copies||''}" min="1"></div>
           <div class="mg-field"><label>צבע</label>
             <input type="text" id="wej-color" value="${escHtml(w.color||'')}"></div>
+          <div class="mg-field full" style="display:flex;gap:18px;align-items:center">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
+              <input type="checkbox" id="wej-needs-folding" ${w.needsFolding?'checked':''}> דורש קיפול
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
+              <input type="checkbox" id="wej-needs-binding" ${w.needsBinding?'checked':''}> דורש כריכה
+            </label>
+          </div>
           <div class="mg-field full"><label>יום בשבוע</label>
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px">
               ${DAYS.map(d => `<button type="button" class="weekly-edit-day-btn size-btn${w.day===d?' active':''}" data-day="${d}"
@@ -7310,7 +7729,9 @@ function saveWeeklyJobEdit(id) {
     paper:    document.getElementById('wej-paper').value.trim(),
     copies:   document.getElementById('wej-copies').value,
     color:    document.getElementById('wej-color').value.trim(),
-    day:      dayBtn ? dayBtn.dataset.day : weeklyJobs[idx].day
+    day:      dayBtn ? dayBtn.dataset.day : weeklyJobs[idx].day,
+    needsFolding: document.getElementById('wej-needs-folding')?document.getElementById('wej-needs-folding').checked:false,
+    needsBinding: document.getElementById('wej-needs-binding')?document.getElementById('wej-needs-binding').checked:false
   });
   persist();
   closeWeeklyEditModal();
@@ -9596,6 +10017,15 @@ async function _fbPollAll() {
       if (document.getElementById('settings-modal') && document.getElementById('settings-modal').style.display !== 'none') renderMachineSpeedsSettings();
       if (typeof renderDashMachines === 'function' && document.getElementById('dash-machines')) renderDashMachines();
     }
+    // סידור מחלקות (קיפול/כריכייה)
+    var dov = await window._fbGet('deptOrder');
+    if (dov !== null && typeof dov === 'object') {
+      _deptOrder = dov;
+      localStorage.setItem('solanDeptOrder', JSON.stringify(_deptOrder));
+      if (typeof renderDeptSchedule === 'function' && document.getElementById('dash-dept-schedule')) {
+        DEPARTMENTS.forEach(function(d){ renderDeptSchedule(d); });
+      }
+    }
   } catch(e) {
     _fbConnected = false;
     updateFBStatus(false);
@@ -9903,6 +10333,7 @@ function renderDashboard() {
   renderDashToday();
   renderDashBoard();
   renderDashMachines();
+  DEPARTMENTS.forEach(function(d){ renderDeptSchedule(d); });
   renderActivityFeed();
 }
 
@@ -10272,4 +10703,264 @@ setTimeout(autoBackup, 2000);
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div>
-          <label style="font-size:.85rem;font-weight:600;display:block;margin-bott
+          <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">כמות</label>
+          <input id="ord-qty" type="number" min="1" placeholder="1" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">תאריך אספקה</label>
+          <input id="ord-date" type="date" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">אזור משלוח</label>
+          <select id="ord-area" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
+            <option value="">— ללא אזור —</option>
+            <option value="מרכז">מרכז</option>
+            <option value="צפון">צפון</option>
+            <option value="דרום">דרום</option>
+            <option value="ירושלים">ירושלים</option>
+            <option value="שפלה">שפלה</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">כתובת למשלוח</label>
+          <input id="ord-address" placeholder="רחוב, עיר" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;box-sizing:border-box">
+        </div>
+      </div>
+      <div>
+        <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">הערות מיוחדות</label>
+        <textarea id="ord-notes" rows="2" placeholder="הוראות נוספות..." style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+      <div id="ord-file-preview" style="display:none;background:#f9fafb;border-radius:8px;padding:8px 10px;font-size:.85rem;color:#374151"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+      <button onclick="closeOrderModal()" style="padding:8px 18px;border:1px solid #d1d5db;border-radius:8px;background:white;cursor:pointer">ביטול</button>
+      <button onclick="saveOrder()" style="padding:8px 18px;border:none;border-radius:8px;background:#1a1a4e;color:white;cursor:pointer;font-weight:600">💾 שמור הזמנה</button>
+    </div>
+  </div>
+</div>
+
+<!-- מודל ניהול אתרי עידית -->
+<div id="idit-manager-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9100;align-items:flex-start;justify-content:center;padding-top:30px">
+  <div style="background:white;border-radius:14px;width:min(700px,96vw);direction:rtl;max-height:85vh;display:flex;flex-direction:column">
+    <div style="background:#1a1a4e;color:white;padding:14px 18px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+      <strong style="font-size:1.05rem">🏭 ניהול אתרי עידית</strong>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="openAddSiteForm()" style="background:#047857;color:white;border:none;border-radius:8px;padding:5px 14px;cursor:pointer;font-size:.88rem">+ אתר חדש</button>
+        <button onclick="closeIditManager()" style="background:none;border:none;color:white;font-size:1.4rem;cursor:pointer;line-height:1">✕</button>
+      </div>
+    </div>
+    <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb;flex-shrink:0">
+      <input id="idit-search" placeholder="חפש אתר לפי שם או מספר..." oninput="renderIditList()" autocomplete="off"
+             style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:.93rem;box-sizing:border-box">
+    </div>
+    <div style="display:flex;flex:1;overflow:hidden;min-height:400px">
+      <div id="idit-list-pane" style="width:220px;min-width:160px;border-left:1px solid #e5e7eb;overflow-y:auto;flex-shrink:0"></div>
+      <div id="idit-edit-pane" style="flex:1;overflow-y:auto;padding:16px">
+        <div style="color:#9ca3af;text-align:center;margin-top:60px;font-size:.9rem">בחר אתר מהרשימה לעריכה</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===== נתוני אתרי עידית ===== */
+var IDIT_SITES = (function(){
+  var stored = localStorage.getItem('iditSites');
+  if (stored) { try { return JSON.parse(stored); } catch(e){} }
+  return [{"name": "מכתשים 37 רמת חובב", "num": "37(33700)", "address": "שד דקל  רמת חובב", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "משה להב", "role": "מנהל אתר", "phone": "054-4401898"}, {"name": "ורדית", "role": "פקידה", "phone": "08-6560861"}]}, {"name": "מכתשים באר שבע", "num": "36(33600)", "address": "רח סעדיה מלל  3ב\"ש צפון", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "שמוליק", "role": "מנהל אתר", "phone": "054-5231285"}, {"name": "", "role": "משרד", "phone": "073-2156794"}]}, {"name": "דימונה", "num": "29(22900)", "address": "קמג דימונה", "notes": "נדרש למלא טפסים אישור כניסה לדימונה ולברר מול כרמית שמות נהגים מאושרי כניסה", "contacts": [{"name": "תומר", "role": "מנהל", "phone": "050-6244526"}, {"name": "יגאל", "role": "מחסנאי", "phone": "052-8452669"}, {"name": "כרמית", "role": "פקידה", "phone": "08-6567060"}, {"name": "כרמית", "role": "נייד", "phone": "053-9290011"}, {"name": "פקס", "role": "", "phone": "08-6568344"}]}, {"name": "אלביט", "num": "22(22222)", "address": "רח המחשב 2 נתניה", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "", "role": "משרד", "phone": "09-8357362"}, {"name": "אופיר דלאל", "role": "מנהל אתר", "phone": "054-3277915"}, {"name": "מאיה", "role": "פקידה", "phone": "054-3228987"}]}, {"name": "רוה\"מ איירפוט סיטי", "num": "45-44500", "address": "איירפורט סיטי", "notes": "אין כניסת ספקים - תיאום מול מנהל האתר", "contacts": [{"name": "ישראל", "role": "מנהל אתר", "phone": "055-6611373"}, {"name": "דובי", "role": "נהג", "phone": "050-6316690"}]}, {"name": "רפאל - מכון דוד (קריות)", "num": "48-44800", "address": "מול איזור תעשייה ביאליק כביש חיפה - עכו", "notes": "נדרש אישור כניסה ומילוי טפסים שאלון רמה 6 רפאל + תיאום מול שלי", "contacts": [{"name": "רועי דהאן", "role": "מנהל אתר", "phone": "050-2037029"}, {"name": "עליזה", "role": "פקידה", "phone": "050-2037764"}, {"name": "מירית", "role": "", "phone": "502037037"}, {"name": "חן", "role": "מנהל אתר", "phone": "052-690-0450"}, {"name": "משה", "role": "מנהל מחסן - לליווים ובדיקת ספקים", "phone": "054-5897712"}, {"name": "נטלי", "role": "פקידה", "phone": "050-7829349"}]}, {"name": "פוד קורד  רפאל מכון דויד", "num": "98600", "address": "", "notes": "", "contacts": [{"name": "משה", "role": "מחסנאי", "phone": "054-5897712"}, {"name": "נטלי", "role": "פקידה", "phone": "050-7829349"}]}, {"name": "רפאל - מכון לשם", "num": "49-44900", "address": "כביש 784 מול הישוב רקפת", "notes": "", "contacts": [{"name": "אייל", "role": "מנהל אתר", "phone": "052-2545154"}, {"name": "חמי", "role": "מנהל בתי קפה", "phone": ""}, {"name": "אוריאל", "role": "מחסנאי - לאישור הגעה, ליווי ובדיקת סחורות", "phone": "054-8632458"}, {"name": "נטלי", "role": "פקידה", "phone": "050-7829349"}, {"name": "חנניה", "role": "מנהל אתר", "phone": "054-3228966"}]}, {"name": "רפאל -הגבעה", "num": "50-45000", "address": "", "notes": "", "contacts": [{"name": "משה גבריאלוב", "role": "מנהל אתר", "phone": "054-3277917"}]}, {"name": "רפאל - פלמחים", "num": "51-45100", "address": "בסיס פלמחים", "notes": "נדרש אישור כניסה  + מילוי טפסים שאלון רמה 6 רפאל", "contacts": [{"name": "חנניה", "role": "מנהל אתר", "phone": "054-3228966"}, {"name": "משה גבריאלוב", "role": "מנהל אתר", "phone": "054-3277917"}]}, {"name": "כ\"ד מתקן חיפה", "num": "53-45300", "address": "לוחמי הגטאות 7 חיפה", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "תמי", "role": "מנהלת אתר", "phone": "052-3888040"}]}, {"name": "מתקן  כ\"ד רמת  השרון", "num": "54-45400", "address": "תעשייה צבאית  רמת השרון", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "ליזה", "role": "מנהלת אתר", "phone": "050-5580300"}]}, {"name": "כ\"ד אשקלון", "num": "52-45200", "address": "ליד משטרת אשקלון", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "גולן", "role": "מנהל אתר", "phone": "050-9449271"}]}, {"name": "נגב", "num": "82-48200", "address": "", "notes": "", "contacts": [{"name": "גולן", "role": "מנהל אתר", "phone": "050-9449271"}]}, {"name": "נגבה", "num": "61-46100", "address": "", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "דורון", "role": "מנהל אתר", "phone": "052-8967016"}, {"name": "משרד", "role": "", "phone": "076-802-4061"}, {"name": "שי", "role": "שף", "phone": "054-3228983"}]}, {"name": "רפאל- חג'ג'", "num": "60(46000)", "address": "", "notes": "", "contacts": [{"name": "ענת", "role": "מנהלת אתר", "phone": "054-3228941"}]}, {"name": "תדיראן", "num": "34-33400", "address": "שד' יצחק רבין 34 קרית עקרון.", "notes": "לא נדרש אישור כניסה", "contacts": [{"name": "יסמין", "role": "מנהלת אתר", "phone": "050-6373417"}]}, {"name": "ירושלים", "num": "71-47100", "address": "הרוזמרין, ירושלים", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "ירמי", "role": "מנהל אתר", "phone": "054-4555171"}, {"name": "מיטל", "role": "פקידה", "phone": "054-8019725"}]}, {"name": "כ\"ד בית ליד", "num": "75-47500", "address": "מחנה 21, בית ליד", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "אורי", "role": "מחסנאי", "phone": "055-8821955"}, {"name": "", "role": "", "phone": "09-8946884"}, {"name": "אריאל", "role": "", "phone": "054-3277931"}]}, {"name": "כ\"ד תל אביב", "num": "85-48500", "address": "רח בן ישי, ליד מכללת רידמן ת\"א", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "דודו", "role": "מנהל אתר", "phone": "054-3228915"}, {"name": "קאסיי", "role": "מחסנאי", "phone": "054-9285882"}, {"name": "אתי", "role": "פקידה", "phone": "054-3726209"}]}, {"name": "כ\"ד קיבוץ", "num": "38-33800", "address": "המכון המטראולוגי ראשון לציון", "notes": "אישור כניסה -  להעביר לאישור שם נהג + ת.ז", "contacts": [{"name": "לירן", "role": "מנהל אתר", "phone": "052-8728174"}, {"name": "תמר", "role": "פקידה", "phone": "0504-403060"}, {"name": "אבי מיכאלוב", "role": "מנהל אתר", "phone": "053-3033238"}, {"name": "", "role": "יוליה פקידה", "phone": "050-9959722"}]}, {"name": "כלמוביל", "num": "31(43100)", "address": "העמל 20 פארק תעשיות ראש העין", "notes": "לא נדרש אישור כניסה", "contacts": [{"name": "אנדריי", "role": "מנהל אתר", "phone": "0544-250015"}]}, {"name": "גילת", "num": "25(42500)", "address": "יגיע כפיים 21 פתח תקווה", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "מיכאל", "role": "מנהל אתר", "phone": "054-8132979"}]}, {"name": "אינטל ירושלים", "num": "26(42600)", "address": "המרפא  9 הר החוצבים ירושלים", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "קובי", "role": "מנהל אתר", "phone": "054-3228945"}, {"name": "שירלי", "role": "פקידה", "phone": "054-4620913"}]}, {"name": "אינטל ירושלים - מטבחונים", "num": "27(42700)", "address": "המרפא  9 הר החוצבים ירושלים", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "קובי", "role": "מנהל אתר", "phone": "054-3228945"}, {"name": "אבי", "role": "מנהל חדר אוכל", "phone": "052-662-7223"}]}, {"name": "אגן אדמה אשדוד", "num": "24(42400)", "address": "האשלג 5, אשדוד", "notes": "לא נדרש  אישור כניסה מיוחד - יש צורך לעבור הדרכה בפעם הראשונה שמגיעים", "contacts": [{"name": "יניב", "role": "מנהל אתר", "phone": "503502207"}]}, {"name": "אינטל פ\"ת", "num": "23(42300(", "address": "החרוצים 7 פ\"ת", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "יוסי בן דוד", "role": "מנהל אתר", "phone": "050-7176611"}]}, {"name": "אינטל פ\"ת מטבחונים", "num": "28(42800)", "address": "החרוצים 7 פ\"ת", "notes": "לא נדרש  אישור כניסה מיוחד", "contacts": [{"name": "יוסי בן דוד", "role": "מנהל אתר", "phone": "050-7176611"}, {"name": "יוסי בן דוד", "role": "יוסי נייד נוסף", "phone": "052-8973764"}, {"name": "גיל סידלסקי", "role": "מחסנאי", "phone": "054-9252208"}]}];
+})();
+
+/* ===== חיפוש אתר בטופס הזמנה ===== */
+function _siteDropdownHide() {
+  var d = document.getElementById('site-dropdown');
+  if (d) d.style.display = 'none';
+}
+
+function siteSearch(val) {
+  var dd = document.getElementById('site-dropdown');
+  if (!val || val.length < 1) { dd.style.display = 'none'; return; }
+  var q = val.trim().toLowerCase();
+  var hits = IDIT_SITES.filter(function(s) {
+    return s.num.toLowerCase().indexOf(q) !== -1 ||
+           s.name.indexOf(q) !== -1 ||
+           s.num.replace(/[^\d]/g,'').indexOf(q.replace(/[^\d]/g,'')) !== -1;
+  });
+  if (!hits.length) { dd.style.display = 'none'; return; }
+  dd.innerHTML = '';
+  hits.forEach(function(s) {
+    var div = document.createElement('div');
+    div.className = 'site-dd-item';
+    div.innerHTML = '<span style="color:#1a1a4e;font-weight:700">' + s.num + '</span> — ' + s.name;
+    div.addEventListener('click', (function(num){ return function(){ _selectSite(num); }; })(s.num));
+    dd.appendChild(div);
+  });
+  dd.style.display = '';
+}
+
+function _selectSite(num) {
+  var s = IDIT_SITES.find(function(x) { return x.num === num; });
+  if (!s) return;
+  document.getElementById('ord-site-num').value = s.num + ' · ' + s.name;
+  if (s.address) document.getElementById('ord-address').value = s.address;
+  if (s.notes)   document.getElementById('ord-notes').value   = s.notes;
+  var contacts = s.contacts.filter(function(c) { return c.name || c.phone; });
+  var panel = document.getElementById('site-info-panel');
+  panel.innerHTML = '<strong style="color:#1a1a4e">\u{1F4CD} ' + s.name + '</strong>' +
+    (contacts.length ? '<div style="margin-top:5px;line-height:1.7">' +
+      contacts.map(function(c) {
+        var line = '';
+        if (c.name) line += '<b>' + c.name + '</b>';
+        if (c.role) line += ' <span style="color:#6b7280;font-size:.8rem">(' + c.role + ')</span>';
+        if (c.phone) line += ' <a href="tel:' + c.phone + '" style="color:#1d4ed8;text-decoration:none">' + c.phone + '</a>';
+        return '<div>' + line + '</div>';
+      }).join('') + '</div>' : '');
+  panel.style.display = '';
+  document.getElementById('site-dropdown').style.display = 'none';
+}
+
+function _toggleSiteField(val) {
+  var wrapper = document.getElementById('site-field-wrapper');
+  if (!wrapper) return;
+  if (val && val.indexOf('עידית') !== -1) {
+    wrapper.style.display = '';
+  } else {
+    wrapper.style.display = 'none';
+    clearSiteField();
+  }
+}
+
+function clearSiteField() {
+  var el = document.getElementById('ord-site-num');
+  if (el) el.value = '';
+  var panel = document.getElementById('site-info-panel');
+  if (panel) panel.style.display = 'none';
+  var dd = document.getElementById('site-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest || (!e.target.closest('#ord-site-num') && !e.target.closest('#site-dropdown')))
+    _siteDropdownHide();
+});
+
+/* ===== ניהול אתרי עידית ===== */
+var _iditEditIdx = null;
+
+function saveIditSites() {
+  localStorage.setItem('iditSites', JSON.stringify(IDIT_SITES));
+}
+
+function openIditManager() {
+  _iditEditIdx = null;
+  document.getElementById('idit-manager-modal').style.display = 'flex';
+  document.getElementById('idit-search').value = '';
+  renderIditList();
+  document.getElementById('idit-edit-pane').innerHTML =
+    '<div style="color:#9ca3af;text-align:center;margin-top:60px;font-size:.9rem">בחר אתר מהרשימה לעריכה</div>';
+}
+
+function closeIditManager() {
+  document.getElementById('idit-manager-modal').style.display = 'none';
+}
+
+function renderIditList() {
+  var q = (document.getElementById('idit-search').value || '').trim().toLowerCase();
+  var pane = document.getElementById('idit-list-pane');
+  pane.innerHTML = IDIT_SITES
+    .map(function(s, i) { return {s:s, i:i}; })
+    .filter(function(o) { return !q || o.s.name.indexOf(q) !== -1 || o.s.num.toLowerCase().indexOf(q) !== -1; })
+    .map(function(o) {
+      var active = _iditEditIdx === o.i;
+      return '<div onclick="openSiteEdit(' + o.i + ')" style="padding:9px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:.85rem;' +
+        (active ? 'background:#eff6ff;border-right:3px solid #1a1a4e;' : 'border-right:3px solid transparent;') + '">' +
+        '<div style="color:#111;font-weight:' + (active?'700':'400') + '">' + o.s.name + '</div>' +
+        '<div style="color:#9ca3af;font-size:.75rem">' + o.s.num + '</div></div>';
+    }).join('');
+}
+
+function _esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function _inp()  { return 'width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:.9rem;box-sizing:border-box;font-family:inherit;'; }
+
+function _renderContacts(contacts, siteIdx) {
+  if (!contacts || !contacts.length)
+    return '<div style="color:#9ca3af;font-size:.83rem;padding:4px 0">אין אנשי קשר</div>';
+  return contacts.map(function(c, ci) {
+    return '<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:5px;margin-bottom:6px;align-items:center">' +
+      '<input value="' + _esc(c.name) + '" placeholder="שם" ' +
+        'oninput="IDIT_SITES[' + siteIdx + '].contacts[' + ci + '].name=this.value" style="' + _inp() + '">' +
+      '<input value="' + _esc(c.role) + '" placeholder="תפקיד" ' +
+        'oninput="IDIT_SITES[' + siteIdx + '].contacts[' + ci + '].role=this.value" style="' + _inp() + '">' +
+      '<input value="' + _esc(c.phone) + '" placeholder="טלפון" dir="ltr" ' +
+        'oninput="IDIT_SITES[' + siteIdx + '].contacts[' + ci + '].phone=this.value" style="' + _inp() + '">' +
+      '<button onclick="removeContact(' + siteIdx + ',' + ci + ')" ' +
+        'style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:.85rem">✕</button>' +
+      '</div>';
+  }).join('');
+}
+
+function openSiteEdit(idx) {
+  _iditEditIdx = idx;
+  renderIditList();
+  var s = IDIT_SITES[idx];
+  document.getElementById('idit-edit-pane').innerHTML =
+    '<div style="display:flex;flex-direction:column;gap:11px">' +
+    '<div><label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:3px">שם האתר</label>' +
+    '<input id="ie-name" value="' + _esc(s.name) + '" style="' + _inp() + '"></div>' +
+    '<div><label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:3px">מספר אתר</label>' +
+    '<input id="ie-num" value="' + _esc(s.num) + '" style="' + _inp() + '"></div>' +
+    '<div><label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:3px">כתובת</label>' +
+    '<input id="ie-addr" value="' + _esc(s.address) + '" style="' + _inp() + '"></div>' +
+    '<div><label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:3px">הערות כניסה</label>' +
+    '<textarea id="ie-notes" rows="2" style="' + _inp() + 'resize:vertical">' + _esc(s.notes) + '</textarea></div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">' +
+    '<strong style="font-size:.88rem">👥 אנשי קשר</strong>' +
+    '<button onclick="addContact(' + idx + ')" style="background:#047857;color:white;border:none;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:.82rem">+ הוסף</button></div>' +
+    '<div id="ie-contacts">' + _renderContacts(s.contacts, idx) + '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:4px;padding-top:10px;border-top:1px solid #f3f4f6">' +
+    '<button onclick="saveSiteEdit(' + idx + ')" style="flex:1;background:#1a1a4e;color:white;border:none;border-radius:8px;padding:9px;cursor:pointer;font-weight:700;font-size:.9rem">💾 שמור שינויים</button>' +
+    '<button onclick="deleteSite(' + idx + ')" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:8px;padding:9px 14px;cursor:pointer" title="מחק אתר">🗑️</button>' +
+    '</div></div>';
+}
+
+function addContact(siteIdx) {
+  IDIT_SITES[siteIdx].contacts.push({name:'',role:'',phone:''});
+  document.getElementById('ie-contacts').innerHTML = _renderContacts(IDIT_SITES[siteIdx].contacts, siteIdx);
+}
+
+function removeContact(siteIdx, ci) {
+  IDIT_SITES[siteIdx].contacts.splice(ci,1);
+  document.getElementById('ie-contacts').innerHTML = _renderContacts(IDIT_SITES[siteIdx].contacts, siteIdx);
+}
+
+function saveSiteEdit(idx) {
+  IDIT_SITES[idx].name    = (document.getElementById('ie-name').value||'').trim();
+  IDIT_SITES[idx].num     = (document.getElementById('ie-num').value||'').trim();
+  IDIT_SITES[idx].address = (document.getElementById('ie-addr').value||'').trim();
+  IDIT_SITES[idx].notes   = (document.getElementById('ie-notes').value||'').trim();
+  saveIditSites();
+  renderIditList();
+  showToast('✅ האתר נשמר');
+}
+
+function deleteSite(idx) {
+  if (!confirm('למחוק את האתר "' + IDIT_SITES[idx].name + '"?')) return;
+  IDIT_SITES.splice(idx,1);
+  _iditEditIdx = null;
+  saveIditSites();
+  renderIditList();
+  document.getElementById('idit-edit-pane').innerHTML =
+    '<div style="color:#9ca3af;text-align:center;margin-top:60px;font-size:.9rem">בחר אתר מהרשימה לעריכה</div>';
+}
+
+function openAddSiteForm() {
+  IDIT_SITES.unshift({name:'',num:'',address:'',notes:'',contacts:[]});
+  _iditEditIdx = 0;
+  saveIditSites();
+  renderIditList();
+  openSiteEdit(0);
+}
+</script>
+</body>
+</html>
