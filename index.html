@@ -3067,15 +3067,15 @@ function buildRuns(totalPages, copies, fullSheet) {
   const quarterSheet = fullSheet / 4;
 
   // בנה שכבות מבחוץ פנימה
-  // השאר = totalPages mod fullSheet → שכבה חלקית, והיא תמיד הכי פנימית
-  // (כי בקיפול מקונן, השכבה הקטנה ביותר נמצאת באמצע הגיליון — לא בחוץ)
-  // כל שאר השכבות הן שכבות מלאות של fullSheet, מבחוץ פנימה
+  // השאר = totalPages mod fullSheet → שכבה חלקית (הריצה הקצרה ביותר), והיא ברירת
+  // המחדל היא ריצה 1 (הראשונה/החיצונית ביותר) — אלא אם המשתמש מזיז אותה ידנית
+  // (ע"י כפתורי ▲▼) למיקום אחר, ואז _recalcPageRanges() מחשב מחדש לפי המיקום בפועל
   const layers = [];
   const rem = totalPages % fullSheet;
+  if (rem !== 0) layers.push(rem);          // שכבה חלקית — ברירת מחדל: ריצה 1
   let inner = totalPages - rem;
   while (inner > 0) { layers.push(fullSheet); inner -= fullSheet; }
-  if (rem !== 0) layers.push(rem);          // שכבה חלקית — תמיד אחרונה (הכי פנימית)
-  // layers[0] = חיצוני ביותר, layers[last] = פנימי ביותר
+  // layers[0] = חיצוני ביותר (ריצה 1), layers[last] = פנימי ביותר
 
   let front = 1;
   let back  = totalPages;
@@ -3105,8 +3105,8 @@ function buildRuns(totalPages, copies, fullSheet) {
       front     += half;
       back      -= half;
     } else {
-      // שכבה חלקית — תמיד הריצה הפנימית ביותר (נדחפת אחרונה למעלה)
-      // אם front/back נפגשים בדיוק — זה טווח עמודים רצוף אחד (בדר"כ המקרה, כי היא הפנימית ביותר)
+      // שכבה חלקית — בברירת מחדל זו ריצה 1 (החיצונית ביותר), ולכן מתפצלת לשני חצאים;
+      // אם הוזזה ידנית להיות הריצה הפנימית ביותר, front/back יפגשו בדיוק וזה ייצא טווח רצוף
       // 20 עמ' (layerPages===quarterSheet): גיליון A+B חובה — מדפיסים את כל הכמות (לא מחלקים)
       // 24 עמ' (layerPages===halfSheet): גיליון A+B אופציונלי — כבוי כברירת מחדל (כמות מחולקת כרגיל)
       const frontEnd  = front + half - 1;
