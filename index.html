@@ -1686,6 +1686,7 @@ let cards          = JSON.parse(localStorage.getItem('solanCards') || '[]');
 let _selectedPaperDay = null;
 let newspapers= JSON.parse(localStorage.getItem('solanNewspapers')|| '[]');
 let flyers    = JSON.parse(localStorage.getItem('solanFlyers')    || '[]');
+let weeklyJobs= JSON.parse(localStorage.getItem('solanWeeklyJobs')|| '[]');
 let historyDB = JSON.parse(localStorage.getItem('solanHistory')   || '{}');
 let printLog  = JSON.parse(localStorage.getItem('solanPrintLog') || '[]');
 
@@ -2151,6 +2152,7 @@ function persist() {
   localStorage.setItem('solanCards',               JSON.stringify(cards));
   localStorage.setItem('solanNewspapers',          JSON.stringify(newspapers));
   localStorage.setItem('solanFlyers',             JSON.stringify(flyers));
+  localStorage.setItem('solanWeeklyJobs',          JSON.stringify(weeklyJobs));
   localStorage.setItem('solanUsers',               JSON.stringify(solanUsers));
   if (apiKey) localStorage.setItem('solanApiKey', apiKey);
   updateBadge();
@@ -2163,7 +2165,8 @@ function persist() {
       cards: cards, newspapers: newspapers, inventory: inventory,
       inventoryPress: inventoryPress, inventoryDeductions: inventoryDeductions,
       inventoryHistory: inventoryHistory, invoiceLogs: invoiceLogs,
-      quotes: quotes, customers: customers, orders: orders
+      quotes: quotes, customers: customers, orders: orders,
+      weeklyJobs: weeklyJobs
     };
     window._fbPendingPuts = window._fbPendingPuts || {};
     Object.keys(_paths).forEach(function(p) {
@@ -3151,7 +3154,8 @@ function renderWeek() {
   const DAY_SHORT = ['א','ב','ג','ד','ה','ו','ש'];
   const dayCounts = DAYS.map(day =>
     newspapers.filter(n => n.day===day && !hiddenThisWeek.includes(n.id)).length +
-    flyers.filter(f => f.day===day).length
+    flyers.filter(f => f.day===day).length +
+    weeklyJobs.filter(w => w.day===day).length
   );
   const navEl = document.getElementById('week-day-nav');
   if (navEl) {
@@ -3168,7 +3172,8 @@ function renderWeek() {
   grid.innerHTML = DAYS.map(day => {
     const dayPapers  = newspapers.filter(n => n.day===day && !hiddenThisWeek.includes(n.id));
     const dayFlyers  = flyers.filter(f => f.day===day);
-    const totalItems = dayPapers.length + dayFlyers.length;
+    const dayWeekly  = weeklyJobs.filter(w => w.day===day);
+    const totalItems = dayPapers.length + dayFlyers.length + dayWeekly.length;
 
     const papersHTML = dayPapers.length ? dayPapers.map(n => {
       const done = _cardDoneThisWeek(n.name);
@@ -3225,7 +3230,28 @@ function renderWeek() {
       </div>`;
     }).join('');
 
-    const emptyHTML = !dayPapers.length && !dayFlyers.length
+    const weeklyHTML = dayWeekly.map(w => {
+      return `
+      <div class="paper-btn" style="border-right:3px solid #f97316">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+          <div>
+            <div class="paper-btn-name" style="color:#c2410c">🔁 ${w.name||''}</div>
+            <div class="paper-btn-detail">${w.paper||''}${w.copies?' · '+parseInt(w.copies).toLocaleString()+' עותקים':''}</div>
+            ${w.customer?`<div style="font-size:.72rem;color:#888">${w.customer}</div>`:''}
+            ${w.internalNotes?`<div style="font-size:.72rem;color:#92400e;background:#fffbeb;border-radius:4px;padding:2px 6px;margin-top:3px">🔒 ${w.internalNotes}</div>`:''}
+          </div>
+          <button title="הסר מהיומן השבועי" onclick="removeWeeklyJob(${w.id})"
+            style="background:none;border:none;cursor:pointer;color:#ccc;font-size:1rem;line-height:1;padding:0;flex-shrink:0"
+            onmouseover="this.style.color='#c62828'" onmouseout="this.style.color='#ccc'">✕</button>
+        </div>
+        <button class="pick-pages-btn" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa"
+          onclick="quickWeeklyJobCard(${w.id})">
+          ➕ צור כרטיס עבודה ▶
+        </button>
+      </div>`;
+    }).join('');
+
+    const emptyHTML = !dayPapers.length && !dayFlyers.length && !dayWeekly.length
       ? '<div class="day-empty">אין פריטים השבוע</div>' : '';
 
     return `<div class="day-col">
@@ -3234,7 +3260,7 @@ function renderWeek() {
         ${totalItems?`<span class="day-count">${totalItems}</span>`:''}
       </div>
       <div class="day-papers">
-        ${papersHTML}${flyersHTML}${emptyHTML}
+        ${papersHTML}${flyersHTML}${weeklyHTML}${emptyHTML}
         <button class="add-paper-btn" onclick="openPaperModalForDay('${day}')">+ הוסף עיתון</button>
       </div>
     </div>`;
@@ -5283,7 +5309,7 @@ function closeDeliveryModal() {
 // ═══════════════════════════════════════════════════════
 // BACKUP / RESTORE
 // ═══════════════════════════════════════════════════════
-const _BACKUP_KEYS = ['solanCards','solanNewspapers','solanFlyers','solanInventory',
+const _BACKUP_KEYS = ['solanCards','solanNewspapers','solanFlyers','solanWeeklyJobs','solanInventory',
   'solanInventoryHistory','solanInventoryDeductions','solanOrders','solanQuotes',
   'solanUsers','solanManualRuns','solanWeekClearedAt','solanWeekClearedItems'];
 
@@ -6750,6 +6776,110 @@ function duplicateCard(id) {
 }
 
 // ═══════════════════════════════════════════════════════
+// WEEKLY JOBS — הפוך כרטיס עבודה לעבודה שבועית ביומן
+// ═══════════════════════════════════════════════════════
+function makeCardWeekly(cardId) {
+  const c = cards.find(x => x.id === cardId);
+  if (!c) return;
+  const html = `
+    <div class="modal-overlay open" id="weekly-day-modal" onclick="if(event.target===this)closeWeeklyDayModal()">
+      <div class="modal" style="max-width:380px">
+        <div class="modal-header">
+          <h3>📅 "${escHtml(c.name||'')}" — עבודה שבועית</h3>
+          <button class="modal-close" onclick="closeWeeklyDayModal()">×</button>
+        </div>
+        <div class="modal-body" style="padding:16px 20px">
+          <div style="font-size:.82rem;font-weight:700;color:var(--gold);margin-bottom:12px">באיזה יום בשבוע העבודה תופיע ביומן?</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+            ${DAYS.map(d => `
+              <button onclick="closeWeeklyDayModal();confirmMakeCardWeekly(${c.id},'${d}')"
+                style="padding:12px 6px;border:2px solid #c0ccf0;border-radius:8px;background:var(--tpl-bg);
+                  color:var(--press);font-family:Heebo,sans-serif;font-size:.88rem;font-weight:800;cursor:pointer;
+                  transition:all .15s"
+                onmouseover="this.style.background='#2d3561';this.style.color='white'"
+                onmouseout="this.style.background='var(--tpl-bg)';this.style.color='var(--press)'">
+                ${d}
+              </button>`).join('')}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  const existing = document.getElementById('weekly-day-modal');
+  if (existing) existing.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function closeWeeklyDayModal() {
+  const el = document.getElementById('weekly-day-modal');
+  if (el) el.remove();
+}
+
+function confirmMakeCardWeekly(cardId, day) {
+  const c = cards.find(x => x.id === cardId);
+  if (!c) return;
+  weeklyJobs.push({
+    id:            Date.now(),
+    day:           day,
+    name:          c.name || '',
+    customer:      c.customer || '',
+    type:          c.type || '',
+    machine:       c.machine || '',
+    copies:        c.copies || '',
+    pages:         c.pages || '',
+    color:         c.color || '',
+    size:          c.size || '',
+    paper:         c.paper || '',
+    notes:         c.notes || '',
+    internalNotes: c.internalNotes || ''
+  });
+  persist();
+  renderWeek();
+  switchTab('week');
+  showToast('✅ "' + (c.name||'') + '" יופיע כל שבוע ביום ' + day);
+}
+
+function removeWeeklyJob(id) {
+  const item = weeklyJobs.find(w => w.id === id);
+  if (!item) return;
+  const snap = [...weeklyJobs];
+  weeklyJobs = weeklyJobs.filter(w => w.id !== id);
+  persist();
+  renderWeek();
+  showUndoToast('עבודה שבועית "' + (item.name||'') + '" הוסרה', function() {
+    weeklyJobs = snap; persist(); renderWeek();
+  });
+}
+
+function quickWeeklyJobCard(weeklyJobId) {
+  const w = weeklyJobs.find(x => x.id === weeklyJobId);
+  if (!w) return;
+  const card = {
+    id:            Date.now(),
+    name:          w.name || '',
+    customer:      w.customer || '',
+    type:          w.type || '',
+    machine:       w.machine || '',
+    orderDate:     new Date().toISOString().split('T')[0],
+    deliveryDate:  '',
+    copies:        w.copies || '',
+    pages:         w.pages || '',
+    color:         w.color || '',
+    size:          w.size || '',
+    paper:         w.paper || '',
+    notes:         w.notes || '',
+    internalNotes: w.internalNotes || '',
+    status:        'pending',
+    createdAt:     new Date().toLocaleDateString('he-IL'),
+    runs:          []
+  };
+  cards.unshift(card);
+  persist();
+  renderCards();
+  showPrintModal(card);
+  showToast('✅ כרטיס עבודה שבועי נוצר');
+}
+
+// ═══════════════════════════════════════════════════════
 // LOW INVENTORY ALERT
 // ═══════════════════════════════════════════════════════
 function checkLowInventory() {
@@ -6915,6 +7045,7 @@ function renderCards() {
         <button class="btn btn-sm btn-gold" onclick="doPrintCard(${c.id})">🖨️ הדפס</button>
         <button class="btn btn-sm" style="background:#0d6efd;color:white;border-color:#0d6efd" onclick="emailCardDirectToPP(${c.id})">📧 קדם דפוס</button>
         <button class="btn btn-sm" style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0" onclick="duplicateCard(${c.id})">📋 שכפל</button>
+        <button class="btn btn-sm" style="background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa" onclick="makeCardWeekly(${c.id})" title="הכרטיס יחזור כל שבוע ביומן השבועי">📅 הפוך לעבודה שבועית</button>
         <button class="btn btn-sm btn-danger" onclick="deleteCard(${c.id})">מחק</button>
       </div>
     </div>`).join('');
@@ -8914,6 +9045,14 @@ async function _fbPollAll() {
       newspapers = Array.isArray(nv) ? nv : Object.values(nv);
       localStorage.setItem('solanNewspapers', JSON.stringify(newspapers));
       window._fbSnapshot.newspapers = JSON.stringify(newspapers);
+    }
+    // עבודות שבועיות
+    var wjv = await window._fbGet('weeklyJobs');
+    if (wjv !== null && !(_pend.weeklyJobs > 0)) {
+      weeklyJobs = Array.isArray(wjv) ? wjv : Object.values(wjv);
+      localStorage.setItem('solanWeeklyJobs', JSON.stringify(weeklyJobs));
+      window._fbSnapshot.weeklyJobs = JSON.stringify(weeklyJobs);
+      if (document.getElementById('view-week') && document.getElementById('view-week').style.display!=='none') renderWeek();
     }
     // הצעות מחיר
     var qv = await window._fbGet('quotes');
