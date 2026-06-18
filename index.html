@@ -794,6 +794,8 @@ textarea.fi{resize:none;min-height:52px;}
 .dash-kpi{background:var(--d-card);border:1.5px solid var(--d-line);border-radius:14px;
   padding:14px 14px 12px;box-shadow:var(--d-shadow);position:relative;overflow:hidden;}
 .dash-kpi::before{content:'';position:absolute;top:0;right:0;width:4px;height:100%;}
+.dash-kpi.clickable{cursor:pointer;transition:transform .12s,box-shadow .12s;}
+.dash-kpi.clickable:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.12);border-color:var(--gold);}
 .dash-kpi-icon{font-size:1.3rem;margin-bottom:6px;}
 .dash-kpi-value{font-size:1.9rem;font-weight:900;line-height:1.1;}
 .dash-kpi-label{font-size:.76rem;font-weight:700;color:var(--d-sub);margin-top:3px;}
@@ -1750,6 +1752,7 @@ window._fbSnapshot = {};
         <button class="btn btn-outline-w" onclick="closePrintModal()">סגור</button>
       </div>
     </div>
+    <div id="print-modal-viewers" style="padding:7px 18px;font-size:.8rem;color:#555;background:#f5f5f5;border-bottom:1px solid #e0e0e0;display:none"></div>
     <div class="print-card-wrap" id="print-card-content"></div>
   </div>
 </div>
@@ -1958,6 +1961,33 @@ function _userName(id) {
   if (!id) return null;
   var u = (solanUsers||[]).find(function(x){ return x.id===id; });
   return u ? u.name : id;
+}
+
+// ── מעקב "מי צפה בכרטיס" ──────────────────────────────────
+function _recordCardView(card) {
+  // רושם שהמשתמש הנוכחי צפה בכרטיס (כרטיס שמור בלבד — לא תצוגה מקדימה)
+  if (!card || card.id === 'preview' || !currentUser) return null;
+  var live = cards.find(function(c){ return String(c.id) === String(card.id); });
+  if (!live) return null;
+  if (!live.viewedBy) live.viewedBy = {};
+  live.viewedBy[currentUser.id] = new Date().toISOString();
+  persist();
+  return live;
+}
+function _viewedByNames(card) {
+  if (!card || !card.viewedBy) return [];
+  return Object.keys(card.viewedBy)
+    .map(function(uid){ return { uid: uid, name: _userName(uid)||uid, at: card.viewedBy[uid] }; })
+    .sort(function(a,b){ return new Date(b.at) - new Date(a.at); })
+    .map(function(e){ return e.name; });
+}
+function _viewedByLine(card) {
+  // שורה קצרה "👁️ נצפה ע״י: שם1, שם2 (+ עוד)" — להצגה בכל מקום שיש בו כרטיס
+  var names = _viewedByNames(card);
+  if (!names.length) return '';
+  var shown = names.slice(0,3).map(escHtml).join(', ');
+  var extra = names.length>3 ? ' +'+(names.length-3) : '';
+  return '👁️ ' + shown + extra;
 }
 
 function saveUsers() {
@@ -2436,7 +2466,7 @@ function switchTab(tab) {
     const v = document.getElementById('view-'+t); if (v) v.style.display = t===tab ? '' : 'none';
     const tb = document.getElementById('tab-'+t); if (tb) tb.classList.toggle('active', t===tab);
   });
-  if (tab!=='saved') { _cardFilterQ=''; _cardFilterExact=false; }
+  if (tab!=='saved') { _cardFilterQ=''; _cardFilterExact=false; _dashCardFilter=null; }
   if (tab==='dashboard') renderDashboard();
   if (tab==='week')      renderWeek();
   if (tab==='saved')     renderCards();
@@ -3037,14 +3067,15 @@ function buildRuns(totalPages, copies, fullSheet) {
   const quarterSheet = fullSheet / 4;
 
   // בנה שכבות מבחוץ פנימה
-  // השאר = totalPages mod fullSheet → שכבה חיצונית חלקית
-  // כל השאר = שכבות מלאות של fullSheet
+  // השאר = totalPages mod fullSheet → שכבה חלקית, והיא תמיד הכי פנימית
+  // (כי בקיפול מקונן, השכבה הקטנה ביותר נמצאת באמצע הגיליון — לא בחוץ)
+  // כל שאר השכבות הן שכבות מלאות של fullSheet, מבחוץ פנימה
   const layers = [];
   const rem = totalPages % fullSheet;
-  if (rem !== 0) layers.push(rem);          // שכבה חיצונית חלקית
   let inner = totalPages - rem;
   while (inner > 0) { layers.push(fullSheet); inner -= fullSheet; }
-  // layers[0] = חיצוני ביותר, layers[last] = פנימי
+  if (rem !== 0) layers.push(rem);          // שכבה חלקית — תמיד אחרונה (הכי פנימית)
+  // layers[0] = חיצוני ביותר, layers[last] = פנימי ביותר
 
   let front = 1;
   let back  = totalPages;
@@ -3063,22 +3094,26 @@ function buildRuns(totalPages, copies, fullSheet) {
       folds      = fullSheet === 32 ? '4 קיפולים' : '3 קיפולים';
       front     += layerPages;
     } else if (layerPages === fullSheet) {
-      // גליון שלם — 2 חלקים סימטריים
-      const frontEnd = front + half - 1;
-      const backStart= back  - half + 1;
-      pageRange  = 'עמ\' ' + front + '–' + frontEnd + ' + עמ\' ' + backStart + '–' + back;
+      // גליון שלם — 2 חלקים סימטריים (אלא אם נפגשים בדיוק עם השכבה הפנימית)
+      const frontEnd  = front + half - 1;
+      const backStart = back  - half + 1;
+      pageRange  = (frontEnd + 1 === backStart)
+        ? 'עמ\' ' + front + '–' + back
+        : 'עמ\' ' + front + '–' + frontEnd + ' + עמ\' ' + backStart + '–' + back;
       runCopies  = copies;
       folds      = fullSheet === 32 ? '4 קיפולים' : '3 קיפולים';
       front     += half;
       back      -= half;
     } else {
-      // שכבה חיצונית חלקית — 2 חלקים סימטריים
+      // שכבה חלקית — תמיד הריצה הפנימית ביותר (נדחפת אחרונה למעלה)
+      // אם front/back נפגשים בדיוק — זה טווח עמודים רצוף אחד (בדר"כ המקרה, כי היא הפנימית ביותר)
       // 20 עמ' (layerPages===quarterSheet): גיליון A+B חובה — מדפיסים את כל הכמות (לא מחלקים)
       // 24 עמ' (layerPages===halfSheet): גיליון A+B אופציונלי — כבוי כברירת מחדל (כמות מחולקת כרגיל)
-      // טווח העמודים מחושב באותו אופן בשני המקרים, ללא קשר למצב A+B
-      const frontEnd = front + half - 1;
-      const backStart= back  - half + 1;
-      pageRange  = 'עמ\' ' + front + '–' + frontEnd + ' + עמ\' ' + backStart + '–' + back;
+      const frontEnd  = front + half - 1;
+      const backStart = back  - half + 1;
+      pageRange  = (frontEnd + 1 === backStart)
+        ? 'עמ\' ' + front + '–' + back
+        : 'עמ\' ' + front + '–' + frontEnd + ' + עמ\' ' + backStart + '–' + back;
       abMandatory = (layerPages === quarterSheet);
       abEligible  = (layerPages === halfSheet);
       abEnabled   = abMandatory; // חובה ב-20 עמ', אופציונלי (כבוי כברירת מחדל) ב-24 עמ'
@@ -3263,19 +3298,25 @@ function setRunExtraCustomSize(i, val) {
 }
 
 function _recalcPageRanges() {
+  // מחשב טווחי עמודים מאפס לפי הסדר הנוכחי של currentRuns (חשוב לאחר העברת ריצה
+  // למקום אחר ע"י המשתמש — מיקום הריצה בנוסח הקיפול הוא מה שקובע איזה עמודים נמצאים בה).
+  // ריצה שמסתיימת בדיוק במקום שבו front נפגש עם back (כלל זה, ולא רק "אחרונה+גיליון שלם")
+  // מוצגת כטווח רצוף אחד; אחרת — מפוצלת לשני חצאים סימטריים.
   if (!currentRuns.length || !_runsFs) return;
   var fullSheet = _runsFs;
   var front = 1, back = _runsPages;
   currentRuns.forEach(function(r, i) {
-    var half    = r.pages / 2;
-    var isLast  = (i === currentRuns.length - 1);
-    var fEnd    = front + half - 1;
-    var bStart  = back  - half + 1;
+    var half   = r.pages / 2;
+    var isLast = (i === currentRuns.length - 1);
     if (isLast && r.pages === fullSheet) {
       r.pageRange = "עמ' " + front + '–' + (front + r.pages - 1);
       front += r.pages;
     } else {
-      r.pageRange = "עמ' " + front + '–' + fEnd + " + עמ' " + bStart + '–' + back;
+      var fEnd   = front + half - 1;
+      var bStart = back  - half + 1;
+      r.pageRange = (fEnd + 1 === bStart)
+        ? "עמ' " + front + '–' + back
+        : "עמ' " + front + '–' + fEnd + " + עמ' " + bStart + '–' + back;
       front += half;
       back  -= half;
     }
@@ -3285,12 +3326,12 @@ function _recalcPageRanges() {
 function moveCurrentRun(i, dir) {
   var j = i + dir;
   if (j < 0 || j >= currentRuns.length) return;
-  // החלפה מלאה של אובייקטי הריצה (כולל pages/pageRange/copies) — מיקום הריצה
-  // הוא רק סדר ההצגה/הדפסה, אבל טווח העמודים הפיזי שלה לא משתנה ולכן עובר איתה.
-  // לפנים הקוד קרא ל-_recalcPageRanges() אחרי ההחלפה, שחישב טווחי עמודים שגויים
-  // מאפס לפי המיקום החדש (כאילו שכבות ה"חיתוך" תלויות בסדר התצוגה) — זה בדיוק
-  // הבאג שגרם לטווחי העמודים להתבלבל בעת החלפת מיקום ריצות.
+  // החלפה מלאה של אובייקטי הריצה (כולל copies/abEnabled/folds) — אלה תלויים רק
+  // בכמות העמודים של הריצה עצמה, לא במיקום שלה.
+  // טווח העמודים, לעומת זאת, תלוי במיקום (ריצה חיצונית = מפוצלת ל-2 חצאים,
+  // ריצה פנימית ביותר = רצופה) — ולכן מחושב מחדש בכל פעם לפי הסדר הנוכחי.
   var tmp = currentRuns[i]; currentRuns[i] = currentRuns[j]; currentRuns[j] = tmp;
+  _recalcPageRanges();
   _renderCurrentRunsOutput();
 }
 
@@ -4257,6 +4298,7 @@ function selectPaperDay(day) {
 function editCard(id) {
   var c = cards.find(function(x){ return x.id === id; });
   if (!c) return;
+  _recordCardView(c);
   clearForm();
   // fill all fields
   var setVal = function(elId, val){ var e=document.getElementById(elId); if(e) e.value=val||''; };
@@ -4859,6 +4901,14 @@ function showPrintModal(card) {
   // כדי שלחיצה על "הדפס" תוך כדי הצפייה תרשום printedAt/היסטוריית הדפסה כראוי
   // (לפני התיקון השדה אופס ל-null וגרם להדפסה "שקטה" שלא נרשמה בשום מקום)
   window._previewCard = card;
+  // רישום "מי צפה בכרטיס" + הצגה בסרגל המודל
+  var liveCard = _recordCardView(card) || card;
+  var viewersEl = document.getElementById('print-modal-viewers');
+  if (viewersEl) {
+    var line = _viewedByLine(liveCard);
+    viewersEl.innerHTML = line ? line : '';
+    viewersEl.style.display = line ? 'block' : 'none';
+  }
 }
 
 function saveFromPreview() {
@@ -7866,16 +7916,27 @@ function editCardCopies(id) {
 
 let _cardFilterQ = '';
 let _cardFilterExact = false; // true = פילטר מדויק לפי שם לקוח
+let _dashCardFilter = null;   // { type, label } — פילטר שמגיע מלחיצה על חלונית בדאשבורד
 
 function openCustomerCards(customerName) {
   _cardFilterQ = customerName || '';
   _cardFilterExact = true;
+  _dashCardFilter = null;
+  switchTab('saved');
+}
+
+// נקרא בלחיצה על חלונית KPI בדאשבורד — פותח את רשימת העבודות מסוננת לפי הסטטוס הרלוונטי
+function openDashFilter(type, label) {
+  _cardFilterQ = '';
+  _cardFilterExact = false;
+  _dashCardFilter = { type: type, label: label };
   switchTab('saved');
 }
 
 function clearCardFilter() {
   _cardFilterQ = '';
   _cardFilterExact = false;
+  _dashCardFilter = null;
   renderCards();
 }
 
@@ -7902,6 +7963,7 @@ function _jobCardHtml(c) {
       <div class="jc-attrib">
         ${c.createdBy?'<span>👤 הכין: '+escHtml(_userName(c.createdBy)||c.createdBy)+'</span>':''}
         ${(c.lastUpdatedBy && c.lastUpdatedBy!==c.createdBy)?'<span>✏️ עודכן ע״י: '+escHtml(_userName(c.lastUpdatedBy)||c.lastUpdatedBy)+'</span>':''}
+        ${_viewedByLine(c)?'<span title="נצפה ע״י">'+_viewedByLine(c)+'</span>':''}
       </div>
       <div class="jc-meta">
         <div class="jc-field"><div class="jcf-label">תאריך הזמנה</div><div class="jcf-val">${c.orderDate||'—'}</div></div>
@@ -7971,10 +8033,39 @@ function renderCards() {
     filterBanner = '<div style="display:flex;align-items:center;gap:10px;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:8px 14px;margin-bottom:12px;font-family:Heebo,sans-serif">' +
       '<span style="font-size:.9rem;font-weight:700;color:#1d4ed8;flex:1">👤 כל העבודות של: <strong>' + escHtml(_cardFilterQ) + '</strong> (' + displayCards.length + ')</span>' +
       '<button onclick="clearCardFilter()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:1rem;font-weight:700;padding:0 4px">✕ הצג הכל</button></div>';
+  } else if (_dashCardFilter) {
+    // פילטר שמגיע מלחיצה על חלונית KPI בדאשבורד
+    var today2 = _todayStr();
+    var dfType = _dashCardFilter.type;
+    displayCards = displayCards.filter(function(c){
+      switch (dfType) {
+        case 'dueToday':  return c.status !== 'done' && c.deliveryDate === today2;
+        case 'printing':  return c.status === 'inprogress';
+        case 'doneToday': return c.status === 'done' && c.printedAt && c.printedAt.slice(0,10) === today2;
+        case 'activeAll': return c.status !== 'done';
+        case 'overdue':   return c.status !== 'done' && c.deliveryDate && c.deliveryDate < today2;
+        default: return true;
+      }
+    });
+    filterBanner = '<div style="display:flex;align-items:center;gap:10px;background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:8px 14px;margin-bottom:12px;font-family:Heebo,sans-serif">' +
+      '<span style="font-size:.9rem;font-weight:700;color:#c2410c;flex:1">📊 ' + escHtml(_dashCardFilter.label) + ' (' + displayCards.length + ')</span>' +
+      '<button onclick="clearCardFilter()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:1rem;font-weight:700;padding:0 4px">✕ הצג הכל</button></div>';
   }
   var activeCards = displayCards.filter(function(c){ return c.status !== 'done'; });
   var doneCards   = displayCards.filter(function(c){ return c.status === 'done'; });
-  if(!displayCards.length){el.innerHTML='<div style="text-align:center;padding:60px 20px;color:#9ca3af"><div style="font-size:3rem;margin-bottom:16px">📋</div><div style="font-size:1.1rem;font-weight:700;color:#374151;margin-bottom:8px">אין כרטיסי עבודה עדיין</div><div style="font-size:.88rem;margin-bottom:20px">לחץ על <strong>➕ כרטיס חדש</strong> כדי ליצור את הכרטיס הראשון</div><button class="btn btn-primary" onclick="switchTab(\'new\')">➕ צור כרטיס חדש</button></div>';_updateCompletedCardsSection([]);return;}
+  if (_dashCardFilter) {
+    // בלחיצה על חלונית מהדאשבורד מציגים את כל הכרטיסים שתואמים ברשימה אחת
+    // (גם אם חלקם בסטטוס "הושלם"), בלי לפצל לאקטיביים/הושלמו
+    activeCards = displayCards;
+    doneCards = [];
+  }
+  if(!displayCards.length){
+    el.innerHTML = filterBanner + (filterBanner
+      ? '<div style="text-align:center;padding:40px 20px;color:#9ca3af"><div style="font-size:2.4rem;margin-bottom:10px">🔍</div><div style="font-size:1rem;font-weight:700;color:#374151">אין עבודות שתואמות לסינון</div></div>'
+      : '<div style="text-align:center;padding:60px 20px;color:#9ca3af"><div style="font-size:3rem;margin-bottom:16px">📋</div><div style="font-size:1.1rem;font-weight:700;color:#374151;margin-bottom:8px">אין כרטיסי עבודה עדיין</div><div style="font-size:.88rem;margin-bottom:20px">לחץ על <strong>➕ כרטיס חדש</strong> כדי ליצור את הכרטיס הראשון</div><button class="btn btn-primary" onclick="switchTab(\'new\')">➕ צור כרטיס חדש</button></div>');
+    _updateCompletedCardsSection([]);
+    return;
+  }
   el.innerHTML = filterBanner + (activeCards.length
     ? activeCards.map(_jobCardHtml).join('')
     : '<div style="text-align:center;padding:40px 20px;color:#9ca3af"><div style="font-size:2.4rem;margin-bottom:10px">🎉</div><div style="font-size:1rem;font-weight:700;color:#374151">אין עבודות פעילות כרגע</div></div>');
@@ -10457,16 +10548,17 @@ function renderDashKPIs() {
   var loadPct  = _avgMachineLoadPct();
 
   var def = [
-    { icon:'📋', value:dueToday,        label:'עבודות להיום',   tone:'blue' },
-    { icon:'🖨️', value:printing,        label:'בהדפסה',          tone:'orange' },
-    { icon:'✅', value:doneToday,       label:'הודפסו היום',     tone:'green' },
-    { icon:'📦', value:active.length,   label:'בתהליך כולל',     tone:'gray' },
-    { icon:'⏰', value:overdue,         label:'באיחור',          tone: overdue>0?'red':'green' },
+    { icon:'📋', value:dueToday,        label:'עבודות להיום',   tone:'blue',  filter:{ type:'dueToday',  label:'עבודות להיום' } },
+    { icon:'🖨️', value:printing,        label:'בהדפסה',          tone:'orange', filter:{ type:'printing',  label:'בהדפסה' } },
+    { icon:'✅', value:doneToday,       label:'הודפסו היום',     tone:'green', filter:{ type:'doneToday', label:'הודפסו היום' } },
+    { icon:'📦', value:active.length,   label:'בתהליך כולל',     tone:'gray',  filter:{ type:'activeAll', label:'בתהליך כולל' } },
+    { icon:'⏰', value:overdue,         label:'באיחור',          tone: overdue>0?'red':'green', filter:{ type:'overdue', label:'באיחור' } },
     { icon:'⚙️', value:loadPct+'%',     label:'עומס מכונות',     tone: loadPct>=85?'red':(loadPct>=60?'orange':'green') }
   ];
 
   el.innerHTML = def.map(function(k){
-    return '<div class="dash-kpi dash-tone-'+k.tone+'">'
+    var clickAttr = k.filter ? ' onclick="openDashFilter(\''+k.filter.type+'\',\''+k.filter.label+'\')"' : '';
+    return '<div class="dash-kpi dash-tone-'+k.tone+(k.filter?' clickable':'')+'"'+clickAttr+'>'
       + '<div class="dash-kpi-icon">'+k.icon+'</div>'
       + '<div class="dash-kpi-value">'+k.value+'</div>'
       + '<div class="dash-kpi-label">'+k.label+'</div>'
@@ -10496,7 +10588,7 @@ function renderDashToday() {
       + '<div class="dash-today-dot"></div>'
       + '<div class="dash-today-main">'
       + '<div class="dash-today-name">'+escHtml(c.name||'ללא שם')+(c.customer?' · '+escHtml(c.customer):'')+'</div>'
-      + '<div class="dash-today-sub">'+escHtml(c.type||'')+(c.copies?' · '+c.copies+' עותקים':'')+(_userName(c.createdBy)?' · 👤 '+escHtml(_userName(c.createdBy)):'')+'</div>'
+      + '<div class="dash-today-sub">'+escHtml(c.type||'')+(c.copies?' · '+c.copies+' עותקים':'')+(_userName(c.createdBy)?' · 👤 '+escHtml(_userName(c.createdBy)):'')+(_viewedByLine(c)?' · '+_viewedByLine(c):'')+'</div>'
       + '</div>'
       + '<div class="dash-today-badge dash-badge-'+st.tone+'">'+st.label+'</div>'
       + '</div>';
@@ -10536,6 +10628,7 @@ function renderDashBoard() {
         + (c.deliveryDate?'<span'+(overdue?' style="color:var(--d-red);font-weight:800"':'')+'>📅 '+c.deliveryDate+'</span>':'')
         + '</div>'
         + (byName?'<div class="dash-board-card-by">👤 '+escHtml(byName)+'</div>':'')
+        + (_viewedByLine(c)?'<div class="dash-board-card-by" title="נצפה ע״י">'+_viewedByLine(c)+'</div>':'')
         + '</div>';
     }).join('');
     return '<div class="dash-board-col" data-status="'+col.key+'" ondragover="_dashDragOver(event)" ondragleave="_dashDragLeave(event)" ondrop="_dashDrop(event,\''+col.key+'\')">'
