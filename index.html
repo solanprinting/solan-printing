@@ -840,6 +840,11 @@ textarea.fi{resize:none;min-height:52px;}
 .dash-machine-fill.dash-tone-orange{background:var(--d-orange);}
 .dash-machine-fill.dash-tone-red{background:var(--d-red);}
 .dash-machine-meta{font-size:.76rem;color:var(--d-sub);margin-top:5px;font-weight:600;}
+.dash-machine-jobs{margin-top:8px;border-top:1px solid var(--d-line);padding-top:6px;}
+.dash-machine-job{display:flex;justify-content:space-between;gap:8px;font-size:.78rem;padding:3px 0;color:var(--d-text);}
+.dash-machine-job-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dash-machine-job-time{color:var(--d-sub);font-weight:700;white-space:nowrap;}
+.dash-machine-job-more{font-size:.74rem;color:var(--d-sub);padding-top:2px;}
 
 /* production board */
 .dash-board-cols{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
@@ -1735,6 +1740,13 @@ window._fbSnapshot = {};
           <input type="file" id="publish-file-input" accept=".html" style="display:none"
             onchange="handlePublishFile(this)">
           <div id="publish-status" style="font-size:.78rem;color:var(--press);margin-top:6px;display:none"></div>
+        </div>
+        <div class="mg-field full admin-only" style="padding-top:14px;border-top:1px solid var(--line)">
+          <label>🖨️ מהירות מכונות (גיליונות לשעה)</label>
+          <div style="font-size:.8rem;color:#666;margin-bottom:8px">
+            קובע כמה זמן מחושב לכל עבודה בתור המכונה והדשבורד.
+          </div>
+          <div id="machine-speeds-wrap"></div>
         </div>
         <div class="mg-field full" style="padding-top:14px;border-top:1px solid var(--line)">
           <label>Firebase — שיתוף כרטיסי עבודה בין עובדים</label>
@@ -2963,6 +2975,17 @@ function pmPickSize(val) {
   70×100 (16.5×24): fullSheet=32, halfSheet=16, quarterSheet=8
   64×90 (A4):       fullSheet=16, halfSheet=8,  quarterSheet=4
 */
+// רשימת תוספות אחידה לריצת "גיליון A+B" (תיאורי בלבד — לא משפיע על חישובי כמות/גיליונות/שעות)
+var RUN_AB_EXTRAS = [
+  { key:'flyerA4',     label:'פלאייר A4' },
+  { key:'flyerA5',     label:'פלאייר A5' },
+  { key:'placement',   label:'פלייסמנט' },
+  { key:'flyerA3',     label:'פלאייר A3' },
+  { key:'bookletA3A4', label:'עלון A3 מתקפל ל-A4' },
+  { key:'bookletA4A5', label:'עלון A4 מתקפל ל-A5' },
+  { key:'custom',      label:'עלון בגודל מצויין' }
+];
+
 function buildRuns(totalPages, copies, fullSheet) {
   const halfSheet    = fullSheet / 2;
   const quarterSheet = fullSheet / 4;
@@ -2985,6 +3008,7 @@ function buildRuns(totalPages, copies, fullSheet) {
     const half   = layerPages / 2;
 
     let pageRange, runCopies, folds;
+    let abMandatory = false, abEligible = false, abEnabled = false;
 
     if (isLast && layerPages === fullSheet) {
       // הפנימי ביותר — גליון שלם רצוף
@@ -3002,11 +3026,17 @@ function buildRuns(totalPages, copies, fullSheet) {
       front     += half;
       back      -= half;
     } else {
-      // שכבה חיצונית חלקית — 2 חלקים סימטריים, כמות מחולקת
+      // שכבה חיצונית חלקית — 2 חלקים סימטריים
+      // 20 עמ' (layerPages===quarterSheet): גיליון A+B חובה — מדפיסים את כל הכמות (לא מחלקים)
+      // 24 עמ' (layerPages===halfSheet): גיליון A+B אופציונלי — כבוי כברירת מחדל (כמות מחולקת כרגיל)
+      // טווח העמודים מחושב באותו אופן בשני המקרים, ללא קשר למצב A+B
       const frontEnd = front + half - 1;
       const backStart= back  - half + 1;
       pageRange  = 'עמ\' ' + front + '–' + frontEnd + ' + עמ\' ' + backStart + '–' + back;
-      runCopies  = Math.round(copies / (fullSheet / layerPages));
+      abMandatory = (layerPages === quarterSheet);
+      abEligible  = (layerPages === halfSheet);
+      abEnabled   = abMandatory; // חובה ב-20 עמ', אופציונלי (כבוי כברירת מחדל) ב-24 עמ'
+      runCopies   = abEnabled ? copies : Math.round(copies / (fullSheet / layerPages));
       folds      = layerPages === halfSheet
         ? (fullSheet === 32 ? '3 קיפולים' : '2 קיפולים')
         : (fullSheet === 32 ? '2 קיפולים' : '1 קיפול');
@@ -3020,7 +3050,12 @@ function buildRuns(totalPages, copies, fullSheet) {
       pageRange,
       copies: runCopies,
       folds,
-      machine: ''
+      machine: '',
+      abMandatory: abMandatory,
+      abEligible: abEligible,
+      abEnabled: abEnabled,
+      abExtras: [],
+      abExtraCustomSize: ''
     };
   });
 }
@@ -3037,12 +3072,26 @@ function calcRuns() {
   else if (/64[\s×x*]?90|90[\s×x*]?64|a4|240[\s×x*]?330|330[\s×x*]?240/.test(size)) { fs=16; lbl='64×90/A4/240×330 — 16 עמ\' לגיליון'; }
   else { field.style.display='none'; currentRuns=[]; return; }
 
-  // preserve machine + tumble choices
-  const prev = {}, prevTumble = {};
+  // preserve machine + tumble + A+B + extras choices
+  const prev = {}, prevTumble = {}, prevAB = {}, prevExtras = {}, prevExtraSize = {};
   document.querySelectorAll('.mach-sel').forEach(s=>{ if(s.dataset.run) prev[s.dataset.run]=s.value; });
-  currentRuns.forEach(r=>{ prevTumble[r.num]=r.tumble||false; });
+  currentRuns.forEach(r=>{
+    prevTumble[r.num]=r.tumble||false;
+    if (r.abEligible) prevAB[r.num] = !!r.abEnabled;
+    prevExtras[r.num] = r.abExtras||[];
+    prevExtraSize[r.num] = r.abExtraCustomSize||'';
+  });
   currentRuns = buildRuns(pages, copies, fs);
-  currentRuns.forEach(r=>{ if(prev[r.num]) r.machine=prev[r.num]; if(prevTumble[r.num]) r.tumble=true; });
+  currentRuns.forEach(r=>{
+    if(prev[r.num]) r.machine=prev[r.num];
+    if(prevTumble[r.num]) r.tumble=true;
+    if (r.abEligible && prevAB[r.num]) {
+      r.abEnabled = true;
+      r.copies = copies; // A+B מופעל — לא מחלקים את הכמות
+    }
+    if (r.abEnabled && prevExtras[r.num] && prevExtras[r.num].length) r.abExtras = prevExtras[r.num].slice();
+    if (r.abEnabled && prevExtraSize[r.num]) r.abExtraCustomSize = prevExtraSize[r.num];
+  });
 
   _runsLabel = lbl; _runsPages = pages; _runsCopies = copies; _runsFs = fs;
   _renderCurrentRunsOutput();
@@ -3069,6 +3118,33 @@ function _renderCurrentRunsOutput() {
       '🔄 מתהפך'+(r.tumble?' ✓':'')+
       '</label>'
     ) : '';
+    var _showABRow = r.abMandatory || r.abEligible;
+    var _abRow = '';
+    if (_showABRow) {
+      var _abToggle = r.abMandatory
+        ? '<span style="font-size:.8rem;font-weight:700;color:#7c3aed;background:#f3e8ff;padding:3px 10px;border-radius:6px">🗞️ גיליון A+B (חובה)</span>'
+        : ('<label onclick="toggleRunAB('+i+')" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:.82rem;font-weight:700;'+
+           'padding:3px 10px;border-radius:6px;border:1.5px solid '+(r.abEnabled?'#7c3aed':'#cbd5e1')+';'+
+           'background:'+(r.abEnabled?'#f3e8ff':'#f8fafc')+';color:'+(r.abEnabled?'#6d28d9':'#64748b')+'">'+
+           '🗞️ גיליון A+B'+(r.abEnabled?' ✓':'')+
+           '</label>');
+      var _abExtras = '';
+      if (r.abEnabled) {
+        _abExtras = '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">'+
+          RUN_AB_EXTRAS.map(function(ex){
+            var _checked = (r.abExtras||[]).indexOf(ex.key) !== -1;
+            return '<label style="display:inline-flex;align-items:center;gap:4px;font-size:.76rem;padding:2px 8px;border-radius:5px;border:1px solid '+(_checked?'#7c3aed':'#e2e8f0')+';background:'+(_checked?'#f3e8ff':'#fff')+';cursor:pointer">'+
+              '<input type="checkbox" '+(_checked?'checked':'')+' onchange="toggleRunExtra('+i+',\''+ex.key+'\')" style="margin:0">'+
+              ex.label+
+            '</label>';
+          }).join('') +
+          ( (r.abExtras||[]).indexOf('custom') !== -1
+            ? '<input type="text" placeholder="גודל..." value="'+(r.abExtraCustomSize||'').replace(/"/g,'&quot;')+'" oninput="setRunExtraCustomSize('+i+',this.value)" style="font-size:.76rem;padding:3px 6px;border:1px solid #cbd5e1;border-radius:5px;width:100px">'
+            : '') +
+        '</div>';
+      }
+      _abRow = '<tr><td colspan="6" style="padding:6px 10px;background:#faf8ff;border-top:1px dashed #e2e8f0">'+_abToggle+_abExtras+'</td></tr>';
+    }
     return '<tr>'+
       '<td>'+
         '<div style="display:flex;align-items:center;gap:4px">'+
@@ -3095,7 +3171,7 @@ function _renderCurrentRunsOutput() {
         '</select>'+
         _tumbleBtn+
       '</td>'+
-    '</tr>';
+    '</tr>'+_abRow;
   }).join('');
 
   out.innerHTML='<div class="runs-box">'+
@@ -3109,6 +3185,35 @@ function _renderCurrentRunsOutput() {
       '<span>עמודים: <strong>'+_runsPages+'</strong></span>'+
       '<span>עותקים: <strong>'+_runsCopies.toLocaleString()+'</strong></span>'+
     '</div></div>';
+}
+
+function toggleRunAB(i) {
+  var r = currentRuns[i];
+  if (!r || !r.abEligible) return; // ניתן להחליף מצב רק בריצות אופציונליות (8 עמ' / halfSheet)
+  r.abEnabled = !r.abEnabled;
+  if (r.abEnabled) {
+    r.copies = _runsCopies; // A+B — מדפיסים את כל הכמות, לא מחלקים
+  } else {
+    r.abExtras = [];
+    r.abExtraCustomSize = '';
+    r.copies = Math.round(_runsCopies / (_runsFs / r.pages));
+  }
+  _renderCurrentRunsOutput();
+}
+
+function toggleRunExtra(i, key) {
+  var r = currentRuns[i];
+  if (!r || !r.abEnabled) return;
+  r.abExtras = r.abExtras || [];
+  var idx = r.abExtras.indexOf(key);
+  if (idx === -1) r.abExtras.push(key); else r.abExtras.splice(idx, 1);
+  _renderCurrentRunsOutput();
+}
+
+function setRunExtraCustomSize(i, val) {
+  var r = currentRuns[i];
+  if (!r) return;
+  r.abExtraCustomSize = val;
 }
 
 function _recalcPageRanges() {
@@ -3638,7 +3743,7 @@ function openRunsModal(n, pages) {
         </div>
         <div class="run-info" style="flex:1">
           <div class="run-num">ריצה ${i+1}</div>
-          <div class="run-detail">${r.pages} עמ' · ${r.pageRange} · ${r.folds}</div>
+          <div class="run-detail">${r.pages} עמ' · ${r.pageRange} · ${r.folds}${r.abEnabled ? ' · <span style="color:#7c3aed;font-weight:700">🗞️ A+B</span>' : ''}</div>
           <input type="text" id="run-paper-${r.num}" value="${defPaper}"
             placeholder="נייר לריצה זו"
             style="display:${hasDefaultPapers ? 'block' : 'none'};font-size:.78rem;padding:3px 7px;
@@ -4283,7 +4388,20 @@ function showPreviewModal(card) {
 function buildPrintCard(c) {
   const _runs = c.runs||[];
   const _hasPaper = _runs.some(r => r.paper && r.paper.trim());
-  const runsRows=_runs.map(r=>`
+  const _abColCount = _hasPaper ? 7 : 6;
+  const runsRows=_runs.map(r=>{
+    let _abRowHtml = '';
+    if (r.abEnabled) {
+      const _extraLabels = (r.abExtras||[]).map(function(k){
+        const found = (RUN_AB_EXTRAS||[]).find(function(e){ return e.key===k; });
+        if (!found) return null;
+        return (k === 'custom' && r.abExtraCustomSize) ? (found.label+' ('+r.abExtraCustomSize+')') : found.label;
+      }).filter(Boolean);
+      _abRowHtml = '<tr><td colspan="'+_abColCount+'" style="padding:5px 10px;border-bottom:1px solid #ddd;background:#faf8ff;font-size:.78rem;color:#6d28d9">'+
+        '🗞️ גיליון A+B'+(_extraLabels.length ? ' · תוספות: '+_extraLabels.join(', ') : '')+
+      '</td></tr>';
+    }
+    return `
     <tr>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd"><strong>ריצה ${r.num}</strong></td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.pages ? r.pages+' עמ\'' : '—'}</td>
@@ -4292,7 +4410,8 @@ function buildPrintCard(c) {
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.folds||'—'}${(r.tumble&&parseInt(r.folds||'0')>=3)?' <span style="color:#1d4ed8;font-weight:600;font-size:.65rem"> · מתהפך</span>':''}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-weight:700">${r.machine||'—'}</td>
       ${_hasPaper ? `<td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-size:.8rem">${r.paper||'—'}</td>` : ''}
-    </tr>`).join('');
+    </tr>${_abRowHtml}`;
+  }).join('');
 
   // חישוב גיליונות ועותקים לכרטיסים עם ריצות
   const _hasRuns = _runs.length > 0;
@@ -4550,6 +4669,14 @@ function _cardToEmailText(c) {
       if (r.copies)    parts.push(parseInt(r.copies).toLocaleString() + " יח'");
       if (r.folds)     parts.push('קיפולים: ' + r.folds);
       if (r.machine)   parts.push('מכונה: ' + r.machine);
+      if (r.abEnabled) {
+        var _exLabels = (r.abExtras||[]).map(function(k){
+          var found = (RUN_AB_EXTRAS||[]).find(function(e){ return e.key===k; });
+          if (!found) return null;
+          return (k === 'custom' && r.abExtraCustomSize) ? (found.label+' ('+r.abExtraCustomSize+')') : found.label;
+        }).filter(Boolean);
+        parts.push('🗞️ גיליון A+B' + (_exLabels.length ? ' (' + _exLabels.join(', ') + ')' : ''));
+      }
       lines.push(parts.join(' | '));
     });
   }
@@ -5682,16 +5809,17 @@ function renderGlobalSearch(q) {
 // ═══════════════════════════════════════════════════════
 function _calcMachineTime(machine, sheets) {
   if (!sheets || sheets <= 0) return null;
+  var perHour = (typeof _machineSheetsPerHour === 'function') ? _machineSheetsPerHour(machine) : null;
   if (/4 צבעים/.test(machine)) {
-    // 7000 גיל'/שעה, מדפיסה צד אחד בכל פעם → 2 ריצות
+    // מדפיסה צד אחד בכל פעם → 2 ריצות
     // + 17.5 דק' הכנה לכל צד (תחילת עבודה + החלפת לוחות)
-    const printHours = (sheets * 2) / 7000;
+    const printHours = (sheets * 2) / (perHour || 7000);
     const setupHours = (17.5 / 60) * 2;
     return printHours + setupHours;
   }
   if (/8 צבעים/.test(machine)) {
-    // מדפיסה שני צדדים → 8500/שעה
-    return sheets / 8500;
+    // מדפיסה שני צדדים בכל ריצה
+    return sheets / (perHour || 8500);
   }
   return null;
 }
@@ -5806,6 +5934,26 @@ var DEFAULT_TEMPLATES = [
 // WORK LIST — רשימת עבודות למכונות
 // ═══════════════════════════════════════════════════════
 var WORKLIST_MACHINES = ['מכונה 4 צבעים', 'מכונה 8 צבעים'];
+var _defaultMachineSpeeds = { 'מכונה 4 צבעים': 7000, 'מכונה 8 צבעים': 8500 };
+var machineSpeeds = (function(){
+  try {
+    var raw = JSON.parse(localStorage.getItem('solanMachineSpeeds') || 'null');
+    return Object.assign({}, _defaultMachineSpeeds, raw || {});
+  } catch(e) { return Object.assign({}, _defaultMachineSpeeds); }
+})();
+function _machineSheetsPerHour(machine) {
+  var v = machineSpeeds && machineSpeeds[machine];
+  return (v != null && v > 0) ? parseFloat(v) : (_defaultMachineSpeeds[machine] || 7000);
+}
+function saveMachineSpeed(machine, val) {
+  var n = parseFloat(val);
+  if (!n || n <= 0) return;
+  machineSpeeds[machine] = n;
+  localStorage.setItem('solanMachineSpeeds', JSON.stringify(machineSpeeds));
+  if (window._fbConnected && window._fbPut) window._fbPut('machineSpeeds', machineSpeeds);
+  if (typeof renderDashMachines === 'function' && document.getElementById('dash-machines')) renderDashMachines();
+  if (typeof showToast === 'function') showToast('⚙️ מהירות המכונה עודכנה');
+}
 var _workOrder = {};  // { machine: [cardId, ...] }
 var _workOrderExcluded = {};  // { machine: [cardId, ...] } — כרטיסים שהוסרו ידנית מרשימת המכונה ולא יוחזרו אוטומטית ע"י _syncWorkOrder
 
@@ -9197,7 +9345,23 @@ function openSettings() {
   document.getElementById('settings-api-key').value = localStorage.getItem('solanApiKey') || '';
   const fbCfg = localStorage.getItem('solanFirebaseConfig') || '';
   document.getElementById('settings-firebase').value = fbCfg;
+  renderMachineSpeedsSettings();
   document.getElementById('settings-modal').style.display = 'flex';
+}
+function renderMachineSpeedsSettings() {
+  var wrap = document.getElementById('machine-speeds-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = (WORKLIST_MACHINES||[]).map(function(m){
+    var v = _machineSheetsPerHour(m);
+    var id = 'ms-' + m.replace(/[^א-תa-zA-Z0-9]/g,'_');
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+      + '<span style="flex:1;font-size:.85rem;font-weight:700">'+escHtml(m)+'</span>'
+      + '<input type="number" id="'+id+'" min="1" step="100" value="'+v+'" '
+      + 'style="width:110px;padding:7px 9px;border:1.5px solid var(--line);border-radius:6px;font-family:Heebo,sans-serif;font-size:.85rem;text-align:center">'
+      + '<span style="font-size:.78rem;color:#888">גיל\'/שעה</span>'
+      + '<button class="btn btn-tpl" style="padding:6px 12px;font-size:.78rem" onclick=\'saveMachineSpeed('+JSON.stringify(m)+',document.getElementById("'+id+'").value)\'>שמור</button>'
+      + '</div>';
+  }).join('') || '<div style="font-size:.82rem;color:#888">אין מכונות מוגדרות</div>';
 }
 function closeSettings() {
   document.getElementById('settings-modal').style.display = 'none';
@@ -9423,6 +9587,14 @@ async function _fbPollAll() {
         var me = solanUsers.find(function(u){ return u.id === currentUser.id; });
         if (me) { currentUser.permissions = me.permissions||{}; sessionStorage.setItem('solanCurrentUser', JSON.stringify(currentUser)); }
       }
+    }
+    // מהירות מכונות
+    var msv = await window._fbGet('machineSpeeds');
+    if (msv !== null && typeof msv === 'object') {
+      machineSpeeds = Object.assign({}, _defaultMachineSpeeds, msv);
+      localStorage.setItem('solanMachineSpeeds', JSON.stringify(machineSpeeds));
+      if (document.getElementById('settings-modal') && document.getElementById('settings-modal').style.display !== 'none') renderMachineSpeedsSettings();
+      if (typeof renderDashMachines === 'function' && document.getElementById('dash-machines')) renderDashMachines();
     }
   } catch(e) {
     _fbConnected = false;
@@ -9771,6 +9943,34 @@ function _machinePendingCount(machine) {
   return n;
 }
 
+function _machinePendingJobs(machine) {
+  var jobs = [];
+  (cards||[]).forEach(function(c){
+    if (c.status === 'done') return;
+    var runs = c.runs || [];
+    var matched = runs.filter(function(r){ return (r.machine === machine || (!r.machine && c.machine === machine)) && !r.done; });
+    if (matched.length) {
+      matched.forEach(function(r){
+        var sheets = parseInt(r.sheets||r.papers||r.copies||0)||0;
+        var customT = (r.customTime != null) ? parseFloat(r.customTime) : null;
+        var hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
+        jobs.push({ card:c, runLabel:r.label||null, hrs:hrs });
+      });
+    } else if (c.machine === machine) {
+      var sheets2 = parseInt(c.sheets||c.copies||0)||0;
+      var customT2 = (c.customMachineTime && c.customMachineTime[machine]) ? parseFloat(c.customMachineTime[machine]) : null;
+      var hrs2 = (customT2 != null) ? customT2 : _calcMachineTime(machine, sheets2);
+      jobs.push({ card:c, runLabel:null, hrs:hrs2 });
+    }
+  });
+  // עבודות עם תאריך אספקה קרוב יותר קודם
+  jobs.sort(function(a,b){
+    var da = a.card.deliveryDate || '9999', db = b.card.deliveryDate || '9999';
+    return da < db ? -1 : (da > db ? 1 : 0);
+  });
+  return jobs;
+}
+
 function _avgMachineLoadPct() {
   var pcts = WORKLIST_MACHINES.map(function(m){
     var hrs = _machinePendingHours(m);
@@ -9928,10 +10128,22 @@ function renderDashMachines() {
     var count = _machinePendingCount(m);
     var pct = Math.min(100, Math.round((hrs/8)*100));
     var tone = pct>=85 ? 'red' : (pct>=60 ? 'orange' : 'green');
+    var jobs = _machinePendingJobs(m);
+    var maxShow = 4;
+    var jobsHtml = jobs.length
+      ? jobs.slice(0, maxShow).map(function(j){
+          var c = j.card;
+          return '<div class="dash-machine-job">'
+            + '<span class="dash-machine-job-name">'+escHtml(c.name||c.customer||'ללא שם')+(j.runLabel?' · '+escHtml(j.runLabel):'')+'</span>'
+            + '<span class="dash-machine-job-time">'+(j.hrs!=null?_fmtHours(j.hrs):'—')+'</span>'
+            + '</div>';
+        }).join('') + (jobs.length > maxShow ? '<div class="dash-machine-job-more">+'+(jobs.length-maxShow)+' עבודות נוספות</div>' : '')
+      : '<div class="dash-machine-job-more">אין עבודות בתור</div>';
     return '<div>'
       + '<div class="dash-machine-name">'+escHtml(m)+'</div>'
       + '<div class="dash-machine-bar"><div class="dash-machine-fill dash-tone-'+tone+'" style="width:'+pct+'%"></div></div>'
       + '<div class="dash-machine-meta">'+count+' עבודות בתור · '+pct+'% תפוסה · '+_fmtHours(hrs)+' נותרו</div>'
+      + '<div class="dash-machine-jobs">'+jobsHtml+'</div>'
       + '</div>';
   }).join('');
   el.innerHTML = '<div class="dash-card-head"><span>⚙️ עומס מכונות</span></div>'
