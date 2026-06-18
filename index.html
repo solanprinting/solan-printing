@@ -32,8 +32,11 @@ header h1 span{color:var(--gold);}
 .app-layout{display:flex;min-height:calc(100vh - 60px);}
 
 /* ── sidebar ── */
+/* position:sticky + align-self:flex-start כדי שהסרגל יישאר קבוע מול הגלילה של העמוד
+   (ללא align-self הוא היה נמתח לגובה .main ע"י flex stretch, וsticky לא היה משפיע) */
 .tabs{display:flex;flex-direction:column;background:#1a1a2e;width:180px;min-width:180px;
-  flex-shrink:0;padding:10px 0;overflow-y:auto;overflow-x:hidden;}
+  flex-shrink:0;padding:10px 0;overflow-y:auto;overflow-x:hidden;
+  position:sticky;top:60px;align-self:flex-start;max-height:calc(100vh - 60px);}
 .tab{padding:13px 18px;cursor:pointer;color:rgba(255,255,255,.55);font-weight:600;
   font-size:.88rem;border-right:3px solid transparent;border-bottom:none;
   transition:all .2s;user-select:none;white-space:nowrap;text-align:right;}
@@ -951,6 +954,7 @@ window._fbSnapshot = {};
   <h1>🖨️ סולן הדפסות <span>בע"מ</span></h1>
   <div style="display:flex;gap:8px;align-items:center">
     <span id="fb-status" style="font-size:.72rem;padding:3px 10px;border-radius:20px;font-weight:700;display:none"></span>
+    <button class="btn btn-outline-w" id="push-toggle-btn" onclick="togglePushNotifications()" style="font-size:.8rem">🔕 הפעל פוש</button>
     <button class="btn btn-outline-w" onclick="switchTab('papers')">📰 ניהול עיתונים</button>
     <span id="header-username" style="color:rgba(255,255,255,.75);font-size:.8rem;font-weight:600"></span>
     <button class="btn btn-outline-w" onclick="openSettings()">⚙️ הגדרות</button>
@@ -10410,17 +10414,21 @@ function _machinePendingJobs(machine) {
         var sheets = parseInt(r.sheets||r.papers||r.copies||0)||0;
         var customT = (r.customTime != null) ? parseFloat(r.customTime) : null;
         var hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
-        jobs.push({ card:c, runLabel:r.label||null, hrs:hrs });
+        jobs.push({ card:c, runLabel:r.label||null, hrs:hrs, status:c.status });
       });
     } else if (c.machine === machine) {
       var sheets2 = parseInt(c.sheets||c.copies||0)||0;
       var customT2 = (c.customMachineTime && c.customMachineTime[machine]) ? parseFloat(c.customMachineTime[machine]) : null;
       var hrs2 = (customT2 != null) ? customT2 : _calcMachineTime(machine, sheets2);
-      jobs.push({ card:c, runLabel:null, hrs:hrs2 });
+      jobs.push({ card:c, runLabel:null, hrs:hrs2, status:c.status });
     }
   });
-  // עבודות עם תאריך אספקה קרוב יותר קודם
+  // עבודות "בהדפסה" כעת קודם (כך שמעבר סטטוס גורם לשינוי נראה לעין ברשימה —
+  // לפני התיקון pending ו-inprogress הוצגו אותו דבר ובאותו מיקום, ולכן נראה
+  // כאילו הרשימה "לא מתעדכנת" כשמעבירים עבודה ל-בהדפסה), ואז לפי תאריך אספקה
   jobs.sort(function(a,b){
+    var pa = a.status==='inprogress' ? 0 : 1, pb = b.status==='inprogress' ? 0 : 1;
+    if (pa !== pb) return pa - pb;
     var da = a.card.deliveryDate || '9999', db = b.card.deliveryDate || '9999';
     return da < db ? -1 : (da > db ? 1 : 0);
   });
@@ -10589,8 +10597,9 @@ function renderDashMachines() {
     var jobsHtml = jobs.length
       ? jobs.slice(0, maxShow).map(function(j){
           var c = j.card;
+          var printingBadge = j.status==='inprogress' ? '<span style="color:#ea580c;font-weight:800">🖨️ </span>' : '';
           return '<div class="dash-machine-job">'
-            + '<span class="dash-machine-job-name">'+escHtml(c.name||c.customer||'ללא שם')+(j.runLabel?' · '+escHtml(j.runLabel):'')+'</span>'
+            + '<span class="dash-machine-job-name">'+printingBadge+escHtml(c.name||c.customer||'ללא שם')+(j.runLabel?' · '+escHtml(j.runLabel):'')+'</span>'
             + '<span class="dash-machine-job-time">'+(j.hrs!=null?_fmtHours(j.hrs):'—')+'</span>'
             + '</div>';
         }).join('') + (jobs.length > maxShow ? '<div class="dash-machine-job-more">+'+(jobs.length-maxShow)+' עבודות נוספות</div>' : '')
@@ -10986,6 +10995,100 @@ function openAddSiteForm() {
   renderIditList();
   openSiteEdit(0);
 }
+</script>
+
+<script>
+/* ===== Web Push — התראות פוש (כרטיס עבודה חדש) =====
+   מפתח ציבורי VAPID — בטוח לחשיפה בצד הלקוח (זה כל המטרה שלו).
+   המפתח הפרטי נשמר אך ורק ב-telegram_bot/config.json ומשמש את הבוט לשליחה. */
+const _VAPID_PUBLIC_KEY = 'BBPsHiaMsRuN-rUslUMaYtb2_H1iXwd3I6lM65uysBXBvcPoyjjQ5VXJSTwyrjIPufdzJoVqT1FLAhTCvZwFN9M';
+
+function _urlBase64ToUint8Array(base64String) {
+  var padding = '='.repeat((4 - base64String.length % 4) % 4);
+  var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  var rawData = atob(base64);
+  var outputArray = new Uint8Array(rawData.length);
+  for (var i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+// מזהה יציב למכשיר/דפדפן הזה, לשמירה ב-localStorage כדי שנדע למחוק/לעדכן
+// את ה-subscription הנכון שלו ב-Firebase (ולא ליצור כפילויות בכל פעם שמפעילים)
+function _pushDeviceId() {
+  var id = localStorage.getItem('pushDeviceId');
+  if (!id) { id = 'dev_' + Date.now() + '_' + Math.random().toString(36).slice(2,9); localStorage.setItem('pushDeviceId', id); }
+  return id;
+}
+
+async function registerPushServiceWorker() {
+  if (!('serviceWorker' in navigator)) return null;
+  try { return await navigator.serviceWorker.register('./sw.js'); }
+  catch(e) { console.warn('SW register failed', e); return null; }
+}
+
+function _updatePushBtnUI(active) {
+  var btn = document.getElementById('push-toggle-btn');
+  if (!btn) return;
+  btn.innerHTML = active ? '🔔 פוש פעיל' : '🔕 הפעל פוש';
+  btn.title = active ? 'לחץ לכיבוי התראות פוש במכשיר זה' : 'לחץ להפעלת התראות פוש כשנוצר כרטיס עבודה חדש';
+  btn.style.background = active ? 'rgba(34,197,94,.25)' : '';
+}
+
+async function _checkPushState() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) { var b=document.getElementById('push-toggle-btn'); if(b) b.style.display='none'; return; }
+  try {
+    var reg = await navigator.serviceWorker.getRegistration('./sw.js');
+    var sub = reg ? await reg.pushManager.getSubscription() : null;
+    _updatePushBtnUI(!!sub);
+  } catch(e) { _updatePushBtnUI(false); }
+}
+
+async function togglePushNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    showToast('⚠️ הדפדפן הזה לא תומך בהתראות פוש');
+    return;
+  }
+  var reg = await registerPushServiceWorker();
+  if (!reg) { showToast('⚠️ שגיאה ברישום Service Worker'); return; }
+  var existing = await reg.pushManager.getSubscription();
+
+  if (existing) {
+    // כיבוי — בטל הרשמה גם בדפדפן וגם ברשימת ה-subscriptions ב-Firebase
+    try {
+      var subs = (await window._fbGet('push_subscriptions')) || {};
+      delete subs[_pushDeviceId()];
+      await window._fbPut('push_subscriptions', subs);
+    } catch(e) {}
+    try { await existing.unsubscribe(); } catch(e) {}
+    _updatePushBtnUI(false);
+    showToast('🔕 התראות פוש כובו במכשיר זה');
+    return;
+  }
+
+  var perm = await Notification.requestPermission();
+  if (perm !== 'granted') { showToast('⚠️ ההרשאה להתראות נדחתה'); return; }
+
+  try {
+    var sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: _urlBase64ToUint8Array(_VAPID_PUBLIC_KEY)
+    });
+    var subs2 = (await window._fbGet('push_subscriptions')) || {};
+    subs2[_pushDeviceId()] = {
+      subscription: JSON.parse(JSON.stringify(sub)),
+      user: currentUser ? (currentUser.name || currentUser.id) : null,
+      createdAt: new Date().toISOString()
+    };
+    await window._fbPut('push_subscriptions', subs2);
+    _updatePushBtnUI(true);
+    showToast('🔔 התראות פוש הופעלו — תקבל הודעה כשנוצר כרטיס עבודה חדש');
+  } catch(e) {
+    console.warn('push subscribe failed', e);
+    showToast('⚠️ ההרשמה להתראות פוש נכשלה');
+  }
+}
+
+registerPushServiceWorker().then(function(){ setTimeout(_checkPushState, 300); });
 </script>
 </body>
 </html>
