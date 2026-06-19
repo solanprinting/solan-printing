@@ -1441,6 +1441,8 @@ window._fbSnapshot = {};
             <div id="oc_paper-ac" style="display:none;position:absolute;z-index:300;background:#fff;border:1.5px solid var(--press);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;width:100%;top:100%;margin-top:46px"></div>
             <div id="oc_paper-note" style="font-size:.72rem;min-height:14px"></div>
           </div>
+          <div style="display:flex;flex-direction:column;gap:3px"><label style="font-size:.72rem;color:#777">גרמז' (g/m²)</label><input class="fi" id="oc_gram" type="number" min="0" step="1" oninput="renderOffsetCalc()" style="margin:0"></div>
+          <div style="display:flex;flex-direction:column;gap:3px"><label style="font-size:.72rem;color:#777">מחיר טון (₪) — ברירת מחדל 5000</label><input class="fi" id="oc_ton" type="number" min="0" step="1" oninput="renderOffsetCalc()" style="margin:0"></div>
         </div>
       </div>
 
@@ -1461,6 +1463,19 @@ window._fbSnapshot = {};
         </div>
       </div>
 
+      <!-- הובלה + הערות -->
+      <div style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px">
+          <label style="font-size:.86rem;display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:700;color:var(--press)">
+            <input type="checkbox" id="oc_ship_inc" onchange="renderOffsetCalc()"> כולל הובלה</label>
+          <span id="oc_ship_amount_wrap" style="display:none;flex-direction:column;gap:2px"><label style="font-size:.68rem;color:#999">עלות הובלה (₪)</label>
+            <input class="fi" id="oc_ship_amount" type="number" min="0" step="1" value="0" oninput="renderOffsetCalc()" style="margin:0;width:130px"></span>
+          <span id="oc_ship_hint" style="font-size:.78rem;color:#e67e22">המחיר אינו כולל הובלה</span>
+        </div>
+        <label style="font-size:.72rem;color:#777">הערות (יופיעו בשורת ההצעה ללקוח)</label>
+        <textarea class="fi" id="oc_notes" rows="2" placeholder="הערות חופשיות..." style="margin:0;resize:vertical;width:100%"></textarea>
+      </div>
+
       <!-- סיכום (מע"מ מתווסף בטופס ההצעה) -->
       <div style="background:#eef2ff;border:1px solid var(--press);border-radius:10px;padding:14px 16px">
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:.9rem"><span style="color:#555">סכום ביניים (עלות)</span><b id="oc_subtotal">₪0</b></div>
@@ -1470,6 +1485,7 @@ window._fbSnapshot = {};
               style="width:54px;padding:2px 6px;border:1px solid #ccc;border-radius:4px;font-family:Heebo;font-size:.84rem;text-align:center">%</span>
           <b id="oc_markupVal">₪0</b>
         </div>
+        <div id="oc_shipLine" style="display:none;justify-content:space-between;margin-bottom:6px;font-size:.9rem"><span style="color:#555">הובלה</span><b id="oc_shipVal">₪0</b></div>
         <div style="display:flex;justify-content:space-between;border-top:1px solid var(--press);padding-top:9px;margin-top:4px">
           <span style="font-weight:900;color:var(--press)">מחיר ללקוח (לפני מע"מ)</span>
           <b style="font-size:1.2rem;color:var(--press)" id="oc_grand">₪0</b>
@@ -1923,6 +1939,9 @@ window._fbSnapshot = {};
         <button class="btn btn-gold" onclick="doPrint()">🖨️ הדפס</button>
         <button class="btn" style="background:#555;color:white;border-color:#555" onclick="doPrintBlankRuns()">🖊️ הדפס — מלא ריצות ידנית</button>
         <button class="btn" style="background:#0d6efd;color:white;border-color:#0d6efd" onclick="emailCardToPP()">📧 שלח לקדם דפוס</button>
+        <button class="btn" style="background:#25D366;color:white;border-color:#25D366" onclick="whatsappCard()">📱 וואטסאפ</button>
+        <button class="btn" style="background:#6366f1;color:white;border-color:#6366f1" onclick="emailCard()">✉️ מייל</button>
+        <button class="btn" style="background:#475569;color:white;border-color:#475569" onclick="downloadCardPdf()">⬇️ הורדה</button>
         <button class="btn btn-primary" id="print-modal-save-btn" onclick="saveFromPreview()" style="display:none">💾 שמור כרטיס</button>
         <button class="btn btn-outline-w" onclick="closePrintModal()">סגור</button>
       </div>
@@ -2647,7 +2666,7 @@ function persist() {
       inventoryPress: inventoryPress, inventoryDeductions: inventoryDeductions,
       inventoryHistory: inventoryHistory, invoiceLogs: invoiceLogs,
       quotes: quotes, customers: customers, orders: orders,
-      weeklyJobs: weeklyJobs, quotePricing: quotePricing
+      weeklyJobs: weeklyJobs, quotePricing: quotePricing, documentPrices: documentPrices
     };
     window._fbPendingPuts = window._fbPendingPuts || {};
     Object.keys(_paths).forEach(function(p) {
@@ -5064,6 +5083,7 @@ function _cardToEmailText(c) {
         }).filter(Boolean);
         parts.push('🗞️ גיליון A+B' + (_exLabels.length ? ' (' + _exLabels.join(', ') + ')' : ''));
       }
+      if (r.manualExtra) parts.push('גדלים נוספים: ' + r.manualExtra);
       lines.push(parts.join(' | '));
     });
   }
@@ -5087,27 +5107,15 @@ function emailCardDirectToPP(id) {
   _sendCardEmail(c);
 }
 
-function _sendCardEmail(c) {
-  if (!c) { showToast('⚠️ לא נמצא כרטיס לשליחה'); return; }
-
-  if (!window.html2canvas || !window.jspdf) {
-    showToast('⚠️ הספריות לא טעונות — נסה לרענן');
-    return;
-  }
-
-  // רנדר הכרטיס ב-div נסתר
+// בונה PDF של הכרטיס ומחזיר אותו ב-callback (משותף לשליחה/מייל/הורדה)
+function _cardPdf(c, cb) {
+  if (!c) { showToast('⚠️ לא נמצא כרטיס'); return; }
+  if (!window.html2canvas || !window.jspdf) { showToast('⚠️ הספריות לא טעונות — נסה לרענן'); return; }
   var container = document.createElement('div');
   container.style.cssText = 'position:fixed;left:-9999px;top:0;width:720px;background:white;z-index:-999;direction:rtl;';
   container.innerHTML = buildPrintCard(c);
   document.body.appendChild(container);
-
   showToast('⏳ מכין קובץ PDF...');
-
-  var safeTitle = (c.name||'כרטיס').replace(/[\s\/\\:*?"<>|]/g,'_').slice(0,40);
-  var fileName = 'כרטיס_עבודה_' + safeTitle + '.pdf';
-  var subject  = 'כרטיס עבודה: ' + (c.name||'') + (c.deliveryDate ? ' — אספקה ' + c.deliveryDate : '');
-  var mailBody = 'שלום,\nמצורף כרטיס עבודה: ' + (c.name||'') + '.\n\n-- סולן הדפסות --';
-
   html2canvas(container, { scale: 2, useCORS: true, backgroundColor: '#fff', logging: false })
     .then(function(canvas) {
       document.body.removeChild(container);
@@ -5117,23 +5125,8 @@ function _sendCardEmail(c) {
       var imgH = (canvas.height * imgW) / canvas.width;
       var data = canvas.toDataURL('image/jpeg', 0.92);
       var y = 0;
-      while (y < imgH) {
-        if (y > 0) pdf.addPage();
-        pdf.addImage(data, 'JPEG', 0, -y, imgW, imgH);
-        y += pageH;
-      }
-
-      // נסה לשתף ישירות (פלאפון / Web Share API)
-      var pdfBlob = pdf.output('blob');
-      var file    = new File([pdfBlob], fileName, { type: 'application/pdf' });
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ files: [file], title: subject })
-          .then(function() { showToast('✅ PDF שותף בהצלחה'); })
-          .catch(function(e) { if (e.name !== 'AbortError') { _fallbackDownload(pdf, fileName, subject, mailBody); } });
-        return;
-      }
-      // פולבק: הורדה + פתיחת מייל
-      _fallbackDownload(pdf, fileName, subject, mailBody);
+      while (y < imgH) { if (y > 0) pdf.addPage(); pdf.addImage(data, 'JPEG', 0, -y, imgW, imgH); y += pageH; }
+      cb(pdf);
     })
     .catch(function(e) {
       if (container.parentNode) document.body.removeChild(container);
@@ -5142,10 +5135,60 @@ function _sendCardEmail(c) {
     });
 }
 
-function _fallbackDownload(pdf, fileName, subject, mailBody) {
+function _cardFileName(c){ return 'כרטיס_עבודה_' + (c.name||'כרטיס').replace(/[\s\/\\:*?"<>|]/g,'_').slice(0,40) + '.pdf'; }
+function _resolveShareCard(id){ var c = (id!=null) ? cards.find(function(x){ return x.id===id; }) : null; return c || window._previewCard || null; }
+
+function _sendCardEmail(c) {
+  if (!c) { showToast('⚠️ לא נמצא כרטיס לשליחה'); return; }
+  var fileName = _cardFileName(c);
+  var subject  = 'כרטיס עבודה: ' + (c.name||'') + (c.deliveryDate ? ' — אספקה ' + c.deliveryDate : '');
+  var mailBody = 'שלום,\nמצורף כרטיס עבודה: ' + (c.name||'') + '.\n\n-- סולן הדפסות --';
+  _cardPdf(c, function(pdf){
+    var file = new File([pdf.output('blob')], fileName, { type: 'application/pdf' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: subject })
+        .then(function() { showToast('✅ PDF שותף בהצלחה'); })
+        .catch(function(e) { if (e.name !== 'AbortError') { _fallbackDownload(pdf, fileName, subject, mailBody, PP_EMAIL); } });
+      return;
+    }
+    _fallbackDownload(pdf, fileName, subject, mailBody, PP_EMAIL);
+  });
+}
+
+// ── שיתוף כרטיס: וואטסאפ ווב / מייל / הורדה למחשב ──
+function whatsappCard(id) {
+  var c = _resolveShareCard(id);
+  if (!c) { showToast('שמור את הכרטיס תחילה'); return; }
+  window.open('https://wa.me/?text=' + encodeURIComponent(_cardToEmailText(c)), '_blank');
+  showToast('📱 וואטסאפ ווב נפתח עם פרטי הכרטיס');
+}
+function downloadCardPdf(id) {
+  var c = _resolveShareCard(id);
+  if (!c) { showToast('שמור את הכרטיס תחילה'); return; }
+  _cardPdf(c, function(pdf){ pdf.save(_cardFileName(c)); showToast('✅ הקובץ הורד למחשב'); });
+}
+function emailCard(id) {
+  var c = _resolveShareCard(id);
+  if (!c) { showToast('שמור את הכרטיס תחילה'); return; }
+  var fileName = _cardFileName(c);
+  var subject  = 'כרטיס עבודה: ' + (c.name||'') + (c.deliveryDate ? ' — אספקה ' + c.deliveryDate : '');
+  var mailBody = 'שלום,\nמצורף כרטיס עבודה: ' + (c.name||'') + '.\n\n-- סולן הדפסות --';
+  _cardPdf(c, function(pdf){
+    var file = new File([pdf.output('blob')], fileName, { type: 'application/pdf' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: subject })
+        .then(function() { showToast('✅ שותף'); })
+        .catch(function(e) { if (e.name !== 'AbortError') { _fallbackDownload(pdf, fileName, subject, mailBody, ''); } });
+      return;
+    }
+    _fallbackDownload(pdf, fileName, subject, mailBody, '');
+  });
+}
+
+function _fallbackDownload(pdf, fileName, subject, mailBody, recipient) {
   pdf.save(fileName);
   setTimeout(function() {
-    var mailto = 'mailto:' + PP_EMAIL +
+    var mailto = 'mailto:' + (recipient||'') +
       '?subject=' + encodeURIComponent(subject) +
       '&body='    + encodeURIComponent(mailBody);
     window.open(mailto, '_blank');
@@ -8259,6 +8302,9 @@ function _jobCardHtml(c) {
         <button class="btn btn-sm" style="background:#f0fdf4;color:#0f6347;border:1.5px solid #6ee7b7" onclick="showPrintModal(cards.find(c=>c.id===${c.id}))">👁️ צפה</button>
         <button class="btn btn-sm btn-gold" onclick="doPrintCard(${c.id})">🖨️ הדפס</button>
         <button class="btn btn-sm" style="background:#0d6efd;color:white;border-color:#0d6efd" onclick="emailCardDirectToPP(${c.id})">📧 קדם דפוס</button>
+        <button class="btn btn-sm" style="background:#dcfce7;color:#166534;border:1.5px solid #25D366" onclick="whatsappCard(${c.id})">📱 וואטסאפ</button>
+        <button class="btn btn-sm" style="background:#eef2ff;color:#4338ca;border:1.5px solid #c7d2fe" onclick="emailCard(${c.id})">✉️ מייל</button>
+        <button class="btn btn-sm" style="background:#f1f5f9;color:#334155;border:1.5px solid #cbd5e1" onclick="downloadCardPdf(${c.id})">⬇️ הורדה</button>
         <button class="btn btn-sm" style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0" onclick="duplicateCard(${c.id})">📋 שכפל</button>
         <button class="btn btn-sm" style="background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa" onclick="makeCardWeekly(${c.id})" title="הכרטיס יחזור כל שבוע ביומן השבועי">📅 הפוך לעבודה שבועית</button>
         <button class="btn btn-sm btn-danger" onclick="deleteCard(${c.id})">מחק</button>
@@ -8489,12 +8535,6 @@ function loadInventoryXlsb(input) {
         if (!price) {
           price = (inv && priceMap['inv:' + inv]) || (orderNum && priceMap['ord:' + orderNum]) || 0;
         }
-        // שמור מחיר ל-documentPrices לפי מספר מסמך (זיכרון קבוע)
-        if (price) {
-          if (inv)      documentPrices['inv:' + inv]      = price;
-          if (orderNum) documentPrices['ord:' + orderNum] = price;
-        }
-
         let item = inventory.find(it => it.name === name);
         if (!item) {
           item = { name, qty: 0, invoices: [] };
@@ -8510,12 +8550,19 @@ function loadInventoryXlsb(input) {
           (!inv && !orderNum && date && x.date === date && x.qty === qty)
         );
         var prevPrice = ex ? (ex.price || 0) : 0;
+        // המחיר ל-1000 נשמר תמיד: מחיר קיים של חשבונית/הזמנה גובר על הקובץ.
+        // העדכון החודשי מעדכן כמות בלבד; מחיר מהקובץ ממלא רק אם המחיר חסר.
+        var finalPrice = prevPrice || price || 0;
         if (ex) {
-          ex.qty = qty;
-          // עדכן מחיר תמיד מהקובץ (הקובץ הוא מקור האמת)
-          if (price) ex.price = price;
+          ex.qty = qty;                              // עדכון חודשי = כמות בלבד
+          if (!ex.price && finalPrice) ex.price = finalPrice; // השלמת מחיר רק כשחסר
         } else {
-          item.invoices.push({ date, inv, orderNum, qty, price: price || 0 });
+          item.invoices.push({ date, inv, orderNum, qty, price: finalPrice });
+        }
+        // שמור מחיר קבוע בזיכרון לפי מספר מסמך (נשמר גם לאחר עדכון חודשי)
+        if (finalPrice) {
+          if (inv)      documentPrices['inv:' + inv]      = finalPrice;
+          if (orderNum) documentPrices['ord:' + orderNum] = finalPrice;
         }
 
         // ===== בדיקות תקינות =====
@@ -8529,10 +8576,10 @@ function loadInventoryXlsb(input) {
               msg: 'מחיר חסר — נייר ' + name + ' (הזמנה: ' + (orderNum||inv||'—') + ')' });
           }
         }
-        // שינוי מחיר חריג — שינוי > 40%
+        // מחיר בקובץ שונה מהשמור (>40%) — המחיר השמור נשמר; התראה כדי שאפשר לעדכן ידנית במידת הצורך
         if (price && prevPrice && Math.abs(price - prevPrice) / prevPrice > 0.4) {
           warnings.push({ type: 'price_change', paper: name, ref: warnRef,
-            msg: 'שינוי מחיר חריג: ' + name + ' — היה ₪' + (prevPrice*1000).toFixed(2) + ' עכשיו ₪' + (price*1000).toFixed(2) + ' לאלף גיל' });
+            msg: 'מחיר בקובץ שונה מהשמור: ' + name + ' — שמור ₪' + (prevPrice*1000).toFixed(2) + ' / בקובץ ₪' + (price*1000).toFixed(2) + ' לאלף (נשמר הקיים)' });
         }
         // כמות חריג גבוהה — פי 5 מהממוצע הקיים
         var avgQty = (item.invoices||[]).filter(function(x){ return x.qty > 0; })
@@ -9733,6 +9780,15 @@ function filterOcPaperAC(val){
 function hideOcPaperAC(){ var ac=document.getElementById('oc_paper-ac'); if(ac) ac.style.display='none'; }
 function pickOcPaper(name){
   document.getElementById('oc_paper').value = name;
+  var p = _resolveOcPaper(name);
+  var gramEl = document.getElementById('oc_gram'), tonEl = document.getElementById('oc_ton');
+  if (p) {                                   // נייר מתומחר — מלא גרמז' ומחיר טון
+    if (p.gram) gramEl.value = p.gram;
+    tonEl.value = p.tonPrice || 5000;
+  } else {                                   // נייר חופשי — נסה לחלץ גרמז' מהשם; מחיר טון ברירת מחדל 5000
+    var g = _parseGram(name); if (g) gramEl.value = g;
+    if (!tonEl.value) tonEl.value = 5000;
+  }
   hideOcPaperAC();
   renderOffsetCalc();
 }
@@ -9768,11 +9824,13 @@ function computeOffsetQuote(){
   var totalSheets = netSheets + waste;
 
   // משקל נייר (לפי גודל הגיליון של הנייר שנבחר, אחרת לפי הגיליון המומלץ)
+  // גרמז' ומחיר טון נלקחים מהשדות שבמחשבון (ניתנים לעריכה; מחיר טון ברירת מחדל 5000)
   var sw = paper ? (paper.sheetW||info.sheetW) : info.sheetW;
   var sh = paper ? (paper.sheetH||info.sheetH) : info.sheetH;
-  var gram = paper ? (paper.gram||0) : 0;
+  var gram = parseFloat(document.getElementById('oc_gram').value)||0;
+  var tonPrice = parseFloat(document.getElementById('oc_ton').value)||0;
   var weightKg = totalSheets * (sw * sh * gram / 10000000);
-  var paperCost = weightKg * (paper ? (paper.tonPrice||0) : 0) / 1000;
+  var paperCost = weightKg * tonPrice / 1000;
 
   // לוחות / הדפסה / קיפול — לכל ריצה
   var plates = 0, printCost = 0, foldCost = 0;
@@ -9801,20 +9859,33 @@ function computeOffsetQuote(){
   var stations = runs.length;
   var bindCost = Math.ceil(copies/1000) * (((pr.bindRates||{})[String(stations)])||0);
 
+  // הובלה (אופציונלי) + הערות ידניות
+  var shipInc   = document.getElementById('oc_ship_inc').checked;
+  var shipping  = shipInc ? (parseFloat(document.getElementById('oc_ship_amount').value)||0) : 0;
+  var notes     = document.getElementById('oc_notes').value.trim();
+
   var subtotal  = paperCost + platesCost + printCost + foldCost + bindCost;
   var markupVal = subtotal * markupPct / 100;
-  var grand     = subtotal + markupVal;
+  var grand     = subtotal + markupVal + shipping; // הובלה מתווספת אחרי הרווח
 
   return { ok:true, info:info, paper:paper, runs:runs, pages:pages, copies:copies, colors:colors,
-    netSheets:netSheets, waste:waste, totalSheets:totalSheets, weightKg:weightKg, gram:gram,
+    netSheets:netSheets, waste:waste, totalSheets:totalSheets, weightKg:weightKg, gram:gram, tonPrice:tonPrice,
     paperCost:paperCost, plates:plates, platesCost:platesCost, printCost:printCost,
     foldCost:foldCost, bindCost:bindCost, stations:stations,
+    shipInc:shipInc, shipping:shipping, notes:notes,
     subtotal:subtotal, markupPct:markupPct, markupVal:markupVal, grand:grand };
 }
 
 function renderOffsetCalc(){
   var size = document.getElementById('oc_size').value;
   var info = _offsetSizeInfo(size);
+
+  // הובלה: שדה הסכום מוצג רק כשמסומן "כולל הובלה"; אחרת מוצג רמז שהמחיר אינו כולל הובלה
+  var shipChecked = document.getElementById('oc_ship_inc').checked;
+  var shipAmtWrap = document.getElementById('oc_ship_amount_wrap');
+  var shipHint = document.getElementById('oc_ship_hint');
+  if (shipAmtWrap) shipAmtWrap.style.display = shipChecked ? 'flex' : 'none';
+  if (shipHint) shipHint.style.display = shipChecked ? 'none' : 'inline';
 
   var infoEl = document.getElementById('oc_sheetInfo');
   if (size && !info) infoEl.textContent = '⚠️ גודל לא מזוהה — נסה 16.5×24 / A4 / 70×100 / 64×90';
@@ -9826,8 +9897,8 @@ function renderOffsetCalc(){
   var noteEl = document.getElementById('oc_paper-note');
   if (noteEl) {
     if (!paperName) noteEl.textContent = '';
-    else if (_resolveOcPaper(paperName)) { noteEl.style.color = '#16a34a'; noteEl.textContent = '✓ נייר מתומחר — משקל ועלות מחושבים'; }
-    else { noteEl.style.color = '#e67e22'; noteEl.textContent = '⚠️ נייר לא מתומחר (להזמנה) — הוסיפו אותו ב-⚙️ תעריפים כדי לחשב עלות נייר'; }
+    else if (_resolveOcPaper(paperName)) { noteEl.style.color = '#16a34a'; noteEl.textContent = '✓ נייר מתומחר — גרמז\'/מחיר טון מולאו אוטומטית'; }
+    else { noteEl.style.color = '#e67e22'; noteEl.textContent = 'ℹ️ נייר שאינו במלאי (להזמנה) — ודא גרמז\' ומחיר טון (ברירת מחדל 5000)'; }
   }
 
   var q = computeOffsetQuote();
@@ -9838,6 +9909,7 @@ function renderOffsetCalc(){
     ['oc_netSheets','oc_waste','oc_totalSheets','oc_platesCount','oc_stations'].forEach(function(id){ set(id,'0'); });
     set('oc_weight','0 ק"ג');
     ['oc_paperCost','oc_platesCost','oc_printCost','oc_foldCost','oc_bindCost','oc_subtotal','oc_markupVal','oc_grand'].forEach(function(id){ set(id,'₪0'); });
+    var sl = document.getElementById('oc_shipLine'); if (sl) sl.style.display = 'none';
     return;
   }
 
@@ -9869,12 +9941,24 @@ function renderOffsetCalc(){
   set('oc_bindCost', _ocILS(q.bindCost));
   set('oc_subtotal', _ocILS(q.subtotal));
   set('oc_markupVal', _ocILS(q.markupVal));
+  var shipLine = document.getElementById('oc_shipLine');
+  if (q.shipInc && q.shipping > 0) { shipLine.style.display = 'flex'; set('oc_shipVal', _ocILS(q.shipping)); }
+  else shipLine.style.display = 'none';
   set('oc_grand', _ocILS(q.grand));
+}
+
+// ניסיון לחלץ גרמז' משם הנייר (לדוגמה "כרומו 80 גרם" → 80), בטווח 40–400
+function _parseGram(name){
+  var m = String(name||'').match(/(\d{2,3})\s*(?:גרם|גר|gsm|gr|g)\b/i) || String(name||'').match(/\b(\d{2,3})\b/);
+  if (m){ var g = parseInt(m[1]); if (g >= 40 && g <= 400) return g; }
+  return 0;
 }
 
 function openOffsetCalc(){
   var colorsEl = document.getElementById('oc_colors');
   if (colorsEl && !colorsEl.value) colorsEl.value = (quotePricing && quotePricing.colors) || 4;
+  var tonEl = document.getElementById('oc_ton');
+  if (tonEl && !tonEl.value) tonEl.value = 5000; // ברירת מחדל: 5000 ₪/טון לכל נייר 70–300 גרם
   document.getElementById('offset-calc-modal').classList.add('open');
   renderOffsetCalc();
 }
@@ -9887,16 +9971,28 @@ function offsetAddToQuote(){
   var q = computeOffsetQuote();
   if (!q.ok || q.grand <= 0){ showToast('מלא מפרט ותעריפים כדי לחשב מחיר'); return; }
   var sizeLabel = document.getElementById('oc_size').value || (q.info ? q.info.sheet : '');
-  var paperName = q.paper ? (q.paper.name || ((q.paper.gram||'') + ' גרם')) : '';
+  var paperName = (document.getElementById('oc_paper').value.trim()) || (q.paper ? q.paper.name : '');
   var desc = 'עיתון ' + sizeLabel + ', ' + q.pages + ' עמ\', ' + q.copies.toLocaleString('he-IL') + ' עותקים' + (paperName ? ', ' + paperName : '');
+  var shipStatement = q.shipInc
+    ? ('המחיר כולל הובלה' + (q.shipping > 0 ? ' (₪' + q.shipping.toLocaleString('he-IL') + ')' : ''))
+    : 'המחיר אינו כולל הובלה';
+  desc += ' · ' + shipStatement;
+  if (q.notes) desc += ' — ' + q.notes;
+  // הצהרת הובלה גם בהערות המסמך (מקום בולט בהצעת המחיר ללקוח) — הצהרה אחת בלבד
+  var notesEl = document.getElementById('q-notes');
+  if (notesEl) {
+    var cur = notesEl.value.replace(/המחיר (אינו )?כולל הובלה(\s*\(₪[\d.,]+\))?/g, '').replace(/\s*\|\s*/g,' | ').replace(/^\s*\|\s*|\s*\|\s*$/g,'').trim();
+    notesEl.value = cur ? (cur + ' | ' + shipStatement) : shipStatement;
+  }
   var item = {
     desc: desc, qty: 1, price: Math.round(q.grand*100)/100,
     offset: {  // פירוט פנימי — נשמר עם ההצעה, לא מוצג ללקוח ב-PDF
       size: sizeLabel, pages: q.pages, copies: q.copies, colors: q.colors,
-      paper: paperName, totalSheets: q.totalSheets, waste: q.waste, weightKg: Math.round(q.weightKg*10)/10,
+      paper: paperName, gram: q.gram, tonPrice: q.tonPrice,
+      totalSheets: q.totalSheets, waste: q.waste, weightKg: Math.round(q.weightKg*10)/10,
       plates: q.plates, stations: q.stations,
       costs: { paper: q.paperCost, plates: q.platesCost, print: q.printCost, fold: q.foldCost, bind: q.bindCost },
-      subtotal: q.subtotal, markupPct: q.markupPct, grand: q.grand
+      subtotal: q.subtotal, markupPct: q.markupPct, shipInc: q.shipInc, shipping: q.shipping, notes: q.notes, grand: q.grand
     }
   };
   if (_quoteItems.length === 1 && !_quoteItems[0].desc && !_quoteItems[0].price) _quoteItems = [];
@@ -10772,6 +10868,13 @@ async function _fbPollAll() {
       quotePricing = qpv;
       localStorage.setItem('solanQuotePricing', JSON.stringify(quotePricing));
       window._fbSnapshot.quotePricing = JSON.stringify(quotePricing);
+    }
+    // זיכרון מחירי מסמכים (מחיר ל-1000) — מיזוג כדי שלא יאבד אף מחיר בין מכשירים
+    var dpv = await window._fbGet('documentPrices');
+    if (dpv !== null && typeof dpv === 'object' && !(_pend.documentPrices > 0)) {
+      documentPrices = Object.assign({}, documentPrices, dpv); // מחירים מקומיים נשמרים, מחירי השרת מתווספים
+      localStorage.setItem('solanDocumentPrices', JSON.stringify(documentPrices));
+      window._fbSnapshot.documentPrices = JSON.stringify(documentPrices);
     }
     // לקוחות
     var cv = await window._fbGet('customers');
