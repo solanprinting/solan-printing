@@ -24,7 +24,14 @@ self.addEventListener('push', function(event) {
     dir: 'rtl',
     lang: 'he',
     data: { url: data.url || './' },
-    tag: data.tag || undefined
+    tag: data.tag || undefined,
+    // ציפצוף/רטט בקבלת התראה (כמו בוואטסאפ) — הדפדפן מפעיל את צליל ההתראה
+    // הסטנדרטי של המכשיר; silent:false מבטיח שזה לא יושתק, וה-vibrate נותן
+    // רטט גם אם המכשיר ב"שקט". renotify מבטיח שגם אם מגיעה התראה נוספת
+    // עם אותו tag היא תצפצף/תרטוט מחדש ולא תוחלף בשקט.
+    silent: false,
+    vibrate: [250, 100, 250],
+    renotify: true
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
