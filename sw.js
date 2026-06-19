@@ -23,7 +23,7 @@ self.addEventListener('push', function(event) {
     badge: 'icon-192.png',
     dir: 'rtl',
     lang: 'he',
-    data: { url: data.url || './' },
+    data: { url: data.url || './', cardId: data.cardId || null },
     tag: data.tag || undefined,
     // ציפצוף/רטט בקבלת התראה (כמו בוואטסאפ) — הדפדפן מפעיל את צליל ההתראה
     // הסטנדרטי של המכשיר; silent:false מבטיח שזה לא יושתק, וה-vibrate נותן
@@ -36,17 +36,28 @@ self.addEventListener('push', function(event) {
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// קליק על ההתראה — פותח/מביא לקדמה טאב קיים של האפליקציה במקום לפתוח טאב כפול
+// קליק על ההתראה — פותח/מביא לקדמה טאב קיים של האפליקציה, ופותח בו
+// (או באפליקציה החדשה שתיפתח) את הכרטיס הספציפי שעליו הגיעה ההתראה.
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
-  var url = (event.notification.data && event.notification.data.url) || './';
+  var ndata = event.notification.data || {};
+  var url = ndata.url || './';
+  var cardId = ndata.cardId || null;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientsArr) {
       for (var i = 0; i < clientsArr.length; i++) {
         var c = clientsArr[i];
-        if ('focus' in c) return c.focus();
+        if ('focus' in c) {
+          c.focus();
+          // האפליקציה כבר פתוחה — שולחים לה הודעה לפתוח את הכרטיס בלי לרענן
+          if (cardId && 'postMessage' in c) c.postMessage({ type: 'openCard', cardId: cardId });
+          return;
+        }
       }
-      if (self.clients.openWindow) return self.clients.openWindow(url);
+      if (self.clients.openWindow) {
+        var openUrl = cardId ? (url + (url.indexOf('?') > -1 ? '&' : '?') + 'openCard=' + cardId) : url;
+        return self.clients.openWindow(openUrl);
+      }
     })
   );
 });
