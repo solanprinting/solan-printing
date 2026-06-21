@@ -958,7 +958,18 @@ window._fbSnapshot = {};
 
 <header>
   <div class="header-top">
-  <h1>🖨️ סולן הדפסות <span>בע"מ</span></h1>
+  <div style="display:flex;align-items:center;gap:14px">
+    <h1>🖨️ סולן הדפסות <span>בע"מ</span></h1>
+    <button onclick="switchTab('worklist')" id="header-worklist-btn"
+      style="background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.55);color:white;
+             border-radius:9px;padding:7px 16px;font-family:Heebo,sans-serif;font-size:.95rem;
+             font-weight:800;cursor:pointer;white-space:nowrap;letter-spacing:.01em;
+             transition:background .15s"
+      onmouseover="this.style.background='rgba(255,255,255,.32)'"
+      onmouseout="this.style.background='rgba(255,255,255,.18)'">
+      📋 רשימת עבודות
+    </button>
+  </div>
   <div style="display:flex;gap:8px;align-items:center">
     <span id="fb-status" style="font-size:.72rem;padding:3px 10px;border-radius:20px;font-weight:700;display:none"></span>
     <button class="btn btn-outline-w" id="push-toggle-btn" onclick="togglePushNotifications()" style="font-size:.8rem">🔕 הפעל פוש</button>
@@ -8302,6 +8313,13 @@ function _queueEntriesForCard(cardId) {
   return (machineQueue||[]).filter(function(e){ return String(e.cardId) === String(cardId); });
 }
 
+function _queueRender() {
+  var wlEl = document.getElementById('view-worklist');
+  var qEl  = document.getElementById('view-queue');
+  if (wlEl && wlEl.style.display !== 'none') renderWorkList();
+  if (qEl  && qEl.style.display  !== 'none') renderMachineQueue();
+}
+
 function _queueAddEntry(cardId, runIdx, machine) {
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
   if (!c) return;
@@ -8325,7 +8343,7 @@ function _queueAddEntry(cardId, runIdx, machine) {
     addedBy: currentUser ? currentUser.id : null
   });
   persist();
-  renderMachineQueue();
+  _queueRender();
   var label = runIdx >= 0 && c.runs && c.runs[runIdx] ? (c.runs[runIdx].label||('ריצה '+(runIdx+1))) : (c.name||'');
   showToast('✅ "' + label + '" נוסף לתור ' + machine);
 }
@@ -8335,7 +8353,7 @@ function _queueRemoveEntry(qid) {
   if (idx < 0) return;
   machineQueue.splice(idx, 1);
   persist();
-  renderMachineQueue();
+  _queueRender();
 }
 
 function _queueMarkDone(qid) {
@@ -8346,7 +8364,7 @@ function _queueMarkDone(qid) {
   e.doneBy = currentUser ? currentUser.id : null;
   e.doneByName = currentUser ? (currentUser.name || _userName(currentUser.id) || 'לא ידוע') : 'לא ידוע';
   persist();
-  renderMachineQueue();
+  _queueRender();
   showToast('✅ הודפס!');
 }
 
@@ -8355,7 +8373,7 @@ function _queueUnmarkDone(qid) {
   if (!e) return;
   e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null;
   persist();
-  renderMachineQueue();
+  _queueRender();
   showToast('↩ הוחזר לתור');
 }
 
@@ -8368,7 +8386,7 @@ function _queueSetEstTime(qid) {
   var n = parseInt(val, 10);
   e.estMinutes = (isNaN(n) || n <= 0) ? null : n;
   persist();
-  renderMachineQueue();
+  _queueRender();
 }
 
 function _queueMove(qid, dir) {
@@ -8381,7 +8399,7 @@ function _queueMove(qid, dir) {
   if (swapIdx < 0 || swapIdx >= peers.length) return;
   var tmp = peers[idx].order; peers[idx].order = peers[swapIdx].order; peers[swapIdx].order = tmp;
   persist();
-  renderMachineQueue();
+  _queueRender();
 }
 
 function _queueDragStart(ev, cardId, runIdx) {
