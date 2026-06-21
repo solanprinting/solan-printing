@@ -9,6 +9,35 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" id="pwa-apple-title" content="סולן הדפסות">
 <script>
+// ── AUTO-UPDATE WATCHDOG ──────────────────────────────────────────
+// GitHub Pages caches index.html for 10 min (Cache-Control: max-age=600),
+// so deploys don't show up until the CDN cache expires. version.txt is
+// fetched with a cache-bust query (always fresh); when its value differs
+// from the version baked into this file, we reload with a ?_v= query that
+// bypasses the CDN and pulls the new HTML immediately.
+window.APP_VERSION = '1782061143';
+(function(){
+  if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
+  function checkVersion(){
+    var base = location.pathname.replace(/[^/]*$/, '');
+    fetch(base + 'version.txt?t=' + Date.now(), { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.text() : null; })
+      .then(function(txt){
+        if (!txt) return;
+        var latest = txt.trim();
+        if (latest && latest !== String(window.APP_VERSION)) {
+          try {
+            var u = new URL(location.href);
+            u.searchParams.set('_v', latest);
+            location.replace(u.toString());
+          } catch(e) { location.reload(); }
+        }
+      }).catch(function(){});
+  }
+  setTimeout(checkVersion, 3000);
+  setInterval(checkVersion, 60000);
+})();
+
 // Capture install prompt as early as possible (fires before any JS runs)
 window._pwaInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', function(ev) {
@@ -12548,7 +12577,7 @@ function _renderOperatorScreen() {
     + '<div style="text-align:left">'
     + '<div style="color:#64748b;font-size:.7rem">מפעיל: ' + escHtml(_machineViewOpName) + '</div>'
     + '<div style="display:flex;gap:5px;margin-top:4px">'
-    + '<button id="op-install-btn" onclick="_opInstall()" style="display:' + (window._pwaInstallPrompt ? '' : 'none') + ';font-size:.62rem;padding:3px 8px;border:none;background:#2563eb;color:white;border-radius:5px;cursor:pointer;font-weight:700">📲 הוסף לטלפון</button>'
+    + '<button id="op-install-btn" onclick="_opInstall()" style="font-size:.62rem;padding:3px 8px;border:none;background:#2563eb;color:white;border-radius:5px;cursor:pointer;font-weight:700">📲 הוסף לטלפון</button>'
     + '<button onclick="sessionStorage.removeItem(\'solanOperatorName\');location.reload()" style="font-size:.62rem;padding:2px 7px;border:1px solid #e2e8f0;background:transparent;color:#94a3b8;border-radius:4px;cursor:pointer">שנה שם</button>'
     + '</div>'
     + '</div>'
@@ -12611,17 +12640,44 @@ function _renderOperatorScreen() {
 }
 
 function _opInstall() {
-  if (!window._pwaInstallPrompt) return;
-  window._pwaInstallPrompt.prompt();
-  window._pwaInstallPrompt.userChoice.then(function(r) {
-    window._pwaInstallPrompt = null;
-    var btn = document.getElementById('op-install-btn');
-    if (btn) btn.style.display = 'none';
-    if (r.outcome === 'accepted') {
-      var btn2 = document.getElementById('op-install-btn');
-      if (btn2) btn2.textContent = '✅ נוסף!';
-    }
-  });
+  // If the browser gave us a native install prompt — use it directly
+  if (window._pwaInstallPrompt) {
+    window._pwaInstallPrompt.prompt();
+    window._pwaInstallPrompt.userChoice.then(function(r) {
+      window._pwaInstallPrompt = null;
+      var btn = document.getElementById('op-install-btn');
+      if (btn) { if (r.outcome === 'accepted') btn.textContent = '✅ נוסף!'; else btn.style.display = 'none'; }
+    });
+    return;
+  }
+  // Already installed (running standalone)?
+  if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
+    alert('✅ האפליקציה כבר מותקנת במכשיר.');
+    return;
+  }
+  // No native prompt (iPhone, or already dismissed) — show manual instructions
+  var ua = navigator.userAgent || '';
+  var isIOS = /iPhone|iPad|iPod/i.test(ua);
+  var isAndroid = /Android/i.test(ua);
+  var msg;
+  if (isIOS) {
+    msg = '📲 להוספה למסך הבית (אייפון):\n\n'
+        + '1. לחץ על כפתור השיתוף ⬆️ למטה בסרגל של Safari\n'
+        + '2. גלול ובחר "הוסף למסך הבית" / "Add to Home Screen"\n'
+        + '3. לחץ "הוסף"\n\n'
+        + 'האפליקציה תופיע עם שם המכונה במסך הבית.';
+  } else if (isAndroid) {
+    msg = '📲 להוספה למסך הבית (אנדרואיד):\n\n'
+        + '1. לחץ על תפריט שלוש הנקודות ⋮ בפינה של הדפדפן\n'
+        + '2. בחר "התקן אפליקציה" / "הוסף למסך הבית"\n'
+        + '3. אשר\n\n'
+        + 'אם לא מופיע — רענן את הדף ונסה שוב בעוד כמה שניות.';
+  } else {
+    msg = '📲 להתקנה:\n\n'
+        + 'בכרום — לחץ על אייקון ההתקנה ⊕ בשורת הכתובת, או תפריט ⋮ → "התקן".\n'
+        + 'בטלפון — פתח דרך Chrome (אנדרואיד) או Safari (אייפון) ובחר "הוסף למסך הבית".';
+  }
+  alert(msg);
 }
 
 function _operatorMarkDone(qid) {
