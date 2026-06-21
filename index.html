@@ -2192,6 +2192,7 @@ let newspapers= JSON.parse(localStorage.getItem('solanNewspapers')|| '[]');
 let flyers    = JSON.parse(localStorage.getItem('solanFlyers')    || '[]');
 let weeklyJobs= JSON.parse(localStorage.getItem('solanWeeklyJobs')|| '[]');
 let recurringJobs = JSON.parse(localStorage.getItem('solanRecurringJobs') || '[]');
+let machineQueue = JSON.parse(localStorage.getItem('solanMachineQueue') || '[]');
 let historyDB = JSON.parse(localStorage.getItem('solanHistory')   || '{}');
 let printLog  = JSON.parse(localStorage.getItem('solanPrintLog') || '[]');
 
@@ -2771,6 +2772,7 @@ function persist() {
   localStorage.setItem('solanFlyers',             JSON.stringify(flyers));
   localStorage.setItem('solanWeeklyJobs',          JSON.stringify(weeklyJobs));
   localStorage.setItem('solanRecurringJobs',       JSON.stringify(recurringJobs));
+  localStorage.setItem('solanMachineQueue',        JSON.stringify(machineQueue));
   localStorage.setItem('solanUsers',               JSON.stringify(solanUsers));
   if (apiKey) localStorage.setItem('solanApiKey', apiKey);
   updateBadge();
@@ -2784,7 +2786,8 @@ function persist() {
       inventoryPress: inventoryPress, inventoryDeductions: inventoryDeductions,
       inventoryHistory: inventoryHistory, invoiceLogs: invoiceLogs,
       quotes: _filterDeleted('quotes', quotes), customers: customers, orders: _filterDeleted('orders', orders),
-      weeklyJobs: weeklyJobs, recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds
+      weeklyJobs: weeklyJobs, recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds,
+      machineQueue: machineQueue
     };
     _paths.cards = _filterDeleted('cards', cards);
     window._fbPendingPuts = window._fbPendingPuts || {};
@@ -3730,8 +3733,6 @@ function _parseSheetsInfo(notes) {
   return { total: total, perSheet: perSheet };
 }
 
-var SHEETS_SPARE_MIN = 50; // מינימום ספייר מקובל בגיליונות
-
 // ── הצגת חישוב חי מתחת לשדה הגיליונות ──
 function updateSheetsCalc() {
   var box = document.getElementById('f-sheets-calc');
@@ -3757,20 +3758,18 @@ function updateSheetsCalc() {
   if (!entered) {
     box.innerHTML = '<span style="color:#0369a1;font-weight:600">📐 נדרשים ' + needed.toLocaleString() + ' גיליונות</span> ' +
       '<span style="color:#6b7280">(' + info.total.toLocaleString() + ' ÷ ' + info.perSheet + ')</span> ' +
-      '<button type="button" onclick="_fillNeededSheets(' + (needed+SHEETS_SPARE_MIN) + ')" style="margin-right:6px;font-size:.74rem;padding:2px 9px;border:1.5px solid #0284c7;background:#e0f2fe;color:#075985;border-radius:6px;cursor:pointer;font-family:Heebo,sans-serif">מלא ' + (needed+SHEETS_SPARE_MIN).toLocaleString() + ' (כולל ספייר)</button>';
+      '<button type="button" onclick="_fillNeededSheets(' + needed + ')" style="margin-right:6px;font-size:.74rem;padding:2px 9px;border:1.5px solid #0284c7;background:#e0f2fe;color:#075985;border-radius:6px;cursor:pointer;font-family:Heebo,sans-serif">מלא ' + needed.toLocaleString() + '</button>';
     return;
   }
   var produced = entered * info.perSheet;
-  var diff = entered - needed;
   if (produced < info.total) {
     // חוסר — אזהרה
     box.innerHTML = '<span style="color:#b91c1c;font-weight:700">⚠️ חוסר: ' + (info.total-produced).toLocaleString() + ' יח\' (' + (needed-entered) + ' גיליונות)</span> ' +
       '<span style="color:#6b7280">— נדרשים ' + needed.toLocaleString() + ', רשמת ' + entered.toLocaleString() + '</span> ' +
-      '<button type="button" onclick="_fillNeededSheets(' + (needed+SHEETS_SPARE_MIN) + ')" style="margin-right:6px;font-size:.74rem;padding:2px 9px;border:1.5px solid #b91c1c;background:#fee2e2;color:#7f1d1d;border-radius:6px;cursor:pointer;font-family:Heebo,sans-serif">תקן ל-' + (needed+SHEETS_SPARE_MIN).toLocaleString() + '</button>';
+      '<button type="button" onclick="_fillNeededSheets(' + needed + ')" style="margin-right:6px;font-size:.74rem;padding:2px 9px;border:1.5px solid #b91c1c;background:#fee2e2;color:#7f1d1d;border-radius:6px;cursor:pointer;font-family:Heebo,sans-serif">תקן ל-' + needed.toLocaleString() + '</button>';
   } else {
-    // מספיק — מציג ספייר
     box.innerHTML = '<span style="color:#15803d;font-weight:600">✅ מכסה את ההזמנה</span> ' +
-      '<span style="color:#6b7280">— נדרשים ' + needed.toLocaleString() + ', רשמת ' + entered.toLocaleString() + ' (ספייר ' + diff.toLocaleString() + ' גיליונות / ' + (produced-info.total).toLocaleString() + ' יח\')</span>';
+      '<span style="color:#6b7280">— נדרשים ' + needed.toLocaleString() + ', רשמת ' + entered.toLocaleString() + '</span>';
   }
 }
 
@@ -3791,8 +3790,7 @@ function _confirmSheetsDeviation() {
   if (produced < info.total) {
     return confirm('⚠️ סטייה בכמות גיליונות — חוסר:\n\n' +
       'לפי ההערות נדרשים ' + needed.toLocaleString() + ' גיליונות (' + info.total.toLocaleString() + ' ÷ ' + info.perSheet + ' בגיליון).\n' +
-      'רשמת ' + entered.toLocaleString() + ' גיליונות = ' + produced.toLocaleString() + ' יח\' — חוסר של ' + (info.total-produced).toLocaleString() + ' יח\' (' + (needed-entered) + ' גיליונות).\n\n' +
-      'בדרך כלל מדפיסים ספייר (לפחות ~' + SHEETS_SPARE_MIN + ' גיליונות עודף). לשמור בכל זאת?');
+      'רשמת ' + entered.toLocaleString() + ' גיליונות = ' + produced.toLocaleString() + ' יח\' — חוסר של ' + (info.total-produced).toLocaleString() + ' יח\' (' + (needed-entered) + ' גיליונות).\n\nלשמור בכל זאת?');
   }
   if (produced > info.total * 1.1) {
     return confirm('⚠️ סטייה בכמות גיליונות — הרבה מעבר לנדרש:\n\n' +
@@ -5246,7 +5244,6 @@ function buildPrintCard(c) {
     if (_si.perSheet && _copiesNum) {
       const _prod = _copiesNum * _si.perSheet;
       _sheetsTotalLine = 'סה"כ: <strong>' + _prod.toLocaleString() + ' יח\'</strong> (' + _copiesNum.toLocaleString() + ' גיליונות × ' + _si.perSheet + ' בגיליון)';
-      if (_si.total && _si.total !== _prod) _sheetsTotalLine += ' · נדרש: ' + _si.total.toLocaleString();
     } else if (_si.total) {
       _sheetsTotalLine = 'סה"כ: <strong>' + _si.total.toLocaleString() + ' יח\'</strong>';
     }
@@ -6672,8 +6669,8 @@ function renderGlobalSearch(q) {
   if (jobHits.length) {
     html += section('עבודות');
     html += jobHits.map(c =>
-      row('📋', hl(c.name||''), [c.customer,c.size].filter(Boolean).join(' · '), 'הצג הכל',
-        `openSearchJobResults(${JSON.stringify(q)})`)
+      row('📋', hl(c.name||''), [c.customer,c.size].filter(Boolean).join(' · '), 'פתח',
+        `switchTab('saved');showPrintModal(cards.find(function(x){return x.id===${JSON.stringify(c.id)};}))`)
     ).join('');
   }
 
@@ -8204,123 +8201,300 @@ function unmarkRunDone(cardId, runIdx, machine) {
   showToast('↩ ריצה בוטלה — חזרה לתור');
 }
 
+// ═══════════════════════════════════════════════════════
+// MACHINE QUEUE — helpers
+// ═══════════════════════════════════════════════════════
+
+function _isWeeklySourceCard(card) {
+  return (weeklyJobs||[]).some(function(w){ return String(w.cardCreated) === String(card.id); });
+}
+
+function _queueEntriesForCard(cardId) {
+  return (machineQueue||[]).filter(function(e){ return String(e.cardId) === String(cardId); });
+}
+
+function _queueAddEntry(cardId, runIdx, machine) {
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  if (!c) return;
+  var already = (machineQueue||[]).some(function(e){
+    return String(e.cardId)===String(cardId) && e.runIdx===runIdx && !e.done;
+  });
+  if (already) { showToast('⚠️ כבר בתור'); return; }
+  var order = (machineQueue||[]).filter(function(e){ return e.machine===machine && !e.done; }).length;
+  machineQueue.push({
+    qid: String(Date.now()) + String(Math.floor(Math.random()*9999)),
+    cardId: String(cardId),
+    runIdx: runIdx,
+    machine: machine,
+    order: order,
+    estMinutes: null,
+    done: false,
+    doneAt: null,
+    doneBy: null,
+    doneByName: null,
+    addedAt: new Date().toISOString(),
+    addedBy: currentUser ? currentUser.id : null
+  });
+  persist();
+  renderMachineQueue();
+  var label = runIdx >= 0 && c.runs && c.runs[runIdx] ? (c.runs[runIdx].label||('ריצה '+(runIdx+1))) : (c.name||'');
+  showToast('✅ "' + label + '" נוסף לתור ' + machine);
+}
+
+function _queueRemoveEntry(qid) {
+  var idx = (machineQueue||[]).findIndex(function(e){ return String(e.qid) === String(qid); });
+  if (idx < 0) return;
+  machineQueue.splice(idx, 1);
+  persist();
+  renderMachineQueue();
+}
+
+function _queueMarkDone(qid) {
+  var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
+  if (!e) return;
+  e.done = true;
+  e.doneAt = new Date().toISOString();
+  e.doneBy = currentUser ? currentUser.id : null;
+  e.doneByName = currentUser ? (currentUser.name || _userName(currentUser.id) || 'לא ידוע') : 'לא ידוע';
+  persist();
+  renderMachineQueue();
+  showToast('✅ הודפס!');
+}
+
+function _queueUnmarkDone(qid) {
+  var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
+  if (!e) return;
+  e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null;
+  persist();
+  renderMachineQueue();
+  showToast('↩ הוחזר לתור');
+}
+
+function _queueSetEstTime(qid) {
+  var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
+  if (!e) return;
+  var cur = e.estMinutes ? String(e.estMinutes) : '';
+  var val = prompt('זמן משוער (דקות):', cur);
+  if (val === null) return;
+  var n = parseInt(val, 10);
+  e.estMinutes = (isNaN(n) || n <= 0) ? null : n;
+  persist();
+  renderMachineQueue();
+}
+
+function _queueMove(qid, dir) {
+  var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
+  if (!e) return;
+  var peers = (machineQueue||[]).filter(function(x){ return x.machine === e.machine && !x.done; })
+    .sort(function(a,b){ return a.order - b.order; });
+  var idx = peers.findIndex(function(x){ return String(x.qid) === String(qid); });
+  var swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= peers.length) return;
+  var tmp = peers[idx].order; peers[idx].order = peers[swapIdx].order; peers[swapIdx].order = tmp;
+  persist();
+  renderMachineQueue();
+}
+
+function _queueDragStart(ev, cardId, runIdx) {
+  ev.dataTransfer.setData('text/plain', JSON.stringify({ cardId: String(cardId), runIdx: runIdx }));
+  ev.dataTransfer.effectAllowed = 'copy';
+}
+
+function _queueDragOver(ev) {
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'copy';
+}
+
+function _queueDrop(ev, machine) {
+  ev.preventDefault();
+  try {
+    var data = JSON.parse(ev.dataTransfer.getData('text/plain'));
+    _queueAddEntry(data.cardId, data.runIdx, machine);
+  } catch(e2) {}
+}
+
+function _fmtMins(m) {
+  if (!m) return '—';
+  var h = Math.floor(m/60), mn = m%60;
+  if (h > 0) return h + 'ש\'' + (mn ? ' ' + mn + 'ד\'' : '');
+  return mn + ' דק\'';
+}
+
 function renderMachineQueue() {
   const el = document.getElementById('queue-content');
+  if (!el) return;
   const MACHINES = ['מכונה 4 צבעים','מכונה 8 צבעים'];
-  // כל הכרטיסים — כולל done (להצגת עבודות שהושלמו)
   const allCards = cards || [];
 
-  let html = '<div style="padding:12px 4px">';
-  html += '<div style="font-size:1rem;font-weight:900;margin-bottom:16px;color:#1a1a4e">&#127981; תור מכונות</div>';
+  var _showWeekly = window._queueShowWeekly || false;
 
-  MACHINES.forEach(machine => {
-    let runRows = [];
-    allCards.forEach(c => {
-      const runsForMachine = (c.runs||[])
-        .map(function(r,i){ return {r:r, i:i}; })
-        .filter(function(x){ return x.r.machine === machine || (!x.r.machine && c.machine === machine); });
-
-      if (runsForMachine.length > 0) {
-        runsForMachine.forEach(function(x) {
-          var r = x.r, i = x.i;
-          // מספר הגיליונות הפיזיים לריצה זו הוא r.copies (כך buildRuns/getEffectiveRuns
-          // בונה אותו — לא היה אי-פעם שדה r.sheets/r.papers, מה שגרם לזמן 0 בתור)
-          var sheets = parseInt(r.sheets||r.papers||r.copies||0)||0;
-          var customT = (r.customTime != null) ? parseFloat(r.customTime) : null;
-          var hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
-          var isCustom = (customT != null);
-          // done אם הריצה הספציפית סומנה, או אם הכרטיס כולו סומן "הושלם" (למשל מהתפריט
-          // ברשימת הכרטיסים השמורים, setStatus) — בלי זה, סימון כרטיס שלם כהושלם
-          // לא היה משפיע על דגלי r.done הפרטניים והעבודה היתה נשארת תקועה בתור
-          runRows.push({ c:c, runIdx:i, runLabel:r.label||('ריצה '+(i+1)), sheets:sheets, hrs:hrs, isCustom:isCustom, done: !!r.done || c.status === 'done' });
-        });
-      } else if (c.machine === machine) {
-        // לכרטיס בלי פירוט ריצות — כמות הגיליונות הפיזיים היא כמות העותקים (c.copies);
-        // c.sheets לא קיים בשום מקום באפליקציה
-        var sheets = parseInt(c.sheets||c.copies||0)||0;
-        var customT = (c.customMachineTime && c.customMachineTime[machine]) ? parseFloat(c.customMachineTime[machine]) : null;
-        var hrs = (customT != null) ? customT : _calcMachineTime(machine, sheets);
-        var isCustom = (customT != null);
-        // done if card status is done
-        runRows.push({ c:c, runIdx:-1, runLabel:null, sheets:sheets, hrs:hrs, isCustom:isCustom, done:c.status==='done' });
-      }
-    });
-
-    const pendingRows = runRows.filter(function(r){ return !r.done; });
-    const doneRows    = runRows.filter(function(r){ return r.done; });
-    let totalHours = 0, hasUnknown = false;
-    pendingRows.forEach(function(r){ if(r.hrs!=null) totalHours+=r.hrs; else hasUnknown=true; });
-
-    const colorMap = {'מכונה 4 צבעים':'#dbeafe','מכונה 8 צבעים':'#d1fae5'};
-    const iconMap  = {'מכונה 4 צבעים':'&#128309;','מכונה 8 צבעים':'&#128994;'};
-
-    html += `<div style="margin-bottom:24px;border-radius:12px;overflow:hidden;border:1.5px solid #e5e7eb">
-      <div style="background:${colorMap[machine]};padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
-        <div style="font-weight:900;font-size:.95rem">${iconMap[machine]} ${machine}</div>
-        <div style="font-size:.85rem;font-weight:700;color:#374151">
-          ${pendingRows.length} עבודות · סה"כ זמן הדפסה: <strong>${_fmtHours(totalHours||null)}${hasUnknown?' (+ריצות ללא גיליונות)':''}</strong>
-        </div>
-      </div>`;
-
-    // ── תור פעיל ──
-    if (!pendingRows.length) {
-      html += '<div style="padding:14px 16px;color:#9ca3af;font-size:.88rem">אין עבודות פתוחות</div>';
-    } else {
-      html += '<table style="width:100%;border-collapse:collapse">';
-      html += '<tr style="background:#f9fafb;font-size:.78rem;color:#6b7280">'
-            + '<th style="padding:8px 12px;text-align:right;font-weight:700">עבודה</th>'
-            + '<th style="padding:8px;text-align:center">ריצה</th>'
-            + '<th style="padding:8px;text-align:center">גיליונות</th>'
-            + '<th style="padding:8px;text-align:center">פעולה</th></tr>';
-
-      pendingRows.forEach(function({c, runIdx, runLabel, sheets, hrs, isCustom}, idx) {
-        const rowBg = idx%2 ? 'background:#fafafa;' : '';
-        const machineSafe = machine.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-        const editBtn = `<button onclick="editRunTime('${c.id}',${runIdx},'${machineSafe}')"
-             title="ערוך זמן ריצה"
-             style="background:none;border:none;cursor:pointer;font-size:.78rem;color:#9ca3af;padding:0 2px;vertical-align:middle">&#9201;</button>`;
-        const actionBtn = `<button onclick="markRunDone('${c.id}',${runIdx},'${machineSafe}')"
-             style="background:#16a34a;color:white;border:none;border-radius:7px;padding:5px 12px;font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;white-space:nowrap">
-             &#10003; הודפס
-           </button>`;
-
-        html += `<tr style="border-top:1px solid #f3f4f6;font-size:.85rem;${rowBg}">
-          <td style="padding:9px 12px;font-weight:700">${c.name||c.customer||'ללא שם'}${c.docNum?' <span style="color:#9ca3af;font-size:.75rem">#'+c.docNum+'</span>':''}</td>
-          <td style="padding:9px 8px;text-align:center;color:#374151;font-size:.8rem">${runLabel||'—'}</td>
-          <td style="padding:9px 8px;text-align:center">${sheets||'—'} ${hrs!=null?'<span style="font-size:.72rem;color:#6b7280">('+_fmtHours(hrs)+(isCustom?' ✎':'')+')</span>':''}</td>
-          <td style="padding:6px 8px;text-align:center">${editBtn} ${actionBtn}</td>
-        </tr>`;
-      });
-      html += '</table>';
-    }
-
-    // ── עבודות שהושלמו ──
-    if (doneRows.length) {
-      html += '<details style="border-top:2px solid #e5e7eb">'
-            + '<summary style="padding:10px 16px;font-size:.82rem;font-weight:700;color:#6b7280;cursor:pointer;user-select:none;list-style:none">'
-            + '&#10003; עבודות שהושלמו (' + doneRows.length + ')</summary>'
-            + '<table style="width:100%;border-collapse:collapse">';
-      doneRows.forEach(function({c, runIdx, runLabel, sheets}) {
-        const machineSafe = machine.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-        const unmarkBtn = `<button onclick="unmarkRunDone('${c.id}',${runIdx},'${machineSafe}')"
-             style="background:#e5e7eb;color:#374151;border:none;border-radius:7px;padding:4px 10px;font-family:Heebo,sans-serif;font-size:.75rem;font-weight:700;cursor:pointer">
-             &#8617; בטל
-           </button>`;
-        html += `<tr style="border-top:1px solid #f3f4f6;font-size:.82rem;opacity:.6">
-          <td style="padding:7px 12px;font-weight:700">&#10003; ${c.name||c.customer||'ללא שם'}${c.docNum?' <span style="font-size:.72rem">#'+c.docNum+'</span>':''}</td>
-          <td style="padding:7px 8px;text-align:center;font-size:.78rem;color:#6b7280">${runLabel||'—'}</td>
-          <td style="padding:7px 8px;text-align:center">${sheets||'—'}</td>
-          <td style="padding:5px 8px;text-align:center">${unmarkBtn}</td>
-        </tr>`;
-      });
-      html += '</table></details>';
-    }
-
-    html += '</div>';
+  // ── LEFT PANEL — בריכת עבודות ──────────────────────────
+  var poolCards = allCards.filter(function(c){
+    if (c.status === 'done') return false;
+    if (!_showWeekly && _isWeeklySourceCard(c)) return false;
+    return true;
   });
 
-  html += '</div>';
-  el.innerHTML = html;
+  var poolHtml = '<div style="flex:0 0 270px;min-width:220px;border-left:2px solid #e5e7eb;padding-left:14px;overflow-y:auto;max-height:calc(100vh - 160px)">';
+  poolHtml += '<div style="font-weight:900;font-size:.82rem;color:#374151;padding:6px 0 8px;display:flex;align-items:center;gap:6px;position:sticky;top:0;background:white;z-index:1">';
+  poolHtml += '📋 עבודות זמינות';
+  poolHtml += '<button onclick="window._queueShowWeekly=!window._queueShowWeekly;renderMachineQueue()" '
+    + 'style="font-size:.65rem;padding:2px 6px;border:1px solid #d1d5db;background:' + (_showWeekly ? '#fef3c7' : '#f9fafb') + ';border-radius:5px;cursor:pointer;color:#6b7280">'
+    + (_showWeekly ? '✓ שבועיות' : '+ שבועיות') + '</button>';
+  poolHtml += '</div>';
+
+  if (!poolCards.length) {
+    poolHtml += '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0">אין עבודות פתוחות</div>';
+  } else {
+    poolCards.forEach(function(c) {
+      var activeEntries = _queueEntriesForCard(c.id).filter(function(e){ return !e.done; });
+      var wholeInQueue  = activeEntries.some(function(e){ return e.runIdx === -1; });
+      var hasMultiRuns  = c.runs && c.runs.length > 1;
+      var isWeekly = _isWeeklySourceCard(c);
+
+      poolHtml += '<div style="border:1.5px solid #e5e7eb;border-radius:8px;margin-bottom:7px;background:white;overflow:hidden">';
+
+      // Card row
+      var cardDimmed = wholeInQueue ? 'opacity:.45;' : '';
+      poolHtml += '<div style="padding:7px 9px;display:flex;align-items:center;gap:5px;' + cardDimmed + (wholeInQueue ? '' : 'cursor:grab') + '"'
+        + (!wholeInQueue ? ' draggable="true" ondragstart="_queueDragStart(event,' + JSON.stringify(String(c.id)) + ',-1)"' : '') + '>';
+      if (!wholeInQueue) poolHtml += '<span style="color:#cbd5e1;font-size:.9rem;flex-shrink:0">⠿</span>';
+      else poolHtml += '<span style="color:#16a34a;font-size:.8rem;flex-shrink:0">✓</span>';
+      poolHtml += '<div style="flex:1;min-width:0">'
+        + '<div style="font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+        + escHtml(c.name || 'ללא שם') + (isWeekly ? ' <span style="font-size:.65rem;color:#9ca3af">שב\'</span>' : '') + '</div>';
+      if (c.customer) poolHtml += '<div style="font-size:.68rem;color:#6b7280">' + escHtml(c.customer) + '</div>';
+      poolHtml += '</div>';
+      if (!wholeInQueue) {
+        MACHINES.forEach(function(m) {
+          var short = m.replace('מכונה ','');
+          poolHtml += '<button onclick="_queueAddEntry(' + JSON.stringify(String(c.id)) + ',-1,' + JSON.stringify(m) + ')" '
+            + 'title="הוסף לתור ' + m + '" '
+            + 'style="font-size:.62rem;padding:2px 5px;border:1px solid #d1d5db;border-radius:4px;cursor:pointer;background:#f0f9ff;color:#0369a1;white-space:nowrap;flex-shrink:0">'
+            + short + '</button>';
+        });
+      }
+      poolHtml += '</div>';
+
+      // Per-run rows for multi-run cards
+      if (hasMultiRuns) {
+        c.runs.forEach(function(r, ri) {
+          var runInQueue = activeEntries.some(function(e){ return e.runIdx === ri; });
+          var runLabel = r.label || ('ריצה ' + (ri+1));
+          poolHtml += '<div style="padding:4px 9px 4px 20px;border-top:1px solid #f3f4f6;display:flex;align-items:center;gap:4px;'
+            + (runInQueue ? 'opacity:.4">' : 'cursor:grab" draggable="true" ondragstart="_queueDragStart(event,' + JSON.stringify(String(c.id)) + ',' + ri + ')">')
+            + '<span style="font-size:.7rem;color:#9ca3af;flex:1">↳ ' + escHtml(runLabel) + (r.machine ? ' · ' + escHtml(r.machine) : '') + '</span>';
+          if (!runInQueue) {
+            MACHINES.forEach(function(m) {
+              var short = m.replace('מכונה ','');
+              poolHtml += '<button onclick="_queueAddEntry(' + JSON.stringify(String(c.id)) + ',' + ri + ',' + JSON.stringify(m) + ')" '
+                + 'style="font-size:.58rem;padding:1px 4px;border:1px solid #d1d5db;border-radius:3px;cursor:pointer;background:#f0f9ff;color:#0369a1">' + short + '</button>';
+            });
+          } else {
+            poolHtml += '<span style="font-size:.65rem;color:#9ca3af">בתור</span>';
+          }
+          poolHtml += '</div>';
+        });
+      }
+
+      poolHtml += '</div>';
+    });
+  }
+  poolHtml += '</div>';
+
+  // ── RIGHT PANEL — מכונות ────────────────────────────────
+  var colorMap = {'מכונה 4 צבעים':'#dbeafe','מכונה 8 צבעים':'#d1fae5'};
+  var machinesHtml = '<div style="flex:1;min-width:0;overflow-y:auto;max-height:calc(100vh - 160px)">';
+
+  MACHINES.forEach(function(machine, mi) {
+    var bg = colorMap[machine] || '#f3f4f6';
+    var active = (machineQueue||[]).filter(function(e){ return e.machine === machine && !e.done; })
+      .sort(function(a,b){ return a.order - b.order; });
+    var done = (machineQueue||[]).filter(function(e){ return e.machine === machine && e.done; })
+      .sort(function(a,b){ return new Date(b.doneAt||0) - new Date(a.doneAt||0); });
+    var totalMins = active.reduce(function(s,e){ return s + (e.estMinutes||0); }, 0);
+
+    machinesHtml += '<div ondragover="_queueDragOver(event)" ondrop="_queueDrop(event,' + JSON.stringify(machine) + ')" '
+      + 'style="margin-bottom:18px;border-radius:12px;border:2px dashed #cbd5e1;background:white;overflow:hidden" '
+      + 'id="qzone-' + mi + '">';
+
+    // Header
+    machinesHtml += '<div style="background:' + bg + ';padding:10px 14px;display:flex;justify-content:space-between;align-items:center">'
+      + '<div style="font-weight:900;font-size:.9rem">' + escHtml(machine) + '</div>'
+      + '<div style="font-size:.76rem;color:#374151;font-weight:700">' + active.length + ' בתור'
+      + (totalMins ? ' · ' + _fmtMins(totalMins) : '') + '</div></div>';
+
+    if (!active.length) {
+      machinesHtml += '<div style="padding:18px;text-align:center;color:#9ca3af;font-size:.82rem;border-bottom:1px solid #f3f4f6">גרור עבודה לכאן</div>';
+    } else {
+      active.forEach(function(e, idx) {
+        var c = allCards.find(function(x){ return String(x.id) === String(e.cardId); });
+        var name = c ? (c.name || c.customer || 'ללא שם') : '(נמחק)';
+        var runLabel = '';
+        if (e.runIdx >= 0 && c && c.runs && c.runs[e.runIdx]) {
+          runLabel = c.runs[e.runIdx].label || ('ריצה ' + (e.runIdx+1));
+        }
+        var qidS = JSON.stringify(String(e.qid));
+        var rowBg = idx % 2 ? 'background:#fafafa;' : '';
+        machinesHtml += '<div style="' + rowBg + 'border-bottom:1px solid #f3f4f6;padding:8px 12px;display:flex;align-items:center;gap:7px">';
+        // Reorder
+        machinesHtml += '<div style="display:flex;flex-direction:column;gap:0">'
+          + '<button onclick="_queueMove(' + qidS + ',\'up\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:#cbd5e1;padding:0;line-height:1.2" title="הזז למעלה">▲</button>'
+          + '<button onclick="_queueMove(' + qidS + ',\'down\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:#cbd5e1;padding:0;line-height:1.2" title="הזז למטה">▼</button>'
+          + '</div>';
+        // Name
+        machinesHtml += '<div style="flex:1;min-width:0">'
+          + '<div style="font-weight:700;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name) + '</div>'
+          + (runLabel ? '<div style="font-size:.7rem;color:#6b7280">' + escHtml(runLabel) + '</div>' : '')
+          + '</div>';
+        // Est time
+        var estLabel = e.estMinutes ? _fmtMins(e.estMinutes) : '⏱';
+        machinesHtml += '<button onclick="_queueSetEstTime(' + qidS + ')" title="זמן משוער" '
+          + 'style="font-size:.7rem;padding:2px 7px;border:1px solid #d1d5db;background:#f9fafb;border-radius:5px;cursor:pointer;color:'
+          + (e.estMinutes ? '#0369a1' : '#9ca3af') + ';white-space:nowrap;flex-shrink:0">' + estLabel + '</button>';
+        // Remove
+        machinesHtml += '<button onclick="_queueRemoveEntry(' + qidS + ')" title="הסר" '
+          + 'style="background:none;border:none;cursor:pointer;font-size:.9rem;color:#e5e7eb;flex-shrink:0" '
+          + 'onmouseover="this.style.color=\'#ef4444\'" onmouseout="this.style.color=\'#e5e7eb\'">✕</button>';
+        // Done
+        machinesHtml += '<button onclick="_queueMarkDone(' + qidS + ')" '
+          + 'style="background:#16a34a;color:white;border:none;border-radius:7px;padding:5px 10px;font-family:Heebo,sans-serif;font-size:.76rem;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">✓ הודפס</button>';
+        machinesHtml += '</div>';
+      });
+    }
+
+    // Done section
+    if (done.length) {
+      machinesHtml += '<details style="border-top:2px solid #f3f4f6">'
+        + '<summary style="padding:7px 14px;font-size:.76rem;font-weight:700;color:#6b7280;cursor:pointer;list-style:none;user-select:none">✓ הושלמו (' + done.length + ')</summary>';
+      done.forEach(function(e) {
+        var c = allCards.find(function(x){ return String(x.id) === String(e.cardId); });
+        var name = c ? (c.name || c.customer || 'ללא שם') : '(נמחק)';
+        var runSuffix = '';
+        if (e.runIdx >= 0 && c && c.runs && c.runs[e.runIdx]) {
+          runSuffix = ' · ' + (c.runs[e.runIdx].label || ('ריצה ' + (e.runIdx+1)));
+        }
+        var doneDate = e.doneAt ? new Date(e.doneAt).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+        var qidS = JSON.stringify(String(e.qid));
+        machinesHtml += '<div style="padding:6px 12px;border-bottom:1px solid #f9fafb;display:flex;align-items:center;gap:8px;opacity:.65">'
+          + '<span style="color:#16a34a;font-size:.8rem;flex-shrink:0">✓</span>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name + runSuffix) + '</div>'
+          + '<div style="font-size:.68rem;color:#6b7280">' + escHtml(e.doneByName||'') + (doneDate ? ' · ' + doneDate : '') + '</div>'
+          + '</div>'
+          + '<button onclick="_queueUnmarkDone(' + qidS + ')" title="החזר לתור" '
+          + 'style="font-size:.68rem;padding:2px 6px;border:1px solid #d1d5db;background:#f9fafb;border-radius:5px;cursor:pointer;color:#6b7280;flex-shrink:0">↩ בטל</button>'
+          + '</div>';
+      });
+      machinesHtml += '</details>';
+    }
+
+    machinesHtml += '</div>';
+  });
+
+  machinesHtml += '</div>';
+
+  el.innerHTML = '<div style="display:flex;gap:0;padding:10px 2px;direction:rtl">' + poolHtml + machinesHtml + '</div>';
 }
 
 // ═══════════════════════════════════════════════════════
@@ -11628,6 +11802,14 @@ async function _fbPollAll() {
       localStorage.setItem('solanMachineSpeeds', JSON.stringify(machineSpeeds));
       if (document.getElementById('settings-modal') && document.getElementById('settings-modal').style.display !== 'none') renderMachineSpeedsSettings();
       if (typeof renderDashMachines === 'function' && document.getElementById('dash-machines')) renderDashMachines();
+    }
+    // תור מכונות
+    var mqv = await window._fbGet('machineQueue');
+    if (mqv !== null && Array.isArray(mqv) && !(_pend.machineQueue > 0)) {
+      machineQueue = mqv;
+      localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
+      window._fbSnapshot.machineQueue = JSON.stringify(machineQueue);
+      if (document.getElementById('queue-content') && document.getElementById('tab-queue') && document.getElementById('tab-queue').classList.contains('active')) renderMachineQueue();
     }
     // סידור מחלקות (קיפול/כריכייה)
     var dov = await window._fbGet('deptOrder');
