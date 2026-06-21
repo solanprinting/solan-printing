@@ -2,12 +2,51 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#1a1a4e">
+  <link rel="manifest" id="pwa-manifest" href="manifest.json">
+  <meta name="theme-color" id="pwa-theme-color" content="#1a1a4e">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="סולן הדפסות">
+  <meta name="apple-mobile-web-app-title" id="pwa-apple-title" content="סולן הדפסות">
+<script>
+// Capture install prompt as early as possible (fires before any JS runs)
+window._pwaInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', function(ev) {
+  ev.preventDefault();
+  window._pwaInstallPrompt = ev;
+  var btn = document.getElementById('op-install-btn');
+  if (btn) btn.style.display = '';
+});
+// If in machineView mode, swap manifest immediately so Chrome picks it up early
+(function() {
+  var mv = new URLSearchParams(location.search).get('machineView');
+  if (!mv) return;
+  var names = { '4': 'מכונה 4 צבעים', '8': 'מכונה 8 צבעים' };
+  var shortNames = { '4': '4 צבעים', '8': '8 צבעים' };
+  var themes = { '4': '#3b82f6', '8': '#10b981' };
+  var machineName = names[mv] || ('מכונה ' + mv);
+  var shortName = shortNames[mv] || machineName;
+  var themeColor = themes[mv] || '#2d3561';
+  var base = location.origin + location.pathname.replace(/[^/]*$/, '');
+  var manifestObj = {
+    name: machineName, short_name: shortName,
+    start_url: location.pathname + '?machineView=' + mv,
+    display: 'standalone', orientation: 'portrait',
+    background_color: '#f1f5f9', theme_color: themeColor,
+    lang: 'he', dir: 'rtl',
+    icons: [
+      { src: base + 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+      { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+    ]
+  };
+  var blob = new Blob([JSON.stringify(manifestObj)], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  document.getElementById('pwa-manifest').href = url;
+  document.getElementById('pwa-theme-color').content = themeColor;
+  document.getElementById('pwa-apple-title').content = machineName;
+  document.title = machineName;
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>סולן הדפסות בע"מ</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
@@ -12508,7 +12547,10 @@ function _renderOperatorScreen() {
     + '</div>'
     + '<div style="text-align:left">'
     + '<div style="color:#64748b;font-size:.7rem">מפעיל: ' + escHtml(_machineViewOpName) + '</div>'
-    + '<button onclick="sessionStorage.removeItem(\'solanOperatorName\');location.reload()" style="font-size:.62rem;padding:2px 7px;border:1px solid #e2e8f0;background:transparent;color:#94a3b8;border-radius:4px;cursor:pointer;margin-top:4px">שנה שם</button>'
+    + '<div style="display:flex;gap:5px;margin-top:4px">'
+    + '<button id="op-install-btn" onclick="_opInstall()" style="display:' + (window._pwaInstallPrompt ? '' : 'none') + ';font-size:.62rem;padding:3px 8px;border:none;background:#2563eb;color:white;border-radius:5px;cursor:pointer;font-weight:700">📲 הוסף לטלפון</button>'
+    + '<button onclick="sessionStorage.removeItem(\'solanOperatorName\');location.reload()" style="font-size:.62rem;padding:2px 7px;border:1px solid #e2e8f0;background:transparent;color:#94a3b8;border-radius:4px;cursor:pointer">שנה שם</button>'
+    + '</div>'
     + '</div>'
     + '</div>'
     + '<div style="flex:1;overflow-y:auto;padding:14px 16px">';
@@ -12566,6 +12608,20 @@ function _renderOperatorScreen() {
 
   html += '</div>';
   screen.innerHTML = html;
+}
+
+function _opInstall() {
+  if (!window._pwaInstallPrompt) return;
+  window._pwaInstallPrompt.prompt();
+  window._pwaInstallPrompt.userChoice.then(function(r) {
+    window._pwaInstallPrompt = null;
+    var btn = document.getElementById('op-install-btn');
+    if (btn) btn.style.display = 'none';
+    if (r.outcome === 'accepted') {
+      var btn2 = document.getElementById('op-install-btn');
+      if (btn2) btn2.textContent = '✅ נוסף!';
+    }
+  });
 }
 
 function _operatorMarkDone(qid) {
