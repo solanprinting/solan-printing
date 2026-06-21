@@ -7812,81 +7812,166 @@ async function checkAgentPending() {
 }
 
 function renderWorkList() {
-  _syncWorkOrder();
   var el = document.getElementById('worklist-content');
   if (!el) return;
+  var MACHINES = ['מכונה 4 צבעים','מכונה 8 צבעים'];
+  var allCards = cards || [];
+  var _showWeekly = window._queueShowWeekly || false;
 
-  var html = '<div style="padding:12px 4px">'
-    + '<div style="font-size:1rem;font-weight:900;margin-bottom:18px;color:#1a1a4e">📋 רשימות עבודה למכונות</div>'
-    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px">';
-
-  var colorMap = {'מכונה 4 צבעים':'#dbeafe','מכונה 8 צבעים':'#d1fae5'};
-  var iconMap  = {'מכונה 4 צבעים':'🔵','מכונה 8 צבעים':'🟢'};
-
-  WORKLIST_MACHINES.forEach(function(machine) {
-    var order = _workOrder[machine] || [];
-    var cardMap = {};
-    (cards||[]).forEach(function(c){ cardMap[c.id] = c; });
-    var rows = order.map(function(id){ return cardMap[id]; }).filter(Boolean);
-    var machineSafeHdr = machine.replace(/'/g, "\\'");
-
-    html += '<div style="border-radius:13px;overflow:hidden;border:1.5px solid #e5e7eb">'
-      + '<div style="background:' + colorMap[machine] + ';padding:12px 16px;display:flex;justify-content:space-between;align-items:center">'
-      + '<div style="font-weight:900;font-size:.95rem">' + iconMap[machine] + ' ' + escHtml(machine) + '</div>'
-      + '<div style="display:flex;align-items:center;gap:10px">'
-      + '<span style="font-size:.82rem;color:#374151;font-weight:700">' + rows.length + ' עבודות</span>'
-      + '<button onclick="addWorkItem(\'' + machineSafeHdr + '\')" '
-      + 'style="background:#16a34a;color:white;border:none;border-radius:7px;padding:5px 13px;font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer">'
-      + '+ הוסף עבודה</button>'
-      + '<button onclick="printWorkList(\'' + machineSafeHdr + '\')" '
-      + 'style="background:#2d3561;color:white;border:none;border-radius:7px;padding:5px 13px;font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer">'
-      + '🖨️ הדפס רשימה</button>'
-      + '</div>'
-      + '</div>';
-
-    if (!rows.length) {
-      html += '<div style="padding:24px 16px;color:#9ca3af;font-size:.88rem;text-align:center">אין עבודות מוקצות למכונה זו</div>';
-    } else {
-      rows.forEach(function(c, idx) {
-        var machineSafe = machine.replace(/'/g, "\\'");
-        html += '<div style="border-top:1px solid #f3f4f6;padding:10px 14px;' + (idx%2?'background:#fafafa':'background:white') + '">'
-          + '<div style="display:flex;align-items:flex-start;gap:8px">'
-          // order buttons
-          + '<div style="display:flex;flex-direction:column;gap:2px;padding-top:2px">'
-          + '<button onclick="moveWorkItem(\'' + machineSafe + '\',' + c.id + ',-1)" '
-          + 'title="הזז למעלה" style="background:none;border:1px solid #e5e7eb;border-radius:4px;width:22px;height:20px;cursor:pointer;font-size:.7rem;line-height:1;color:#6b7280;padding:0"'
-          + (idx===0 ? ' disabled style="background:none;border:1px solid #e5e7eb;border-radius:4px;width:22px;height:20px;cursor:not-allowed;font-size:.7rem;line-height:1;color:#d1d5db;padding:0"' : '') + '>▲</button>'
-          + '<button onclick="moveWorkItem(\'' + machineSafe + '\',' + c.id + ',1)" '
-          + 'title="הזז למטה" style="background:none;border:1px solid #e5e7eb;border-radius:4px;width:22px;height:20px;cursor:pointer;font-size:.7rem;line-height:1;color:#6b7280;padding:0"'
-          + (idx===rows.length-1 ? ' disabled style="background:none;border:1px solid #e5e7eb;border-radius:4px;width:22px;height:20px;cursor:not-allowed;font-size:.7rem;line-height:1;color:#d1d5db;padding:0"' : '') + '>▼</button>'
-          + '</div>'
-          // content
-          + '<div style="flex:1;min-width:0">'
-          + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">'
-          + '<span style="font-size:.72rem;font-weight:900;color:#9ca3af;min-width:18px">' + (idx+1) + '.</span>'
-          + '<span style="font-weight:800;font-size:.9rem;color:#1a1a4e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(c.name||'ללא שם') + '</span>'
-          + (c.docNum ? '<span style="font-size:.72rem;color:#9ca3af">#' + escHtml(String(c.docNum)) + '</span>' : '')
-          + '</div>'
-          + '<div style="font-size:.78rem;color:#374151;line-height:1.55">'
-          + (c.paper ? '<div>🗒️ <strong>נייר:</strong> ' + escHtml(c.paper) + '</div>' : '')
-          + (c.size  ? '<div>📐 <strong>גודל:</strong> ' + escHtml(c.size)  + '</div>' : '')
-          + (c.notes ? '<div style="color:#555;margin-top:2px">📝 ' + escHtml(c.notes.length > 80 ? c.notes.slice(0,80)+'…' : c.notes) + '</div>' : '')
-          + '</div>'
-          + '</div>'
-          // edit button
-          + (c.wlistOnly ? '<span style="font-size:.68rem;background:#fef3c7;color:#92400e;border-radius:4px;padding:2px 6px;font-weight:700;white-space:nowrap">ידני</span>' : '')
-          + '<button onclick="openWorkItemEdit(' + c.id + ')" title="ערוך" '
-          + 'style="background:none;border:1px solid #e5e7eb;border-radius:7px;padding:4px 8px;cursor:pointer;font-size:.8rem;color:#6b7280;white-space:nowrap;align-self:flex-start">✏️ ערוך</button>'
-          + '<button onclick="removeFromWorkList(' + c.id + ',\'' + machineSafe + '\',Boolean(' + (c.wlistOnly||false) + '))" title="הסר מרשימה" style="background:none;border:1px solid #fca5a5;border-radius:7px;padding:4px 8px;cursor:pointer;font-size:.8rem;color:#dc2626;white-space:nowrap;align-self:flex-start">🗑️</button>'
-          + '</div>'
-          + '</div>';
-      });
-    }
-    html += '</div>';
+  // ── LEFT PANEL — בריכת עבודות ──────────────────────────
+  var poolCards = allCards.filter(function(c){
+    if (c.status === 'done') return false;
+    if (!_showWeekly && _isWeeklySourceCard(c)) return false;
+    return true;
   });
 
-  html += '</div></div>';
-  el.innerHTML = html;
+  var poolHtml = '<div style="flex:0 0 270px;min-width:220px;border-left:2px solid #e5e7eb;padding-left:14px;overflow-y:auto;max-height:calc(100vh - 160px)">';
+  poolHtml += '<div style="font-weight:900;font-size:.82rem;color:#374151;padding:6px 0 8px;display:flex;align-items:center;gap:6px;position:sticky;top:0;background:white;z-index:1">';
+  poolHtml += '📋 עבודות זמינות';
+  poolHtml += '<button onclick="window._queueShowWeekly=!window._queueShowWeekly;renderWorkList()" '
+    + 'style="font-size:.65rem;padding:2px 6px;border:1px solid #d1d5db;background:' + (_showWeekly ? '#fef3c7' : '#f9fafb') + ';border-radius:5px;cursor:pointer;color:#6b7280">'
+    + (_showWeekly ? '✓ שבועיות' : '+ שבועיות') + '</button>';
+  poolHtml += '</div>';
+
+  if (!poolCards.length) {
+    poolHtml += '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0">אין עבודות פתוחות</div>';
+  } else {
+    poolCards.forEach(function(c) {
+      var activeEntries = _queueEntriesForCard(c.id).filter(function(e){ return !e.done; });
+      var wholeInQueue  = activeEntries.some(function(e){ return e.runIdx === -1; });
+      var hasMultiRuns  = c.runs && c.runs.length > 1;
+      var isWeekly = _isWeeklySourceCard(c);
+
+      poolHtml += '<div style="border:1.5px solid #e5e7eb;border-radius:8px;margin-bottom:7px;background:white;overflow:hidden">';
+      var cardDimmed = wholeInQueue ? 'opacity:.45;' : '';
+      poolHtml += '<div style="padding:7px 9px;display:flex;align-items:center;gap:5px;' + cardDimmed + (wholeInQueue ? '' : 'cursor:grab') + '"'
+        + (!wholeInQueue ? ' draggable="true" ondragstart="_queueDragStart(event,' + JSON.stringify(String(c.id)) + ',-1)"' : '') + '>';
+      poolHtml += wholeInQueue ? '<span style="color:#16a34a;font-size:.8rem;flex-shrink:0">✓</span>' : '<span style="color:#cbd5e1;font-size:.9rem;flex-shrink:0">⠿</span>';
+      poolHtml += '<div style="flex:1;min-width:0">'
+        + '<div style="font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+        + escHtml(c.name || 'ללא שם') + (isWeekly ? ' <span style="font-size:.65rem;color:#9ca3af">שב\'</span>' : '') + '</div>';
+      if (c.customer) poolHtml += '<div style="font-size:.68rem;color:#6b7280">' + escHtml(c.customer) + '</div>';
+      poolHtml += '</div>';
+      if (!wholeInQueue) {
+        MACHINES.forEach(function(m) {
+          var short = m.replace('מכונה ','');
+          poolHtml += '<button onclick="_queueAddEntry(' + JSON.stringify(String(c.id)) + ',-1,' + JSON.stringify(m) + ')" '
+            + 'title="הוסף לתור ' + m + '" '
+            + 'style="font-size:.62rem;padding:2px 5px;border:1px solid #d1d5db;border-radius:4px;cursor:pointer;background:#f0f9ff;color:#0369a1;white-space:nowrap;flex-shrink:0">'
+            + short + '</button>';
+        });
+      }
+      poolHtml += '</div>';
+
+      if (hasMultiRuns) {
+        c.runs.forEach(function(r, ri) {
+          var runInQueue = activeEntries.some(function(e){ return e.runIdx === ri; });
+          var runLabel = r.label || ('ריצה ' + (ri+1));
+          poolHtml += '<div style="padding:4px 9px 4px 20px;border-top:1px solid #f3f4f6;display:flex;align-items:center;gap:4px;'
+            + (runInQueue ? 'opacity:.4">' : 'cursor:grab" draggable="true" ondragstart="_queueDragStart(event,' + JSON.stringify(String(c.id)) + ',' + ri + ')">')
+            + '<span style="font-size:.7rem;color:#9ca3af;flex:1">↳ ' + escHtml(runLabel) + (r.machine ? ' · ' + escHtml(r.machine) : '') + '</span>';
+          if (!runInQueue) {
+            MACHINES.forEach(function(m) {
+              var short = m.replace('מכונה ','');
+              poolHtml += '<button onclick="_queueAddEntry(' + JSON.stringify(String(c.id)) + ',' + ri + ',' + JSON.stringify(m) + ')" '
+                + 'style="font-size:.58rem;padding:1px 4px;border:1px solid #d1d5db;border-radius:3px;cursor:pointer;background:#f0f9ff;color:#0369a1">' + short + '</button>';
+            });
+          } else {
+            poolHtml += '<span style="font-size:.65rem;color:#9ca3af">בתור</span>';
+          }
+          poolHtml += '</div>';
+        });
+      }
+      poolHtml += '</div>';
+    });
+  }
+  poolHtml += '</div>';
+
+  // ── RIGHT PANEL — מכונות ────────────────────────────────
+  var colorMap = {'מכונה 4 צבעים':'#dbeafe','מכונה 8 צבעים':'#d1fae5'};
+  var machinesHtml = '<div style="flex:1;min-width:0;overflow-y:auto;max-height:calc(100vh - 160px)">';
+
+  MACHINES.forEach(function(machine, mi) {
+    var bg = colorMap[machine] || '#f3f4f6';
+    var active = (machineQueue||[]).filter(function(e){ return e.machine === machine && !e.done; })
+      .sort(function(a,b){ return a.order - b.order; });
+    var done = (machineQueue||[]).filter(function(e){ return e.machine === machine && e.done; })
+      .sort(function(a,b){ return new Date(b.doneAt||0) - new Date(a.doneAt||0); });
+    var totalMins = active.reduce(function(s,e){ return s + (e.estMinutes||0); }, 0);
+    var machineSafeHdr = machine.replace(/'/g, "\\'");
+
+    machinesHtml += '<div ondragover="_queueDragOver(event)" ondrop="_queueDrop(event,' + JSON.stringify(machine) + ')" '
+      + 'style="margin-bottom:18px;border-radius:12px;border:2px dashed #cbd5e1;background:white;overflow:hidden">';
+
+    machinesHtml += '<div style="background:' + bg + ';padding:10px 14px;display:flex;justify-content:space-between;align-items:center">'
+      + '<div style="font-weight:900;font-size:.9rem">' + escHtml(machine) + '</div>'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span style="font-size:.76rem;color:#374151;font-weight:700">' + active.length + ' בתור'
+      + (totalMins ? ' · ' + _fmtMins(totalMins) : '') + '</span>'
+      + '<button onclick="printWorkList(\'' + machineSafeHdr + '\')" '
+      + 'style="background:#2d3561;color:white;border:none;border-radius:6px;padding:4px 10px;font-family:Heebo,sans-serif;font-size:.72rem;font-weight:700;cursor:pointer">🖨️ הדפס</button>'
+      + '</div></div>';
+
+    if (!active.length) {
+      machinesHtml += '<div style="padding:18px;text-align:center;color:#9ca3af;font-size:.82rem;border-bottom:1px solid #f3f4f6">גרור עבודה לכאן</div>';
+    } else {
+      active.forEach(function(e, idx) {
+        var c = allCards.find(function(x){ return String(x.id) === String(e.cardId); });
+        var name = c ? (c.name || c.customer || 'ללא שם') : '(נמחק)';
+        var runLabel = '';
+        if (e.runIdx >= 0 && c && c.runs && c.runs[e.runIdx]) {
+          runLabel = c.runs[e.runIdx].label || ('ריצה ' + (e.runIdx+1));
+        }
+        var qidS = JSON.stringify(String(e.qid));
+        var rowBg = idx % 2 ? 'background:#fafafa;' : '';
+        machinesHtml += '<div style="' + rowBg + 'border-bottom:1px solid #f3f4f6;padding:8px 12px;display:flex;align-items:center;gap:7px">';
+        machinesHtml += '<div style="display:flex;flex-direction:column;gap:0">'
+          + '<button onclick="_queueMove(' + qidS + ',\'up\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:#cbd5e1;padding:0;line-height:1.2">▲</button>'
+          + '<button onclick="_queueMove(' + qidS + ',\'down\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:#cbd5e1;padding:0;line-height:1.2">▼</button>'
+          + '</div>';
+        machinesHtml += '<div style="flex:1;min-width:0">'
+          + '<div style="font-weight:700;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name) + '</div>'
+          + (runLabel ? '<div style="font-size:.7rem;color:#6b7280">' + escHtml(runLabel) + '</div>' : '')
+          + '</div>';
+        var estLabel = e.estMinutes ? _fmtMins(e.estMinutes) : '⏱';
+        machinesHtml += '<button onclick="_queueSetEstTime(' + qidS + ')" title="זמן משוער" '
+          + 'style="font-size:.7rem;padding:2px 7px;border:1px solid #d1d5db;background:#f9fafb;border-radius:5px;cursor:pointer;color:'
+          + (e.estMinutes ? '#0369a1' : '#9ca3af') + ';white-space:nowrap;flex-shrink:0">' + estLabel + '</button>';
+        machinesHtml += '<button onclick="_queueRemoveEntry(' + qidS + ')" title="הסר" '
+          + 'style="background:none;border:none;cursor:pointer;font-size:.9rem;color:#e5e7eb;flex-shrink:0" '
+          + 'onmouseover="this.style.color=\'#ef4444\'" onmouseout="this.style.color=\'#e5e7eb\'">✕</button>';
+        machinesHtml += '<button onclick="_queueMarkDone(' + qidS + ')" '
+          + 'style="background:#16a34a;color:white;border:none;border-radius:7px;padding:5px 10px;font-family:Heebo,sans-serif;font-size:.76rem;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">✓ הודפס</button>';
+        machinesHtml += '</div>';
+      });
+    }
+
+    if (done.length) {
+      machinesHtml += '<details style="border-top:2px solid #f3f4f6">'
+        + '<summary style="padding:7px 14px;font-size:.76rem;font-weight:700;color:#6b7280;cursor:pointer;list-style:none;user-select:none">✓ הושלמו (' + done.length + ')</summary>';
+      done.forEach(function(e) {
+        var c = allCards.find(function(x){ return String(x.id) === String(e.cardId); });
+        var name = c ? (c.name || c.customer || 'ללא שם') : '(נמחק)';
+        var runSuffix = (e.runIdx >= 0 && c && c.runs && c.runs[e.runIdx])
+          ? ' · ' + (c.runs[e.runIdx].label || ('ריצה ' + (e.runIdx+1))) : '';
+        var doneDate = e.doneAt ? new Date(e.doneAt).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+        var qidS = JSON.stringify(String(e.qid));
+        machinesHtml += '<div style="padding:6px 12px;border-bottom:1px solid #f9fafb;display:flex;align-items:center;gap:8px;opacity:.65">'
+          + '<span style="color:#16a34a;font-size:.8rem;flex-shrink:0">✓</span>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name + runSuffix) + '</div>'
+          + '<div style="font-size:.68rem;color:#6b7280">' + escHtml(e.doneByName||'') + (doneDate ? ' · ' + doneDate : '') + '</div>'
+          + '</div>'
+          + '<button onclick="_queueUnmarkDone(' + qidS + ')" style="font-size:.68rem;padding:2px 6px;border:1px solid #d1d5db;background:#f9fafb;border-radius:5px;cursor:pointer;color:#6b7280;flex-shrink:0">↩ בטל</button>'
+          + '</div>';
+      });
+      machinesHtml += '</details>';
+    }
+    machinesHtml += '</div>';
+  });
+  machinesHtml += '</div>';
+
+  el.innerHTML = '<div style="display:flex;gap:0;padding:10px 2px;direction:rtl">' + poolHtml + machinesHtml + '</div>';
 }
 
 function _loadTemplates() {
@@ -8321,92 +8406,14 @@ function _fmtMins(m) {
 }
 
 function renderMachineQueue() {
-  const el = document.getElementById('queue-content');
+  var el = document.getElementById('queue-content');
   if (!el) return;
-  const MACHINES = ['מכונה 4 צבעים','מכונה 8 צבעים'];
-  const allCards = cards || [];
-
-  var _showWeekly = window._queueShowWeekly || false;
-
-  // ── LEFT PANEL — בריכת עבודות ──────────────────────────
-  var poolCards = allCards.filter(function(c){
-    if (c.status === 'done') return false;
-    if (!_showWeekly && _isWeeklySourceCard(c)) return false;
-    return true;
-  });
-
-  var poolHtml = '<div style="flex:0 0 270px;min-width:220px;border-left:2px solid #e5e7eb;padding-left:14px;overflow-y:auto;max-height:calc(100vh - 160px)">';
-  poolHtml += '<div style="font-weight:900;font-size:.82rem;color:#374151;padding:6px 0 8px;display:flex;align-items:center;gap:6px;position:sticky;top:0;background:white;z-index:1">';
-  poolHtml += '📋 עבודות זמינות';
-  poolHtml += '<button onclick="window._queueShowWeekly=!window._queueShowWeekly;renderMachineQueue()" '
-    + 'style="font-size:.65rem;padding:2px 6px;border:1px solid #d1d5db;background:' + (_showWeekly ? '#fef3c7' : '#f9fafb') + ';border-radius:5px;cursor:pointer;color:#6b7280">'
-    + (_showWeekly ? '✓ שבועיות' : '+ שבועיות') + '</button>';
-  poolHtml += '</div>';
-
-  if (!poolCards.length) {
-    poolHtml += '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0">אין עבודות פתוחות</div>';
-  } else {
-    poolCards.forEach(function(c) {
-      var activeEntries = _queueEntriesForCard(c.id).filter(function(e){ return !e.done; });
-      var wholeInQueue  = activeEntries.some(function(e){ return e.runIdx === -1; });
-      var hasMultiRuns  = c.runs && c.runs.length > 1;
-      var isWeekly = _isWeeklySourceCard(c);
-
-      poolHtml += '<div style="border:1.5px solid #e5e7eb;border-radius:8px;margin-bottom:7px;background:white;overflow:hidden">';
-
-      // Card row
-      var cardDimmed = wholeInQueue ? 'opacity:.45;' : '';
-      poolHtml += '<div style="padding:7px 9px;display:flex;align-items:center;gap:5px;' + cardDimmed + (wholeInQueue ? '' : 'cursor:grab') + '"'
-        + (!wholeInQueue ? ' draggable="true" ondragstart="_queueDragStart(event,' + JSON.stringify(String(c.id)) + ',-1)"' : '') + '>';
-      if (!wholeInQueue) poolHtml += '<span style="color:#cbd5e1;font-size:.9rem;flex-shrink:0">⠿</span>';
-      else poolHtml += '<span style="color:#16a34a;font-size:.8rem;flex-shrink:0">✓</span>';
-      poolHtml += '<div style="flex:1;min-width:0">'
-        + '<div style="font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
-        + escHtml(c.name || 'ללא שם') + (isWeekly ? ' <span style="font-size:.65rem;color:#9ca3af">שב\'</span>' : '') + '</div>';
-      if (c.customer) poolHtml += '<div style="font-size:.68rem;color:#6b7280">' + escHtml(c.customer) + '</div>';
-      poolHtml += '</div>';
-      if (!wholeInQueue) {
-        MACHINES.forEach(function(m) {
-          var short = m.replace('מכונה ','');
-          poolHtml += '<button onclick="_queueAddEntry(' + JSON.stringify(String(c.id)) + ',-1,' + JSON.stringify(m) + ')" '
-            + 'title="הוסף לתור ' + m + '" '
-            + 'style="font-size:.62rem;padding:2px 5px;border:1px solid #d1d5db;border-radius:4px;cursor:pointer;background:#f0f9ff;color:#0369a1;white-space:nowrap;flex-shrink:0">'
-            + short + '</button>';
-        });
-      }
-      poolHtml += '</div>';
-
-      // Per-run rows for multi-run cards
-      if (hasMultiRuns) {
-        c.runs.forEach(function(r, ri) {
-          var runInQueue = activeEntries.some(function(e){ return e.runIdx === ri; });
-          var runLabel = r.label || ('ריצה ' + (ri+1));
-          poolHtml += '<div style="padding:4px 9px 4px 20px;border-top:1px solid #f3f4f6;display:flex;align-items:center;gap:4px;'
-            + (runInQueue ? 'opacity:.4">' : 'cursor:grab" draggable="true" ondragstart="_queueDragStart(event,' + JSON.stringify(String(c.id)) + ',' + ri + ')">')
-            + '<span style="font-size:.7rem;color:#9ca3af;flex:1">↳ ' + escHtml(runLabel) + (r.machine ? ' · ' + escHtml(r.machine) : '') + '</span>';
-          if (!runInQueue) {
-            MACHINES.forEach(function(m) {
-              var short = m.replace('מכונה ','');
-              poolHtml += '<button onclick="_queueAddEntry(' + JSON.stringify(String(c.id)) + ',' + ri + ',' + JSON.stringify(m) + ')" '
-                + 'style="font-size:.58rem;padding:1px 4px;border:1px solid #d1d5db;border-radius:3px;cursor:pointer;background:#f0f9ff;color:#0369a1">' + short + '</button>';
-            });
-          } else {
-            poolHtml += '<span style="font-size:.65rem;color:#9ca3af">בתור</span>';
-          }
-          poolHtml += '</div>';
-        });
-      }
-
-      poolHtml += '</div>';
-    });
-  }
-  poolHtml += '</div>';
-
-  // ── RIGHT PANEL — מכונות ────────────────────────────────
+  var MACHINES = ['מכונה 4 צבעים','מכונה 8 צבעים'];
+  var allCards = cards || [];
   var colorMap = {'מכונה 4 צבעים':'#dbeafe','מכונה 8 צבעים':'#d1fae5'};
-  var machinesHtml = '<div style="flex:1;min-width:0;overflow-y:auto;max-height:calc(100vh - 160px)">';
+  var html = '<div style="padding:10px 4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:18px">';
 
-  MACHINES.forEach(function(machine, mi) {
+  MACHINES.forEach(function(machine) {
     var bg = colorMap[machine] || '#f3f4f6';
     var active = (machineQueue||[]).filter(function(e){ return e.machine === machine && !e.done; })
       .sort(function(a,b){ return a.order - b.order; });
@@ -8414,87 +8421,60 @@ function renderMachineQueue() {
       .sort(function(a,b){ return new Date(b.doneAt||0) - new Date(a.doneAt||0); });
     var totalMins = active.reduce(function(s,e){ return s + (e.estMinutes||0); }, 0);
 
-    machinesHtml += '<div ondragover="_queueDragOver(event)" ondrop="_queueDrop(event,' + JSON.stringify(machine) + ')" '
-      + 'style="margin-bottom:18px;border-radius:12px;border:2px dashed #cbd5e1;background:white;overflow:hidden" '
-      + 'id="qzone-' + mi + '">';
-
-    // Header
-    machinesHtml += '<div style="background:' + bg + ';padding:10px 14px;display:flex;justify-content:space-between;align-items:center">'
-      + '<div style="font-weight:900;font-size:.9rem">' + escHtml(machine) + '</div>'
+    html += '<div style="border-radius:12px;border:1.5px solid #e5e7eb;background:white;overflow:hidden">';
+    html += '<div style="background:' + bg + ';padding:10px 14px;display:flex;justify-content:space-between;align-items:center">'
+      + '<div style="font-weight:900;font-size:.92rem">' + escHtml(machine) + '</div>'
       + '<div style="font-size:.76rem;color:#374151;font-weight:700">' + active.length + ' בתור'
       + (totalMins ? ' · ' + _fmtMins(totalMins) : '') + '</div></div>';
 
     if (!active.length) {
-      machinesHtml += '<div style="padding:18px;text-align:center;color:#9ca3af;font-size:.82rem;border-bottom:1px solid #f3f4f6">גרור עבודה לכאן</div>';
+      html += '<div style="padding:20px;text-align:center;color:#9ca3af;font-size:.85rem">אין עבודות בתור</div>';
     } else {
       active.forEach(function(e, idx) {
         var c = allCards.find(function(x){ return String(x.id) === String(e.cardId); });
         var name = c ? (c.name || c.customer || 'ללא שם') : '(נמחק)';
-        var runLabel = '';
-        if (e.runIdx >= 0 && c && c.runs && c.runs[e.runIdx]) {
-          runLabel = c.runs[e.runIdx].label || ('ריצה ' + (e.runIdx+1));
-        }
+        var runLabel = (e.runIdx >= 0 && c && c.runs && c.runs[e.runIdx])
+          ? (c.runs[e.runIdx].label || ('ריצה ' + (e.runIdx+1))) : '';
         var qidS = JSON.stringify(String(e.qid));
-        var rowBg = idx % 2 ? 'background:#fafafa;' : '';
-        machinesHtml += '<div style="' + rowBg + 'border-bottom:1px solid #f3f4f6;padding:8px 12px;display:flex;align-items:center;gap:7px">';
-        // Reorder
-        machinesHtml += '<div style="display:flex;flex-direction:column;gap:0">'
-          + '<button onclick="_queueMove(' + qidS + ',\'up\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:#cbd5e1;padding:0;line-height:1.2" title="הזז למעלה">▲</button>'
-          + '<button onclick="_queueMove(' + qidS + ',\'down\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:#cbd5e1;padding:0;line-height:1.2" title="הזז למטה">▼</button>'
+        html += '<div style="border-bottom:1px solid #f3f4f6;padding:9px 12px;display:flex;align-items:center;gap:8px;' + (idx%2?'background:#fafafa':'') + '">'
+          + '<span style="color:#9ca3af;font-size:.78rem;font-weight:700;flex-shrink:0;min-width:18px">' + (idx+1) + '.</span>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-weight:700;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name) + '</div>'
+          + (runLabel ? '<div style="font-size:.72rem;color:#6b7280">' + escHtml(runLabel) + '</div>' : '')
+          + (e.estMinutes ? '<div style="font-size:.7rem;color:#0369a1">⏱ ' + _fmtMins(e.estMinutes) + '</div>' : '')
+          + '</div>'
+          + '<button onclick="_queueMarkDone(' + qidS + ')" '
+          + 'style="background:#16a34a;color:white;border:none;border-radius:7px;padding:6px 12px;font-family:Heebo,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">✓ הודפס</button>'
           + '</div>';
-        // Name
-        machinesHtml += '<div style="flex:1;min-width:0">'
-          + '<div style="font-weight:700;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name) + '</div>'
-          + (runLabel ? '<div style="font-size:.7rem;color:#6b7280">' + escHtml(runLabel) + '</div>' : '')
-          + '</div>';
-        // Est time
-        var estLabel = e.estMinutes ? _fmtMins(e.estMinutes) : '⏱';
-        machinesHtml += '<button onclick="_queueSetEstTime(' + qidS + ')" title="זמן משוער" '
-          + 'style="font-size:.7rem;padding:2px 7px;border:1px solid #d1d5db;background:#f9fafb;border-radius:5px;cursor:pointer;color:'
-          + (e.estMinutes ? '#0369a1' : '#9ca3af') + ';white-space:nowrap;flex-shrink:0">' + estLabel + '</button>';
-        // Remove
-        machinesHtml += '<button onclick="_queueRemoveEntry(' + qidS + ')" title="הסר" '
-          + 'style="background:none;border:none;cursor:pointer;font-size:.9rem;color:#e5e7eb;flex-shrink:0" '
-          + 'onmouseover="this.style.color=\'#ef4444\'" onmouseout="this.style.color=\'#e5e7eb\'">✕</button>';
-        // Done
-        machinesHtml += '<button onclick="_queueMarkDone(' + qidS + ')" '
-          + 'style="background:#16a34a;color:white;border:none;border-radius:7px;padding:5px 10px;font-family:Heebo,sans-serif;font-size:.76rem;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">✓ הודפס</button>';
-        machinesHtml += '</div>';
       });
     }
 
-    // Done section
     if (done.length) {
-      machinesHtml += '<details style="border-top:2px solid #f3f4f6">'
-        + '<summary style="padding:7px 14px;font-size:.76rem;font-weight:700;color:#6b7280;cursor:pointer;list-style:none;user-select:none">✓ הושלמו (' + done.length + ')</summary>';
-      done.forEach(function(e) {
+      html += '<details style="border-top:2px solid #e5e7eb">'
+        + '<summary style="padding:8px 14px;font-size:.76rem;font-weight:700;color:#6b7280;cursor:pointer;list-style:none;user-select:none">✓ הושלמו (' + done.length + ')</summary>';
+      done.slice(0,20).forEach(function(e) {
         var c = allCards.find(function(x){ return String(x.id) === String(e.cardId); });
         var name = c ? (c.name || c.customer || 'ללא שם') : '(נמחק)';
-        var runSuffix = '';
-        if (e.runIdx >= 0 && c && c.runs && c.runs[e.runIdx]) {
-          runSuffix = ' · ' + (c.runs[e.runIdx].label || ('ריצה ' + (e.runIdx+1)));
-        }
+        var runSuffix = (e.runIdx >= 0 && c && c.runs && c.runs[e.runIdx])
+          ? ' · ' + (c.runs[e.runIdx].label || ('ריצה ' + (e.runIdx+1))) : '';
         var doneDate = e.doneAt ? new Date(e.doneAt).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
         var qidS = JSON.stringify(String(e.qid));
-        machinesHtml += '<div style="padding:6px 12px;border-bottom:1px solid #f9fafb;display:flex;align-items:center;gap:8px;opacity:.65">'
-          + '<span style="color:#16a34a;font-size:.8rem;flex-shrink:0">✓</span>'
+        html += '<div style="padding:6px 12px;border-bottom:1px solid #f9fafb;display:flex;align-items:center;gap:8px;opacity:.65">'
+          + '<span style="color:#16a34a;font-size:.8rem">✓</span>'
           + '<div style="flex:1;min-width:0">'
           + '<div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name + runSuffix) + '</div>'
           + '<div style="font-size:.68rem;color:#6b7280">' + escHtml(e.doneByName||'') + (doneDate ? ' · ' + doneDate : '') + '</div>'
           + '</div>'
-          + '<button onclick="_queueUnmarkDone(' + qidS + ')" title="החזר לתור" '
-          + 'style="font-size:.68rem;padding:2px 6px;border:1px solid #d1d5db;background:#f9fafb;border-radius:5px;cursor:pointer;color:#6b7280;flex-shrink:0">↩ בטל</button>'
+          + '<button onclick="_queueUnmarkDone(' + qidS + ')" style="font-size:.68rem;padding:2px 6px;border:1px solid #d1d5db;background:#f9fafb;border-radius:5px;cursor:pointer;color:#6b7280">↩ בטל</button>'
           + '</div>';
       });
-      machinesHtml += '</details>';
+      html += '</details>';
     }
-
-    machinesHtml += '</div>';
+    html += '</div>';
   });
 
-  machinesHtml += '</div>';
-
-  el.innerHTML = '<div style="display:flex;gap:0;padding:10px 2px;direction:rtl">' + poolHtml + machinesHtml + '</div>';
+  html += '</div>';
+  el.innerHTML = html;
 }
 
 // ═══════════════════════════════════════════════════════
