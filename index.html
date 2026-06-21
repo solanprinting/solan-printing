@@ -3358,6 +3358,7 @@ function buildRuns(totalPages, copies, fullSheet) {
 
     let pageRange, runCopies, folds;
     let abMandatory = false, abEligible = false, abEnabled = false;
+    let upCount = 1;  // כמה פעמים הריצה נכנסת בגיליון (לריצה חלקית) — קובע את כמות הגיליונות
 
     if (isLast && layerPages === fullSheet) {
       // הפנימי ביותר — גליון שלם רצוף
@@ -3386,23 +3387,18 @@ function buildRuns(totalPages, copies, fullSheet) {
       pageRange  = (frontEnd + 1 === backStart)
         ? 'עמ\' ' + front + '–' + back
         : 'עמ\' ' + front + '–' + frontEnd + ' + עמ\' ' + backStart + '–' + back;
-      var _special2024 = (fullSheet === 32 && (totalPages === 20 || totalPages === 24));
-      if (_special2024 && layerPages < halfSheet) {
-        // הריצה הקטנה (4 או 8 עמ') במקרי 20/24 — גיליון A+B אופציונלי, כבוי כברירת מחדל
-        // (מאפשר הוספת פלאייר A3/A4/A5 / פלייסמנט / קיפול עלון)
-        abMandatory = false;
-        abEligible  = true;
-        abEnabled   = false;
-        folds       = (layerPages === 8) ? '2 קיפולים' : '1 קיפול'; // 8→2, 4→1
-      } else {
-        abMandatory = (layerPages === quarterSheet);
-        abEligible  = (layerPages === halfSheet);
-        abEnabled   = abMandatory;
-        folds       = layerPages === halfSheet
-          ? (fullSheet === 32 ? '3 קיפולים' : '2 קיפולים')
-          : (fullSheet === 32 ? '2 קיפולים' : '1 קיפול');
-      }
-      runCopies   = abEnabled ? copies : Math.round(copies / (fullSheet / layerPages));
+      // כל ריצה חלקית (קטנה מגיליון מלא) = גיליון A+B אופציונלי, כבוי כברירת מחדל.
+      //   כבוי  = מתהפך / מחולק (הכמות מחולקת לפי מספר העמודים בגיליון)
+      //   דלוק  = גיליון מלא A+B (כל הכמות) + אפשרות להוסיף פלאיירים / פלייסמנט / קיפול עלון
+      abMandatory = false;
+      abEligible  = true;
+      abEnabled   = false;
+      folds = (layerPages === halfSheet)    ? (fullSheet === 32 ? '3 קיפולים' : '2 קיפולים')
+            : (layerPages === quarterSheet) ? (fullSheet === 32 ? '2 קיפולים' : '1 קיפול')
+            : (layerPages === fullSheet / 8) ? '1 קיפול'
+            : (fullSheet === 32 ? '2 קיפולים' : '1 קיפול');
+      upCount     = Math.round(fullSheet / layerPages); // ברירת מחדל: ממלא את הגיליון (8 עמ'→4 פעמים)
+      runCopies   = Math.ceil(copies / upCount);        // כמות גיליונות = עותקים ÷ פעמים בגיליון
       front     += half;
       back      -= half;
     }
@@ -3419,7 +3415,8 @@ function buildRuns(totalPages, copies, fullSheet) {
       abEnabled: abEnabled,
       abExtras: [],
       abExtraCustomSize: '',
-      manualExtra: ''
+      manualExtra: '',
+      upCount: upCount
     };
   });
 }
@@ -3437,7 +3434,7 @@ function calcRuns() {
   else { field.style.display='none'; currentRuns=[]; return; }
 
   // preserve machine + tumble + A+B + extras choices
-  const prev = {}, prevTumble = {}, prevAB = {}, prevExtras = {}, prevExtraSize = {}, prevManual = {};
+  const prev = {}, prevTumble = {}, prevAB = {}, prevExtras = {}, prevExtraSize = {}, prevManual = {}, prevUp = {};
   document.querySelectorAll('.mach-sel').forEach(s=>{ if(s.dataset.run) prev[s.dataset.run]=s.value; });
   currentRuns.forEach(r=>{
     prevTumble[r.num]=r.tumble||false;
@@ -3445,18 +3442,18 @@ function calcRuns() {
     prevExtras[r.num] = r.abExtras||[];
     prevExtraSize[r.num] = r.abExtraCustomSize||'';
     prevManual[r.num] = r.manualExtra||'';
+    if (r.upCount) prevUp[r.num] = r.upCount;
   });
   currentRuns = buildRuns(pages, copies, fs);
   currentRuns.forEach(r=>{
     if(prev[r.num]) r.machine=prev[r.num];
     if(prevTumble[r.num]) r.tumble=true;
-    if (r.abEligible && prevAB[r.num]) {
-      r.abEnabled = true;
-      r.copies = copies; // A+B מופעל — לא מחלקים את הכמות
-    }
+    if (r.abEligible && prevAB[r.num]) r.abEnabled = true; // A+B = תוספות פלאיירים בלבד (לא משנה כמות)
     if (r.abEnabled && prevExtras[r.num] && prevExtras[r.num].length) r.abExtras = prevExtras[r.num].slice();
     if (r.abEnabled && prevExtraSize[r.num]) r.abExtraCustomSize = prevExtraSize[r.num];
     if (prevManual[r.num]) r.manualExtra = prevManual[r.num];
+    // שחזור "פעמים בגיליון" + עדכון כמות הגיליונות בהתאם
+    if (prevUp[r.num] && r.abEligible) { r.upCount = prevUp[r.num]; r.copies = Math.ceil(copies / r.upCount); }
   });
 
   _runsLabel = lbl; _runsPages = pages; _runsCopies = copies; _runsFs = fs;
@@ -3509,7 +3506,17 @@ function _renderCurrentRunsOutput() {
             : '') +
         '</div>';
       }
-      _abRow = '<tr><td colspan="6" style="padding:6px 10px;background:#faf8ff;border-top:1px dashed #e2e8f0">'+_abToggle+_abExtras+'</td></tr>';
+      // בורר "פעמים בגיליון" — קובע את כמות הגיליונות (עותקים ÷ פעמים)
+      var _upSel = '';
+      if (r.abEligible && _runsFs && r.pages) {
+        var _maxN = Math.round(_runsFs / r.pages);
+        var _cur = r.upCount || _maxN;
+        var _opts = '';
+        for (var _u = 1; _u <= _maxN; _u++) _opts += '<option value="'+_u+'"'+(_cur===_u?' selected':'')+'>'+_u+'</option>';
+        _upSel = '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.82rem;font-weight:700;color:#444;margin-left:10px">'+
+          '📐 פעמים בגיליון: <select onchange="setRunUpCount('+i+',this.value)" style="font-family:Heebo,sans-serif;font-size:.82rem;padding:2px 7px;border-radius:6px;border:1.5px solid #cbd5e1;cursor:pointer">'+_opts+'</select></label>';
+      }
+      _abRow = '<tr><td colspan="6" style="padding:6px 10px;background:#faf8ff;border-top:1px dashed #e2e8f0">'+_upSel+_abToggle+_abExtras+'</td></tr>';
     }
     // מילוי ידני — גדלים נוספים להדפסה יחד עם הריצה (זמין תמיד, בכל ריצה)
     var _manualRow = '<tr><td colspan="6" style="padding:4px 10px;background:#fafafa;border-top:1px dashed #eee">'+
@@ -3561,15 +3568,19 @@ function _renderCurrentRunsOutput() {
 
 function toggleRunAB(i) {
   var r = currentRuns[i];
-  if (!r || !r.abEligible) return; // ניתן להחליף מצב רק בריצות אופציונליות (8 עמ' / halfSheet)
-  r.abEnabled = !r.abEnabled;
-  if (r.abEnabled) {
-    r.copies = _runsCopies; // A+B — מדפיסים את כל הכמות, לא מחלקים
-  } else {
-    r.abExtras = [];
-    r.abExtraCustomSize = '';
-    r.copies = Math.round(_runsCopies / (_runsFs / r.pages));
-  }
+  if (!r || !r.abEligible) return; // רק בריצה חלקית אופציונלית
+  r.abEnabled = !r.abEnabled;       // A+B = הוספת פלאיירים/פלייסמנט בלבד (הכמות נשלטת ע"י "פעמים בגיליון")
+  if (!r.abEnabled) { r.abExtras = []; r.abExtraCustomSize = ''; }
+  _renderCurrentRunsOutput();
+}
+
+// כמה פעמים הריצה נכנסת בגיליון → קובע את כמות הגיליונות (עותקים ÷ פעמים)
+function setRunUpCount(i, n) {
+  var r = currentRuns[i];
+  if (!r) return;
+  n = parseInt(n) || 1;
+  r.upCount = n;
+  r.copies = Math.ceil((_runsCopies || 0) / n);
   _renderCurrentRunsOutput();
 }
 
