@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782121586';
+window.APP_VERSION = '1782122003';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -8306,15 +8306,21 @@ function renderWorkList() {
     machinesHtml += '<div ondragover="_queueDragOver(event)" ondrop="_queueDrop(event,' + sq(machine) + ')" '
       + 'style="margin-bottom:18px;border-radius:12px;border:2px dashed #cbd5e1;background:white;overflow:hidden">';
 
+    var locked = !!_queueLocked[machine];
+    var mSq = sq(machine);
+
     machinesHtml += '<div style="background:' + bg + ';padding:10px 14px;display:flex;justify-content:space-between;align-items:center">'
       + '<div style="font-weight:900;font-size:.9rem">' + escHtml(machine) + '</div>'
-      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<div style="display:flex;align-items:center;gap:6px">'
       + '<span style="font-size:.76rem;color:#374151;font-weight:700">' + active.length + ' בתור'
       + (totalMins ? ' · ' + _fmtMins(totalMins) : '') + '</span>'
-      + '<button onclick="printWorkList(' + sq(machine) + ')" '
+      + '<button onclick="_queueToggleLock(' + mSq + ')" title="' + (locked ? 'שחרר סדר' : 'נעל סדר') + '" '
+      + 'style="background:' + (locked ? '#fef3c7' : 'white') + ';color:' + (locked ? '#92400e' : '#9ca3af') + ';border:1.5px solid ' + (locked ? '#fcd34d' : '#d1d5db') + ';border-radius:6px;padding:3px 8px;font-size:.8rem;cursor:pointer">'
+      + (locked ? '🔒 נעול' : '🔓') + '</button>'
+      + '<button onclick="printWorkList(' + mSq + ')" '
       + 'style="background:#2d3561;color:white;border:none;border-radius:6px;padding:4px 10px;font-family:Heebo,sans-serif;font-size:.72rem;font-weight:700;cursor:pointer">🖨️ הדפס</button>'
-      + '<button onclick="printWorkList(' + sq(machine) + ',true)" '
-      + 'style="background:#475569;color:white;border:none;border-radius:6px;padding:4px 10px;font-family:Heebo,sans-serif;font-size:.72rem;font-weight:700;cursor:pointer" title="הדפס עם שורות ריקות להוספה ידנית">🖨️ +רווח</button>'
+      + '<button onclick="printWorkList(' + mSq + ',true)" '
+      + 'style="background:#475569;color:white;border:none;border-radius:6px;padding:4px 10px;font-family:Heebo,sans-serif;font-size:.72rem;font-weight:700;cursor:pointer" title="הדפס עם שורות ריקות">🖨️ +רווח</button>'
       + '</div></div>';
 
     if (!active.length) {
@@ -8329,20 +8335,35 @@ function renderWorkList() {
         var eCopies = run ? run.copies : (c && c.copies);
         var qidSq = sq(e.qid);
         var rowBg = idx % 2 ? 'background:#fafafa;' : '';
-        machinesHtml += '<div draggable="true" ondragstart="_queueEntryDragStart(event,' + qidSq + ')" '
-          + 'ondragover="_queueDragOver(event)" ondrop="_queueEntryDrop(event,' + qidSq + ',' + sq(machine) + ')" '
-          + 'style="' + rowBg + 'border-bottom:1px solid #f3f4f6;padding:8px 12px;display:flex;align-items:center;gap:7px">';
-        machinesHtml += '<div style="display:flex;flex-direction:column;align-items:center;gap:0;flex-shrink:0">'
-          + '<button onclick="_queueMove(' + qidSq + ',\'up\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:#cbd5e1;padding:0;line-height:1.1">▲</button>'
-          + '<span style="color:#cbd5e1;font-size:.85rem;cursor:grab;line-height:1" title="גרור לסידור">⠿</span>'
-          + '<button onclick="_queueMove(' + qidSq + ',\'down\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:#cbd5e1;padding:0;line-height:1.1">▼</button>'
-          + '</div>';
+        var isFirst = idx === 0;
+
+        if (locked) {
+          // נעול — ללא D&D, ללא ▲▼
+          machinesHtml += '<div style="' + rowBg + 'border-bottom:1px solid #f3f4f6;padding:8px 12px;display:flex;align-items:center;gap:7px">';
+          machinesHtml += '<span style="font-size:.8rem;color:#cbd5e1;min-width:16px;text-align:center;flex-shrink:0">' + (idx+1) + '</span>';
+        } else {
+          machinesHtml += '<div draggable="true" ondragstart="_queueEntryDragStart(event,' + qidSq + ')" '
+            + 'ondragover="_queueDragOver(event)" ondrop="_queueEntryDrop(event,' + qidSq + ',' + mSq + ')" '
+            + 'style="' + rowBg + 'border-bottom:1px solid #f3f4f6;padding:8px 12px;display:flex;align-items:center;gap:7px">';
+          machinesHtml += '<div style="display:flex;flex-direction:column;align-items:center;gap:0;flex-shrink:0">'
+            + '<button onclick="_queueMove(' + qidSq + ',\'up\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:#cbd5e1;padding:0;line-height:1.1">▲</button>'
+            + '<span style="color:#cbd5e1;font-size:.85rem;cursor:grab;line-height:1" title="גרור לסידור">⠿</span>'
+            + '<button onclick="_queueMove(' + qidSq + ',\'down\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:#cbd5e1;padding:0;line-height:1.1">▼</button>'
+            + '</div>';
+        }
+
         machinesHtml += '<div style="flex:1;min-width:0">'
-          + '<div style="font-weight:700;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(name) + '</div>'
+          + '<div style="font-weight:700;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+          + (isFirst ? '<span style="font-size:.65rem;background:#1a1a4e;color:white;border-radius:3px;padding:1px 5px;margin-left:4px">בהדפסה</span>' : '')
+          + escHtml(name) + '</div>'
           + (runLabel ? '<div style="font-size:.7rem;color:#6b7280">' + escHtml(runLabel) + '</div>' : '')
           + (infoBadges(ePaper, eCopies) ? '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">' + infoBadges(ePaper, eCopies) + '</div>' : '')
           + '</div>';
         if (c) machinesHtml += openBtn(sq(e.cardId), '1rem');
+        if (!isFirst && !locked) {
+          machinesHtml += '<button onclick="_queueMoveToTop(' + qidSq + ')" title="העבר להדפסה" '
+            + 'style="font-size:.65rem;padding:2px 6px;border:1.5px solid #1a1a4e;border-radius:5px;cursor:pointer;background:white;color:#1a1a4e;white-space:nowrap;flex-shrink:0">⬆ ראשון</button>';
+        }
         var estLabel = e.estMinutes ? _fmtMins(e.estMinutes) : '⏱';
         machinesHtml += '<button onclick="_queueSetEstTime(' + qidSq + ')" title="זמן משוער" '
           + 'style="font-size:.7rem;padding:2px 7px;border:1px solid #d1d5db;background:#f9fafb;border-radius:5px;cursor:pointer;color:'
@@ -8724,6 +8745,12 @@ function _queueEntriesForCard(cardId) {
   return (machineQueue||[]).filter(function(e){ return String(e.cardId) === String(cardId); });
 }
 
+var _queueLocked = {};  // { machine: true/false }
+function _queueToggleLock(machine) {
+  _queueLocked[machine] = !_queueLocked[machine];
+  renderWorkList();
+}
+
 function _queueRender() {
   var wlEl = document.getElementById('view-worklist');
   var qEl  = document.getElementById('view-queue');
@@ -8837,6 +8864,18 @@ function _queueMove(qid, dir) {
   var swapIdx = dir === 'up' ? idx - 1 : idx + 1;
   if (swapIdx < 0 || swapIdx >= peers.length) return;
   var tmp = peers[idx].order; peers[idx].order = peers[swapIdx].order; peers[swapIdx].order = tmp;
+  persist();
+  _queueRender();
+}
+
+function _queueMoveToTop(qid) {
+  var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
+  if (!e) return;
+  var peers = (machineQueue||[]).filter(function(x){ return x.machine === e.machine && !x.done; })
+    .sort(function(a,b){ return a.order - b.order; });
+  if (!peers.length || String(peers[0].qid) === String(qid)) return;
+  var minOrder = peers[0].order;
+  e.order = minOrder - 1;
   persist();
   _queueRender();
 }
