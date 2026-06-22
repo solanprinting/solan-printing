@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782121069';
+window.APP_VERSION = '1782121310';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -8189,10 +8189,20 @@ function renderWorkList() {
       + 'onmouseover="this.style.transform=\'scale(1.2)\'" onmouseout="this.style.transform=\'scale(1)\'">📋</button>';
   };
 
-  if (!poolCards.length) {
+  // פצל לזמינות / הושלמו-בתור
+  var availableCards = [], queueDoneCards = [];
+  poolCards.forEach(function(c) {
+    var allE = _queueEntriesForCard(c.id);
+    var doneE = allE.filter(function(e){ return e.done; });
+    var activeE = allE.filter(function(e){ return !e.done; });
+    if (doneE.length > 0 && activeE.length === 0) queueDoneCards.push(c);
+    else availableCards.push(c);
+  });
+
+  if (!availableCards.length && !queueDoneCards.length) {
     poolHtml += '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0">אין עבודות פתוחות</div>';
   } else {
-    poolCards.forEach(function(c) {
+    availableCards.forEach(function(c) {
       var activeEntries = _queueEntriesForCard(c.id).filter(function(e){ return !e.done; });
       var wholeInQueue  = activeEntries.some(function(e){ return e.runIdx === -1; });
       var hasMultiRuns  = c.runs && c.runs.length > 1;
@@ -8249,6 +8259,30 @@ function renderWorkList() {
       }
       poolHtml += '</div>';
     });
+
+    // ── הושלמו בתור ──────────────────────────────────────────
+    if (queueDoneCards.length) {
+      poolHtml += '<details style="margin-top:10px;border-top:2px solid #d1fae5">'
+        + '<summary style="padding:7px 4px;font-size:.76rem;font-weight:800;color:#15803d;cursor:pointer;list-style:none;user-select:none;display:flex;align-items:center;gap:5px">'
+        + '<span>✓ הושלמו (' + queueDoneCards.length + ')</span></summary>';
+      queueDoneCards.forEach(function(c) {
+        var cIdSq = sq(c.id);
+        poolHtml += '<div style="border:1.5px solid #d1fae5;border-radius:8px;margin-bottom:6px;margin-top:5px;background:#f0fdf4;overflow:hidden">';
+        poolHtml += '<div style="padding:7px 9px;display:flex;align-items:center;gap:6px">';
+        poolHtml += '<span style="color:#16a34a;font-size:.9rem;flex-shrink:0">✓</span>';
+        poolHtml += '<div style="flex:1;min-width:0">'
+          + '<div style="font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#166534">'
+          + escHtml(c.name || 'ללא שם') + '</div>';
+        if (c.customer) poolHtml += '<div style="font-size:.68rem;color:#6b7280">' + escHtml(c.customer) + '</div>';
+        poolHtml += '</div>';
+        poolHtml += openBtn(cIdSq);
+        poolHtml += '<button onclick="_queueUnmarkDoneAll(' + cIdSq + ')" '
+          + 'title="החזר לזמינות" '
+          + 'style="font-size:.65rem;padding:2px 7px;border:1px solid #6ee7b7;border-radius:4px;cursor:pointer;background:white;color:#065f46;white-space:nowrap;flex-shrink:0">↩ בטל</button>';
+        poolHtml += '</div></div>';
+      });
+      poolHtml += '</details>';
+    }
   }
   poolHtml += '</div>';
 
@@ -8762,6 +8796,20 @@ function _queueUnmarkDone(qid) {
   persist();
   _queueRender();
   showToast('↩ הוחזר לתור');
+}
+
+function _queueUnmarkDoneAll(cardId) {
+  var changed = false;
+  (machineQueue||[]).forEach(function(e) {
+    if (String(e.cardId) === String(cardId) && e.done) {
+      e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null;
+      changed = true;
+    }
+  });
+  if (!changed) return;
+  persist();
+  _queueRender();
+  showToast('↩ הוחזר לזמינות');
 }
 
 function _queueSetEstTime(qid) {
