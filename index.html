@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782110683';
+window.APP_VERSION = '1782111067';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -7539,10 +7539,9 @@ function removeFromWorkList(cardId, machine, isWlistOnly) {
   showToast(isWlistOnly ? '🗑️ עבודה נמחקה' : '↩ עבודה הוסרה מהרשימה');
 }
 
-function printWorkList(machine) {
+function printWorkList(machine, withSpacing) {
   var cardMap = {};
   (cards||[]).forEach(function(c){ cardMap[String(c.id)] = c; });
-  // השתמש בתור האמיתי (machineQueue) — אותו תור שמוצג ברשימת העבודות ובמסך הדפס
   var entries = (machineQueue||[]).filter(function(e){ return e.machine === machine && !e.done; })
     .sort(function(a,b){ return a.order - b.order; });
   var rows = entries.map(function(e){
@@ -7552,31 +7551,81 @@ function printWorkList(machine) {
     return { c: c, run: run, e: e };
   }).filter(Boolean);
 
+  // ── קיבוץ ריצות עם אותו נייר לאותה עבודה ──────────────────
+  // כל קבוצה = { c, paper, runs:[], isGrouped }
+  var groups = [];
+  var keyToIdx = {};
+  rows.forEach(function(r) {
+    var paper = (r.run && r.run.paper) ? r.run.paper : (r.c.paper || '');
+    var key   = String(r.c.id) + '|' + paper;
+    if (keyToIdx[key] === undefined) {
+      keyToIdx[key] = groups.length;
+      groups.push({ c: r.c, paper: paper, runs: [] });
+    }
+    groups[keyToIdx[key]].runs.push(r);
+  });
+
   var today   = new Date();
   var dateStr = today.toLocaleDateString('he-IL', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
   var timeStr = today.toLocaleTimeString('he-IL', {hour:'2-digit',minute:'2-digit'});
 
-  var bodyRows = rows.map(function(r, idx) {
-    var c = r.c, run = r.run;
+  var bodyRows = '';
+  var rowNum = 0;
+  groups.forEach(function(g) {
+    rowNum++;
+    var c = g.c;
+    var paper = g.paper;
+    var isGrouped = g.runs.length > 1;
+    var bg = (rowNum % 2) ? '#f4f6fb' : '#fff';
+
+    // שם + ריצות
+    var nameHtml = '<span style="font-weight:800;font-size:13px">' + escHtml(c.name||'ללא שם') + '</span>';
+    if (c.docNum) nameHtml += '<br><span style="font-size:10px;color:#aaa;font-weight:400">#' + escHtml(String(c.docNum)) + '</span>';
+
+    var copiesHtml = '';
+    if (isGrouped) {
+      // מספר גיליונות לכל ריצה בנפרד
+      var runLines = g.runs.map(function(r) {
+        var lbl  = r.run ? (r.run.label || ('ריצה ' + (r.run.num || (r.e.runIdx+1)))) : '';
+        var cop  = r.run ? r.run.copies : c.copies;
+        var tumble = r.run ? !!r.run.tumble : false;
+        return (lbl ? escHtml(lbl) : '') + (tumble ? ' 🔄' : '') + (cop ? ': <b>' + parseInt(cop).toLocaleString() + '</b>' : '');
+      }).join('<br>');
+      nameHtml += '<br><span style="font-size:11px;color:#2563eb;font-weight:600;line-height:1.7">' + runLines + '</span>';
+      // סכום גיליונות
+      var total = g.runs.reduce(function(s,r){ return s + (parseInt((r.run ? r.run.copies : c.copies)||0)||0); }, 0);
+      copiesHtml = '<span style="font-size:11px;color:#6b7280">סה"כ</span><br><b>' + (total ? total.toLocaleString() : '—') + '</b>';
+    } else {
+      var r0  = g.runs[0];
+      var run = r0.run;
+      var cop = run ? run.copies : c.copies;
+      var tumble = run ? !!run.tumble : false;
+      var lbl = run ? (run.label || ('ריצה ' + (run.num || (r0.e.runIdx+1)))) : '';
+      if (lbl && g.runs.length === 1 && c.runs && c.runs.length > 1)
+        nameHtml += '<br><span style="font-size:11px;color:#2563eb;font-weight:700">↳ ' + escHtml(lbl) + (tumble ? ' 🔄' : '') + '</span>';
+      else if (tumble)
+        nameHtml += ' <span style="font-size:10px;color:#1d4ed8;font-weight:700">🔄 מתהפך</span>';
+      copiesHtml = '<b>' + (cop ? parseInt(cop).toLocaleString() : '—') + '</b>';
+    }
+
     var notes = (c.notes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
-    var copiesVal = run ? run.copies : c.copies;
-    var copies = copiesVal ? parseInt(copiesVal).toLocaleString() : '—';
-    var runLabel = run ? (run.label || ('ריצה ' + (run.num || (r.e.runIdx+1)))) : '';
-    var tumble = run ? !!run.tumble : false;
-    var bg = idx%2 ? '#f4f6fb' : '#fff';
-    return '<tr style="background:'+bg+'">'
-      + '<td style="text-align:center;font-weight:900;font-size:15px;color:#2d3561;padding:10px 8px;border-bottom:1px solid #ddd;width:32px">' + (idx+1) + '</td>'
-      + '<td style="font-weight:800;font-size:13px;padding:10px 8px;border-bottom:1px solid #ddd;border-right:1px solid #e5e7eb">'
-      +   escHtml(c.name||'ללא שם')
-      +   (runLabel ? '<br><span style="font-size:11px;color:#2563eb;font-weight:700">↳ '+escHtml(runLabel)+'</span>' : '')
-      +   (tumble ? ' <span style="font-size:10px;color:#1d4ed8;font-weight:700">🔄 מתהפך</span>' : '')
-      +   (c.docNum ? '<br><span style="font-size:10px;color:#aaa;font-weight:400">#'+escHtml(String(c.docNum))+'</span>' : '')
-      + '</td>'
-      + '<td style="font-size:12px;padding:10px 8px;border-bottom:1px solid #ddd;border-right:1px solid #e5e7eb">' + escHtml(c.paper||'—') + '</td>'
-      + '<td style="text-align:center;font-size:13px;font-weight:700;padding:10px 8px;border-bottom:1px solid #ddd;border-right:1px solid #e5e7eb;white-space:nowrap">' + copies + '</td>'
+
+    bodyRows += '<tr style="background:' + bg + '">'
+      + '<td style="text-align:center;font-weight:900;font-size:15px;color:#2d3561;padding:10px 8px;border-bottom:1px solid #ddd;width:32px">' + rowNum + '</td>'
+      + '<td style="font-size:13px;padding:10px 8px;border-bottom:1px solid #ddd;border-right:1px solid #e5e7eb;line-height:1.5">' + nameHtml + '</td>'
+      + '<td style="font-size:12px;padding:10px 8px;border-bottom:1px solid #ddd;border-right:1px solid #e5e7eb">' + escHtml(paper||'—') + '</td>'
+      + '<td style="text-align:center;font-size:13px;padding:10px 8px;border-bottom:1px solid #ddd;border-right:1px solid #e5e7eb;white-space:nowrap">' + copiesHtml + '</td>'
       + '<td style="font-size:11px;color:#444;padding:10px 8px;border-bottom:1px solid #ddd;line-height:1.55">' + (notes||'—') + '</td>'
       + '</tr>';
-  }).join('');
+
+    // שורת רווח לכתיבה ידנית בין עבודות
+    if (withSpacing) {
+      bodyRows += '<tr style="background:#fff">'
+        + '<td style="border-bottom:1px dashed #ccc;height:28px;padding:0" colspan="5">'
+        + '<span style="font-size:9px;color:#ccc;padding:0 8px">↓ הוסף עבודה ידנית</span>'
+        + '</td></tr>';
+    }
+  });
 
   var html = '<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="utf-8">'
     + '<title>רשימת עבודות — ' + escHtml(machine) + '</title>'
@@ -7591,7 +7640,6 @@ function printWorkList(machine) {
     + '@media print{body{margin:0}.page{padding:8mm 6mm}@page{margin:0;size:A4 portrait}}'
     + '</style></head><body><div class="page">'
 
-    // header
     + '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #1a1a4e;padding-bottom:10px;margin-bottom:12px">'
     +   '<div>'
     +     '<div style="font-size:22px;font-weight:900;line-height:1">רשימת עבודות להדפסה</div>'
@@ -7599,26 +7647,24 @@ function printWorkList(machine) {
     +   '</div>'
     +   '<div style="text-align:left;font-size:11px;color:#555;line-height:1.8">'
     +     '<strong style="font-size:13px;color:#111;display:block">' + escHtml(dateStr) + '</strong>'
-    +     'סה&quot;כ ' + rows.length + ' עבודות בתור'
+    +     'סה&quot;כ ' + groups.length + ' עבודות בתור'
     +   '</div>'
     + '</div>'
 
-    // table
-    + (rows.length === 0
+    + (groups.length === 0
         ? '<div style="text-align:center;padding:48px;color:#999;font-size:15px">אין עבודות בתור למכונה זו</div>'
         : '<table>'
           + '<thead><tr>'
           + '<th style="text-align:center;width:32px">#</th>'
           + '<th style="border-right:1px solid #334">שם העבודה</th>'
           + '<th style="border-right:1px solid #334;width:160px">סוג נייר</th>'
-          + '<th style="text-align:center;border-right:1px solid #334;width:80px">כמות</th>'
+          + '<th style="text-align:center;border-right:1px solid #334;width:90px">כמות</th>'
           + '<th>הערות</th>'
           + '</tr></thead>'
           + '<tbody>' + bodyRows + '</tbody>'
           + '</table>'
     )
 
-    // footer
     + '<div style="margin-top:12px;border-top:1px solid #ccc;padding-top:6px;display:flex;justify-content:space-between;font-size:10px;color:#888">'
     +   '<span>סולן הדפסות בע&quot;מ</span>'
     +   '<span>הודפס: ' + timeStr + ' · ' + escHtml(dateStr) + '</span>'
@@ -8109,6 +8155,8 @@ function renderWorkList() {
       + (totalMins ? ' · ' + _fmtMins(totalMins) : '') + '</span>'
       + '<button onclick="printWorkList(' + sq(machine) + ')" '
       + 'style="background:#2d3561;color:white;border:none;border-radius:6px;padding:4px 10px;font-family:Heebo,sans-serif;font-size:.72rem;font-weight:700;cursor:pointer">🖨️ הדפס</button>'
+      + '<button onclick="printWorkList(' + sq(machine) + ',true)" '
+      + 'style="background:#475569;color:white;border:none;border-radius:6px;padding:4px 10px;font-family:Heebo,sans-serif;font-size:.72rem;font-weight:700;cursor:pointer" title="הדפס עם שורות ריקות להוספה ידנית">🖨️ +רווח</button>'
       + '</div></div>';
 
     if (!active.length) {
@@ -8755,6 +8803,7 @@ function renderMachineQueue() {
       + '<span style="font-size:.76rem;color:#374151;font-weight:700">' + active.length + ' בתור'
       + (totalHrs ? ' · ' + _fmtHours(totalHrs) : '') + '</span>'
       + '<button onclick="printWorkList(' + mSq + ')" style="background:#2d3561;color:white;border:none;border-radius:6px;padding:4px 10px;font-family:Heebo,sans-serif;font-size:.72rem;font-weight:700;cursor:pointer">🖨️ הדפס</button>'
+      + '<button onclick="printWorkList(' + mSq + ',true)" style="background:#475569;color:white;border:none;border-radius:6px;padding:4px 10px;font-family:Heebo,sans-serif;font-size:.72rem;font-weight:700;cursor:pointer" title="הדפס עם שורות ריקות להוספה ידנית">🖨️ +רווח</button>'
       + '</div></div>';
 
     if (!active.length) {
