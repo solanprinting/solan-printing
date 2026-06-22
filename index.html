@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782127201';
+window.APP_VERSION = '1782132497';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -8277,7 +8277,8 @@ function renderWorkList() {
     var allE = _queueEntriesForCard(c.id);
     var doneE = allE.filter(function(e){ return e.done; });
     var activeE = allE.filter(function(e){ return !e.done; });
-    if (doneE.length > 0 && activeE.length === 0) queueDoneCards.push(c);
+    // הושלם ידנית מהרשימה (_wlDone) או שכל הריצות בתור הודפסו
+    if (c._wlDone || (doneE.length > 0 && activeE.length === 0)) queueDoneCards.push(c);
     else availableCards.push(c);
   });
 
@@ -8315,6 +8316,8 @@ function renderWorkList() {
             + escHtml(short) + '</button>';
         });
       }
+      poolHtml += '<button onclick="_queueCompleteCard(' + cIdSq + ')" title="סמן כהושלם והעבר ל-הושלמו" '
+        + 'style="font-size:.7rem;padding:2px 7px;border:1px solid #6ee7b7;border-radius:5px;cursor:pointer;background:#ecfdf5;color:#059669;white-space:nowrap;flex-shrink:0;font-weight:700">✓</button>';
       poolHtml += '</div>';
 
       if (hasMultiRuns) {
@@ -8944,10 +8947,34 @@ function _queueUnmarkDoneAll(cardId) {
       changed = true;
     }
   });
+  // נקה גם סימון "הושלם ידנית" מהרשימה
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  if (c && c._wlDone) { delete c._wlDone; delete c._wlDoneAt; delete c._wlDoneByName; changed = true; }
   if (!changed) return;
   persist();
   _queueRender();
   showToast('↩ הוחזר לזמינות');
+}
+
+// סמן עבודה זמינה כהושלמה והעבר לאזור "✓ הושלמו" (גם אם אינה בתור)
+function _queueCompleteCard(cardId) {
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  if (!c) return;
+  // אם יש ריצות פעילות בתור — סמן אותן כהודפסו
+  (machineQueue||[]).forEach(function(e) {
+    if (String(e.cardId) === String(cardId) && !e.done) {
+      e.done = true;
+      e.doneAt = new Date().toISOString();
+      e.doneBy = currentUser ? currentUser.id : null;
+      e.doneByName = currentUser ? (currentUser.name || _userName(currentUser.id) || 'לא ידוע') : 'לא ידוע';
+    }
+  });
+  c._wlDone = true;
+  c._wlDoneAt = new Date().toISOString();
+  c._wlDoneByName = currentUser ? (currentUser.name || _userName(currentUser.id) || '') : '';
+  persist();
+  _queueRender();
+  showToast('✓ הועבר להושלמו');
 }
 
 function _queueSetEstTime(qid) {
