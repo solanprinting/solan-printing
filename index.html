@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782133032';
+window.APP_VERSION = '1782133591';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -12516,6 +12516,50 @@ function setupFBListeners() {
   window._fbPollInterval = setInterval(_fbPollAll, 15 * 1000);
 }
 
+// ── הבהוב חלון כשנוצר כרטיס חדש (למשתמשים פתוחים שהחלון שלהם ממוזער/לא בפוקוס) ──
+var _flashTimer = null, _flashOrigTitle = null;
+function _flashWindowNewCard(cardName) {
+  if (_flashTimer) return; // כבר מהבהב
+  if (!_flashOrigTitle) _flashOrigTitle = document.title;
+  var on = false;
+  var msg = '🔔 כרטיס חדש' + (cardName ? ': ' + cardName : '') + '!';
+  _flashTimer = setInterval(function() {
+    document.title = on ? _flashOrigTitle : msg;
+    on = !on;
+  }, 900);
+  try { _playNewCardSound(); } catch(e){}
+  // אם הרשאת התראות מערכת כבר אושרה — הצג גם התראה (מהבהבת את הטאסקבר ב-Windows)
+  try {
+    if (window.Notification && Notification.permission === 'granted') {
+      var n = new Notification('🔔 כרטיס עבודה חדש', { body: cardName || 'נוצר כרטיס חדש במערכת', tag: 'new-card', renotify: true });
+      n.onclick = function(){ window.focus(); _stopFlashWindow(); n.close(); };
+    }
+  } catch(e){}
+}
+function _stopFlashWindow() {
+  if (_flashTimer) { clearInterval(_flashTimer); _flashTimer = null; }
+  if (_flashOrigTitle) { document.title = _flashOrigTitle; _flashOrigTitle = null; }
+}
+function _playNewCardSound() {
+  var Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  var ctx = window._audioCtx || (window._audioCtx = new Ctx());
+  if (ctx.state === 'suspended') { try { ctx.resume(); } catch(e){} }
+  [880, 1175].forEach(function(freq, i) {
+    var o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = 'sine'; o.frequency.value = freq;
+    var t = ctx.currentTime + i * 0.18;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.25, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    o.start(t); o.stop(t + 0.35);
+  });
+}
+// עצור את ההבהוב ברגע שהמשתמש חוזר לחלון
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) _stopFlashWindow(); });
+window.addEventListener('focus', _stopFlashWindow);
+
 async function _fbPollAll() {
   // אם הייתה כתיבה מקומית בשניות האחרונות (למשל מחיקת כרטיס) — דלג על הסבב הזה
   // כדי שלא נמשוך מהשרת נתון ישן (לפני שהכתיבה שלנו הגיעה) וננטרל את השינוי המקומי
@@ -12531,6 +12575,20 @@ async function _fbPollAll() {
         window._fbPut('cards', _filterDeleted('cards', cards));
         updateFBStatus(true); _fbConnected = true;
       } else {
+      // זיהוי כרטיסים חדשים שנוצרו ע"י משתמש אחר — הבהב את החלון אם הוא לא בפוקוס
+      try {
+        if (window._knownCardIds) {
+          var _newOnes = _incCards.filter(function(c){
+            return c && c.status !== 'trash' && !window._knownCardIds[String(c.id)]
+              && !(currentUser && c.createdBy && String(c.createdBy) === String(currentUser.id));
+          });
+          if (_newOnes.length && (document.hidden || (document.hasFocus && !document.hasFocus()))) {
+            _flashWindowNewCard(_newOnes[0].name || '');
+          }
+        }
+        window._knownCardIds = {};
+        _incCards.forEach(function(c){ if (c) window._knownCardIds[String(c.id)] = true; });
+      } catch(e){}
       cards = _incCards;
       localStorage.setItem('solanCards', JSON.stringify(cards));
       window._fbSnapshot.cards = JSON.stringify(cards);
