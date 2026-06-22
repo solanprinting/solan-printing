@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782125994';
+window.APP_VERSION = '1782127201';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1224,6 +1224,7 @@ window._fbSnapshot = {};
             <button type="button" class="size-btn" onclick="pickSize('16.5×24')">16.5×24</button>
             <button type="button" class="size-btn" onclick="pickSize('A5')">A5</button>
             <button type="button" class="size-btn" onclick="pickSize('A4')">A4</button>
+            <button type="button" class="size-btn" onclick="pickSize('עיתון A4')">🗞️ עיתון A4</button>
             <button type="button" class="size-btn" onclick="pickSize('פוסטר גיליון')">פוסטר גיליון</button>
             <button type="button" class="size-btn" onclick="pickSize('פוסטר חצי גיליון')">פוסטר ½ גיליון</button>
             <button type="button" class="size-btn" onclick="pickSize('A3 קיפול ל-A4')">A3 קיפול ל-A4</button>
@@ -3892,7 +3893,8 @@ function calcRuns() {
   const out    = document.getElementById('runs-output');
   let fs=0, lbl='';
   const _is32 = /70[\s×x*]?100|100[\s×x*]?70|16[.,]5[\s×x*]?24|24[\s×x*]?16|^a5$/.test(size);
-  const _is16 = /64[\s×x*]?90|90[\s×x*]?64|a4|240[\s×x*]?330|330[\s×x*]?240/.test(size);
+  // עיתון A4 = 16 עמ' לגיליון (עם חלוקה לריצות). "A4" רגיל = פלאייר/דף — בלי ריצות.
+  const _is16 = /64[\s×x*]?90|90[\s×x*]?64|240[\s×x*]?330|330[\s×x*]?240|עיתון\s*a4|a3\s*קיפול/.test(size);
   if (!copies||!pages) { field.style.display='none'; currentRuns=[]; return; }
   if (_is32) { fs=32; lbl=(/a5/.test(size)?'A5':'70×100') + ' — 32 עמ\' לגיליון'; }
   else if (_is16) { fs=16; lbl='64×90/A4/240×330 — 16 עמ\' לגיליון'; }
@@ -3920,7 +3922,13 @@ function calcRuns() {
     if (prevManual[r.num]) r.manualExtra = prevManual[r.num];
     if (prevPaper[r.num]) r.paper = prevPaper[r.num];
     // שחזור "פעמים בגיליון" + עדכון כמות הגיליונות בהתאם
-    if (prevUp[r.num] && r.abEligible) { r.upCount = prevUp[r.num]; r.copies = Math.ceil(copies / r.upCount); }
+    // חשוב: לחסום ל-max החוקי של הגיליון הנוכחי (fs/עמודים) כדי שמעבר A5→A4 לא ישמר upCount של 32 עמ' (באג 2000 במקום 4000)
+    if (prevUp[r.num] && r.abEligible) {
+      var _maxUp = Math.max(1, Math.round(fs / r.pages));
+      var _up = Math.min(prevUp[r.num], _maxUp);
+      r.upCount = _up;
+      r.copies = Math.ceil(copies / _up);
+    }
   });
 
   _runsLabel = lbl; _runsPages = pages; _runsCopies = copies; _runsFs = fs;
@@ -4042,7 +4050,7 @@ function _renderCurrentRunsOutput() {
   if (!out || !currentRuns.length) return;
   const _size = (document.getElementById('f-size')||{value:''}).value.trim().toLowerCase();
   const _is32 = /70[\s×x*]?100|100[\s×x*]?70|16[.,]5[\s×x*]?24|24[\s×x*]?16|^a5$/.test(_size);
-  const _is16 = /64[\s×x*]?90|90[\s×x*]?64|a4|240[\s×x*]?330|330[\s×x*]?240/.test(_size);
+  const _is16 = /64[\s×x*]?90|90[\s×x*]?64|240[\s×x*]?330|330[\s×x*]?240|עיתון\s*a4|a3\s*קיפול/.test(_size);
 
   const rows = currentRuns.map(function(r,i){
     var _is4c = r.machine === 'מכונה 4 צבעים';
