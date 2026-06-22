@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782119326';
+window.APP_VERSION = '1782119944';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1298,6 +1298,18 @@ window._fbSnapshot = {};
             <input type="checkbox" id="f-sheets-mode" onchange="toggleSheetsMode()" style="accent-color:#0284c7">
             גיליונות (במקום עותקים)
           </label>
+          <div id="f-per-sheet-wrap" style="display:none;margin-top:6px;display:none;align-items:center;gap:8px">
+            <label style="font-size:.82rem;color:#374151;font-weight:600;white-space:nowrap">יח' בגיליון:</label>
+            <select id="f-per-sheet" onchange="updateSheetsCalc()" style="font-family:Heebo,sans-serif;font-size:.85rem;padding:4px 10px;border:1.5px solid #bae6fd;border-radius:7px;background:#f0f9ff;cursor:pointer;outline:none">
+              <option value="1">1 (רגיל)</option>
+              <option value="2">2</option>
+              <option value="4">4</option>
+              <option value="6">6</option>
+              <option value="8">8</option>
+              <option value="10">10</option>
+              <option value="12">12</option>
+            </select>
+          </div>
         </div>
         <div id="f-sheets-calc" style="display:none;margin-top:6px;font-size:.8rem;line-height:1.6"></div>
       </div>
@@ -1308,11 +1320,17 @@ window._fbSnapshot = {};
 
       <div class="field" id="machine-field">
         <label>מכונה</label>
-        <select class="fi" id="f-machine">
+        <select class="fi" id="f-machine" onchange="toggleMachineTumble()">
           <option value="">-- בחר מכונה --</option>
           <option value="מכונה 4 צבעים">מכונה 4 צבעים</option>
           <option value="מכונה 8 צבעים">מכונה 8 צבעים</option>
-                  </select>
+        </select>
+        <div id="f-tumble-wrap" style="display:none;margin-top:6px">
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.85rem;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:7px;padding:5px 12px">
+            <input type="checkbox" id="f-tumble" style="accent-color:#2563eb;width:15px;height:15px">
+            🔄 גיליון מתהפך
+          </label>
+        </div>
       </div>
 
       <div class="field full" id="runs-field" style="display:none">
@@ -3868,7 +3886,23 @@ function toggleSheetsMode() {
   if (lbl) lbl.textContent = checked ? 'מס\' גיליונות' : 'מס\' עותקים';
   var inp = document.getElementById('f-copies');
   if (inp) inp.placeholder = checked ? '500' : '5000';
+  var psw = document.getElementById('f-per-sheet-wrap');
+  if (psw) psw.style.display = checked ? 'flex' : 'none';
+  if (!checked) {
+    var ps = document.getElementById('f-per-sheet');
+    if (ps) ps.value = '1';
+  }
   updateSheetsCalc();
+}
+
+function toggleMachineTumble() {
+  var m = (document.getElementById('f-machine')||{}).value;
+  var wrap = document.getElementById('f-tumble-wrap');
+  if (wrap) wrap.style.display = m === 'מכונה 4 צבעים' ? '' : 'none';
+  if (m !== 'מכונה 4 צבעים') {
+    var cb = document.getElementById('f-tumble');
+    if (cb) cb.checked = false;
+  }
 }
 
 // ── ניתוח הערות: סה"כ יחידות + כמה יחידות בגיליון ──
@@ -3888,37 +3922,38 @@ function updateSheetsCalc() {
   if (!box) return;
   var smc = document.getElementById('f-sheets-mode');
   if (!smc || !smc.checked) { box.style.display='none'; box.innerHTML=''; return; }
+  // קרא יח' בגיליון מהסלקטור; אם 1 — נסה לפרסר מהערות
+  var psEl = document.getElementById('f-per-sheet');
+  var psVal = psEl ? (parseInt(psEl.value)||1) : 1;
   var info = _parseSheetsInfo((document.getElementById('f-notes')||{value:''}).value);
+  var perSheet = psVal > 1 ? psVal : (info.perSheet || 0);
   var entered = parseInt((document.getElementById('f-copies')||{value:''}).value)||0;
   box.style.display = '';
-  // אין כמה-בגיליון בהערות — לא ניתן לחשב
-  if (!info.perSheet) {
-    box.innerHTML = '<span style="color:#9ca3af">💡 רשום בהערות "X יחידות בגיליון" כדי לחשב כמות גיליונות אוטומטית</span>';
+  if (!perSheet || perSheet <= 1) {
+    box.innerHTML = '<span style="color:#9ca3af">💡 בחר יח\' בגיליון כדי לחשב סה"כ יחידות</span>';
     return;
   }
-  // יש כמה-בגיליון אבל אין סה"כ — נחשב סה"כ מהגיליונות שהוזנו
-  if (!info.total) {
-    if (!entered) { box.innerHTML = '<span style="color:#9ca3af">💡 ' + info.perSheet + ' בגיליון — הזן כמות גיליונות לחישוב סה"כ</span>'; return; }
-    box.innerHTML = '<span style="color:#0369a1;font-weight:600">📐 סה"כ מחושב: ' + (entered*info.perSheet).toLocaleString() + ' יח\' (' + entered.toLocaleString() + ' גיליונות × ' + info.perSheet + ')</span>';
-    return;
-  }
-  // יש גם סה"כ וגם כמה-בגיליון — חשב נדרש והשווה
-  var needed = Math.ceil(info.total / info.perSheet);
+  // חשב סה"כ יחידות מהגיליונות שהוזנו
   if (!entered) {
-    box.innerHTML = '<span style="color:#0369a1;font-weight:600">📐 נדרשים ' + needed.toLocaleString() + ' גיליונות</span> ' +
-      '<span style="color:#6b7280">(' + info.total.toLocaleString() + ' ÷ ' + info.perSheet + ')</span> ' +
-      '<button type="button" onclick="_fillNeededSheets(' + needed + ')" style="margin-right:6px;font-size:.74rem;padding:2px 9px;border:1.5px solid #0284c7;background:#e0f2fe;color:#075985;border-radius:6px;cursor:pointer;font-family:Heebo,sans-serif">מלא ' + needed.toLocaleString() + '</button>';
+    box.innerHTML = '<span style="color:#9ca3af">💡 ' + perSheet + ' יח\' בגיליון — הזן מספר גיליונות לחישוב</span>';
     return;
   }
-  var produced = entered * info.perSheet;
-  if (produced < info.total) {
-    // חוסר — אזהרה
-    box.innerHTML = '<span style="color:#b91c1c;font-weight:700">⚠️ חוסר: ' + (info.total-produced).toLocaleString() + ' יח\' (' + (needed-entered) + ' גיליונות)</span> ' +
-      '<span style="color:#6b7280">— נדרשים ' + needed.toLocaleString() + ', רשמת ' + entered.toLocaleString() + '</span> ' +
-      '<button type="button" onclick="_fillNeededSheets(' + needed + ')" style="margin-right:6px;font-size:.74rem;padding:2px 9px;border:1.5px solid #b91c1c;background:#fee2e2;color:#7f1d1d;border-radius:6px;cursor:pointer;font-family:Heebo,sans-serif">תקן ל-' + needed.toLocaleString() + '</button>';
+  var produced = entered * perSheet;
+  // אם יש סה"כ מהערות — השווה
+  if (info.total) {
+    var needed = Math.ceil(info.total / perSheet);
+    if (produced < info.total) {
+      box.innerHTML = '<span style="color:#b91c1c;font-weight:700">⚠️ חוסר: ' + (info.total-produced).toLocaleString() + ' יח\' (' + (needed-entered) + ' גיליונות)</span> ' +
+        '<span style="color:#6b7280">— ' + entered.toLocaleString() + ' × ' + perSheet + ' = ' + produced.toLocaleString() + ' (נדרש ' + info.total.toLocaleString() + ')</span> ' +
+        '<button type="button" onclick="_fillNeededSheets(' + needed + ')" style="margin-right:6px;font-size:.74rem;padding:2px 9px;border:1.5px solid #b91c1c;background:#fee2e2;color:#7f1d1d;border-radius:6px;cursor:pointer;font-family:Heebo,sans-serif">תקן ל-' + needed.toLocaleString() + '</button>';
+    } else {
+      box.innerHTML = '<span style="color:#15803d;font-weight:600">✅ ' + produced.toLocaleString() + ' יח\'</span> ' +
+        '<span style="color:#6b7280">(' + entered.toLocaleString() + ' גיליונות × ' + perSheet + ' בגיליון) — מכסה ' + info.total.toLocaleString() + '</span>';
+    }
   } else {
-    box.innerHTML = '<span style="color:#15803d;font-weight:600">✅ מכסה את ההזמנה</span> ' +
-      '<span style="color:#6b7280">— נדרשים ' + needed.toLocaleString() + ', רשמת ' + entered.toLocaleString() + '</span>';
+    // אין סה"כ מהערות — פשוט הצג כמה יוצא
+    box.innerHTML = '<span style="color:#0369a1;font-weight:700">📐 יוצא: ' + produced.toLocaleString() + ' יח\'</span> ' +
+      '<span style="color:#6b7280">(' + entered.toLocaleString() + ' גיליונות × ' + perSheet + ' בגיליון)</span>';
   }
 }
 
@@ -3931,19 +3966,22 @@ function _fillNeededSheets(n) {
 function _confirmSheetsDeviation() {
   var smc = document.getElementById('f-sheets-mode');
   if (!smc || !smc.checked) return true;
+  var psEl = document.getElementById('f-per-sheet');
+  var psVal = psEl ? (parseInt(psEl.value)||1) : 1;
   var info = _parseSheetsInfo((document.getElementById('f-notes')||{value:''}).value);
+  var perSheet = psVal > 1 ? psVal : (info.perSheet || 0);
   var entered = parseInt((document.getElementById('f-copies')||{value:''}).value)||0;
-  if (!info.perSheet || !info.total || !entered) return true; // אין מספיק מידע להערכה
-  var needed = Math.ceil(info.total / info.perSheet);
-  var produced = entered * info.perSheet;
+  if (!perSheet || !info.total || !entered) return true;
+  var needed = Math.ceil(info.total / perSheet);
+  var produced = entered * perSheet;
   if (produced < info.total) {
     return confirm('⚠️ סטייה בכמות גיליונות — חוסר:\n\n' +
-      'לפי ההערות נדרשים ' + needed.toLocaleString() + ' גיליונות (' + info.total.toLocaleString() + ' ÷ ' + info.perSheet + ' בגיליון).\n' +
+      'נדרשים ' + needed.toLocaleString() + ' גיליונות (' + info.total.toLocaleString() + ' ÷ ' + perSheet + ' בגיליון).\n' +
       'רשמת ' + entered.toLocaleString() + ' גיליונות = ' + produced.toLocaleString() + ' יח\' — חוסר של ' + (info.total-produced).toLocaleString() + ' יח\' (' + (needed-entered) + ' גיליונות).\n\nלשמור בכל זאת?');
   }
   if (produced > info.total * 1.1) {
     return confirm('⚠️ סטייה בכמות גיליונות — הרבה מעבר לנדרש:\n\n' +
-      'לפי ההערות נדרשים ' + needed.toLocaleString() + ' גיליונות (' + info.total.toLocaleString() + ' ÷ ' + info.perSheet + ' בגיליון).\n' +
+      'נדרשים ' + needed.toLocaleString() + ' גיליונות (' + info.total.toLocaleString() + ' ÷ ' + perSheet + ' בגיליון).\n' +
       'רשמת ' + entered.toLocaleString() + ' גיליונות = ' + produced.toLocaleString() + ' יח\' — עודף של ' + (produced-info.total).toLocaleString() + ' יח\'.\n\nלשמור בכל זאת?');
   }
   return true;
@@ -5128,12 +5166,20 @@ function editCard(id) {
   // checkboxes
   if (document.getElementById('f-needs-folding')) document.getElementById('f-needs-folding').checked = !!c.needsFolding;
   if (document.getElementById('f-needs-binding')) document.getElementById('f-needs-binding').checked = !!c.needsBinding;
-  // sheets mode (התיבה זמינה תמיד — ברירת מחדל עותקים)
+  // sheets mode
   var _smcEdit = document.getElementById('f-sheets-mode');
   var _sclEdit = document.getElementById('f-copies-label');
   if (_smcEdit) _smcEdit.checked = !!c.sheetsMode;
   if (_sclEdit) _sclEdit.textContent = c.sheetsMode ? 'מס\' גיליונות' : 'מס\' עותקים';
   var _finpEdit = document.getElementById('f-copies'); if(_finpEdit) _finpEdit.placeholder = c.sheetsMode ? '500' : '5000';
+  var _pswEdit = document.getElementById('f-per-sheet-wrap');
+  if (_pswEdit) _pswEdit.style.display = c.sheetsMode ? 'flex' : 'none';
+  var _psEdit = document.getElementById('f-per-sheet');
+  if (_psEdit) _psEdit.value = String(c.perSheet && c.perSheet > 1 ? c.perSheet : 1);
+  // tumble
+  toggleMachineTumble();
+  var _tumbleEdit = document.getElementById('f-tumble');
+  if (_tumbleEdit) _tumbleEdit.checked = !!c.tumble;
   setTimeout(updateSheetsCalc, 0);
   // color radio
   if (c.color) {
@@ -5168,6 +5214,10 @@ function clearForm() {
   var _scl=document.getElementById('f-copies-label'); if(_scl) _scl.textContent='מס\' עותקים';
   var _finp=document.getElementById('f-copies'); if(_finp) _finp.placeholder='5000';
   var _scb=document.getElementById('f-sheets-calc'); if(_scb){ _scb.style.display='none'; _scb.innerHTML=''; }
+  var _psw=document.getElementById('f-per-sheet-wrap'); if(_psw) _psw.style.display='none';
+  var _ps=document.getElementById('f-per-sheet'); if(_ps) _ps.value='1';
+  var _tw=document.getElementById('f-tumble-wrap'); if(_tw) _tw.style.display='none';
+  var _tc=document.getElementById('f-tumble'); if(_tc) _tc.checked=false;
   currentRuns=[];
   manualRuns=[];
   renderManualRuns();
@@ -5237,6 +5287,8 @@ function _saveCardNew() {
     internalNotes: (document.getElementById('f-internal-notes')||{value:''}).value.trim(),
     placementDetails: (document.getElementById('f-placement-details')||{value:''}).value.trim(),
     machine:      document.getElementById('f-machine').value,
+    tumble:       !!(document.getElementById('f-tumble')&&document.getElementById('f-tumble').checked),
+    perSheet:     parseInt((document.getElementById('f-per-sheet')||{value:'1'}).value)||1,
     needsFolding: document.getElementById('f-needs-folding')?document.getElementById('f-needs-folding').checked:false,
     needsBinding: document.getElementById('f-needs-binding')?document.getElementById('f-needs-binding').checked:false,
     status:       'pending',
@@ -5284,6 +5336,8 @@ function buildTempCard() {
     internalNotes: (document.getElementById('f-internal-notes')||{value:''}).value.trim(),
     placementDetails: (document.getElementById('f-placement-details')||{value:''}).value.trim(),
     machine:      document.getElementById('f-machine').value,
+    tumble:       !!(document.getElementById('f-tumble')&&document.getElementById('f-tumble').checked),
+    perSheet:     parseInt((document.getElementById('f-per-sheet')||{value:'1'}).value)||1,
     needsFolding: document.getElementById('f-needs-folding')?document.getElementById('f-needs-folding').checked:false,
     needsBinding: document.getElementById('f-needs-binding')?document.getElementById('f-needs-binding').checked:false,
     createdAt:    new Date().toLocaleDateString('he-IL'),
