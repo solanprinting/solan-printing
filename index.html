@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782212037';
+window.APP_VERSION = '1782212520';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4263,7 +4263,7 @@ let manualRuns = [];
 
 function addManualRun() {
   const id = Date.now();
-  manualRuns.push({ id, pages:'', copies:'', machine:'' });
+  manualRuns.push({ id, pages:'', copies:'', machine:'', paper:'' });
   renderManualRuns();
 }
 
@@ -4301,13 +4301,17 @@ function renderManualRuns() {
       <input type="number" placeholder="כמות עותקים" min="1"
         value="${r.copies}"
         onchange="manualRuns[${i}].copies=this.value"
-        style="width:130px;padding:6px 8px;border:1.5px solid var(--line);border-radius:6px;font-family:Heebo,sans-serif;font-size:.88rem;outline:none">
+        style="width:120px;padding:6px 8px;border:1.5px solid var(--line);border-radius:6px;font-family:Heebo,sans-serif;font-size:.88rem;outline:none">
+      <input type="text" placeholder="נייר (אם שונה)" list="paper-suggestions"
+        value="${escHtml(r.paper||'')}"
+        oninput="manualRuns[${i}].paper=this.value"
+        style="width:140px;padding:6px 8px;border:1.5px solid var(--line);border-radius:6px;font-family:Heebo,sans-serif;font-size:.88rem;outline:none">
       <select onchange="manualRuns[${i}].machine=this.value"
         style="padding:6px 8px;border:1.5px solid var(--line);border-radius:6px;font-family:Heebo,sans-serif;font-size:.88rem;background:white;cursor:pointer;outline:none;flex:1;min-width:130px">
         <option value="">-- מכונה --</option>
         <option value="מכונה 4 צבעים" ${r.machine==='מכונה 4 צבעים'?'selected':''}>מכונה 4 צבעים</option>
         <option value="מכונה 8 צבעים" ${r.machine==='מכונה 8 צבעים'?'selected':''}>מכונה 8 צבעים</option>
-        
+
       </select>
       <button onclick="removeManualRun(${r.id})"
         style="background:none;border:none;color:#ccc;font-size:1.1rem;cursor:pointer;padding:0 2px"
@@ -4316,15 +4320,12 @@ function renderManualRuns() {
 }
 
 function getEffectiveRuns() {
-  // אם יש ריצות אוטומטיות — השתמש בהן
-  if (currentRuns.length) return currentRuns.map(r=>({...r}));
-  // אחרת — ריצות ידניות: טווח העמודים מחושב לפי הסדר הנוכחי של הריצות
-  // (כל ריצה תופסת את העמודים הבאים ברצף לפי "עמודים" שלה) — כך שאם
-  // המשתמש מסדר את הריצות מחדש, טווחי העמודים מתעדכנים בהתאם בעת השמירה.
-  var _nextPage = 1;
-  return manualRuns
-    .filter(r => r.pages || r.copies || r.machine)
-    .map((r,i)=>{
+  // ריצות ידניות גוברות על אוטומטיות כשיש לפחות ריצה אחת מוגדרת
+  var validManual = manualRuns.filter(r => r.pages || r.copies || r.machine || r.paper);
+  var _src = validManual.length ? validManual : null;
+  if (_src) {
+    var _nextPage = 1;
+    return _src.map((r,i)=>{
       var pages = parseInt(r.pages)||0;
       var pageRange = '';
       if (pages > 0) {
@@ -4338,9 +4339,14 @@ function getEffectiveRuns() {
         copies: parseInt(r.copies)||0,
         folds: '',
         pageRange: pageRange,
-        machine: r.machine
+        machine: r.machine,
+        paper: r.paper||''
       };
     });
+  }
+  // אם אין ריצות ידניות — השתמש בריצות אוטומטיות
+  if (currentRuns.length) return currentRuns.map(r=>({...r}));
+  return [];
 }
 
 // ========== WEEKLY VIEW ==========
