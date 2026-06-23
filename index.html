@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782138442';
+window.APP_VERSION = '1782211446';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1370,6 +1370,16 @@ window._fbSnapshot = {};
           style="border-color:#f59e0b;background:#fffbeb"></textarea>
       </div>
 
+      <div class="field full">
+        <label style="display:flex;align-items:center;gap:5px">📄 פרופר / פריסת העיתון <span style="font-weight:400;font-size:.78rem;color:#6b7280">(PDF או תמונה — יוצג להדפסים)</span></label>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input type="file" id="f-proof-input" accept="application/pdf,image/*" style="display:none" onchange="_onProofPicked(this)">
+          <button type="button" onclick="document.getElementById('f-proof-input').click()"
+            style="background:#eef2ff;color:#3730a3;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 16px;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">📎 צרף פרופר</button>
+          <span id="f-proof-status" style="font-size:.85rem;color:#374151"></span>
+        </div>
+      </div>
+
       <div class="field full" style="display:flex;gap:22px;align-items:center">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
           <input type="checkbox" id="f-needs-folding" style="width:17px;height:17px;cursor:pointer"> דורש קיפול
@@ -2181,6 +2191,9 @@ window._fbSnapshot = {};
         <button class="btn" style="background:#25D366;color:white;border-color:#25D366" onclick="whatsappCard()">📱 וואטסאפ</button>
         <button class="btn" style="background:#6366f1;color:white;border-color:#6366f1" onclick="emailCard()">✉️ מייל</button>
         <button class="btn" style="background:#475569;color:white;border-color:#475569" onclick="downloadCardPdf()">⬇️ הורדה</button>
+        <input type="file" id="pm-proof-input" accept="application/pdf,image/*" style="display:none" onchange="_onModalProofPicked(this)">
+        <button class="btn" id="print-modal-proof-btn" onclick="_viewProof(window._printModalCardId)" style="background:#7c3aed;color:white;border-color:#7c3aed;display:none">📄 פרופר / פריסה</button>
+        <button class="btn" id="print-modal-proof-attach-btn" onclick="document.getElementById('pm-proof-input').click()" style="background:#ede9fe;color:#5b21b6;border-color:#ddd6fe;display:none">📎 צרף/החלף פרופר</button>
         <button class="btn btn-primary" id="print-modal-save-btn" onclick="saveFromPreview()" style="display:none">💾 שמור כרטיס</button>
         <button class="btn" id="print-modal-delete-btn" onclick="softDeleteCard(window._printModalCardId)" style="background:#991b1b;color:white;border-color:#991b1b;display:none">🗑️ מחק</button>
         <button class="btn btn-outline-w" onclick="closePrintModal()">סגור</button>
@@ -5259,6 +5272,8 @@ function editCard(id) {
   }
   // mark as editing
   window._editingCardId = id;
+  window._formProof = null;
+  setTimeout(_updateProofFormStatus, 0);
   document.getElementById('form-title').textContent = 'עריכת כרטיס — ' + (c.name||'');
   switchTab('new');
   window.scrollTo(0,0);
@@ -5288,6 +5303,8 @@ function clearForm() {
   currentRuns=[];
   manualRuns=[];
   renderManualRuns();
+  window._formProof = null;
+  _updateProofFormStatus();
 }
 
 function getColor() {
@@ -5296,6 +5313,113 @@ function getColor() {
 }
 
 // ========== SAVE CARD ==========
+// ══════════════════════════════════════════════════════════
+// פרופר / פריסת העיתון — קובץ PDF/תמונה לכל כרטיס (להדפסים)
+// נשמר בנתיב נפרד proofs/<cardId> ב-Firebase (לא בתוך מערך הכרטיסים המסונכרן),
+// ונטען לפי דרישה בלבד. על הכרטיס נשמר רק דגל קטן (hasProof + שם).
+// ══════════════════════════════════════════════════════════
+var _MAX_PROOF_BYTES = 9 * 1024 * 1024; // ~9MB
+window._formProof = null; // פרופר ממתין לכרטיס חדש (לפני שיש id)
+
+function _readProofFile(file, cb) {
+  var okType = file.type === 'application/pdf' || /^image\//.test(file.type);
+  if (!okType) { showToast('⚠️ יש לצרף קובץ PDF או תמונה'); return; }
+  if (file.size > _MAX_PROOF_BYTES) { showToast('⚠️ הקובץ גדול מדי (מקסימום 9MB)'); return; }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    cb({ name: file.name, type: file.type, data: e.target.result,
+         uploadedAt: new Date().toISOString(), uploadedBy: currentUser ? currentUser.id : 'admin' });
+  };
+  reader.readAsDataURL(file);
+}
+
+function _saveProofFor(cardId, proof) {
+  if (!cardId || cardId === 'preview') return;
+  if (window._fbPut) window._fbPut('proofs/' + cardId, proof);
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  if (c) { c.hasProof = true; c.proofName = proof.name; c.proofType = proof.type; persist(); if (typeof renderCards==='function') renderCards(); }
+}
+
+function _onProofPicked(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  _readProofFile(file, function(proof) {
+    if (window._editingCardId) { _saveProofFor(window._editingCardId, proof); window._formProof = null; }
+    else { window._formProof = proof; }
+    _updateProofFormStatus();
+    showToast('📄 פרופר נטען');
+  });
+}
+
+function _onModalProofPicked(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  var id = window._printModalCardId;
+  if (!id || id === 'preview') { showToast('⚠️ יש לשמור קודם את הכרטיס'); return; }
+  _readProofFile(file, function(proof) {
+    _saveProofFor(id, proof);
+    var vb = document.getElementById('print-modal-proof-btn');
+    if (vb) vb.style.display = 'inline-block';
+    showToast('✅ פרופר צורף לכרטיס');
+  });
+}
+
+function _attachPendingProof(card) {
+  if (!window._formProof) return;
+  card.hasProof = true; card.proofName = window._formProof.name; card.proofType = window._formProof.type;
+  if (window._fbPut) window._fbPut('proofs/' + card.id, window._formProof);
+  window._formProof = null;
+}
+
+function _clearFormProof() {
+  window._formProof = null;
+  if (window._editingCardId) {
+    var c = (cards||[]).find(function(x){ return String(x.id) === String(window._editingCardId); });
+    if (c && c.hasProof) {
+      if (window._fbPut) window._fbPut('proofs/' + c.id, null);
+      c.hasProof = false; delete c.proofName; delete c.proofType; persist(); if (typeof renderCards==='function') renderCards();
+    }
+  }
+  _updateProofFormStatus();
+}
+
+function _updateProofFormStatus() {
+  var el = document.getElementById('f-proof-status');
+  if (!el) return;
+  var name = window._formProof ? window._formProof.name : '';
+  if (!name && window._editingCardId) {
+    var c = (cards||[]).find(function(x){ return String(x.id) === String(window._editingCardId); });
+    if (c && c.hasProof) name = c.proofName || 'פרופר מצורף';
+  }
+  el.innerHTML = name
+    ? ('📄 ' + escHtml(name) + ' <button type="button" onclick="_clearFormProof()" style="background:none;border:none;color:#dc2626;cursor:pointer;font-weight:700;font-size:.85rem">✕ הסר</button>')
+    : '';
+}
+
+function _dataUrlToBlob(dataUrl) {
+  var parts = dataUrl.split(',');
+  var mime = (parts[0].match(/:(.*?);/) || [])[1] || 'application/octet-stream';
+  var bin = atob(parts[1]); var n = bin.length; var u8 = new Uint8Array(n);
+  while (n--) u8[n] = bin.charCodeAt(n);
+  return new Blob([u8], { type: mime });
+}
+
+function _viewProof(cardId) {
+  if (!cardId || cardId === 'preview') return;
+  showToast('📄 טוען פרופר...');
+  window._fbGet('proofs/' + cardId).then(function(p) {
+    if (!p || !p.data) { showToast('⚠️ אין פרופר מצורף לכרטיס זה'); return; }
+    try {
+      var url = URL.createObjectURL(_dataUrlToBlob(p.data));
+      var w = window.open(url, '_blank');
+      if (!w) { showToast('יש לאפשר חלונות קופצים בדפדפן'); return; }
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+    } catch(e) { showToast('⚠️ שגיאה בטעינת הפרופר'); }
+  });
+}
+
 function saveCard() {
   // if editing an existing card — update it instead of creating new
   if (window._editingCardId) {
@@ -5311,6 +5435,10 @@ function saveCard() {
       updated.createdBy = existing.createdBy;
       updated.printedAt = existing.printedAt;
       updated.printCount = existing.printCount;
+      // שמר את הפרופר המצורף (לא נכלל ב-buildTempCard ואחרת היה נמחק)
+      updated.hasProof = existing.hasProof;
+      updated.proofName = existing.proofName;
+      updated.proofType = existing.proofType;
       Object.assign(existing, updated);
       // עריכה מחדש של הכרטיס היא פעולה מפורשת — אם הוא הוסר בעבר מרשימת מכונה כלשהי, אפשר שיופיע בה שוב
       _loadWorkOrder();
@@ -5366,6 +5494,7 @@ function _saveCardNew() {
   var warns = validateCard(card);
   if (warns.length > 0) {
     showCardValidationModal(warns, function() {
+      _attachPendingProof(card);
       cards.unshift(card);
       persist();
       _logActivity('🆕', 'עבודה "'+card.name+'" נוצרה');
@@ -5375,6 +5504,7 @@ function _saveCardNew() {
     });
     return;
   }
+  _attachPendingProof(card);
   cards.unshift(card);
   persist();
   _logActivity('🆕', 'עבודה "'+card.name+'" נוצרה');
@@ -5888,6 +6018,11 @@ function showPrintModal(card) {
   document.getElementById('print-modal-save-btn').style.display = 'none';
   var _delBtn = document.getElementById('print-modal-delete-btn');
   if (_delBtn) _delBtn.style.display = (card.id && card.id !== 'preview') ? 'inline-block' : 'none';
+  var _isReal = card.id && card.id !== 'preview';
+  var _pvb = document.getElementById('print-modal-proof-btn');
+  if (_pvb) _pvb.style.display = (_isReal && card.hasProof) ? 'inline-block' : 'none';
+  var _pab = document.getElementById('print-modal-proof-attach-btn');
+  if (_pab) _pab.style.display = _isReal ? 'inline-block' : 'none';
   window._printModalCardId = card.id;
   document.getElementById('print-modal').classList.add('open');
   // card שמגיע לכאן הוא כרטיס שכבר שמור (id אמיתי) — יש לשמור את הרפרנס אליו
@@ -5916,6 +6051,7 @@ function saveFromPreview() {
   addHistory('f-paper', card.paper);
   addHistory('f-size',  card.size);
   addHistory('f-notes', card.notes);
+  _attachPendingProof(card);
   cards.unshift(card);
   persist();
   document.getElementById('print-modal-save-btn').style.display = 'none';
