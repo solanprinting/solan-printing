@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782228845';
+window.APP_VERSION = '1782229042';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -13824,7 +13824,7 @@ function _renderOperatorScreen() {
           + '<div style="background:#1a1a4e;border-radius:10px;padding:14px 16px"><div style="font-size:.7rem;color:rgba(255,255,255,.55);font-weight:600;letter-spacing:.04em">כמות גיליונות</div><div style="font-size:1.1rem;font-weight:700;color:white;margin-top:4px">' + (pi.copies ? parseInt(pi.copies).toLocaleString() : '—') + '</div></div>'
           + '</div>'
           + (pi.tumble ? '<div style="margin-top:10px;font-size:.82rem;color:#1d4ed8;font-weight:700">🔄 גיליון מתהפך</div>' : '')
-          + (pi.c && pi.c.hasProof ? '<button onclick="_viewProof(' + pi.c.id + ')" style="width:100%;margin-top:12px;padding:13px;border-radius:10px;border:none;background:#7c3aed;color:white;font-size:.95rem;font-weight:900;cursor:pointer;font-family:Heebo,sans-serif;letter-spacing:.01em">📄 פרופר / פריסת העיתון</button>' : '')
+          + (pi.c && pi.c.hasProof ? '<button onclick="_opViewProof(' + pi.c.id + ')" style="width:100%;margin-top:12px;padding:13px;border-radius:10px;border:none;background:#7c3aed;color:white;font-size:.95rem;font-weight:900;cursor:pointer;font-family:Heebo,sans-serif;letter-spacing:.01em">📄 פרופר / פריסת העיתון</button>' : '')
           + '<button onclick="_opReturnToPrintQueue()" style="width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1.5px solid #fbbf24;background:#fffbeb;color:#92400e;font-size:.85rem;font-weight:700;cursor:pointer;font-family:Heebo,sans-serif;-webkit-tap-highlight-color:transparent">↩ החזר לתור</button>'
           + '<button onclick="_opStartPrinting(null)" style="width:100%;margin-top:8px;padding:14px;border-radius:10px;border:none;background:#16a34a;color:white;font-size:1rem;font-weight:900;cursor:pointer;font-family:Heebo,sans-serif;-webkit-tap-highlight-color:transparent">✓ סיים עבודה</button>'
           + '</div>';
@@ -13872,26 +13872,41 @@ function _renderOperatorScreen() {
     html += '</div>'; // end grid
 
     // ── הושלמו ────────────────────────────────────────────
-    if (done.length) {
+    var cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
+    var recentDone  = done.filter(function(e){ return !e.doneAt || new Date(e.doneAt).getTime() >= cutoff24h; });
+    var historyDone = done.filter(function(e){ return e.doneAt  && new Date(e.doneAt).getTime() <  cutoff24h; });
+
+    function _doneRow(e, sq) {
+      var ji = _opJobInfo(e);
+      if (!ji) return '';
+      var runSuffix = ji.runLabel ? ' · ' + ji.runLabel : '';
+      var doneTime = e.doneAt ? new Date(e.doneAt).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+      var dur = e.printDurationSec ? (Math.floor(e.printDurationSec/60) + ' דק\'') : '';
+      var qSq2 = sq(e.qid);
+      return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f1f5f9">'
+        + '<span style="color:#16a34a;font-size:.85rem;flex-shrink:0">✓</span>'
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="color:#64748b;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(ji.name + runSuffix) + '</div>'
+        + (doneTime ? '<div style="color:#94a3b8;font-size:.68rem">' + doneTime + (dur ? ' · ' + dur : '') + '</div>' : '')
+        + '</div>'
+        + '<button onclick="_operatorUnmarkDone(' + qSq2 + ')" style="font-size:.78rem;padding:6px 12px;border:1.5px solid #fbbf24;background:#fffbeb;color:#92400e;border-radius:7px;cursor:pointer;flex-shrink:0;font-weight:700;font-family:Heebo,sans-serif;-webkit-tap-highlight-color:transparent">↩ החזר לתור</button>'
+        + '</div>';
+    }
+
+    if (recentDone.length) {
       html += '<div style="margin-top:4px;padding-top:12px;border-top:1px solid #e2e8f0">'
-        + '<div style="color:#94a3b8;font-size:.75rem;font-weight:700;margin-bottom:8px">הושלמו</div>';
-      done.slice(0, 20).forEach(function(e) {
-        var ji = _opJobInfo(e);
-        if (!ji) return;
-        var runSuffix = ji.runLabel ? ' · ' + ji.runLabel : '';
-        var doneTime = e.doneAt ? new Date(e.doneAt).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-        var dur = e.printDurationSec ? (Math.floor(e.printDurationSec/60) + ' דק\'') : '';
-        var qSq2 = sq(e.qid);
-        html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f1f5f9">'
-          + '<span style="color:#16a34a;font-size:.85rem;flex-shrink:0">✓</span>'
-          + '<div style="flex:1;min-width:0">'
-          + '<div style="color:#64748b;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(ji.name + runSuffix) + '</div>'
-          + (doneTime ? '<div style="color:#94a3b8;font-size:.68rem">' + doneTime + (dur ? ' · ' + dur : '') + '</div>' : '')
-          + '</div>'
-          + '<button onclick="_operatorUnmarkDone(' + qSq2 + ')" style="font-size:.78rem;padding:6px 12px;border:1.5px solid #fbbf24;background:#fffbeb;color:#92400e;border-radius:7px;cursor:pointer;flex-shrink:0;font-weight:700;font-family:Heebo,sans-serif;-webkit-tap-highlight-color:transparent">↩ החזר לתור</button>'
-          + '</div>';
-      });
+        + '<div style="color:#94a3b8;font-size:.75rem;font-weight:700;margin-bottom:8px">הושלמו היום</div>';
+      recentDone.forEach(function(e){ html += _doneRow(e, sq); });
       html += '</div>';
+    }
+    if (historyDone.length) {
+      var hid = 'op-hist-' + machine.replace(/\s/g,'');
+      html += '<div style="margin-top:8px">'
+        + '<button onclick="var s=document.getElementById(\'' + hid + '\');s.style.display=s.style.display===\'none\'?\'block\':\'none\'" '
+        + 'style="width:100%;text-align:right;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:7px 12px;font-size:.76rem;font-weight:700;color:#94a3b8;cursor:pointer;font-family:Heebo,sans-serif">🕘 היסטוריית עבודות (' + historyDone.length + ')</button>'
+        + '<div id="' + hid + '" style="display:none;padding-top:4px">';
+      historyDone.slice(0, 50).forEach(function(e){ html += _doneRow(e, sq); });
+      html += '</div></div>';
     }
   }
 
@@ -13998,6 +14013,30 @@ function _operatorMarkDone(qid) {
   localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
   if (window._fbPut) window._fbPut('machineQueue', machineQueue);
   _renderOperatorScreen();
+}
+
+function _opViewProof(cardId) {
+  if (!cardId) return;
+  showToast('📄 טוען פרופר...');
+  window._fbGet('proofs/' + cardId).then(function(p) {
+    if (!p || !p.data) { showToast('⚠️ אין פרופר מצורף'); return; }
+    try {
+      var blob = _dataUrlToBlob(p.data);
+      var url  = URL.createObjectURL(blob);
+      var isPdf = (p.type||'').indexOf('pdf') !== -1;
+      var ov = document.createElement('div');
+      ov.id = 'op-proof-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;flex-direction:column';
+      ov.innerHTML = '<div style="display:flex;justify-content:flex-end;padding:10px 14px;flex-shrink:0">'
+        + '<button onclick="var o=document.getElementById(\'op-proof-overlay\');if(o)o.remove()" '
+        + 'style="background:white;border:none;border-radius:8px;padding:8px 18px;font-size:1rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">✕ סגור</button></div>'
+        + (isPdf
+          ? '<iframe src="' + url + '" style="flex:1;border:none;width:100%"></iframe>'
+          : '<img src="' + url + '" style="flex:1;object-fit:contain;width:100%;min-height:0">');
+      document.body.appendChild(ov);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 120000);
+    } catch(e) { showToast('⚠️ שגיאה בטעינת הפרופר'); }
+  });
 }
 
 function _opReturnToPrintQueue() {
