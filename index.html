@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782213252';
+window.APP_VERSION = '1782213696';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4908,9 +4908,17 @@ function _confirmSplitRun(idx, totalPages) {
   }
   var r = currentRuns[idx];
   if (!r) return;
-  var base = { machine: r.machine||'', paper: r.paper||'', abMandatory:false, abEligible:false, abEnabled:false, abExtras:[], manualExtra:'', upCount:1, tumble:false, folds:'' };
-  var runA = Object.assign({}, base, { num: idx+1, pages: a, copies: r.copies, pageRange:'' });
-  var runB = Object.assign({}, base, { num: idx+2, pages: b, copies: r.copies, pageRange:'' });
+  // כמות: totalCopies ÷ (עמ'לגיליון ÷ עמ'הריצה) — כמו buildRuns
+  var totalCopies = parseInt((document.getElementById('runs-copies-input')||{}).value)
+    || parseInt(window._pendingCard && window._pendingCard.n && window._pendingCard.n.copies) || r.copies || 0;
+  var fs = _runsFs || 16;
+  var upA = Math.max(1, Math.round(fs / a));
+  var upB = Math.max(1, Math.round(fs / b));
+  var copiesA = Math.ceil(totalCopies / upA);
+  var copiesB = Math.ceil(totalCopies / upB);
+  var base = { machine: r.machine||'', paper: r.paper||'', abMandatory:false, abEligible:false, abEnabled:false, abExtras:[], manualExtra:'', tumble:false, folds:'' };
+  var runA = Object.assign({}, base, { num: idx+1, pages: a, copies: copiesA, upCount: upA, pageRange:'' });
+  var runB = Object.assign({}, base, { num: idx+2, pages: b, copies: copiesB, upCount: upB, pageRange:'' });
   currentRuns.splice(idx, 1, runA, runB);
   currentRuns.forEach(function(x, i) { x.num = i + 1; });
   _recalcPageRanges();
