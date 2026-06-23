@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782212520';
+window.APP_VERSION = '1782213252';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4782,8 +4782,29 @@ function openRunsModal(n, pages) {
             ${i===currentRuns.length-1?'disabled':''}>▼</button>
         </div>
         <div class="run-info" style="flex:1">
-          <div class="run-num">ריצה ${i+1}</div>
+          <div class="run-num" style="display:flex;align-items:center;gap:6px">
+            ריצה ${i+1}
+            <button type="button" title="פצל ריצה לשתי ריצות" onclick="_toggleSplitRun(${i})"
+              style="font-size:.68rem;padding:1px 7px;border:1px solid #fcd34d;border-radius:4px;background:#fef3c7;color:#92400e;cursor:pointer;font-family:Heebo,sans-serif;font-weight:700">✂️ פצל</button>
+          </div>
           <div class="run-detail">${r.pages} עמ' · ${r.pageRange} · ${r.folds}${r.abEnabled ? ' · <span style="color:#7c3aed;font-weight:700">🗞️ A+B</span>' : ''}</div>
+          <div id="split-run-${i}" style="display:none;margin-top:7px;padding:8px 10px;background:#fef9c3;border:1.5px solid #fcd34d;border-radius:7px">
+            <div style="font-size:.74rem;font-weight:700;color:#92400e;margin-bottom:6px">✂️ פצל ${r.pages} עמ' לשתי ריצות:</div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <span style="font-size:.74rem;color:#555;white-space:nowrap">ריצה ${i+1}:</span>
+              <input type="number" id="split-a-${i}" value="${Math.round(r.pages/2)}" min="1" max="${r.pages-1}"
+                oninput="var b=document.getElementById('split-b-${i}');if(b)b.value=Math.max(1,${r.pages}-Math.max(1,Math.min(${r.pages-1},parseInt(this.value)||1)))"
+                style="width:54px;padding:4px 6px;border:1.5px solid #fcd34d;border-radius:5px;font-family:Heebo,sans-serif;font-size:.9rem;text-align:center;outline:none">
+              <span style="font-size:.74rem;color:#555;white-space:nowrap">ריצה ${i+2}:</span>
+              <input type="number" id="split-b-${i}" value="${r.pages - Math.round(r.pages/2)}" min="1" max="${r.pages-1}"
+                oninput="var a=document.getElementById('split-a-${i}');if(a)a.value=Math.max(1,${r.pages}-Math.max(1,Math.min(${r.pages-1},parseInt(this.value)||1)))"
+                style="width:54px;padding:4px 6px;border:1.5px solid #fcd34d;border-radius:5px;font-family:Heebo,sans-serif;font-size:.9rem;text-align:center;outline:none">
+              <button type="button" onclick="_confirmSplitRun(${i},${r.pages})"
+                style="padding:4px 14px;background:#2d3561;color:white;border:none;border-radius:5px;font-family:Heebo,sans-serif;font-weight:700;font-size:.82rem;cursor:pointer">✓ פצל</button>
+              <button type="button" onclick="_toggleSplitRun(${i})"
+                style="padding:4px 10px;background:none;border:1px solid #ccc;border-radius:5px;font-family:Heebo,sans-serif;font-size:.8rem;cursor:pointer;color:#888">ביטול</button>
+            </div>
+          </div>
           <input type="text" id="run-paper-${r.num}" value="${defPaper}"
             placeholder="נייר לריצה זו"
             style="display:${hasDefaultPapers ? 'block' : 'none'};font-size:.78rem;padding:3px 7px;
@@ -4869,6 +4890,32 @@ function _rmUpdateTumble(idx, machine, canTumble) {
   var show = canTumble && machine === 'מכונה 4 צבעים';
   btn.style.display = show ? 'inline-flex' : 'none';
   if (!show) { currentRuns[idx].tumble = false; }
+}
+
+function _toggleSplitRun(idx) {
+  var el = document.getElementById('split-run-' + idx);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function _confirmSplitRun(idx, totalPages) {
+  var aEl = document.getElementById('split-a-' + idx);
+  var bEl = document.getElementById('split-b-' + idx);
+  var a = parseInt(aEl && aEl.value) || 0;
+  var b = parseInt(bEl && bEl.value) || 0;
+  if (a <= 0 || b <= 0 || a + b !== totalPages) {
+    showToast('⚠️ סה"כ חייב להיות ' + totalPages + ' עמ\' (כרגע: ' + (a+b) + ')');
+    return;
+  }
+  var r = currentRuns[idx];
+  if (!r) return;
+  var base = { machine: r.machine||'', paper: r.paper||'', abMandatory:false, abEligible:false, abEnabled:false, abExtras:[], manualExtra:'', upCount:1, tumble:false, folds:'' };
+  var runA = Object.assign({}, base, { num: idx+1, pages: a, copies: r.copies, pageRange:'' });
+  var runB = Object.assign({}, base, { num: idx+2, pages: b, copies: r.copies, pageRange:'' });
+  currentRuns.splice(idx, 1, runA, runB);
+  currentRuns.forEach(function(x, i) { x.num = i + 1; });
+  _recalcPageRanges();
+  var pending = window._pendingCard;
+  if (pending) openRunsModal(pending.n, pending.pages);
 }
 
 function closeRunsModal() {
