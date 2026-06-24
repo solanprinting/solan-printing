@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782302381';
+window.APP_VERSION = '1782303000';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -7029,7 +7029,7 @@ function confirmDelivery() {
     }
     if (!item) { showToast("⚠️ בחר נייר"); return; }
     if (!item.invoices) item.invoices = [];
-    item.invoices.push({ date: date, time: _timeStr, inv: docNum, orderNum: orderNum, qty: qty, price: price });
+    item.invoices.push({ date: date, time: _timeStr, inv: docNum, orderNum: orderNum, qty: qty, origQty: qty, price: price });
     item.qty = item.invoices.reduce(function(s,x){ return s+(x.qty||0); }, 0);
     persist();
     closeDeliveryModal();
@@ -8476,6 +8476,7 @@ async function approveAgentDoc(docId) {
         inv: doc.doc_number || '',
         orderNum: doc.order_number || '',
         qty: editQty,
+        origQty: editQty,
         price: it.price_per_unit || 0,
         supplier: doc.supplier || '',
         source_file: doc.file
@@ -10386,7 +10387,7 @@ function loadInventoryXlsb(input) {
           ex.qty = qty;                              // עדכון חודשי = כמות בלבד
           if (!ex.price && finalPrice) ex.price = finalPrice; // השלמת מחיר רק כשחסר
         } else {
-          item.invoices.push({ date, inv, orderNum, qty, price: finalPrice });
+          item.invoices.push({ date, inv, orderNum, qty, origQty: qty, price: finalPrice });
         }
         // שמור מחיר קבוע בזיכרון לפי מספר מסמך (נשמר גם לאחר עדכון חודשי)
         if (finalPrice) {
@@ -10852,9 +10853,11 @@ function showOrderHistory(paperName, orderNum) {
   if (item && item.invoices) {
     item.invoices.forEach(function(inv) {
       if (orderNum && (inv.orderNum||"") !== orderNum) return;
+      // כמות שנוספה = הכמות המקורית בחשבונית (origQty), קבועה — לא הכמות שנותרה (inv.qty יורד עם כל הורדה)
+      var _added = (inv.origQty != null) ? inv.origQty : (inv.qty||0);
       events.push({
         kind: "add", date: inv.date||"", time: inv.time||"",
-        qty: inv.qty||0, label: (inv.inv ? "חשבונית " + inv.inv : "") + (inv.orderNum ? " | הזמנה " + inv.orderNum : ""), note: ""
+        qty: _added, label: (inv.inv ? "חשבונית " + inv.inv : "") + (inv.orderNum ? " | הזמנה " + inv.orderNum : ""), note: ""
       });
     });
   }
@@ -10941,6 +10944,7 @@ function editInvoiceQty(i, j) {
   const num = parseInt(val.replace(/,/g,''));
   if (isNaN(num)) { alert('מספר לא תקין'); return; }
   inventory[i].invoices[j].qty = num;
+  inventory[i].invoices[j].origQty = num; // תיקון ידני של כמות החשבונית = עדכון הכמות שנוספה במקור
   persist();
   renderInventory();
 }
@@ -10958,7 +10962,7 @@ function addManualInvoice(i) {
   const qty   = parseInt(qtyStr.replace(/,/g,''))   || 0;
   const price = priceStr ? ((parseFloat(priceStr.replace(/,/g,''))||0) / 1000) : 0;
   const timeStr = new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'});
-  inventory[i].invoices.push({ date: dateStr, time: timeStr, inv, orderNum, qty, price });
+  inventory[i].invoices.push({ date: dateStr, time: timeStr, inv, orderNum, qty, origQty: qty, price });
   persist();
   renderInventory();
   showToast('✅ חשבונית נוספה');
