@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782307199';
+window.APP_VERSION = '1782307941';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4362,6 +4362,8 @@ function getEffectiveRuns() {
 let hiddenThisWeek = JSON.parse(sessionStorage.getItem('hiddenThisWeek') || '[]');
 let weekClearedAt    = parseInt(localStorage.getItem('solanWeekClearedAt') || '0');
 let weekClearedItems = JSON.parse(localStorage.getItem('solanWeekClearedItems') || '{}');
+// סימון ידני "נוצר כרטיס" (ירוק) לפי שם עבודה — { name: timestamp }
+let weekCardMarked = JSON.parse(localStorage.getItem('solanWeekCardMarked') || '{}');
 
 function hideFromWeek(id) {
   hiddenThisWeek = [...new Set([...hiddenThisWeek, id])];
@@ -4434,12 +4436,26 @@ function _itemClearedSince(name) {
 function _cardDoneThisWeek(name) {
   const { sun, sat } = _thisWeekRange();
   const clearedSince = _itemClearedSince(name);
+  // סימון ידני השבוע (גובר על "נוקה" אם סומן אחריו)
+  var mk = weekCardMarked[name] || 0;
+  if (mk && mk >= sun.getTime() && mk > clearedSince) return true;
   return cards.some(c => {
     if (c.name !== name) return false;
     const d = new Date(c.orderDate);
     if (!(d >= sun && d <= sat)) return false;
     return !clearedSince || (c.id && c.id > clearedSince);
   });
+}
+
+// החלפת סימון ידני "נוצר כרטיס" (ירוק) לעבודה לפי שם
+function toggleWeekCardMark(name) {
+  if (!name) return;
+  if (weekCardMarked[name]) { delete weekCardMarked[name]; weekClearedItems[name] = Date.now(); }
+  else { weekCardMarked[name] = Date.now(); }
+  localStorage.setItem('solanWeekCardMarked', JSON.stringify(weekCardMarked));
+  localStorage.setItem('solanWeekClearedItems', JSON.stringify(weekClearedItems));
+  if (typeof renderWeek === 'function' && document.getElementById('view-week') && document.getElementById('view-week').style.display !== 'none') renderWeek();
+  if (typeof renderDashTodayWeekly === 'function') renderDashTodayWeekly();
 }
 
 function clearSingleWeekMark(name) {
@@ -4451,8 +4467,10 @@ function clearSingleWeekMark(name) {
 function clearWeekDoneMarks() {
   weekClearedAt = Date.now();
   weekClearedItems = {};
+  weekCardMarked = {};
   localStorage.setItem('solanWeekClearedAt', weekClearedAt);
   localStorage.setItem('solanWeekClearedItems', JSON.stringify(weekClearedItems));
+  localStorage.setItem('solanWeekCardMarked', JSON.stringify(weekCardMarked));
   renderWeek();
   showToast('🔄 סימוני השבוע נוקו');
 }
@@ -4514,7 +4532,9 @@ function renderWeek() {
             ${done ? '✅ כרטיס נוצר — בחר שוב ▼' : 'בחר כמות עמודים השבוע ▼'}
           </button>
           ${done ? `<button title="נקה סימון" onclick="clearSingleWeekMark('${n.name.replace(/'/g,"\\'")}')"
-            style="background:#f0fdf4;border:1px solid #86efac;border-radius:5px;cursor:pointer;font-size:.72rem;color:#16a34a;padding:3px 7px;white-space:nowrap;flex-shrink:0">✕ נקה</button>` : ''}
+            style="background:#f0fdf4;border:1px solid #86efac;border-radius:5px;cursor:pointer;font-size:.72rem;color:#16a34a;padding:3px 7px;white-space:nowrap;flex-shrink:0">✕ נקה</button>`
+            : `<button title="סמן ידנית שנוצר כרטיס" onclick="toggleWeekCardMark(${JSON.stringify(n.name||'')})"
+            style="background:#fff;border:1px solid #86efac;border-radius:5px;cursor:pointer;font-size:.72rem;color:#15803d;padding:3px 7px;white-space:nowrap;flex-shrink:0;font-weight:700">✓ סמן</button>`}
         </div>
       </div>`;
     }).join('') : '';
@@ -4534,14 +4554,19 @@ function renderWeek() {
             ${perSheet>1&&sheets ? `<div style="font-size:.73rem;color:#16a34a;font-weight:700">${sheets.toLocaleString()} גיליונות (${perSheet} לגיליון)</div>` : ''}
           </div>
         </div>
-        <button class="pick-pages-btn" style="background:#dcfce7;color:#15803d;border-color:#86efac"
-          onclick="quickFlyerCard(${f.id})">
-          ${done ? '✅ כרטיס נוצר — צור שוב ▶' : 'צור כרטיס עבודה ▶'}
-        </button>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+          <button class="pick-pages-btn" style="flex:1;margin-top:0;background:#dcfce7;color:#15803d;border-color:#86efac"
+            onclick="quickFlyerCard(${f.id})">
+            ${done ? '✅ כרטיס נוצר — צור שוב ▶' : 'צור כרטיס עבודה ▶'}
+          </button>
+          <button title="${done?'נקה סימון':'סמן ידנית שנוצר כרטיס'}" onclick="toggleWeekCardMark(${JSON.stringify(f.name||'')})"
+            style="background:${done?'#f0fdf4':'#fff'};border:1px solid #86efac;border-radius:5px;cursor:pointer;font-size:.72rem;color:#15803d;padding:3px 7px;white-space:nowrap;flex-shrink:0;font-weight:700">${done?'✕ נקה':'✓ סמן'}</button>
+        </div>
       </div>`;
     }).join('');
 
     const weeklyHTML = dayWeekly.map(w => {
+      const wDone = _cardDoneThisWeek(w.name);
       const deptBtns = (!w.cardCreated && (w.needsFolding || w.needsBinding)) ? `
         <div style="display:flex;gap:5px;margin-top:5px">
           ${w.needsFolding?`<button title="הוסף לסידור קיפול" onclick="addWeeklyJobToDept('קיפול',${w.id})"
@@ -4550,10 +4575,10 @@ function renderWeek() {
             style="flex:1;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:6px;padding:4px 6px;font-size:.72rem;font-weight:700;cursor:pointer">📚 לסידור כריכה</button>`:''}
         </div>` : '';
       return `
-      <div class="paper-btn" style="border-right:3px solid #f97316">
+      <div class="paper-btn" style="border-right:3px solid ${wDone?'#16a34a':'#f97316'};${wDone?'background:#f0fdf4;opacity:.9':''}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div>
-            <div class="paper-btn-name" style="color:#c2410c">🔁 ${w.name||''}</div>
+            <div class="paper-btn-name" style="color:${wDone?'#15803d':'#c2410c'}">${wDone?'✅ ':''}🔁 ${w.name||''}</div>
             <div class="paper-btn-detail">${w.paper||''}${w.copies?' · '+parseInt(w.copies).toLocaleString()+' עותקים':''}</div>
             ${w.customer?`<div style="font-size:.72rem;color:#888">${w.customer}</div>`:''}
             ${w.internalNotes?`<div style="font-size:.72rem;color:#92400e;background:#fffbeb;border-radius:4px;padding:2px 6px;margin-top:3px">🔒 ${w.internalNotes}</div>`:''}
@@ -4562,10 +4587,14 @@ function renderWeek() {
             style="background:none;border:none;cursor:pointer;color:#ccc;font-size:1rem;line-height:1;padding:0;flex-shrink:0"
             onmouseover="this.style.color='#c62828'" onmouseout="this.style.color='#ccc'">✕</button>
         </div>
-        <button class="pick-pages-btn" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa"
-          onclick="quickWeeklyJobCard(${w.id})">
-          ➕ צור כרטיס עבודה ▶
-        </button>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+          <button class="pick-pages-btn" style="flex:1;margin-top:0;background:${wDone?'#dcfce7':'#fff7ed'};color:${wDone?'#15803d':'#c2410c'};border-color:${wDone?'#86efac':'#fed7aa'}"
+            onclick="quickWeeklyJobCard(${w.id})">
+            ${wDone?'✅ כרטיס נוצר — צור שוב ▶':'➕ צור כרטיס עבודה ▶'}
+          </button>
+          <button title="${wDone?'נקה סימון':'סמן ידנית שנוצר כרטיס'}" onclick="toggleWeekCardMark(${JSON.stringify(w.name||'')})"
+            style="background:${wDone?'#f0fdf4':'#fff'};border:1px solid #86efac;border-radius:5px;cursor:pointer;font-size:.72rem;color:#15803d;padding:3px 7px;white-space:nowrap;flex-shrink:0;font-weight:700">${wDone?'✕ נקה':'✓ סמן'}</button>
+        </div>
         ${deptBtns}
       </div>`;
     }).join('');
@@ -7084,7 +7113,7 @@ function closeDeliveryModal() {
 // ═══════════════════════════════════════════════════════
 const _BACKUP_KEYS = ['solanCards','solanNewspapers','solanFlyers','solanWeeklyJobs','solanInventory',
   'solanInventoryHistory','solanInventoryDeductions','solanOrders','solanQuotes',
-  'solanUsers','solanManualRuns','solanWeekClearedAt','solanWeekClearedItems'];
+  'solanUsers','solanManualRuns','solanWeekClearedAt','solanWeekClearedItems','solanWeekCardMarked'];
 
 function _collectBackupData() {
   const data = {};
@@ -7540,7 +7569,17 @@ function _loadDeptOrder() {
 function _saveDeptOrder() {
   localStorage.setItem('solanDeptOrder', JSON.stringify(_deptOrder));
   localStorage.setItem('solanDeptOrderExcluded', JSON.stringify(_deptExcluded));
-  if (window._fbConnected && window._fbPut) window._fbPut('deptOrder', _deptOrder);
+  // סמן כתיבה מקומית + pending-put כדי שה-poll לא ידרוס את הסידור (כולל עבודות ידניות) בנתון ישן מהשרת
+  window._lastLocalWriteAt = Date.now();
+  window._fbSnapshot = window._fbSnapshot || {};
+  window._fbSnapshot.deptOrder = JSON.stringify(_deptOrder);
+  if (window._fbPut) {
+    window._fbPendingPuts = window._fbPendingPuts || {};
+    window._fbPendingPuts.deptOrder = (window._fbPendingPuts.deptOrder || 0) + 1;
+    window._fbPut('deptOrder', _deptOrder).then(function(){
+      window._fbPendingPuts.deptOrder = Math.max(0, (window._fbPendingPuts.deptOrder || 1) - 1);
+    });
+  }
 }
 
 // מסנכרן: מוסיף כרטיסים זכאים חדשים (סטטוס לא 'done' + מסומנים כצריכים את המחלקה) שלא ברשימה,
@@ -7818,7 +7857,7 @@ function renderDeptSchedule(dept) {
       + '<div class="dept-sched-col-head"><span>'+icon+' '+d+'</span><span class="dash-card-count">'+order.length+'</span></div>'
       + '<div class="dept-sched-col-actions">'
       + '<button class="dash-btn" onclick="autoArrangeDept(\''+dSafe+'\')">🔀 סידור אוטומטי</button>'
-      + '<button class="dash-btn" onclick="addManualDeptSlot(\''+dSafe+'\')">+ ריק להשלמה</button>'
+      + '<button class="dash-btn" onclick="addManualDeptSlot(\''+dSafe+'\')">➕ עבודה ידנית</button>'
       + '<button class="dash-btn" onclick="_openAddWeeklyToDeptPicker(\''+dSafe+'\')">+ מהיומן השבועי</button>'
       + '<button class="dash-btn" onclick="printDeptSchedule(\''+dSafe+'\')">🖨️ הדפס סידור</button>'
       + '</div>'
@@ -13185,9 +13224,10 @@ async function _fbPollAll() {
     }
     // סידור מחלקות (קיפול/כריכייה)
     var dov = await window._fbGet('deptOrder');
-    if (dov !== null && typeof dov === 'object') {
+    if (dov !== null && typeof dov === 'object' && !(_pend.deptOrder > 0)) {
       _deptOrder = dov;
       localStorage.setItem('solanDeptOrder', JSON.stringify(_deptOrder));
+      window._fbSnapshot.deptOrder = JSON.stringify(_deptOrder);
       if (typeof renderDeptSchedule === 'function' && document.getElementById('dash-dept-schedule')) {
         DEPARTMENTS.forEach(function(d){ renderDeptSchedule(d); });
       }
@@ -13689,10 +13729,15 @@ function renderDashTodayWeekly() {
         + 'title="הוסף לתור ' + escHtml(m) + '" '
         + 'style="flex:1;font-size:.68rem;padding:4px 0;border:1.5px solid #c7d2fe;border-radius:6px;cursor:pointer;background:#eef2ff;color:#3730a3;font-weight:800;white-space:nowrap;font-family:Heebo,sans-serif">+' + escHtml(short) + '</button>';
     }).join('');
+    var nmeSafe = JSON.stringify(it.name||'');
     var cardBtn = done
-      ? '<span style="display:block;text-align:center;font-size:.68rem;font-weight:800;color:#15803d;background:#f0fdf4;border:1.5px solid #86efac;border-radius:6px;padding:4px 0;margin-top:5px">✅ יש כרטיס</span>'
-      : '<button onclick="_dashCreateCardFor(\'' + it.kind + '\',' + JSON.stringify(it.id) + ')" '
-        + 'style="display:block;width:100%;font-size:.68rem;padding:4px 0;border:1.5px solid #fed7aa;border-radius:6px;cursor:pointer;background:#fff7ed;color:#c2410c;font-weight:800;white-space:nowrap;font-family:Heebo,sans-serif;margin-top:5px">➕ צור כרטיס</button>';
+      ? '<button onclick="toggleWeekCardMark(' + nmeSafe + ')" title="בטל סימון" style="display:block;width:100%;text-align:center;font-size:.68rem;font-weight:800;color:#15803d;background:#f0fdf4;border:1.5px solid #86efac;border-radius:6px;padding:4px 0;margin-top:5px;cursor:pointer;font-family:Heebo,sans-serif">✅ יש כרטיס</button>'
+      : '<div style="display:flex;gap:4px;margin-top:5px">'
+        + '<button onclick="_dashCreateCardFor(\'' + it.kind + '\',' + JSON.stringify(it.id) + ')" '
+        + 'style="flex:1;font-size:.68rem;padding:4px 0;border:1.5px solid #fed7aa;border-radius:6px;cursor:pointer;background:#fff7ed;color:#c2410c;font-weight:800;white-space:nowrap;font-family:Heebo,sans-serif">➕ כרטיס</button>'
+        + '<button onclick="toggleWeekCardMark(' + nmeSafe + ')" title="סמן ידנית שנוצר כרטיס" '
+        + 'style="font-size:.68rem;padding:4px 8px;border:1.5px solid #86efac;border-radius:6px;cursor:pointer;background:#fff;color:#15803d;font-weight:800;font-family:Heebo,sans-serif">✓</button>'
+        + '</div>';
 
     return '<div style="border:1.5px solid ' + (done ? '#bbf7d0' : '#e2e8f0') + ';border-radius:10px;padding:8px 9px;background:' + (done ? '#fafffb' : 'var(--d-card-bg,#fff)') + ';display:flex;flex-direction:column;min-width:0">'
       + '<div style="font-size:.8rem;font-weight:800;color:var(--d-text,#1e293b);white-space:normal;overflow-wrap:anywhere;line-height:1.2;min-height:2.1em">'
