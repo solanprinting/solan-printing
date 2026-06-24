@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782318179';
+window.APP_VERSION = '1782318746';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -5290,6 +5290,7 @@ function quickFlyerCard(flyerId) {
     createdAt:    new Date().toLocaleDateString('he-IL'),
     runs:         []
   };
+  _applyAutoDeptFlags(card);
   cards.unshift(card);
   persist();
   renderCards();
@@ -5703,6 +5704,7 @@ function _saveCardNew() {
     createdBy:    currentUser?currentUser.id:'admin',
     runs:         getEffectiveRuns()
   };
+  _applyAutoDeptFlags(card);
   var warns = validateCard(card);
   if (warns.length > 0) {
     showCardValidationModal(warns, function() {
@@ -7544,6 +7546,20 @@ var _deptOrder = {};     // { dept: [ {type:'card',cardId} | {type:'weekly',week
 var _deptExcluded = {};  // { dept: [entryKey, ...] } — הוסרו ידנית, לא יוחזרו אוטומטית ע"י _syncDeptOrder
 
 function _deptNeedsKey(dept) { return dept === 'קיפול' ? 'needsFolding' : 'needsBinding'; }
+
+// קביעה אוטומטית אם עבודה צריכה קיפול / כריכה (בעת יצירת כרטיס):
+//  קיפול  — כל עבודה, חוץ מפלייסמנטים ומפלאיירים שסומנו "ללא קיפול"
+//  כריכה  — כל עבודה מעל 4 עמודים
+// מוסיף בלבד (לא מבטל סימון ידני קיים), כך ש-_syncDeptOrder יכניס אותן אוטומטית לסידור המחלקות.
+function _applyAutoDeptFlags(card) {
+  if (!card) return;
+  var hay = ((card.type||'') + ' ' + (card.name||'') + ' ' + (card.size||'') + ' ' + (card.notes||'')).toLowerCase();
+  var isPlacement = hay.indexOf('פלייסמנט') >= 0;
+  var noFold = hay.indexOf('ללא קיפול') >= 0;
+  var pages = parseInt(card.pages) || 0;
+  if (!isPlacement && !noFold) card.needsFolding = true;
+  if (pages > 4) card.needsBinding = true;
+}
 
 function _deptEntryKey(entry) {
   if (!entry) return '';
@@ -9835,6 +9851,7 @@ function quickWeeklyJobCard(weeklyJobId) {
     createdAt:     new Date().toLocaleDateString('he-IL'),
     runs:          []
   };
+  _applyAutoDeptFlags(card);
   cards.unshift(card);
   w.cardCreated = card.id;
   persist();
@@ -13712,6 +13729,7 @@ function _dashEnsureCardForItem(it) {
     _weeklySource: true,
     runs: []
   };
+  _applyAutoDeptFlags(card);
   cards.unshift(card);
   if (it.kind === 'weekly') { var w = weeklyJobs.find(function(x){ return x.id === it.id; }); if (w) w.cardCreated = card.id; }
   persist();
