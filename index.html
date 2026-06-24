@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782318746';
+window.APP_VERSION = '1782319289';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -7544,6 +7544,7 @@ function _syncWorkOrder() {
 var DEPARTMENTS = ['קיפול', 'כריכייה'];
 var _deptOrder = {};     // { dept: [ {type:'card',cardId} | {type:'weekly',weeklyId} | {type:'manual',id,label}, ... ] }
 var _deptExcluded = {};  // { dept: [entryKey, ...] } — הוסרו ידנית, לא יוחזרו אוטומטית ע"י _syncDeptOrder
+var _deptRemoved = {};   // { dept: [ {entry, removedAt} ] } — היסטוריית עבודות שהוסרו, לשחזור
 
 function _deptNeedsKey(dept) { return dept === 'קיפול' ? 'needsFolding' : 'needsBinding'; }
 
@@ -7579,11 +7580,17 @@ function _loadDeptOrder() {
     _deptExcluded = rawEx ? JSON.parse(rawEx) : {};
   } catch(e) { _deptExcluded = {}; }
   DEPARTMENTS.forEach(function(d){ if (!_deptExcluded[d]) _deptExcluded[d] = []; });
+  try {
+    var rawRm = localStorage.getItem('solanDeptRemoved');
+    _deptRemoved = rawRm ? JSON.parse(rawRm) : {};
+  } catch(e) { _deptRemoved = {}; }
+  DEPARTMENTS.forEach(function(d){ if (!_deptRemoved[d]) _deptRemoved[d] = []; });
 }
 
 function _saveDeptOrder() {
   localStorage.setItem('solanDeptOrder', JSON.stringify(_deptOrder));
   localStorage.setItem('solanDeptOrderExcluded', JSON.stringify(_deptExcluded));
+  localStorage.setItem('solanDeptRemoved', JSON.stringify(_deptRemoved));
   // סמן כתיבה מקומית + pending-put כדי שה-poll לא ידרוס את הסידור (כולל עבודות ידניות) בנתון ישן מהשרת
   window._lastLocalWriteAt = Date.now();
   window._fbSnapshot = window._fbSnapshot || {};
@@ -7657,9 +7664,79 @@ function removeDeptItem(dept, entryKey) {
     if (!_deptExcluded[dept]) _deptExcluded[dept] = [];
     if (_deptExcluded[dept].indexOf(entryKey) < 0) _deptExcluded[dept].push(entryKey);
   }
+  // שמור בהיסטוריית "הוסרו" לשחזור (החדש בראש; שמור עד 50 אחרונים)
+  if (!_deptRemoved[dept]) _deptRemoved[dept] = [];
+  _deptRemoved[dept].unshift({ entry: JSON.parse(JSON.stringify(entry)), removedAt: Date.now() });
+  _deptRemoved[dept] = _deptRemoved[dept].slice(0, 50);
   order.splice(idx, 1);
   _saveDeptOrder();
   if (typeof renderDeptSchedule === 'function') renderDeptSchedule(dept);
+}
+
+// שחזור עבודה שהוסרה — מחזיר אותה לרשימת המחלקה
+function restoreDeptItem(dept, removedAt) {
+  var hist = _deptRemoved[dept] || [];
+  var hidx = hist.findIndex(function(r){ return String(r.removedAt) === String(removedAt); });
+  if (hidx < 0) return;
+  var entry = hist[hidx].entry;
+  if (!_deptOrder[dept]) _deptOrder[dept] = [];
+  var key = _deptEntryKey(entry);
+  // הסר מרשימת ההחרגות (כדי שלא יוסר שוב אוטומטית), והחזר לרשימה אם איננו כבר שם
+  if (_deptExcluded[dept]) _deptExcluded[dept] = _deptExcluded[dept].filter(function(k){ return k !== key; });
+  var already = _deptOrder[dept].some(function(e){ return _deptEntryKey(e) === key; });
+  // בכרטיס/עבודה שבועית — ודא שהמקור עדיין קיים; אחרת נחזיר כעבודה ידנית עם השם המקורי
+  if (!already) {
+    if (entry.type === 'card' && !(cards||[]).some(function(c){ return c.id === entry.cardId; })) {
+      var info = _deptPrintInfo(entry);
+      _deptOrder[dept].push({ type:'manual', id: Date.now()+Math.random(), label: (info && info.name) || 'עבודה משוחזרת' });
+    } else if (entry.type === 'weekly' && !(weeklyJobs||[]).some(function(w){ return w.id === entry.weeklyId; })) {
+      _deptOrder[dept].push({ type:'manual', id: Date.now()+Math.random(), label: 'עבודה משוחזרת' });
+    } else {
+      _deptOrder[dept].push(entry);
+    }
+  }
+  hist.splice(hidx, 1);
+  _saveDeptOrder();
+  if (typeof showToast === 'function') showToast('↩ העבודה הוחזרה לסידור ' + dept);
+  _renderDeptHistoryModal(dept);
+  if (typeof renderDeptSchedule === 'function') renderDeptSchedule(dept);
+}
+
+function clearDeptHistory(dept) {
+  _deptRemoved[dept] = [];
+  _saveDeptOrder();
+  _renderDeptHistoryModal(dept);
+}
+
+function openDeptHistory(dept) {
+  _renderDeptHistoryModal(dept);
+}
+
+function _renderDeptHistoryModal(dept) {
+  var existing = document.getElementById('dept-history-modal');
+  if (existing) existing.remove();
+  var hist = _deptRemoved[dept] || [];
+  var dSafe = dept.replace(/'/g, "\\'");
+  var fmtQty = function(n){ var x = parseInt(n,10); return isNaN(x) ? (n||'') : x.toLocaleString(); };
+  var rows = hist.length ? hist.map(function(r){
+    var info = _deptPrintInfo(r.entry) || { name:'(ריק)', paper:'', copies:'' };
+    var when = new Date(r.removedAt).toLocaleString('he-IL', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    var detail = [info.paper, info.copies ? fmtQty(info.copies)+' עותקים' : ''].filter(Boolean).join(' · ');
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line)">'
+      + '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:.9rem">'+escHtml(info.name||'(ריק)')+'</div>'
+      + '<div style="font-size:.72rem;color:var(--gray)">הוסר ב-'+when+(detail?' · '+escHtml(detail):'')+'</div></div>'
+      + '<button class="btn btn-sm btn-tpl" onclick="restoreDeptItem(\''+dSafe+'\','+r.removedAt+')">↩ החזר</button>'
+      + '</div>';
+  }).join('') : '<div style="padding:18px 4px;color:var(--gray);text-align:center">אין עבודות שהוסרו</div>';
+  var icon = dept === 'קיפול' ? '📐' : '📚';
+  var html = '<div class="modal-overlay open" id="dept-history-modal" onclick="if(event.target===this)this.remove()">'
+    + '<div class="modal" style="max-width:440px">'
+    + '<div class="modal-header"><h3>🕘 היסטוריית '+icon+' '+escHtml(dept)+'</h3>'
+    + '<button class="modal-close" onclick="document.getElementById(\'dept-history-modal\').remove()">×</button></div>'
+    + '<div class="modal-body" style="padding:10px 16px;max-height:60vh;overflow-y:auto">'+rows+'</div>'
+    + (hist.length ? '<div style="padding:10px 16px;border-top:1px solid var(--line);text-align:left"><button class="btn btn-sm btn-clear" onclick="clearDeptHistory(\''+dSafe+'\')">נקה היסטוריה</button></div>' : '')
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
 }
 
 function addManualDeptSlot(dept, label) {
@@ -7887,6 +7964,7 @@ function renderDeptSchedule(dept) {
       + '<button class="dash-btn" onclick="addManualDeptSlot(\''+dSafe+'\')">➕ עבודה ידנית</button>'
       + '<button class="dash-btn" onclick="_openAddWeeklyToDeptPicker(\''+dSafe+'\')">+ מהיומן השבועי</button>'
       + '<button class="dash-btn" onclick="printDeptSchedule(\''+dSafe+'\')">🖨️ הדפס סידור</button>'
+      + '<button class="dash-btn" onclick="openDeptHistory(\''+dSafe+'\')">🕘 היסטוריה'+(((_deptRemoved[d]||[]).length)?' ('+_deptRemoved[d].length+')':'')+'</button>'
       + '</div>'
       + '<div class="dept-sched-list" data-dept="'+escHtml(d)+'" ondragover="event.preventDefault()" ondrop="_deptDrop(event,\''+dSafe+'\')">'
       + (itemsHtml || '<div class="dash-empty" style="padding:14px 4px">אין עבודות בתור</div>')
