@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782303000';
+window.APP_VERSION = '1782304327';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1169,7 +1169,7 @@ window._fbSnapshot = {};
         <button class="dash-btn" onclick="renderDashboard()" title="רענן">⟳ רענן</button>
       </div>
     </div>
-    <div class="dash-kpis" id="dash-kpis"></div>
+    <div class="dash-card" id="dash-today-weekly"></div>
     <div class="dash-card" id="dash-worklist" style="padding:0;overflow:hidden"></div>
     <div class="dash-card" id="dash-board"></div>
     <div class="dash-card" id="dash-dept-schedule"></div>
@@ -8605,7 +8605,7 @@ function renderWorkList() {
         + (!wholeInQueue ? ' draggable="true" ondragstart="_queueDragStart(event,' + cIdSq + ',-1)"' : '') + '>';
       poolHtml += wholeInQueue ? '<span style="color:#16a34a;font-size:.8rem;flex-shrink:0">✓</span>' : '<span style="color:#cbd5e1;font-size:.9rem;flex-shrink:0">⠿</span>';
       poolHtml += '<div style="flex:1;min-width:0">'
-        + '<div style="font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+        + '<div style="font-weight:700;font-size:.8rem;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.3">'
         + escHtml(c.name || 'ללא שם') + (isWeekly ? ' <span style="font-size:.65rem;color:#9ca3af">שב\'</span>' : '') + '</div>';
       if (c.customer) poolHtml += '<div style="font-size:.68rem;color:#6b7280">' + escHtml(c.customer) + '</div>';
       // paper + (for single-run cards) copies badges
@@ -8663,7 +8663,7 @@ function renderWorkList() {
         poolHtml += '<div style="padding:7px 9px;display:flex;align-items:center;gap:6px">';
         poolHtml += '<span style="color:#16a34a;font-size:.9rem;flex-shrink:0">✓</span>';
         poolHtml += '<div style="flex:1;min-width:0">'
-          + '<div style="font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#166534">'
+          + '<div style="font-weight:700;font-size:.8rem;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.3;color:#166534">'
           + escHtml(c.name || 'ללא שם') + '</div>';
         if (c.customer) poolHtml += '<div style="font-size:.68rem;color:#6b7280">' + escHtml(c.customer) + '</div>';
         poolHtml += '</div>';
@@ -13383,7 +13383,7 @@ function renderDashboard() {
   function _safe(name, fn) {
     try { fn(); } catch (e) { console.error('renderDashboard: שגיאה ב-' + name, e); }
   }
-  _safe('renderDashKPIs', renderDashKPIs);
+  _safe('renderDashTodayWeekly', renderDashTodayWeekly);
   _safe('renderDashBoard', renderDashBoard);
   _safe('renderWorkList', renderWorkList);
   _safe('renderDeptSchedule', function(){ DEPARTMENTS.forEach(function(d){ renderDeptSchedule(d); }); });
@@ -13466,6 +13466,124 @@ function _avgMachineLoadPct() {
   });
   if (!pcts.length) return 0;
   return Math.round(pcts.reduce(function(a,b){return a+b;},0) / pcts.length);
+}
+
+// ── עבודות להיום לפי היומן השבועי (דאשבורד) ──────────────────
+// אוסף את כל הפריטים (עיתונים / עלונים / עבודות שבועיות) שמשובצים ליום הנוכחי
+function _dashTodayItems() {
+  var dayName = DAYS[new Date().getDay()];
+  var items = [];
+  (newspapers||[]).forEach(function(n){
+    if (n.day !== dayName) return;
+    if ((hiddenThisWeek||[]).indexOf(n.id) !== -1) return;
+    items.push({ kind:'paper', id:n.id, name:n.name, paper:n.paper, copies:n.copies, machine:n.machine||'', size:n.size||'', color:n.color||'', internalNotes:n.internalNotes||'' });
+  });
+  (flyers||[]).forEach(function(f){
+    if (f.day !== dayName) return;
+    items.push({ kind:'flyer', id:f.id, name:f.name, paper:f.paper, copies:f.copies, machine:f.machine||'', size:f.size||'', color:f.color||'', perSheet:f.perSheet||1 });
+  });
+  (weeklyJobs||[]).forEach(function(w){
+    if (w.day !== dayName) return;
+    items.push({ kind:'weekly', id:w.id, name:w.name, paper:w.paper, copies:w.copies, machine:w.machine||'', size:w.size||'', color:w.color||'', pages:w.pages||'', customer:w.customer||'', type:w.type||'', notes:w.notes||'', internalNotes:w.internalNotes||'', needsFolding:w.needsFolding||false, needsBinding:w.needsBinding||false });
+  });
+  return items;
+}
+
+// יצירת כרטיס מלא מהפריט (פותח את הזרימה הרגילה לפי הסוג)
+function _dashCreateCardFor(kind, id) {
+  if (kind === 'paper') openPagePicker(id);
+  else if (kind === 'flyer') quickFlyerCard(id);
+  else quickWeeklyJobCard(id);
+}
+
+// מוצא כרטיס פעיל קיים לפריט, ואם אין — יוצר כרטיס מינימלי (בלי לפתוח טופס)
+function _dashEnsureCardForItem(it) {
+  var existing = _activeCardByName(it.name);
+  if (existing) return existing;
+  var card = {
+    id: Date.now(),
+    name: it.name || '',
+    customer: it.customer || '',
+    type: it.type || (it.kind === 'flyer' ? 'עלון' : (it.kind === 'paper' ? 'עיתון' : '')),
+    machine: it.machine || '',
+    orderDate: new Date().toISOString().split('T')[0],
+    deliveryDate: '',
+    copies: it.copies || '',
+    pages: it.kind === 'flyer' ? 4 : (it.pages || ''),
+    color: it.color || '',
+    size: it.size || '',
+    paper: it.paper || '',
+    notes: it.notes || '',
+    internalNotes: it.internalNotes || '',
+    needsFolding: it.needsFolding || false,
+    needsBinding: it.needsBinding || false,
+    status: 'pending',
+    createdAt: new Date().toLocaleDateString('he-IL'),
+    runs: []
+  };
+  cards.unshift(card);
+  if (it.kind === 'weekly') { var w = weeklyJobs.find(function(x){ return x.id === it.id; }); if (w) w.cardCreated = card.id; }
+  persist();
+  if (typeof renderCards === 'function') renderCards();
+  return card;
+}
+
+// הוספת פריט לתור מכונה — יוצר כרטיס אוטומטית אם עוד אין, גם בלי שנוצר ידנית
+function _dashAddJobToMachine(kind, id, machine) {
+  var it = _dashTodayItems().find(function(x){ return x.kind === kind && String(x.id) === String(id); });
+  if (!it) return;
+  var card = _dashEnsureCardForItem(it);
+  if (!card) return;
+  if (!card.machine) card.machine = machine;
+  _queueAddEntry(card.id, -1, machine);
+  renderDashboard();
+}
+
+function renderDashTodayWeekly() {
+  var el = document.getElementById('dash-today-weekly');
+  if (!el) return;
+  var dayName = DAYS[new Date().getDay()];
+  var items = _dashTodayItems();
+  var MACHINES = ['מכונה 4 צבעים','מכונה 8 צבעים'];
+  var fmtQty = function(n){ var x = parseInt(n,10); return isNaN(x) ? '' : x.toLocaleString(); };
+
+  var head = '<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--d-line,#e2e8f0)">'
+    + '<div style="font-size:1rem;font-weight:900;color:var(--d-text,#1e293b)">📅 עבודות להיום — יום ' + escHtml(dayName) + '</div>'
+    + '<span style="font-size:.78rem;font-weight:800;background:var(--press,#1a1a4e);color:white;border-radius:12px;padding:2px 10px">' + items.length + '</span>'
+    + '</div>';
+
+  if (!items.length) {
+    el.innerHTML = head + '<div style="padding:24px 16px;text-align:center;color:#94a3b8;font-size:.88rem">אין עבודות משובצות להיום ביומן השבועי</div>';
+    return;
+  }
+
+  var kindIcon = { paper:'📰', flyer:'📄', weekly:'🔁' };
+  var rows = items.map(function(it){
+    var done = _cardDoneThisWeek(it.name);
+    var detail = [it.paper, it.copies ? fmtQty(it.copies) + ' עותקים' : '', it.customer].filter(Boolean).join(' · ');
+    var machBtns = MACHINES.map(function(m){
+      var short = m.replace('מכונה ','');
+      return '<button onclick="_dashAddJobToMachine(\'' + it.kind + '\',' + JSON.stringify(it.id) + ',\'' + m + '\')" '
+        + 'title="הוסף לתור ' + escHtml(m) + '" '
+        + 'style="font-size:.72rem;padding:5px 11px;border:1.5px solid #c7d2fe;border-radius:7px;cursor:pointer;background:#eef2ff;color:#3730a3;font-weight:700;white-space:nowrap;font-family:Heebo,sans-serif">+ ' + escHtml(short) + '</button>';
+    }).join('');
+    var cardBtn = done
+      ? '<span style="font-size:.74rem;font-weight:800;color:#15803d;background:#f0fdf4;border:1.5px solid #86efac;border-radius:7px;padding:5px 11px;white-space:nowrap">✅ נוצר כרטיס</span>'
+      : '<button onclick="_dashCreateCardFor(\'' + it.kind + '\',' + JSON.stringify(it.id) + ')" '
+        + 'style="font-size:.74rem;padding:5px 11px;border:1.5px solid #fed7aa;border-radius:7px;cursor:pointer;background:#fff7ed;color:#c2410c;font-weight:700;white-space:nowrap;font-family:Heebo,sans-serif">➕ צור כרטיס</button>';
+
+    return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 16px;border-bottom:1px solid #f1f5f9;'
+      + (done ? 'background:#fafffb' : '') + '">'
+      + '<div style="flex:1;min-width:160px">'
+      + '<div style="font-size:.92rem;font-weight:800;color:var(--d-text,#1e293b);white-space:normal;overflow-wrap:anywhere;line-height:1.3">'
+      + (kindIcon[it.kind]||'') + ' ' + escHtml(it.name || 'ללא שם') + (done ? ' <span style="color:#16a34a">✓</span>' : '') + '</div>'
+      + (detail ? '<div style="font-size:.74rem;color:#94a3b8;margin-top:2px">' + escHtml(detail) + '</div>' : '')
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + machBtns + cardBtn + '</div>'
+      + '</div>';
+  }).join('');
+
+  el.innerHTML = head + '<div>' + rows + '</div>';
 }
 
 // ── KPI ───────────────────────────────────────────────────
