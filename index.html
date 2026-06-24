@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782229477';
+window.APP_VERSION = '1782302381';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -695,6 +695,11 @@ textarea.fi{resize:none;min-height:52px;}
   .pin-btn.del    { font-size:1.3rem;color:#fca5a5;background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.2); }
   .pin-btn.del:hover { background:rgba(239,68,68,0.2); }
   .pin-btn.zero   { grid-column:2; }
+
+/* כפתורי צילום (מצלמה) רלוונטיים רק במכשיר נייד — מוסתרים באפליקציה למחשב */
+@media(min-width:769px){
+  .camera-only-btn{display:none !important;}
+}
 
 @media(max-width:768px){
   /* ── מלאי: טבלה עם גלילה אופקית ── */
@@ -1881,7 +1886,7 @@ window._fbSnapshot = {};
       <h2 style="font-size:1rem;font-weight:800;color:var(--press)">🏭 מלאי במחסן רונימאר</h2>
       <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-tpl" style="background:#fff3e0;border-color:#ff9800;color:#e65100" onclick="openManualDeductModal()" title="הורד ידנית ממלאי ללא סריקה">✏️ תעודה ידנית</button>
-        <label class="btn btn-tpl" style="cursor:pointer;background:#fff3e0;border-color:#ff9800;color:#e65100;font-weight:800" title="צלם תעודת משלוח — מוריד כמות מהמלאי">
+        <label class="btn btn-tpl camera-only-btn" style="cursor:pointer;background:#fff3e0;border-color:#ff9800;color:#e65100;font-weight:800" title="צלם תעודת משלוח — מוריד כמות מהמלאי">
           📷 צלם תעודה
           <input type="file" accept="image/*" capture="environment" onchange="loadDeliveryDoc(this,'deduct')" style="display:none">
         </label>
@@ -1890,7 +1895,7 @@ window._fbSnapshot = {};
           <input type="file" accept="image/*,.pdf" onchange="loadDeliveryDoc(this,'deduct')" style="display:none">
         </label>
         <button class="btn btn-gold" onclick="openManualInvoiceModal()" title="מלא חשבונית ידנית — מוסיף כמות למלאי">✏️ מלא חשבונית ידנית</button>
-        <label class="btn btn-gold" style="cursor:pointer;font-weight:800" title="צלם חשבונית — מוסיף כמות למלאי">
+        <label class="btn btn-gold camera-only-btn" style="cursor:pointer;font-weight:800" title="צלם חשבונית — מוסיף כמות למלאי">
           📷 צלם חשבונית
           <input type="file" accept="image/*" capture="environment" onchange="loadDeliveryDoc(this,'add')" style="display:none">
         </label>
@@ -4087,52 +4092,23 @@ function _renderCurrentRunsOutput() {
       '🔄 מתהפך'+(r.tumble?' ✓':'')+
       '</label>'
     ) : '';
-    var _showABRow = r.abMandatory || r.abEligible;
-    var _abRow = '';
-    if (_showABRow) {
-      var _abToggle = r.abMandatory
-        ? '<span style="font-size:.8rem;font-weight:700;color:#7c3aed;background:#f3e8ff;padding:3px 10px;border-radius:6px">🗞️ גיליון A+B (חובה)</span>'
-        : ('<label onclick="toggleRunAB('+i+')" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:.82rem;font-weight:700;'+
-           'padding:3px 10px;border-radius:6px;border:1.5px solid '+(r.abEnabled?'#7c3aed':'#cbd5e1')+';'+
-           'background:'+(r.abEnabled?'#f3e8ff':'#f8fafc')+';color:'+(r.abEnabled?'#6d28d9':'#64748b')+'">'+
-           '🗞️ גיליון A+B'+(r.abEnabled?' ✓':'')+
-           '</label>');
-      var _abExtras = '';
-      if (r.abEnabled) {
-        _abExtras = '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">'+
-          RUN_AB_EXTRAS.map(function(ex){
-            var _checked = (r.abExtras||[]).indexOf(ex.key) !== -1;
-            return '<label style="display:inline-flex;align-items:center;gap:4px;font-size:.76rem;padding:2px 8px;border-radius:5px;border:1px solid '+(_checked?'#7c3aed':'#e2e8f0')+';background:'+(_checked?'#f3e8ff':'#fff')+';cursor:pointer">'+
-              '<input type="checkbox" '+(_checked?'checked':'')+' onchange="toggleRunExtra('+i+',\''+ex.key+'\')" style="margin:0">'+
-              ex.label+
-            '</label>';
-          }).join('') +
-          ( (r.abExtras||[]).indexOf('custom') !== -1
-            ? '<input type="text" placeholder="גודל..." value="'+(r.abExtraCustomSize||'').replace(/"/g,'&quot;')+'" oninput="setRunExtraCustomSize('+i+',this.value)" style="font-size:.76rem;padding:3px 6px;border:1px solid #cbd5e1;border-radius:5px;width:100px">'
-            : '') +
-        '</div>';
-      }
-      // בורר "פעמים בגיליון" — קובע את כמות הגיליונות (עותקים ÷ פעמים)
-      var _upSel = '';
-      if (r.abEligible && _runsFs && r.pages) {
-        var _maxN = Math.round(_runsFs / r.pages);
-        var _cur = r.upCount || _maxN;
-        var _opts = '';
-        for (var _u = 1; _u <= _maxN; _u++) _opts += '<option value="'+_u+'"'+(_cur===_u?' selected':'')+'>'+_u+'</option>';
-        _upSel = '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.82rem;font-weight:700;color:#444;margin-left:10px">'+
-          '📐 פעמים בגיליון: <select onchange="setRunUpCount('+i+',this.value)" style="font-family:Heebo,sans-serif;font-size:.82rem;padding:2px 7px;border-radius:6px;border:1.5px solid #cbd5e1;cursor:pointer">'+_opts+'</select></label>';
-      }
-      _abRow = '<tr><td colspan="6" style="padding:6px 10px;background:#faf8ff;border-top:1px dashed #e2e8f0">'+_upSel+_abToggle+_abExtras+'</td></tr>';
-    }
-    // נייר לריצה — מאפשר לסמן נייר שונה לכל ריצה
+    var _abInner = _runAbInnerHtml(r, i);
+    var _abRow = _abInner ? '<tr><td colspan="6" style="padding:6px 10px;background:#faf8ff;border-top:1px dashed #e2e8f0">'+_abInner+'</td></tr>' : '';
+    // נייר לריצה — מאפשר לסמן נייר שונה לכל ריצה (מתחיל מקופל מאחורי לחצן)
     var _paperNames = ((quotePricing && quotePricing.papers) || []).map(function(p){ return p.name; }).filter(Boolean);
     var _dlId = 'rpaper-dl-' + i;
+    var _paperOpen = !!r._paperOpen;
+    var _paperLabel = r.paper ? escHtml(r.paper) : 'ברירת מחדל';
     var _paperRow = '<tr><td colspan="6" style="padding:3px 10px 5px;background:#fafafa;border-top:1px dashed #eee">'+
-      '<label style="font-size:.74rem;color:#888">📄 נייר: </label>'+
-      '<input type="text" id="run-paper-inline-'+i+'" value="'+(r.paper||'').replace(/"/g,'&quot;')+'" '+
-      'oninput="currentRuns['+i+'].paper=this.value" list="'+_dlId+'" '+
-      'placeholder="סוג נייר (ריק = ברירת מחדל)" style="font-size:.76rem;padding:3px 8px;border:1px solid #cbd5e1;border-radius:5px;width:60%">'+
-      (_paperNames.length ? '<datalist id="'+_dlId+'">'+_paperNames.map(function(nm){ return '<option value="'+nm.replace(/"/g,'&quot;')+'">'; }).join('')+'</datalist>' : '')+
+      '<button type="button" onclick="_toggleRunPaperOpen('+i+')" style="display:'+(_paperOpen?'none':'inline-flex')+';align-items:center;gap:4px;font-size:.74rem;padding:3px 9px;border:1.5px solid #c7d2fe;border-radius:6px;background:#eef2ff;color:#3730a3;cursor:pointer;font-family:Heebo,sans-serif;font-weight:700">📄 '+_paperLabel+' ✎</button>'+
+      '<span style="display:'+(_paperOpen?'inline-flex':'none')+';align-items:center;gap:4px">'+
+        '<label style="font-size:.74rem;color:#888">📄 נייר: </label>'+
+        '<input type="text" id="run-paper-inline-'+i+'" value="'+(r.paper||'').replace(/"/g,'&quot;')+'" '+
+        'oninput="currentRuns['+i+'].paper=this.value" list="'+_dlId+'" '+
+        'placeholder="סוג נייר (ריק = ברירת מחדל)" style="font-size:.76rem;padding:3px 8px;border:1px solid #cbd5e1;border-radius:5px;width:55%">'+
+        (_paperNames.length ? '<datalist id="'+_dlId+'">'+_paperNames.map(function(nm){ return '<option value="'+nm.replace(/"/g,'&quot;')+'">'; }).join('')+'</datalist>' : '')+
+        '<button type="button" onclick="_toggleRunPaperOpen('+i+')" style="font-size:.7rem;padding:3px 8px;border:none;border-radius:5px;background:#1a1a4e;color:white;cursor:pointer;font-weight:700">✓</button>'+
+      '</span>'+
     '</td></tr>';
     // מילוי ידני — גדלים נוספים להדפסה יחד עם הריצה (זמין תמיד, בכל ריצה)
     var _manualRow = '<tr><td colspan="6" style="padding:4px 10px;background:#fafafa;border-top:1px dashed #eee">'+
@@ -4187,7 +4163,7 @@ function toggleRunAB(i) {
   if (!r || !r.abEligible) return; // רק בריצה חלקית אופציונלית
   r.abEnabled = !r.abEnabled;       // A+B = הוספת פלאיירים/פלייסמנט בלבד (הכמות נשלטת ע"י "פעמים בגיליון")
   if (!r.abEnabled) { r.abExtras = []; r.abExtraCustomSize = ''; }
-  _renderCurrentRunsOutput();
+  _refreshRunsViews();
 }
 
 // כמה פעמים הריצה נכנסת בגיליון → קובע את כמות הגיליונות (עותקים ÷ פעמים)
@@ -4197,7 +4173,7 @@ function setRunUpCount(i, n) {
   n = parseInt(n) || 1;
   r.upCount = n;
   r.copies = Math.ceil((_runsCopies || 0) / n);
-  _renderCurrentRunsOutput();
+  _refreshRunsViews();
 }
 
 function toggleRunExtra(i, key) {
@@ -4206,7 +4182,7 @@ function toggleRunExtra(i, key) {
   r.abExtras = r.abExtras || [];
   var idx = r.abExtras.indexOf(key);
   if (idx === -1) r.abExtras.push(key); else r.abExtras.splice(idx, 1);
-  _renderCurrentRunsOutput();
+  _refreshRunsViews();
 }
 
 function setRunExtraCustomSize(i, val) {
@@ -4683,12 +4659,59 @@ function openPagePicker(newspaperId) {
   document.body.insertAdjacentHTML('beforeend', html);
 }
 
-function toggleRunPaperInputs() {
-  var inputs = document.querySelectorAll('[id^="run-paper-"]');
-  var btn = document.getElementById('toggle-run-paper');
-  var show = inputs.length && inputs[0].style.display === 'none';
-  inputs.forEach(function(inp){ inp.style.display = show ? 'block' : 'none'; });
-  if (btn) btn.style.background = show ? '#dbeafe' : '';
+// מרענן את כל תצוגות הריצות הפעילות (טבלה בטופס הראשי ו/או חלון הריצות הקופץ)
+function _refreshRunsViews() {
+  var out = document.getElementById('runs-output');
+  if (out && out.innerHTML) _renderCurrentRunsOutput();
+  var modal = document.getElementById('runs-modal');
+  if (modal && modal.classList.contains('open') && window._pendingCard) {
+    openRunsModal(window._pendingCard.n, window._pendingCard.pages);
+  }
+}
+
+// פותח/סוגר את שדה הנייר לריצה מסוימת (מוצג כברירת מחדל כלחצן מתקפל, לא שדה פתוח)
+function _toggleRunPaperOpen(i) {
+  var r = currentRuns[i];
+  if (!r) return;
+  r._paperOpen = !r._paperOpen;
+  _refreshRunsViews();
+}
+
+// בלוק "גיליון A+B" / תוספות — משותף לטבלת הטופס הראשי ולחלון הריצות הקופץ
+function _runAbInnerHtml(r, i) {
+  if (!(r.abMandatory || r.abEligible)) return '';
+  var abToggle = r.abMandatory
+    ? '<span style="font-size:.8rem;font-weight:700;color:#7c3aed;background:#f3e8ff;padding:3px 10px;border-radius:6px">🗞️ גיליון A+B (חובה)</span>'
+    : ('<label onclick="toggleRunAB('+i+')" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:.82rem;font-weight:700;'+
+       'padding:3px 10px;border-radius:6px;border:1.5px solid '+(r.abEnabled?'#7c3aed':'#cbd5e1')+';'+
+       'background:'+(r.abEnabled?'#f3e8ff':'#f8fafc')+';color:'+(r.abEnabled?'#6d28d9':'#64748b')+'">'+
+       '🗞️ גיליון A+B'+(r.abEnabled?' ✓':'')+
+       '</label>');
+  var abExtras = '';
+  if (r.abEnabled) {
+    abExtras = '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">'+
+      RUN_AB_EXTRAS.map(function(ex){
+        var checked = (r.abExtras||[]).indexOf(ex.key) !== -1;
+        return '<label style="display:inline-flex;align-items:center;gap:4px;font-size:.76rem;padding:2px 8px;border-radius:5px;border:1px solid '+(checked?'#7c3aed':'#e2e8f0')+';background:'+(checked?'#f3e8ff':'#fff')+';cursor:pointer">'+
+          '<input type="checkbox" '+(checked?'checked':'')+' onchange="toggleRunExtra('+i+',\''+ex.key+'\')" style="margin:0">'+
+          ex.label+
+        '</label>';
+      }).join('') +
+      ( (r.abExtras||[]).indexOf('custom') !== -1
+        ? '<input type="text" placeholder="גודל..." value="'+(r.abExtraCustomSize||'').replace(/"/g,'&quot;')+'" oninput="setRunExtraCustomSize('+i+',this.value)" style="font-size:.76rem;padding:3px 6px;border:1px solid #cbd5e1;border-radius:5px;width:100px">'
+        : '') +
+    '</div>';
+  }
+  var upSel = '';
+  if (r.abEligible && _runsFs && r.pages) {
+    var maxN = Math.round(_runsFs / r.pages);
+    var cur = r.upCount || maxN;
+    var opts = '';
+    for (var u = 1; u <= maxN; u++) opts += '<option value="'+u+'"'+(cur===u?' selected':'')+'>'+u+'</option>';
+    upSel = '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.82rem;font-weight:700;color:#444;margin-left:10px">'+
+      '📐 פעמים בגיליון: <select onchange="setRunUpCount('+i+',this.value)" style="font-family:Heebo,sans-serif;font-size:.82rem;padding:2px 7px;border-radius:6px;border:1.5px solid #cbd5e1;cursor:pointer">'+opts+'</select></label>';
+  }
+  return upSel + abToggle + abExtras;
 }
 
 function closePP() {
@@ -4764,13 +4787,11 @@ function openRunsModal(n, pages) {
   const _rmFs16 = /64[\s×x*]?90|a4|240[\s×x*]?330|330[\s×x*]?240/.test(_rmSize);
 
   if (currentRuns.length) {
-    bodyHTML += `<div style="text-align:left;margin-bottom:8px">
-      <button type="button" class="btn btn-sm btn-tpl" id="toggle-run-paper"
-        onclick="toggleRunPaperInputs()"
-        style="font-size:.78rem${hasDefaultPapers ? ';background:#dbeafe' : ''}">🗂️ שנה נייר לריצות</button>
-    </div>`;
     bodyHTML += currentRuns.map((r,i) => {
-      const defPaper = defaultPapers[i] || paperForThis || '';
+      const defPaper = r.paper || defaultPapers[i] || paperForThis || '';
+      const _paperOpen = !!r._paperOpen;
+      const _paperLabel = defPaper ? escHtml(defPaper) : 'ברירת מחדל';
+      const _abInner = _runAbInnerHtml(r, i);
       const _canTumble = (_rmFs32 && r.pages < 32) || (_rmFs16 && r.pages < 16);
       const _showTumble = _canTumble && r.machine === 'מכונה 4 צבעים';
       return `
@@ -4807,11 +4828,20 @@ function openRunsModal(n, pages) {
                 style="padding:4px 10px;background:none;border:1px solid #ccc;border-radius:5px;font-family:Heebo,sans-serif;font-size:.8rem;cursor:pointer;color:#888">ביטול</button>
             </div>
           </div>
-          <input type="text" id="run-paper-${r.num}" value="${defPaper}"
-            placeholder="נייר לריצה זו"
-            style="display:${hasDefaultPapers ? 'block' : 'none'};font-size:.78rem;padding:3px 7px;
-              border:1.5px solid var(--line);border-radius:5px;font-family:Heebo,sans-serif;
-              width:100%;margin-top:4px;box-sizing:border-box">
+          <button type="button" onclick="_toggleRunPaperOpen(${i})"
+            style="display:${_paperOpen?'none':'inline-flex'};align-items:center;gap:4px;margin-top:4px;font-size:.76rem;
+              padding:3px 9px;border:1.5px solid #c7d2fe;border-radius:6px;background:#eef2ff;color:#3730a3;
+              cursor:pointer;font-family:Heebo,sans-serif;font-weight:700">📄 ${_paperLabel} ✎</button>
+          <div style="display:${_paperOpen?'flex':'none'};align-items:center;gap:4px;margin-top:4px">
+            <input type="text" id="run-paper-${r.num}" value="${defPaper.replace(/"/g,'&quot;')}"
+              oninput="currentRuns[${i}].paper=this.value"
+              placeholder="נייר לריצה זו"
+              style="font-size:.78rem;padding:3px 7px;border:1.5px solid var(--line);border-radius:5px;
+                font-family:Heebo,sans-serif;flex:1;box-sizing:border-box">
+            <button type="button" onclick="_toggleRunPaperOpen(${i})"
+              style="font-size:.7rem;padding:3px 9px;border:none;border-radius:5px;background:#1a1a4e;color:white;cursor:pointer;font-weight:700">✓</button>
+          </div>
+          ${_abInner ? `<div style="margin-top:6px;padding:6px 8px;background:#faf8ff;border-radius:6px;border:1px dashed #e2e8f0">${_abInner}</div>` : ''}
         </div>
         <div class="run-copies-badge">${r.copies.toLocaleString()} יח'</div>
         <div style="display:flex;flex-direction:column;align-items:flex-start;gap:5px">
@@ -4851,39 +4881,19 @@ function _updateRunsCopies(val) {
   if (/70[\s×x*]?100|16[.,]5[\s×x*]?24/.test(size)) fs=32;
   else if (/64[\s×x*]?90|a4|240[\s×x*]?330|330[\s×x*]?240/.test(size)) fs=16;
   if (!fs) return;
-  // שמור בחירות מכונה קיימות
-  const prevMach = {}, prevPaper = {};
-  currentRuns.forEach(r => { prevMach[r.num] = r.machine; });
-  document.querySelectorAll('[id^="run-paper-"]').forEach(inp => {
-    const num = inp.id.replace('run-paper-','');
-    prevPaper[num] = inp.value;
-  });
+  _runsFs = fs;
+  // שמור בחירות מכונה ונייר קיימות (ישירות מהמודל, לא מה-DOM)
+  const prevMach = {}, prevPaper = {}, prevPaperOpen = {};
+  currentRuns.forEach(r => { prevMach[r.num] = r.machine; prevPaper[r.num] = r.paper; prevPaperOpen[r.num] = r._paperOpen; });
   currentRuns = buildRuns(pages, newCopies, fs);
-  currentRuns.forEach(r => { if (prevMach[r.num]) r.machine = prevMach[r.num]; });
-  // עדכן תגי כמות
   currentRuns.forEach(r => {
-    const badge = document.querySelector('.run-copies-badge:nth-of-type(' + r.num + ')');
-    // עדכן ישירות את ה-run-copies-badge
+    if (prevMach[r.num]) r.machine = prevMach[r.num];
+    if (prevPaper[r.num]) r.paper = prevPaper[r.num];
+    if (prevPaperOpen[r.num]) r._paperOpen = true;
   });
-  // פשוט פתח מחדש
-  const paperInputsVisible = (()=>{
-    const inp = document.querySelector('[id^="run-paper-"]');
-    return inp && inp.style.display !== 'none';
-  })();
   openRunsModal(n, pages);
-  // שחזר כמות בשדה
   const ci = document.getElementById('runs-copies-input');
   if (ci) ci.value = newCopies;
-  // שחזר נייר
-  if (paperInputsVisible) {
-    document.querySelectorAll('[id^="run-paper-"]').forEach(inp => {
-      const num = inp.id.replace('run-paper-','');
-      if (prevPaper[num]) inp.value = prevPaper[num];
-      inp.style.display = 'block';
-    });
-    const btn = document.getElementById('toggle-run-paper');
-    if (btn) btn.style.background = '#dbeafe';
-  }
 }
 
 function _rmUpdateTumble(idx, machine, canTumble) {
@@ -6540,6 +6550,10 @@ function buildOrderDeductView(orderNum) {
       "<td style='padding:8px 6px'><input type='number' id='order-qty-" + i + "' data-item='" + m.itemIdx + "' data-inv='" + m.invIdx + "' data-name='" + escHtml(m.name) + "' min='0' max='" + parseInt(m.inv.qty||0) + "' value='0' placeholder='0' style='width:90px;padding:5px 8px;border:1.5px solid var(--line);border-radius:6px;font-family:Heebo,sans-serif;font-size:.9rem;font-weight:700;text-align:center'></td>" +
       "</tr>";
   }).join("");
+  var weightField = matches.length > 1
+    ? "<div class='mg-field full' style='margin-top:10px'><label>משקל נייר (גרם)</label>" +
+      "<input id='order-paper-weight' type='text' placeholder='לדוגמה: 130 גרם' style='padding:7px 10px;border:1.5px solid var(--line);border-radius:7px;font-family:Heebo,sans-serif;font-size:.9rem;width:100%'></div>"
+    : "";
   wrap.innerHTML =
     "<div style='margin-top:4px;font-size:.82rem;color:#888;margin-bottom:6px'>נמצאו " + matches.length + " ניירות — ערוך כמות להורדה לכל סוג:</div>" +
     "<table style='width:100%;border-collapse:collapse;font-size:.84rem'>" +
@@ -6548,7 +6562,8 @@ function buildOrderDeductView(orderNum) {
     "<th style='padding:7px 10px;text-align:center'>חשבונית</th>" +
     "<th style='padding:7px 10px;text-align:center'>זמין</th>" +
     "<th style='padding:7px 10px;text-align:center'>להורדה</th></tr></thead>" +
-    "<tbody>" + rows + "</tbody></table>";
+    "<tbody>" + rows + "</tbody></table>" +
+    weightField;
 }
 
 // אישור הורדה לפי הזמנה
@@ -6564,6 +6579,7 @@ function confirmOrderDeduct() {
     return;
   }
   var orderNumUsed = ((document.getElementById("order-num-input")||{}).value||"").trim();
+  var paperWeight = ((document.getElementById("order-paper-weight")||{}).value||"").trim();
   _pushInventoryUndo();
   var count = 0;
   var _now = new Date();
@@ -6583,6 +6599,7 @@ function confirmOrderDeduct() {
     inventoryDeductions.push({
       id: Date.now() + count, date: date, time: _timeStr, paperName: paperName, qty: qty,
       orderNum: inv.orderNum || orderNumUsed || "", invNum: inv.inv || "",
+      paperWeight: paperWeight || undefined,
       cardId: null, cardName: "", note: note
     });
     count++;
