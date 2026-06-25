@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782321318';
+window.APP_VERSION = '1782371549';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -11269,7 +11269,9 @@ function validateCard(card) {
   var pages  = parseInt(card.pages)  || 0;
 
   // ── שגיאות חמורות (חובה לתקן) ──────────────────────────────
-  if (!card.paper || !card.paper.trim())
+  // נייר יכול להיות מוגדר ברמת הכרטיס או ברמת ריצה בודדת (כמו ביומן השבועי) — שניהם תקפים
+  var _hasRunPaper = (card.runs||[]).some(function(r){ return r && r.paper && String(r.paper).trim(); });
+  if ((!card.paper || !card.paper.trim()) && !_hasRunPaper)
     warns.push({ code: 'no_paper',    msg: 'סוג נייר לא הוזן',      sev: 'error' });
   if (copies === 0)
     warns.push({ code: 'zero_copies', msg: 'כמות עותקים היא 0',      sev: 'error' });
@@ -13854,6 +13856,25 @@ function _dashAddJobToMachine(kind, id, machine) {
   renderDashboard();
 }
 
+// שיוך ריצה (או כרטיס שלם) למכונה מתוך רשימת "עבודות להיום" — מעדכן את הכרטיס
+// ומסנכרן את תור המכונה: מעביר רישום קיים, יוצר חדש, או מסיר אם נבחר "ללא מכונה".
+function _dashSetRunMachine(cardId, runIdx, machine) {
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  if (!c) return;
+  if (runIdx >= 0 && c.runs && c.runs[runIdx]) c.runs[runIdx].machine = machine;
+  else c.machine = machine;
+  c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+  var entry = (machineQueue||[]).find(function(e){ return String(e.cardId)===String(cardId) && e.runIdx===runIdx && !e.done; });
+  if (machine) {
+    if (entry) entry.machine = machine;
+    else _autoQueueAssignedRuns(c);
+  } else if (entry) {
+    machineQueue = machineQueue.filter(function(e){ return e !== entry; });
+  }
+  persist();
+  renderDashboard();
+}
+
 function renderDashTodayWeekly() {
   var el = document.getElementById('dash-today-weekly');
   if (!el) return;
@@ -13873,32 +13894,51 @@ function renderDashTodayWeekly() {
   }
 
   var kindIcon = { paper:'📰', flyer:'📄', weekly:'🔁' };
+  // בורר מכונה לריצה בודדת (או לכרטיס שלם כשאין ריצות)
+  function _runMachineSelect(cardId, runIdx, curMachine, label) {
+    return '<div style="display:flex;align-items:center;gap:5px;margin-top:4px">'
+      + '<span style="font-size:.66rem;color:#64748b;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(label) + '</span>'
+      + '<select onchange="_dashSetRunMachine(' + cardId + ',' + runIdx + ',this.value)" '
+      + 'style="font-size:.66rem;padding:2px 4px;border:1px solid #cbd5e1;border-radius:5px;font-family:Heebo,sans-serif;background:#fff;cursor:pointer">'
+      + '<option value="">— מכונה —</option>'
+      + '<option value="מכונה 4 צבעים"' + (curMachine==='מכונה 4 צבעים'?' selected':'') + '>4 צבעים</option>'
+      + '<option value="מכונה 8 צבעים"' + (curMachine==='מכונה 8 צבעים'?' selected':'') + '>8 צבעים</option>'
+      + '</select></div>';
+  }
   // קוביות קטנות לרוחב המסך — גריד אוטומטי
   var tiles = items.map(function(it){
-    var done = _cardDoneThisWeek(it.name);
+    var card = _activeCardByName(it.name);
+    var done = !!card || _cardDoneThisWeek(it.name);
     var detail = [it.paper, it.copies ? fmtQty(it.copies) + ' עות\'' : ''].filter(Boolean).join(' · ');
-    var machBtns = MACHINES.map(function(m){
-      var short = m.replace('מכונה ','').replace(' צבעים','');
-      return '<button onclick="_dashAddJobToMachine(\'' + it.kind + '\',' + JSON.stringify(it.id) + ',\'' + m + '\')" '
-        + 'title="הוסף לתור ' + escHtml(m) + '" '
-        + 'style="flex:1;font-size:.68rem;padding:4px 0;border:1.5px solid #c7d2fe;border-radius:6px;cursor:pointer;background:#eef2ff;color:#3730a3;font-weight:800;white-space:nowrap;font-family:Heebo,sans-serif">+' + escHtml(short) + '</button>';
-    }).join('');
     var nmeSafe = JSON.stringify(it.name||'');
-    var cardBtn = done
-      ? '<button onclick="toggleWeekCardMark(' + nmeSafe + ')" title="בטל סימון" style="display:block;width:100%;text-align:center;font-size:.68rem;font-weight:800;color:#15803d;background:#f0fdf4;border:1.5px solid #86efac;border-radius:6px;padding:4px 0;margin-top:5px;cursor:pointer;font-family:Heebo,sans-serif">✅ יש כרטיס</button>'
-      : '<div style="display:flex;gap:4px;margin-top:5px">'
+
+    var body;
+    if (card) {
+      // יש כרטיס — הצג את הריצות עם בורר מכונה לכל אחת
+      var runs = (card.runs && card.runs.length) ? card.runs : null;
+      var runsHtml = runs
+        ? runs.map(function(r,ri){ return _runMachineSelect(card.id, ri, r.machine||'', 'ריצה ' + (r.num||(ri+1)) + ' · ' + (r.pages||'?') + ' עמ\''); }).join('')
+        : _runMachineSelect(card.id, -1, card.machine||'', 'מכונה');
+      body = '<div style="font-size:.66rem;font-weight:800;color:#15803d;margin-top:5px">✅ יש כרטיס</div>' + runsHtml;
+    } else {
+      // אין כרטיס — כפתור יצירה + סימון ידני
+      body = '<div style="display:flex;gap:4px;margin-top:6px">'
         + '<button onclick="_dashCreateCardFor(\'' + it.kind + '\',' + JSON.stringify(it.id) + ')" '
-        + 'style="flex:1;font-size:.68rem;padding:4px 0;border:1.5px solid #fed7aa;border-radius:6px;cursor:pointer;background:#fff7ed;color:#c2410c;font-weight:800;white-space:nowrap;font-family:Heebo,sans-serif">➕ כרטיס</button>'
+        + 'style="flex:1;font-size:.68rem;padding:5px 0;border:1.5px solid #fed7aa;border-radius:6px;cursor:pointer;background:#fff7ed;color:#c2410c;font-weight:800;white-space:nowrap;font-family:Heebo,sans-serif">➕ כרטיס</button>'
         + '<button onclick="toggleWeekCardMark(' + nmeSafe + ')" title="סמן ידנית שנוצר כרטיס" '
-        + 'style="font-size:.68rem;padding:4px 8px;border:1.5px solid #86efac;border-radius:6px;cursor:pointer;background:#fff;color:#15803d;font-weight:800;font-family:Heebo,sans-serif">✓</button>'
+        + 'style="font-size:.68rem;padding:5px 8px;border:1.5px solid #86efac;border-radius:6px;cursor:pointer;background:#fff;color:#15803d;font-weight:800;font-family:Heebo,sans-serif">✓</button>'
         + '</div>';
+      if (_cardDoneThisWeek(it.name)) {
+        // סומן ידנית אך אין כרטיס בפועל — הצג כירוק עם ביטול
+        body = '<button onclick="toggleWeekCardMark(' + nmeSafe + ')" title="בטל סימון" style="display:block;width:100%;text-align:center;font-size:.68rem;font-weight:800;color:#15803d;background:#f0fdf4;border:1.5px solid #86efac;border-radius:6px;padding:5px 0;margin-top:6px;cursor:pointer;font-family:Heebo,sans-serif">✅ סומן — בטל</button>';
+      }
+    }
 
     return '<div style="border:1.5px solid ' + (done ? '#bbf7d0' : '#e2e8f0') + ';border-radius:10px;padding:8px 9px;background:' + (done ? '#fafffb' : 'var(--d-card-bg,#fff)') + ';display:flex;flex-direction:column;min-width:0">'
-      + '<div style="font-size:.8rem;font-weight:800;color:var(--d-text,#1e293b);white-space:normal;overflow-wrap:anywhere;line-height:1.2;min-height:2.1em">'
+      + '<div style="font-size:.8rem;font-weight:800;color:var(--d-text,#1e293b);white-space:normal;overflow-wrap:anywhere;line-height:1.2">'
       + (kindIcon[it.kind]||'') + ' ' + escHtml(it.name || 'ללא שם') + (done ? ' <span style="color:#16a34a">✓</span>' : '') + '</div>'
       + (detail ? '<div style="font-size:.66rem;color:#94a3b8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(detail) + '</div>' : '')
-      + '<div style="display:flex;gap:4px;margin-top:6px">' + machBtns + '</div>'
-      + cardBtn
+      + body
       + '</div>';
   }).join('');
 
