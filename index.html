@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782391212';
+window.APP_VERSION = '1782448849';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -5560,13 +5560,14 @@ function getColor() {
 // נשמר בנתיב נפרד proofs/<cardId> ב-Firebase (לא בתוך מערך הכרטיסים המסונכרן),
 // ונטען לפי דרישה בלבד. על הכרטיס נשמר רק דגל קטן (hasProof + שם).
 // ══════════════════════════════════════════════════════════
-var _MAX_PROOF_BYTES = 9 * 1024 * 1024; // ~9MB
+var _MAX_PROOF_BYTES = 100 * 1024 * 1024; // 100MB — פרופרים נמחקים אוטומטית אחרי 24 שעות
 window._formProof = null; // פרופר ממתין לכרטיס חדש (לפני שיש id)
 
 function _readProofFile(file, cb) {
   var okType = file.type === 'application/pdf' || /^image\//.test(file.type);
   if (!okType) { showToast('⚠️ יש לצרף קובץ PDF או תמונה'); return; }
-  if (file.size > _MAX_PROOF_BYTES) { showToast('⚠️ הקובץ גדול מדי (מקסימום 9MB)'); return; }
+  if (file.size > _MAX_PROOF_BYTES) { showToast('⚠️ הקובץ גדול מדי (מקסימום 100MB)'); return; }
+  if (file.size > 12 * 1024 * 1024) showToast('⏳ מעלה קובץ גדול (' + Math.round(file.size/1024/1024) + 'MB) — ייתכן שיקח כמה שניות...');
   var reader = new FileReader();
   reader.onload = function(e) {
     cb({ name: file.name, type: file.type, data: e.target.result,
@@ -5582,15 +5583,49 @@ function _saveProofFor(cardId, runKey, proof) {
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
   if (c) {
     c.hasProof = true;
+    c.proofUploadedAt = Date.now(); // לניקוי אוטומטי אחרי 24 שעות
     if (runKey) {
       if (!c.runProofs) c.runProofs = {};
-      c.runProofs[runKey] = { name: proof.name, type: proof.type };
+      c.runProofs[runKey] = { name: proof.name, type: proof.type, uploadedAt: Date.now() };
     } else {
       c.proofName = proof.name; c.proofType = proof.type;
     }
     persist();
     if (typeof renderCards === 'function') renderCards();
   }
+}
+
+// ניקוי פרופרים ישנים (מעל 24 שעות) — מוחק מ-Firebase ומנקה את דגלי הכרטיס.
+// משתמש בחותמת הזמן שעל הכרטיס (לא מוריד את נתוני הפרופר הכבדים כדי לבדוק).
+function _cleanupOldProofs() {
+  var DAY = 24 * 60 * 60 * 1000;
+  var now = Date.now();
+  var changed = false;
+  (cards || []).forEach(function(c) {
+    if (!c || !c.hasProof) return;
+    // פרופרים פר-ריצה
+    if (c.runProofs && Object.keys(c.runProofs).length) {
+      Object.keys(c.runProofs).forEach(function(rk) {
+        var up = c.runProofs[rk] && c.runProofs[rk].uploadedAt;
+        if (up && (now - up) > DAY) {
+          if (window._fbPut) window._fbPut('proofs/' + c.id + '/' + rk, null);
+          delete c.runProofs[rk];
+          changed = true;
+        }
+      });
+      if (!Object.keys(c.runProofs).length) { delete c.runProofs; c.hasProof = false; delete c.proofUploadedAt; }
+    } else if (c.proofUploadedAt && (now - c.proofUploadedAt) > DAY) {
+      // פרופר יחיד
+      if (window._fbPut) window._fbPut('proofs/' + c.id, null);
+      c.hasProof = false; delete c.proofName; delete c.proofType; delete c.proofUploadedAt;
+      changed = true;
+    } else if (!c.proofUploadedAt && !c.runProofs) {
+      // פרופר ישן מלפני שהיתה חותמת זמן — תן לו חותמת עכשיו כדי שיימחק בעוד 24ש'
+      c.proofUploadedAt = now;
+      changed = true;
+    }
+  });
+  if (changed) { persist(); if (typeof renderCards === 'function') renderCards(); }
 }
 
 function _onProofPicked(input) {
@@ -7766,6 +7801,32 @@ function _applyAutoDeptFlags(card) {
   if (pages > 4) card.needsBinding = true;
   // שיוך חד-פעמי לסידור המחלקות (רק ביצירה — _syncDeptOrder כבר לא מוסיף אוטומטית)
   if (typeof _enrollCardInDepts === 'function') _enrollCardInDepts(card);
+  // תזכורת פפירוס — אם שם העבודה מופיע בהזמנה פעילה של פפירוס
+  if (typeof _applyPapyrusReminder === 'function') _applyPapyrusReminder(card);
+}
+
+// בודק אם שם העבודה תואם הזמנה פעילה של פפירוס; אם כן — מסמן תזכורת מדבקות/קרטונים על הכרטיס
+function _isPapyrusJob(name) {
+  var n = String(name||'').trim();
+  if (!n) return false;
+  return (orders||[]).some(function(o){
+    if (!o || o.status === 'done') return false;
+    if (String(o.customer||'').indexOf('פפירוס') === -1 && !o.papyrus) return false;
+    var d = (o.desc||'').trim();
+    return d && (d.indexOf(n) !== -1 || n.indexOf(d) !== -1);
+  });
+}
+function _applyPapyrusReminder(card) {
+  if (!card) return;
+  // הכרטיס עצמו של פפירוס, או שם העבודה מופיע בהזמנת פפירוס
+  var directly = String(card.customer||'').indexOf('פפירוס') !== -1;
+  if (directly || _isPapyrusJob(card.name)) {
+    card.papyrusReminder = true;
+    var note = '📌 פפירוס: חובה לצרף מדבקות · לבדוק אם צריך לארוז בקרטונים';
+    if ((card.internalNotes||'').indexOf('פפירוס') === -1) {
+      card.internalNotes = (card.internalNotes ? card.internalNotes + '\n' : '') + note;
+    }
+  }
 }
 
 function _deptEntryKey(entry) {
@@ -10573,6 +10634,7 @@ function _jobCardHtml(c) {
             var tip = cnt > 1 ? cnt+' פרופרים מצורפים' : escHtml(c.proofName||'פרופר מצורף');
             return '<span title="'+tip+'" style="background:#7c3aed;color:white;padding:2px 9px;border-radius:20px;font-size:.74rem;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_viewProof('+c.id+')">'+lbl+'</span>';
           })()}
+          ${c.papyrusReminder?'<span title="פפירוס — לצרף מדבקות · לבדוק אריזה בקרטונים" style="font-size:.72rem;background:#fef9c3;color:#854d0e;border:1px solid #fde047;border-radius:5px;padding:2px 7px;font-weight:700">📌 פפירוס: מדבקות/קרטונים</span>':''}
           ${c.printedAt?'<span style="font-size:.72rem;background:#dcfce7;color:#15803d;border-radius:5px;padding:2px 7px;font-weight:700">🖨️ '+(c.printCount>1?c.printCount+'x ':'')+new Date(c.printedAt).toLocaleDateString("he-IL")+'</span>':''}
         </div>
       </div>
@@ -14932,6 +14994,8 @@ setTimeout(_autoCompleteWeeklyJobs, 1500);
 setInterval(_autoCompleteWeeklyJobs, 5 * 60 * 1000);
 setTimeout(function(){ try { _purgeCustomerCards(); } catch(e){} }, 3000);
 setInterval(function(){ try { _purgeCustomerCards(); } catch(e){} }, 30 * 60 * 1000);
+setTimeout(function(){ try { _cleanupOldProofs(); } catch(e){} }, 5000);
+setInterval(function(){ try { _cleanupOldProofs(); } catch(e){} }, 60 * 60 * 1000);
 // אתחול לוגין — אם זה מסך מפעיל, מדלגים על לוגין
 (function(){
   if (_initMachineViewMode()) return;
@@ -15179,7 +15243,19 @@ var _iditEditIdx = null;
 
 function saveIditSites() {
   localStorage.setItem('iditSites', JSON.stringify(IDIT_SITES));
+  // סנכרון ל-Firebase כדי שסוכן הטלגרם יוכל לזהות אתר עידית לפי מספר בהזמנה נכנסת
+  if (window._fbPut) window._fbPut('iditSites', IDIT_SITES);
 }
+
+// העלאת רשימת אתרי עידית ל-Firebase פעם אחת (אם עדיין אין שם) — כדי שהבוט יקרא ממנה
+(function _pushIditSitesOnce(){
+  try {
+    if (!window._fbGet || !window._fbPut) { setTimeout(_pushIditSitesOnce, 4000); return; }
+    window._fbGet('iditSites').then(function(remote){
+      if (!remote || (Array.isArray(remote) && !remote.length)) window._fbPut('iditSites', IDIT_SITES);
+    }).catch(function(){});
+  } catch(e){}
+})();
 
 function openIditManager() {
   _iditEditIdx = null;
