@@ -102,6 +102,7 @@ function render(rows) {
 
   const rowHtml = p => {
     const clientLink = `${base}proof-client.html?id=${p.id}`;
+    const viewerLink = `${base}proof-viewer.html?id=${p.id}`;  // צפייה בלבד — לשליחה לעובדים
     const parts = p.parts ? Object.entries(p.parts).map(([pid, pt]) => ({ pid, ...pt }))
                                  .sort((a,b)=>(a.approvedAt||0)-(b.approvedAt||0)) : [];
 
@@ -112,8 +113,9 @@ function render(rows) {
         <td><span class="badge b-approved">${parts.length} ריצות התקבלו</span></td>
         <td>נוצר: ${fmt(p.createdAt)}</td>
         <td><div class="acts">
-          <a href="${clientLink}" target="_blank">🔗 פתח</a>
+          <a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>
           <button data-link="${clientLink}">📤 קישור ללקוח</button>
+          <button data-link="${viewerLink}">📤 שלח לעובדים</button>
           <button class="del" data-deljob="${p.id}" title="מחק עבודה וכל הריצות">🗑</button>
         </div></td></tr>`;
       const partRows = parts.map(pt => `<tr>
@@ -121,7 +123,8 @@ function render(rows) {
         <td><span class="badge b-approved">מאושר</span></td>
         <td>אושר: ${fmt(pt.approvedAt)}</td>
         <td><div class="acts">
-          <a href="${pt.fileUrl}" target="_blank">👁 פתח</a>
+          <a href="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}" target="_blank">👁 צפה</a>
+          <button data-link="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}">📤 לעובדים</button>
           ${genCell(pt.fileUrl, (p.title ? p.title + ' — ' : '') + pt.name)}
           <button class="del" data-delpart="${p.id}|${pt.pid}|${encodeURIComponent(pt.filePath||'')}" title="מחק ריצה">🗑</button>
         </div></td></tr>`).join('');
@@ -132,7 +135,8 @@ function render(rows) {
     const [txt, cls] = STATUS[p.status] || ['—', ''];
     const gen = p.status === 'approved' ? genCell(p.fileUrl, p.title || p.fileName)
       : `<button disabled title="זמין רק לאחר אישור">⬇ ייצר ריצות</button>`;
-    const view = p.fileUrl ? `<a href="${base}proof-viewer.html?id=${p.id}" target="_blank">👁 צפה</a>` : '';
+    const view = p.fileUrl ? `<a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>` : '';
+    const toWorkers = p.fileUrl ? `<button data-link="${viewerLink}">📤 שלח לעובדים</button>` : '';
     const note = (p.status === 'rejected' && p.customerNote) ? `<div class="note">📝 ${escapeHtml(p.customerNote)}</div>` : '';
     const approvedLine = p.approvedAt ? `<div class="note" style="color:#16a34a">✓ אושר: ${fmt(p.approvedAt)}</div>` : '';
     return `<tr>
@@ -142,7 +146,7 @@ function render(rows) {
       <td><div class="acts">
         <a href="${clientLink}" target="_blank">🔗 פתח</a>
         <button data-link="${clientLink}">📤 קישור ללקוח</button>
-        ${view}${gen}
+        ${view}${toWorkers}${gen}
         <button class="del" data-deljob="${p.id}" title="מחק עבודה">🗑</button>
       </div></td></tr>`;
   };
