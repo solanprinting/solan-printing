@@ -147,10 +147,14 @@ $('file').onchange = e => addFiles(e.target.files);
 ['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
 $('drop').addEventListener('drop', e => addFiles(e.dataTransfer.files));
 
+const THUMB_SCALE = 0.25;   // רזולוציית ממוזערת — נמוך = מהיר
+
 async function addFiles(fileList) {
   const files = [...fileList].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
   if (!files.length) return;
-  showOverlay('מעבד עמודים…');
+  showOverlay('טוען עמודים…');
+
+  const queue = [];  // עמודים שצריך לרנדר ברקע
   for (const file of files) {
     try {
       const bytes = await file.arrayBuffer();
@@ -158,23 +162,28 @@ async function addFiles(fileList) {
       const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
       sources.set(fileId, { bytes });
       for (let i = 1; i <= pdf.numPages; i++) {
-        pages.push({ uid: nextUid++, fileId, pageIndex: i - 1, canvas: await renderThumb(pdf, i) });
+        const page = await pdf.getPage(i);
+        const vp = page.getViewport({ scale: THUMB_SCALE });
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.floor(vp.width));
+        c.height = Math.max(1, Math.floor(vp.height));
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#e5e7eb'; ctx.fillRect(0, 0, c.width, c.height); // מסגרת זמנית
+        pages.push({ uid: nextUid++, fileId, pageIndex: i - 1, canvas: c });
+        queue.push({ page, vp, ctx });
       }
     } catch (e) { console.error('קובץ נכשל:', file.name, e); }
   }
-  $('file').value = '';
-  renderGrid();
-  showOverlay('', false);
-}
 
-async function renderThumb(pdf, pageNo) {
-  const page = await pdf.getPage(pageNo);
-  const vp = page.getViewport({ scale: 0.4 });
-  const c = document.createElement('canvas');
-  c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
-  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-  page.cleanup();
-  return c;
+  $('file').value = '';
+  renderGrid();              // הצג מיד את כל העמודים (מסגרות)
+  showOverlay('', false);
+
+  // מלא את התמונות ברקע — הלקוח יכול כבר לסדר/למחוק תוך כדי
+  for (const t of queue) {
+    try { await t.page.render({ canvasContext: t.ctx, viewport: t.vp }).promise; t.page.cleanup(); }
+    catch (e) { /* התעלם מעמוד בודד שנכשל */ }
+  }
 }
 
 function renderGrid() {
