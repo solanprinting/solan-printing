@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782652140';
+window.APP_VERSION = '1782663473';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1129,7 +1129,6 @@ window._fbSnapshot = {};
   <div class="tab"        onclick="switchTab('week')"  id="tab-week">📅 יומן שבועי</div>
   <div class="tab"        onclick="switchTab('new')"   id="tab-new">➕ כרטיס חדש</div>
   <div class="tab"        onclick="switchTab('saved')" id="tab-saved">📋 כרטיסים <span id="count-badge"></span></div>
-  <div class="tab"        onclick="switchTab('papers')" id="tab-papers">📰 עיתונים</div>
   <div class="tab"        onclick="switchTab('inventory')" id="tab-inventory">📦 מלאי</div>
   <div class="tab"        onclick="switchTab('quotes')"    id="tab-quotes">💰 הצעות מחיר</div>
   <div class="tab"        onclick="switchTab('orders')"   id="tab-orders">🛒 הזמנות</div>
@@ -13700,14 +13699,16 @@ async function _fbPollAll() {
     // סידור מחלקות (קיפול/כריכייה)
     var dov = await window._fbGet('deptOrder');
     if (dov !== null && typeof dov === 'object' && !(_pend.deptOrder > 0)) {
-      // מיזוג: שמר עבודות ידניות מקומיות שאינן בנתון מהשרת — כדי שסנכרון לא ימחק עבודה שהוקלדה ידנית
+      // מיזוג: שמר רק עבודות ידניות שזה עתה הוקלדו (פחות מ-2 דקות) ועדיין לא הספיקו להסתנכרן.
+      // עבודות ידניות ישנות שאינן בנתון מהשרת = נמחקו במכשיר אחר → לא מחזירים אותן (מונע "עבודות פנטום" שחוזרות).
       try {
+        var _FRESH_MS = 2 * 60 * 1000, _now = Date.now();
         DEPARTMENTS.forEach(function(d){
           var incoming = Array.isArray(dov[d]) ? dov[d] : [];
           var incIds = {};
           incoming.forEach(function(e){ if (e && e.type==='manual') incIds[String(e.id)] = true; });
           (_deptOrder[d]||[]).forEach(function(e){
-            if (e && e.type==='manual' && !incIds[String(e.id)]) incoming.push(e);
+            if (e && e.type==='manual' && !incIds[String(e.id)] && e.id && (_now - e.id) < _FRESH_MS) incoming.push(e);
           });
           dov[d] = incoming;
         });
