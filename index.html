@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782649215';
+window.APP_VERSION = '1782650356';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1196,7 +1196,7 @@ window._fbSnapshot = {};
     <button class="btn btn-sm btn-tpl" onclick="openRestoreWeekModal()"
       style="font-size:.82rem">↩️ שחזר עיתון מוסתר</button>
     <button class="btn btn-sm btn-clear" onclick="clearWeekDoneMarks()"
-      style="font-size:.82rem;border:1.5px solid #ccc">🔄 נקה סימוני שבוע</button>
+      style="font-size:.82rem;border:1.5px solid #ccc">🧹 נקה סימונים</button>
   </div>
   <div class="week-day-nav" id="week-day-nav"></div>
   <div class="week-grid" id="week-grid"></div>
@@ -4501,16 +4501,15 @@ function _itemClearedSince(name) {
 }
 
 function _cardDoneThisWeek(name) {
-  const { sun, sat } = _thisWeekRange();
+  // אין יותר איפוס שבועי אוטומטי — הסימון נשאר עד ניקוי ידני (כפתור "נקה סימונים").
   const clearedSince = _itemClearedSince(name);
-  // סימון ידני השבוע (גובר על "נוקה" אם סומן אחריו)
+  // סימון ידני (גובר על "נוקה" אם סומן אחריו) — ללא הגבלת שבוע
   var mk = weekCardMarked[name] || 0;
-  if (mk && mk >= sun.getTime() && mk > clearedSince) return true;
+  if (mk && mk > clearedSince) return true;
+  // נוצר כרטיס לעבודה אחרי הניקוי האחרון — מסומן ירוק עד הניקוי הבא
   return cards.some(c => {
     if (c.name !== name) return false;
-    const d = new Date(c.orderDate);
-    if (!(d >= sun && d <= sat)) return false;
-    return !clearedSince || (c.id && c.id > clearedSince);
+    return c.id && c.id > clearedSince;
   });
 }
 
@@ -4532,6 +4531,8 @@ function clearSingleWeekMark(name) {
 }
 
 function clearWeekDoneMarks() {
+  // הסימונים כבר לא מתאפסים אוטומטית בכל שבוע — לכן זה הניקוי היחיד; אישור כדי למנוע ניקוי בטעות
+  if (!confirm('לנקות את כל סימוני "נוצר כרטיס" (הירוקים) ביומן השבועי?')) return;
   weekClearedAt = Date.now();
   weekClearedItems = {};
   weekCardMarked = {};
@@ -4539,7 +4540,7 @@ function clearWeekDoneMarks() {
   localStorage.setItem('solanWeekClearedItems', JSON.stringify(weekClearedItems));
   localStorage.setItem('solanWeekCardMarked', JSON.stringify(weekCardMarked));
   renderWeek();
-  showToast('🔄 סימוני השבוע נוקו');
+  showToast('🧹 הסימונים נוקו');
 }
 
 function renderWeek() {
