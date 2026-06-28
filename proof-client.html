@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>העלאת קבצים לדפוס — סולן הדפסות</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+  :root { --press:#2d3561; --green:#16a34a; --red:#dc2626; --line:#e5e7eb; --ink:#1f2937; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui,"Segoe UI",Arial,sans-serif; background:#f3f4f6; color:var(--ink); padding:18px; }
+  .wrap { max-width: 960px; margin:0 auto; }
+  header { text-align:center; margin-bottom:14px; }
+  header h1 { font-size:1.2rem; margin:0; }
+  header .sub { color:#6b7280; font-size:.85rem; margin-top:3px; }
+  .hint { background:#eef2ff; border:1px solid #c7d2fe; color:#3730a3; padding:10px 14px;
+          border-radius:10px; font-size:.85rem; margin-bottom:14px; }
+  .drop { border:2.5px dashed #c7d2fe; border-radius:14px; padding:26px; text-align:center;
+          background:#fff; cursor:pointer; transition:background .15s; }
+  .drop.over { background:#eef2ff; }
+  .drop b { color:var(--press); }
+  #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:12px; margin-top:16px; }
+  .pg { background:#fff; border:1.5px solid var(--line); border-radius:10px; overflow:hidden;
+        position:relative; cursor:grab; box-shadow:0 2px 8px rgba(0,0,0,.05); }
+  .pg.dragging { opacity:.4; }
+  .pg.dragover { outline:3px solid var(--press); }
+  .pg canvas { display:block; width:100%; height:auto; background:#fff; }
+  .pg .num { position:absolute; top:6px; right:6px; background:var(--press); color:#fff;
+             font-size:.78rem; font-weight:800; border-radius:20px; padding:2px 9px; }
+  .pg .del { position:absolute; top:6px; left:6px; background:rgba(220,38,38,.92); color:#fff;
+             border:none; border-radius:7px; width:26px; height:26px; cursor:pointer; font-size:.9rem; }
+  .bottom { position:sticky; bottom:0; background:#f3f4f6; padding:14px 0; margin-top:18px;
+            display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .btn { padding:14px 28px; border:none; border-radius:10px; font-size:1.05rem; font-weight:800; cursor:pointer; }
+  .add { background:#fff; color:var(--press); border:1.5px solid var(--line); }
+  .approve { background:var(--green); color:#fff; min-width:240px; }
+  .btn:disabled { opacity:.45; cursor:default; }
+  #overlay { position:fixed; inset:0; background:rgba(255,255,255,.95); display:none;
+             align-items:center; justify-content:center; flex-direction:column; gap:12px;
+             text-align:center; padding:24px; z-index:50; white-space:pre-line; }
+  #status { text-align:center; padding:30px; font-size:1.15rem; font-weight:700; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div id="overlay">טוען…</div>
+
+<div class="wrap">
+  <header>
+    <h1>העלאת קבצים לדפוס</h1>
+    <div class="sub" id="sub">סולן הדפסות</div>
+  </header>
+
+  <div id="editor">
+    <div class="hint">
+      גררו לכאן את קבצי ה-PDF, או לחצו לבחירה. אפשר עמוד אחד בכל קובץ או קובץ אחד עם הכל.<br>
+      <b>סדרו את העמודים בסדר הנכון</b> ע"י גרירה. אתם אחראים על הסדר הסופי שיודפס.
+    </div>
+    <div class="drop" id="drop">
+      📄 <b>בחרו קבצי PDF</b> או גררו לכאן
+      <input type="file" id="file" accept="application/pdf" multiple hidden>
+    </div>
+    <div id="grid"></div>
+    <div class="bottom">
+      <button class="btn add" id="addMore">➕ הוסף קבצים</button>
+      <button class="btn approve" id="approve" disabled>✓ אשר ושלח לדפוס</button>
+    </div>
+  </div>
+
+  <div id="status" class="hidden"></div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const _FBURL   = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+const _BUCKETS = ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com'];
+
+const $ = id => document.getElementById(id);
+const overlay = $('overlay');
+const showOverlay = (t, on=true) => { overlay.textContent = t; overlay.style.display = on ? 'flex' : 'none'; };
+
+const proofId = new URLSearchParams(location.search).get('id');
+let record = null;
+
+// אחסון מקורות: כל קובץ שהועלה → bytes (ל-pdf-lib) + doc (ל-pdf.js)
+const sources = new Map();      // fileId → { bytes, pdfjsDoc }
+let pages = [];                  // [{ uid, fileId, pageIndex, canvas }]  בסדר התצוגה
+let nextUid = 1, nextFid = 1;
+
+(async function init() {
+  if (!proofId) return fail('לא נמצא מזהה בכתובת.');
+  try {
+    record = await (await fetch(`${_FBURL}/customerProofs/${proofId}.json`)).json();
+    if (!record) return fail('הקישור לא תקין או שהוסר.');
+    $('sub').textContent = [record.customer, record.title].filter(Boolean).join(' · ') || 'סולן הדפסות';
+    if (record.status === 'approved') return done('הקבצים כבר אושרו ונשלחו לדפוס. תודה!');
+    showOverlay('', false);
+  } catch (e) { console.error(e); fail('שגיאה בטעינה.'); }
+})();
+
+// ── העלאת קבצים ──
+$('drop').onclick = () => $('file').click();
+$('addMore').onclick = () => $('file').click();
+$('file').onchange = e => addFiles(e.target.files);
+['dragover','dragenter'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('over'); }));
+['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
+$('drop').addEventListener('drop', e => addFiles(e.dataTransfer.files));
+
+async function addFiles(fileList) {
+  const files = [...fileList].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+  if (!files.length) return;
+  showOverlay('מעבד עמודים…');
+  for (const file of files) {
+    try {
+      const bytes = await file.arrayBuffer();
+      const fileId = 'f' + (nextFid++);
+      const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+      sources.set(fileId, { bytes, pdfjsDoc: pdf });
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const canvas = await renderThumb(pdf, i);
+        pages.push({ uid: nextUid++, fileId, pageIndex: i - 1, canvas });
+      }
+    } catch (e) { console.error('קובץ נכשל:', file.name, e); }
+  }
+  $('file').value = '';
+  renderGrid();
+  showOverlay('', false);
+}
+
+async function renderThumb(pdf, pageNo) {
+  const page = await pdf.getPage(pageNo);
+  const vp = page.getViewport({ scale: 0.4 });
+  const c = document.createElement('canvas');
+  c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  page.cleanup();
+  return c;
+}
+
+// ── רשת עמודים + גרירה ──
+function renderGrid() {
+  const grid = $('grid');
+  grid.innerHTML = '';
+  pages.forEach((p, idx) => {
+    const div = document.createElement('div');
+    div.className = 'pg'; div.draggable = true; div.dataset.uid = p.uid;
+    div.innerHTML = `<span class="num">${idx + 1}</span><button class="del" title="מחק עמוד">✕</button>`;
+    div.insertBefore(p.canvas, div.firstChild);
+    div.querySelector('.del').onclick = e => { e.stopPropagation(); removePage(p.uid); };
+    bindDnD(div);
+    grid.appendChild(div);
+  });
+  $('approve').disabled = pages.length === 0;
+}
+
+function removePage(uid) {
+  pages = pages.filter(p => p.uid !== uid);
+  renderGrid();
+}
+
+let dragUid = null;
+function bindDnD(el) {
+  el.addEventListener('dragstart', () => { dragUid = +el.dataset.uid; el.classList.add('dragging'); });
+  el.addEventListener('dragend',   () => { dragUid = null; el.classList.remove('dragging'); document.querySelectorAll('.pg').forEach(x=>x.classList.remove('dragover')); });
+  el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('dragover'); });
+  el.addEventListener('dragleave', () => el.classList.remove('dragover'));
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    const targetUid = +el.dataset.uid;
+    if (dragUid == null || dragUid === targetUid) return;
+    const from = pages.findIndex(p => p.uid === dragUid);
+    const to   = pages.findIndex(p => p.uid === targetUid);
+    const [moved] = pages.splice(from, 1);
+    pages.splice(to, 0, moved);
+    renderGrid();
+  });
+}
+
+// ── אישור: הרכבת PDF מסודר באיכות מלאה + העלאה ──
+$('approve').onclick = async () => {
+  if (!pages.length) return;
+  if (!confirm(`לאשר ולשלוח ${pages.length} עמודים לדפוס בסדר הנוכחי?\nלאחר האישור לא ניתן לשנות.`)) return;
+  try {
+    showOverlay('מרכיב קובץ סופי…');
+    const out = await PDFLib.PDFDocument.create();
+    const libCache = new Map();
+    for (const p of pages) {
+      let lib = libCache.get(p.fileId);
+      if (!lib) { lib = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); libCache.set(p.fileId, lib); }
+      const [copied] = await out.copyPages(lib, [p.pageIndex]);
+      out.addPage(copied);
+    }
+    const pdfBytes = await out.save();
+
+    showOverlay('מעלה לדפוס…');
+    const folder = (record.customer || 'לקוח').replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60) || 'לקוח';
+    const path = `customerProofs/${folder}/${proofId}/approved.pdf`;
+    const fileUrl = await uploadBytes(path, pdfBytes);
+
+    showOverlay('שומר…');
+    await fetch(`${_FBURL}/customerProofs/${proofId}.json`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'approved', fileUrl, filePath: path,
+        fileName: 'approved.pdf', pageCount: pages.length, approvedAt: Date.now() }),
+    });
+    done('✓ הקבצים אושרו ונשלחו לדפוס. תודה!');
+  } catch (e) { console.error(e); showOverlay('שגיאה: ' + e.message + '\n\nנסו שוב או פנו לבית הדפוס.'); }
+};
+
+async function uploadBytes(path, bytes) {
+  let lastErr;
+  for (const bucket of _BUCKETS) {
+    try {
+      const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(path)}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: bytes });
+      if (r.ok) {
+        const token = (await r.json()).downloadTokens?.split(',')[0] || '';
+        return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
+      }
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('העלאה נכשלה');
+}
+
+function done(text) {
+  $('editor').classList.add('hidden');
+  showOverlay('', false);
+  const s = $('status'); s.classList.remove('hidden');
+  s.innerHTML = `<div style="color:var(--green);font-size:2.4rem">✓</div>${text}`;
+}
+function fail(msg) { showOverlay(msg); throw new Error(msg); }
+</script>
+</body>
+</html>
