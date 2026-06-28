@@ -2,255 +2,161 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>אישור פרופר — סולן הדפסות</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>צפייה בעיתון — סולן הדפסות</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
-  :root { --green:#16a34a; --red:#dc2626; --ink:#1f2937; --line:#e5e7eb; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; font-family: system-ui, "Segoe UI", Arial, sans-serif;
-    background: #f3f4f6; color: var(--ink); min-height: 100vh;
-    display: flex; flex-direction: column; align-items: center;
-  }
-  header { padding: 16px; text-align: center; }
-  header h1 { font-size: 1.1rem; margin: 0; font-weight: 700; }
-  header .sub { font-size: .8rem; color: #6b7280; margin-top: 2px; }
-
-  #stage {
-    display: flex; gap: 2px; justify-content: center;
-    background: #d1d5db; padding: 8px; border-radius: 8px;
-    box-shadow: 0 6px 24px rgba(0,0,0,.12); max-width: 96vw;
-  }
-  #stage canvas { display: block; height: 64vh; width: auto; background: #fff; max-width: 46vw; }
-
-  #nav { display: flex; align-items: center; gap: 18px; margin: 14px 0; }
-  #nav button {
-    font-size: 1.1rem; padding: 8px 18px; border: 1.5px solid var(--line);
-    background: #fff; border-radius: 8px; cursor: pointer;
-  }
-  #nav button:disabled { opacity: .35; cursor: default; }
-  #label { min-width: 130px; text-align: center; font-variant-numeric: tabular-nums; }
-
-  #decision { display: flex; gap: 16px; margin: 8px 16px 32px; flex-wrap: wrap; justify-content: center; }
-  #decision button {
-    font-size: 1.25rem; font-weight: 800; padding: 18px 36px; border: none;
-    border-radius: 12px; cursor: pointer; color: #fff; min-width: 220px;
-    box-shadow: 0 4px 14px rgba(0,0,0,.18);
-  }
-  #btnApprove { background: var(--green); }
-  #btnReject  { background: var(--red); }
-  #decision button:active { transform: translateY(1px); }
-
-  #status { font-size: 1.1rem; font-weight: 700; text-align: center; padding: 24px; }
-  .hidden { display: none !important; }
-  #overlay {
-    position: fixed; inset: 0; background: rgba(255,255,255,.94);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.05rem; color: #374151; z-index: 50; text-align: center; padding: 24px;
-    white-space: pre-line;
-  }
-  #rejectBox { max-width: 420px; width: 100%; }
-  #rejectBox textarea {
-    width: 100%; min-height: 90px; padding: 10px; border: 1.5px solid var(--line);
-    border-radius: 8px; font-family: inherit; font-size: .95rem; resize: vertical;
-  }
+  :root { --press:#2d3561; --line:#e5e7eb; --ink:#1f2937; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,"Segoe UI",Arial,sans-serif; background:#f3f4f6; color:var(--ink);
+         min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:10px; }
+  header { text-align:center; margin-bottom:8px; }
+  header h1 { font-size:1.1rem; margin:0; } header .sub { color:#6b7280; font-size:.83rem; margin-top:3px; }
+  #viewer { width:100%; max-width:1500px; background:#fff; border-radius:10px; }
+  #spread { display:flex; gap:3px; justify-content:center; background:#d1d5db; padding:10px; border-radius:8px;
+            min-height:55vh; align-items:center; }
+  #spread .page { position:relative; display:inline-block; line-height:0; }
+  #spread img { display:block; height:80vh; width:auto; max-width:48vw; background:#fff; box-shadow:0 3px 12px rgba(0,0,0,.2); }
+  #spread .pgnum { position:absolute; bottom:8px; right:8px; background:var(--press); color:#fff; font-size:.8rem;
+    font-weight:800; border-radius:14px; padding:2px 10px; line-height:1.3; box-shadow:0 1px 4px rgba(0,0,0,.4); }
+  #spread .ph { color:#6b7280; font-size:.95rem; padding:50px; }
+  #vnav { display:flex; align-items:center; justify-content:center; gap:14px; margin:10px 0; flex-wrap:wrap; }
+  #vnav button { font-size:1rem; padding:8px 16px; border:1.5px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; }
+  #vnav button:disabled { opacity:.35; cursor:default; }
+  #vlabel { min-width:130px; text-align:center; font-variant-numeric:tabular-nums; font-size:.9rem; }
+  #viewer:fullscreen { background:#111; display:flex; flex-direction:column; justify-content:center; padding:6px; }
+  #viewer:fullscreen #spread { background:#111; flex:1; min-height:0; padding:4px; }
+  #viewer:fullscreen #spread img { height:auto; width:auto; max-height:90vh; max-width:48vw; }
+  #viewer:fullscreen #spread .page:only-child img { max-width:94vw; max-height:92vh; }
+  #viewer:fullscreen #vlabel { color:#fff; }
+  #overlay { position:fixed; inset:0; background:rgba(255,255,255,.95); display:flex; align-items:center;
+             justify-content:center; flex-direction:column; gap:12px; z-index:50; text-align:center; padding:24px; white-space:pre-line; }
+  #ovBar { width:280px; max-width:80vw; height:12px; background:var(--line); border-radius:7px; overflow:hidden; display:none; }
+  #ovBar > div { height:100%; width:0; background:linear-gradient(90deg,#2d3561,#16a34a); transition:width .15s; }
+  .parts-pick { display:flex; flex-direction:column; gap:10px; max-width:480px; width:100%; }
+  .parts-pick a { display:block; padding:14px 18px; background:#fff; border:1.5px solid var(--line); border-radius:10px;
+    text-decoration:none; color:var(--press); font-weight:800; font-size:1rem; text-align:center; }
+  @media (max-width:680px){ #spread img{height:auto;max-height:60vh;width:auto;max-width:96vw} }
 </style>
 </head>
 <body>
-
-<div id="overlay">טוען פרופר…</div>
-
+<div id="overlay"><div id="ovText">טוען עיתון…</div><div id="ovBar"><div></div></div></div>
 <header>
-  <h1>אישור פרופר לדפוס</h1>
-  <div class="sub" id="subtitle">סולן הדפסות</div>
+  <h1 id="ttl">צפייה בעיתון</h1>
+  <div class="sub" id="sub">סולן הדפסות</div>
 </header>
 
-<div id="stage"></div>
-
-<div id="nav" class="hidden">
-  <button id="prev">‹ הקודם</button>
-  <span id="label"></span>
-  <button id="next">הבא ›</button>
+<div id="viewer" class="hidden">
+  <div id="spread"><div class="ph">טוען…</div></div>
+  <div id="vnav">
+    <button id="vprev">‹ הקודם</button>
+    <span id="vlabel"></span>
+    <button id="vnext">הבא ›</button>
+    <button id="vfs">⛶ מסך מלא</button>
+  </div>
 </div>
 
-<div id="decision" class="hidden">
-  <button id="btnApprove">✓ מאשר לדפוס</button>
-  <button id="btnReject">✗ דוחה — נדרש תיקון</button>
-</div>
+<div id="picker" class="hidden" style="padding:10px"></div>
 
-<div id="status" class="hidden"></div>
-
-<script type="module">
-import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
-
-// ── Firebase REST — אותו פרויקט כמו האפליקציה, בלי SDK ──
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
-
-const fbGet = async path => {
-  const r = await fetch(`${_FBURL}/${path}.json`);
-  return r.ok ? r.json() : null;
-};
-// PATCH = עדכון שדות בודדים בלי לדרוס את כל הרשומה
-const fbPatch = async (path, fields) => {
-  const r = await fetch(`${_FBURL}/${path}.json`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(fields),
-  });
-  return r.ok;
-};
-// מוריד את ה-PDF מה-URL שנשמר ברשומה (Cloudinary CDN).
-const fetchPdf = async url => {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error('הקובץ לא נמצא');
-  return r.arrayBuffer();
-};
+const RENDER_H = 1100;
 
 const $ = id => document.getElementById(id);
 const overlay = $('overlay');
+function showOverlay(t, on=true, pct=null){
+  $('ovText').textContent = t; overlay.style.display = on ? 'flex' : 'none';
+  if (pct == null) $('ovBar').style.display = 'none';
+  else { $('ovBar').style.display = 'block'; $('ovBar').firstElementChild.style.width = Math.round(pct) + '%'; }
+}
+const show = (id, on=true) => $(id).classList.toggle('hidden', !on);
 
-// ── 1. קריאת ה-ID מה-URL ──
-const proofId = new URLSearchParams(location.search).get('id');
-if (!proofId) fail('לא נמצא מזהה פרופר בכתובת.');
+const params = new URLSearchParams(location.search);
+const proofId = params.get('id');
+const partId  = params.get('part');
+let imgs = [], vIndex = 0;
 
-let proofData;
+(async function init(){
+  if (!proofId) return fail('לא נמצא מזהה בכתובת.');
+  let rec;
+  try { rec = await (await fetch(`${_FBURL}/customerProofs/${proofId}.json`)).json(); }
+  catch(e){ return fail('שגיאה בטעינה.'); }
+  if (!rec) return fail('העיתון לא נמצא או הוסר.');
+  $('sub').textContent = [rec.customer, rec.title].filter(Boolean).join(' · ') || 'סולן הדפסות';
 
-(async function load() {
+  // איזה קובץ להציג: ריצה מסוימת (part), עיתון מלא, או בוחר ריצות
+  let url = null, label = '';
+  if (partId && rec.parts && rec.parts[partId]) { url = rec.parts[partId].fileUrl; label = rec.parts[partId].name || ''; }
+  else if (rec.fileUrl) { url = rec.fileUrl; }
+  else if (rec.parts && Object.keys(rec.parts).length) {
+    // עבודה לפי ריצות — הצג בורר ריצות לצפייה
+    showOverlay('', false);
+    const parts = Object.entries(rec.parts).sort((a,b)=>(a[1].approvedAt||0)-(b[1].approvedAt||0));
+    $('picker').innerHTML = '<div class="parts-pick"><div style="text-align:center;font-weight:800;margin-bottom:4px">בחר/י ריצה לצפייה:</div>'
+      + parts.map(([pid,p])=>`<a href="?id=${proofId}&part=${pid}">📄 ${esc(p.name||pid)} — ${p.pageCount||''} עמ'</a>`).join('')
+      + '</div>';
+    show('picker', true);
+    return;
+  } else { return fail('עדיין לא הועלה/אושר קובץ לעיתון זה.'); }
+
+  if (label) $('ttl').textContent = 'צפייה — ' + label;
+
   try {
-    proofData = await fbGet('customerProofs/' + proofId);
-    if (!proofData) return fail('הפרופר לא נמצא או הוסר.');
-
-    if (proofData.status && proofData.status !== 'pending_approval') {
-      return showFinal(proofData.status, true);
+    const buf = await (await fetch(url)).arrayBuffer();
+    showOverlay('מרנדר עמודים…', true, 0);
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    imgs = new Array(pdf.numPages);
+    for (let i = 1; i <= pdf.numPages; i++) {
+      imgs[i-1] = await renderPage(pdf, i);
+      showOverlay('מרנדר עמודים…', true, Math.round(i/pdf.numPages*100));
+      if (i % 3 === 0) renderViewer();
     }
-    if (proofData.title) $('subtitle').textContent = proofData.title;
-
-    // ── 2. שליפת ה-PDF (Cloudinary) ──
-    if (!proofData.fileUrl) return fail('לא נמצא קובץ לפרופר זה.');
-    const buf = await fetchPdf(proofData.fileUrl);
-
-    // ── 3. רינדור החוברת ──
-    overlay.textContent = 'מרנדר עמודים…';
-    const pages = await renderPdf(buf);
-    overlay.classList.add('hidden');
-
-    startFlipbook(pages);
-    $('nav').classList.remove('hidden');
-    $('decision').classList.remove('hidden');
-  } catch (e) {
-    console.error(e);
-    fail('שגיאה בטעינת הפרופר.\n\nפרטים (לבית הדפוס):\n' + (e && e.message ? e.message : e));
-  }
+    showOverlay('', false); show('viewer', true); renderViewer();
+  } catch(e){ console.error(e); fail('שגיאה בטעינת הקובץ.\n' + (e&&e.message||'')); }
 })();
 
-async function renderPdf(data, scale = 1.6) {
-  const pdf = await pdfjsLib.getDocument({ data }).promise;
-  const out = new Array(pdf.numPages);
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const vp = page.getViewport({ scale });
-    const c = document.createElement('canvas');
-    c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
-    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-    page.cleanup();
-    out[i - 1] = c;
-  }
-  return out;
+async function renderPage(pdf, pageNo){
+  const page = await pdf.getPage(pageNo);
+  const v1 = page.getViewport({ scale:1 });
+  const scale = Math.min(2.5, RENDER_H / v1.height);
+  const vp = page.getViewport({ scale });
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
+  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  page.cleanup();
+  return c.toDataURL('image/jpeg', 0.85);
 }
 
-// ── דפדפן חוברת (תצוגת צמד, RTL) ──
-function startFlipbook(pages) {
-  const stage = $('stage'), label = $('label');
-  const total = pages.length;
-  let index = 0;
-  const showing = () => {
-    if (index === 0) return [0];
-    const left = index % 2 === 1 ? index : index - 1;
-    return [left, left + 1].filter(i => i < total);
-  };
-  const clamp = i => Math.max(0, Math.min(i, total - 1));
-  function render() {
-    const s = showing();
-    stage.innerHTML = '';
-    // המיכל כבר dir=rtl — בפלקס הפריט הראשון יושב מימין. סדר עולה = עמוד נמוך מימין.
-    for (const i of s) stage.appendChild(pages[i]);
-    label.textContent = `עמוד ${s.map(i => i + 1).join('–')} מתוך ${total}`;
-    $('prev').disabled = index <= 0;
-    $('next').disabled = s[s.length - 1] >= total - 1;
-  }
-  function step(d) {
-    if (index === 0) index = d > 0 ? 1 : 0;
-    else index = clamp(index + d * 2);
-    if (index > 0 && index % 2 === 0) index -= 1;
-    render();
-  }
-  $('prev').onclick = () => step(-1);
-  $('next').onclick = () => step(+1);
-  document.addEventListener('keydown', e => {
-    if (e.key === 'ArrowLeft')  step(+1);
-    if (e.key === 'ArrowRight') step(-1);
-  });
-  render();
+// דפדוף כפולה RTL
+function showingPages(){
+  if (!imgs.length) return [];
+  if (vIndex === 0) return [0];
+  const left = vIndex % 2 === 1 ? vIndex : vIndex - 1;
+  return [left, left + 1].filter(i => i < imgs.length);
 }
-
-// ── 4. החלטת הלקוח ──
-$('btnApprove').onclick = () => decide('approved');
-$('btnReject').onclick  = () => askReject();
-
-async function decide(status, note) {
-  $('decision').classList.add('hidden');
-  overlay.textContent = 'שומר…';
-  overlay.classList.remove('hidden');
-  const ok = await fbPatch('customerProofs/' + proofId, {
-    status,
-    customerNote: note || '',
-    decidedAt: Date.now(),
-    decidedVia: 'customer-viewer',
-  });
-  if (ok) { overlay.classList.add('hidden'); showFinal(status, false); }
-  else    { overlay.textContent = 'שמירה נכשלה. בדוק חיבור ונסה שוב.'; }
+function renderViewer(){
+  const spread = $('spread');
+  if (!imgs.length) return;
+  const s = showingPages();
+  $('vlabel').textContent = `עמוד ${s.map(i=>i+1).join('–')} מתוך ${imgs.length}`;
+  $('vprev').disabled = vIndex <= 0;
+  $('vnext').disabled = s[s.length-1] >= imgs.length - 1;
+  spread.innerHTML = s.map(i => `<div class="page"><img src="${imgs[i]}" alt=""><div class="pgnum">${i+1}</div></div>`).join('');
 }
-
-function askReject() {
-  $('decision').classList.add('hidden');
-  const wrap = document.createElement('div');
-  wrap.id = 'rejectBox';
-  wrap.innerHTML = `
-    <p style="margin:0 0 8px;font-weight:700">מה צריך לתקן? (אופציונלי)</p>
-    <textarea id="rejNote" placeholder="פרט/י את התיקון הנדרש…"></textarea>
-    <div style="display:flex;gap:10px;margin-top:10px;justify-content:center">
-      <button id="rejSend" style="background:var(--red);color:#fff;border:none;
-        padding:12px 24px;border-radius:8px;font-weight:800;cursor:pointer">שלח דחייה</button>
-      <button id="rejCancel" style="background:#fff;border:1.5px solid var(--line);
-        padding:12px 24px;border-radius:8px;cursor:pointer">ביטול</button>
-    </div>`;
-  $('decision').after(wrap);
-  $('rejSend').onclick = () => decide('rejected', $('rejNote').value.trim());
-  $('rejCancel').onclick = () => { wrap.remove(); $('decision').classList.remove('hidden'); };
+function step(d){
+  if (vIndex === 0) vIndex = d > 0 ? 1 : 0;
+  else vIndex = Math.max(0, Math.min(vIndex + d*2, imgs.length - 1));
+  if (vIndex > 0 && vIndex % 2 === 0) vIndex -= 1;
+  renderViewer();
 }
+$('vprev').onclick = () => step(-1);
+$('vnext').onclick = () => step(+1);
+$('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) document.exitFullscreen(); else (v.requestFullscreen||v.webkitRequestFullscreen).call(v); };
+document.addEventListener('keydown', e => { if (e.key==='ArrowLeft') step(+1); if (e.key==='ArrowRight') step(-1); });
 
-// ── מסכי סיום ──
-function showFinal(status, already) {
-  $('stage').classList.add('hidden');
-  $('nav').classList.add('hidden');
-  $('decision').classList.add('hidden');
-  document.getElementById('rejectBox')?.remove();
-  const el = $('status'); el.classList.remove('hidden');
-  const pre = already ? 'הפרופר כבר ' : '';
-  if (status === 'approved') {
-    el.innerHTML = `<div style="color:var(--green);font-size:2rem">✓</div>${pre}אושר לדפוס. תודה!`;
-  } else {
-    el.innerHTML = `<div style="color:var(--red);font-size:2rem">✗</div>${pre}נדחה — הועבר לתיקון. ניצור קשר.`;
-  }
-}
-
-function fail(msg) {
-  overlay.textContent = msg;
-  overlay.classList.remove('hidden');
-  throw new Error(msg);
-}
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fail(msg){ showOverlay(msg, true); throw new Error(msg); }
 </script>
 </body>
 </html>
