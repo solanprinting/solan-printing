@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>העלאת קבצים לדפוס — ניהול | סולן הדפסות</title>
+<style>
+  :root { --press:#2d3561; --green:#16a34a; --line:#e5e7eb; --ink:#1f2937; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, "Segoe UI", Arial, sans-serif;
+    background: #f3f4f6; color: var(--ink); min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; padding: 24px;
+  }
+  .card {
+    background: #fff; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,.08);
+    padding: 28px; width: 100%; max-width: 520px;
+  }
+  h1 { font-size: 1.2rem; margin: 0 0 4px; }
+  .sub { color: #6b7280; font-size: .82rem; margin-bottom: 20px; }
+  label { display: block; font-weight: 600; font-size: .85rem; margin: 14px 0 5px; }
+  input[type=text], input[type=file] {
+    width: 100%; padding: 10px 12px; border: 1.5px solid var(--line);
+    border-radius: 8px; font-family: inherit; font-size: .95rem;
+  }
+  button {
+    margin-top: 20px; width: 100%; padding: 14px; border: none; border-radius: 10px;
+    background: var(--press); color: #fff; font-size: 1.05rem; font-weight: 800; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  #log { margin-top: 18px; font-size: .85rem; white-space: pre-wrap; color: #374151; }
+  #result { margin-top: 18px; display: none; }
+  #result a {
+    display: block; word-break: break-all; color: var(--press); font-weight: 700;
+    background: #f0f4ff; padding: 12px; border-radius: 8px; text-decoration: none;
+  }
+  .copy { margin-top: 8px; background: var(--green); }
+  .bar { height: 6px; background: var(--line); border-radius: 6px; overflow: hidden; margin-top: 12px; display: none; }
+  .bar > div { height: 100%; width: 0; background: var(--press); transition: width .15s; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>העלאת קבצים לדפוס</h1>
+  <div class="sub">העלאת PDF מקורי באיכות מלאה. הקובץ נשמר בתיקיית הלקוח ונשלח קישור לאישור.</div>
+
+  <label>קובץ PDF</label>
+  <input type="file" id="file" accept="application/pdf">
+
+  <label>שם הלקוח (עיתון) — חובה</label>
+  <input type="text" id="customer" placeholder="לדוגמה: עיתון כהן">
+
+  <label>שם העבודה (אופציונלי)</label>
+  <input type="text" id="title" placeholder="ברירת מחדל: שם הקובץ">
+
+  <div class="bar" id="bar"><div></div></div>
+  <button id="go">העלה וצור קישור</button>
+
+  <div id="log"></div>
+  <div id="result">
+    <a id="link" target="_blank"></a>
+    <button class="copy" id="copy">📋 העתק קישור</button>
+  </div>
+</div>
+
+<script>
+const _FBURL   = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+// שני שמות ה-bucket האפשריים — הקוד מנסה את שניהם.
+const _BUCKETS = ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com'];
+
+const $ = id => document.getElementById(id);
+const log = m => $('log').textContent = m;
+
+$('go').onclick = async () => {
+  const file = $('file').files[0];
+  if (!file) return log('⚠️ בחר קובץ PDF קודם.');
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))
+    return log('⚠️ הקובץ חייב להיות PDF.');
+  const customer = $('customer').value.trim();
+  if (!customer) return log('⚠️ הזן שם לקוח (עיתון) — חובה לצורך תיקיית הלקוח.');
+
+  $('go').disabled = true;
+  $('result').style.display = 'none';
+  $('bar').style.display = 'block';
+
+  try {
+    const id = crypto.randomUUID?.() || (Date.now().toString(36) + Math.random().toString(36).slice(2));
+    // שם תיקייה בטוח לאחסון (ללא תווים בעייתיים), עם שמירת השם המקורי ברשומה
+    const folder = customer.replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60) || 'לקוח';
+    const path = `customerProofs/${folder}/${id}/${file.name}`;
+
+    // 1. העלאת המקורי ל-Storage (איכות מלאה)
+    log('מעלה קובץ מקורי…');
+    const fileUrl = await uploadToStorage(path, file, p => $('bar').firstElementChild.style.width = p + '%');
+
+    // 2. פתיחת רשומה ב-RTDB (נתיב נפרד מהפיצ'ר הקיים proofs/)
+    log('שומר רשומה…');
+    const ok = await fetch(`${_FBURL}/customerProofs/${id}.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'pending_approval', fileUrl, filePath: path, fileName: file.name,
+        title: ($('title').value.trim() || file.name.replace(/\.pdf$/i, '')),
+        customer, createdAt: Date.now(),
+      }),
+    });
+    if (!ok.ok) throw new Error('כתיבה ל-RTDB נכשלה');
+
+    // 3. קישור ללקוח
+    const base = location.href.replace(/[^/]+(\?.*)?$/, '');
+    const link = `${base}proof-viewer.html?id=${id}`;
+    $('link').href = link; $('link').textContent = link;
+    $('result').style.display = 'block';
+    log('✓ הפרופר נוצר. שלח את הקישור ללקוח.');
+  } catch (e) {
+    console.error(e); log('✗ שגיאה: ' + e.message);
+  } finally {
+    $('go').disabled = false;
+    $('bar').style.display = 'none';
+    $('bar').firstElementChild.style.width = '0';
+  }
+};
+
+// העלאה ל-Firebase Storage דרך REST — מנסה כל bucket, מחזיר URL הורדה.
+async function uploadToStorage(path, file, onProgress) {
+  let lastErr;
+  for (const bucket of _BUCKETS) {
+    try {
+      const json = await xhrUpload(bucket, path, file, onProgress);
+      const token = json.downloadTokens?.split(',')[0] || '';
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
+    } catch (e) { lastErr = e; /* נסה bucket הבא */ }
+  }
+  throw lastErr || new Error('העלאה נכשלה');
+}
+
+function xhrUpload(bucket, path, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(path)}`);
+    xhr.setRequestHeader('Content-Type', 'application/pdf');
+    xhr.upload.onprogress = e => e.lengthComputable && onProgress?.(Math.round(e.loaded / e.total * 100));
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText));
+      else reject(new Error('Storage ' + xhr.status + ': ' + xhr.responseText.slice(0, 140)));
+    };
+    xhr.onerror = () => reject(new Error('שגיאת רשת ב-Storage'));
+    xhr.send(file);
+  });
+}
+
+$('copy').onclick = async () => {
+  const text = $('link').textContent;
+  let ok = false;
+  try {
+    // עובד רק ב-HTTPS / localhost
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch (e) {
+    // גיבוי לסביבות לא-מאובטחות (file:// או http)
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      ok = document.execCommand('copy');
+      ta.remove();
+    } catch (e2) { ok = false; }
+  }
+  $('copy').textContent = ok ? '✓ הועתק' : '⚠️ סמן והעתק ידנית';
+  setTimeout(() => $('copy').textContent = '📋 העתק קישור', 2000);
+};
+</script>
+</body>
+</html>
