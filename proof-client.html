@@ -493,15 +493,18 @@ $('approve').onclick = async () => {
     if (mode === 'full') {
       const path = `customerProofs/${folder}/${proofId}/full.pdf`;
       const fileUrl = await uploadBytes(path, pdfBytes, onUp);
-      await patch({ status:'approved', mode:'full', fileUrl, filePath:path, fileName:'full.pdf', pageCount:pages.length, fileSize:pdfBytes.byteLength, approvedAt:Date.now() });
+      // תצוגה מהירה: שמירת העמודים המרונדרים (שכבר קיימים) לפתיחה מיידית בקדם-דפוס/דפסים — תקף 12ש'
+      const cache = await uploadPagesCache(`customerProofs/${folder}/${proofId}/pages.json`);
+      await patch({ status:'approved', mode:'full', fileUrl, filePath:path, fileName:'full.pdf', pageCount:pages.length, fileSize:pdfBytes.byteLength, approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at });
       return done('✓ העיתון אושר ונשלח לדפוס. תודה!');
     } else {
       const partId = 'p' + Date.now();
       const path = `customerProofs/${folder}/${proofId}/${partId}.pdf`;
       const fileUrl = await uploadBytes(path, pdfBytes, onUp);
+      const cache = await uploadPagesCache(`customerProofs/${folder}/${proofId}/${partId}-pages.json`);
       await fetch(`${_FBURL}/customerProofs/${proofId}/parts/${partId}.json`, {
         method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ name:runName, fileUrl, filePath:path, pageCount:pages.length, fileSize:pdfBytes.byteLength, status:'approved', approvedAt:Date.now() }) });
+        body: JSON.stringify({ name:runName, fileUrl, filePath:path, pageCount:pages.length, fileSize:pdfBytes.byteLength, status:'approved', approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at }) });
       await patch({ status:'parts', mode:'parts' });
       record = await (await fetch(`${_FBURL}/customerProofs/${proofId}.json`)).json();
       showOverlay('', false); alert(`✓ "${runName}" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.`); goHome();
@@ -533,6 +536,17 @@ async function uploadBytes(path, bytes, onProgress) {
     }
   }
   throw lastErr || new Error('העלאה נכשלה');
+}
+// שומר את העמודים המרונדרים (JSON של תמונות) ל-Storage לפתיחה מהירה. Best-effort — אם נכשל, מחזיר ריק
+// והצופה ייפול חזרה לרינדור ה-PDF הרגיל.
+async function uploadPagesCache(path) {
+  try {
+    showOverlay('שומר תצוגה מהירה…', true, 0);
+    const json = JSON.stringify(pages.map(p => p.src));
+    const bytes = new TextEncoder().encode(json);
+    const url = await uploadBytes(path, bytes, pct => showOverlay('שומר תצוגה מהירה…', true, pct));
+    return { url, at: Date.now() };
+  } catch (e) { console.warn('pages cache failed:', e); return { url: '', at: 0 }; }
 }
 function xhrPost(url, bytes, onProgress) {
   return new Promise((resolve, reject) => {
