@@ -28,6 +28,7 @@
   .acts a, .acts button, .acts select { font-size:.8rem; padding:6px 10px; border-radius:7px; border:1.5px solid var(--line); background:#fff; cursor:pointer; text-decoration:none; color:var(--ink); }
   .acts .gen { background:var(--green); color:#fff; border-color:var(--green); }
   .acts .del { background:#fff; color:var(--red); border-color:#fecaca; }
+  .acts .dl { background:#eef2ff; color:var(--press); border-color:#c7d2fe; font-weight:700; }
   .note { font-size:.78rem; color:var(--red); margin-top:3px; }
   #msg { margin:12px 0; font-size:.85rem; color:#374151; min-height:1.2em; }
   .empty { text-align:center; padding:40px; color:#9ca3af; }
@@ -44,9 +45,11 @@
     <h1>לקוחות עיתונים</h1>
     <div>
       <button class="btn ghost" id="invite">+ לקוח / עבודה חדשה</button>
+      <button class="btn ghost" id="usageBtn">💾 ניצול אחסון</button>
       <button class="btn" id="refresh">↻ רענן</button>
     </div>
   </div>
+  <div id="usage"></div>
   <div id="msg"></div>
   <div id="tableWrap"></div>
 </div>
@@ -92,7 +95,8 @@ function render(rows) {
   _genReg = {}; let gi = 0;
   const genCell = (fileUrl, title) => {
     const key = 'g' + (gi++); _genReg[key] = { fileUrl, title };
-    return `<select data-sheet="${key}"><option value="32">70×100</option><option value="16">64×90</option></select>
+    return `<button class="dl" data-dl="${key}">⬇ הורד עיתון</button>
+            <select data-sheet="${key}"><option value="32">70×100</option><option value="16">64×90</option></select>
             <button class="gen" data-gen="${key}">⬇ ייצר ריצות</button>`;
   };
 
@@ -164,8 +168,23 @@ function render(rows) {
     const [jobId, pid, fp] = b.dataset.delpart.split('|');
     deletePart(jobId, pid, decodeURIComponent(fp));
   });
+  document.querySelectorAll('[data-dl]').forEach(b => b.onclick = () => {
+    const t = _genReg[b.dataset.dl];
+    downloadFile(t.fileUrl, (t.title || 'עיתון').replace(/[\\/:*?"<>|]/g,'_') + '.pdf', b);
+  });
 }
 let _genReg = {};
+
+// הורדת הקובץ למחשב (לשליחה ידנית בוואטסאפ וכו')
+async function downloadFile(url, name, btn) {
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'מוריד…'; }
+  try {
+    const r = await fetch(url); const blob = await r.blob();
+    downloadBlob(blob, name);
+  } catch (e) { window.open(url, '_blank'); }
+  if (btn) { btn.textContent = old; btn.disabled = false; }
+}
 
 // מחיקת ריצה בודדת
 async function deletePart(jobId, pid, filePath) {
@@ -309,6 +328,40 @@ $('invite').onclick = async () => {
   const link = `${base}proof-client.html?id=${id}`;
   await loadProofs();
   prompt('הקישור ללקוח (העתק ושלח):', link);
+};
+
+// ── ניצול אחסון ──
+const STORAGE_LIMIT_GB = 5;   // תקרה לתצוגה (שנה לפי התוכנית שלך)
+$('usageBtn').onclick = async () => {
+  const u = $('usage');
+  u.innerHTML = '⏳ בודק ניצול אחסון…';
+  // אסוף את כל הקבצים (עבודות + ריצות)
+  const files = [];
+  _allRows.forEach(p => {
+    if (p.filePath) files.push({ path: p.filePath, size: p.fileSize });
+    if (p.parts) Object.values(p.parts).forEach(pt => pt.filePath && files.push({ path: pt.filePath, size: pt.fileSize }));
+  });
+  let total = 0, unknown = 0;
+  for (const f of files) {
+    if (f.size) { total += +f.size; continue; }
+    let got = false;
+    for (const bucket of ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com']) {
+      try {
+        const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(f.path)}`);
+        if (r.ok) { const j = await r.json(); total += parseInt(j.size || 0, 10); got = true; break; }
+      } catch (e) {}
+    }
+    if (!got) unknown++;
+  }
+  const mb = total / 1048576, gb = total / 1073741824;
+  const pct = Math.min(100, Math.round(gb / STORAGE_LIMIT_GB * 100));
+  const color = pct >= 85 ? '#dc2626' : pct >= 60 ? '#d97706' : '#16a34a';
+  u.innerHTML = `<div style="background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:12px 14px;margin:4px 0">
+    <b>ניצול אחסון:</b> ${mb.toFixed(0)} MB (${gb.toFixed(2)} GB) ב-${files.length} קבצים${unknown?` <span style="color:#9ca3af">(${unknown} ללא גודל)</span>`:''}
+    <div style="height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:8px">
+      <div style="height:100%;width:${pct}%;background:${color}"></div></div>
+    <div style="font-size:.78rem;color:#6b7280;margin-top:5px">${pct}% מתוך תקרת ${STORAGE_LIMIT_GB}GB · מחקו קבצים ישנים (🗑) כדי לפנות מקום</div>
+  </div>`;
 };
 
 $('refresh').onclick = loadProofs;
