@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>לקוחות עיתונים — ניהול | סולן הדפסות</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root { --press:#2d3561; --green:#16a34a; --red:#dc2626; --amber:#d97706; --line:#e5e7eb; --ink:#1f2937; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui,"Segoe UI",Arial,sans-serif; background:#f3f4f6; color:var(--ink); padding:24px; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  .top { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+  h1 { font-size:1.3rem; margin:0; }
+  .btn { padding:9px 16px; border:none; border-radius:8px; background:var(--press); color:#fff; font-weight:700; cursor:pointer; font-size:.9rem; }
+  .btn.ghost { background:#fff; color:var(--press); border:1.5px solid var(--line); }
+  .btn:disabled { opacity:.4; cursor:default; }
+  table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,.06); }
+  th,td { padding:11px 13px; text-align:right; border-bottom:1px solid var(--line); font-size:.88rem; vertical-align:middle; }
+  th { background:#f0f4ff; font-size:.8rem; }
+  tr:last-child td { border-bottom:none; }
+  .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:.76rem; font-weight:700; }
+  .b-pending  { background:#fef3c7; color:var(--amber); }
+  .b-approved { background:#dcfce7; color:var(--green); }
+  .b-rejected { background:#fee2e2; color:var(--red); }
+  .acts { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .acts a, .acts button, .acts select { font-size:.8rem; padding:6px 10px; border-radius:7px; border:1.5px solid var(--line); background:#fff; cursor:pointer; text-decoration:none; color:var(--ink); }
+  .acts .gen { background:var(--green); color:#fff; border-color:var(--green); }
+  .acts .del { background:#fff; color:var(--red); border-color:#fecaca; }
+  .note { font-size:.78rem; color:var(--red); margin-top:3px; }
+  #msg { margin:12px 0; font-size:.85rem; color:#374151; min-height:1.2em; }
+  .empty { text-align:center; padding:40px; color:#9ca3af; }
+  .folder { background:#fff; border-radius:12px; box-shadow:0 4px 20px rgba(0,0,0,.06); margin-bottom:14px; overflow:hidden; }
+  .folder > summary { cursor:pointer; padding:13px 16px; font-weight:800; font-size:.95rem; background:#f0f4ff; list-style:none; user-select:none; }
+  .folder > summary::-webkit-details-marker { display:none; }
+  .folder > summary .count { color:#6b7280; font-weight:600; font-size:.82rem; }
+  .folder table { box-shadow:none; border-radius:0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>לקוחות עיתונים</h1>
+    <div>
+      <button class="btn ghost" id="invite">+ לקוח / עבודה חדשה</button>
+      <button class="btn" id="refresh">↻ רענן</button>
+    </div>
+  </div>
+  <div id="msg"></div>
+  <div id="tableWrap"></div>
+</div>
+
+<script>
+const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+const $ = id => document.getElementById(id);
+const msg = m => $('msg').textContent = m;
+
+const STATUS = {
+  awaiting_upload:  ['ממתין להעלאת הלקוח', 'b-pending'],
+  pending_approval: ['ממתין לאישור', 'b-pending'],
+  approved:         ['מאושר', 'b-approved'],
+  rejected:         ['נדחה — תיקון', 'b-rejected'],
+};
+
+let _allRows = [];
+
+async function loadProofs() {
+  msg('טוען…');
+  const data = await (await fetch(`${_FBURL}/customerProofs.json`)).json() || {};
+  _allRows = Object.entries(data)
+    .map(([id, p]) => ({ id, ...p }))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  render(_allRows);
+  msg(_allRows.length ? `${_allRows.length} קבצים` : '');
+}
+
+function render(rows) {
+  if (!rows.length) { $('tableWrap').innerHTML = '<div class="empty">אין קבצים עדיין. לחץ "קובץ חדש".</div>'; return; }
+  const base = location.href.replace(/[^/]+(\?.*)?$/, '');
+  const fmt = t => t ? new Date(t).toLocaleDateString('he-IL', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
+
+  // קיבוץ לפי לקוח — תיקייה לכל לקוח
+  const byCustomer = new Map();
+  for (const p of rows) {
+    const key = (p.customer || 'ללא לקוח').trim();
+    if (!byCustomer.has(key)) byCustomer.set(key, []);
+    byCustomer.get(key).push(p);
+  }
+
+  const rowHtml = p => {
+    const [txt, cls] = STATUS[p.status] || ['—', ''];
+    const clientLink = `${base}proof-client.html?id=${p.id}`;   // קישור לשליחה ללקוח (העלאה+אישור)
+    const viewLink   = `${base}proof-viewer.html?id=${p.id}`;   // צפייה בתוצאה (אחרי העלאה)
+    const hasFile = !!p.fileUrl;
+    const gen = p.status === 'approved'
+      ? `<select data-sheet="${p.id}"><option value="32">70×100</option><option value="16">64×90</option></select>
+         <button class="gen" data-gen="${p.id}">⬇ ייצר ריצות</button>`
+      : `<button disabled title="זמין רק לאחר אישור">⬇ ייצר ריצות</button>`;
+    const view = hasFile ? `<a href="${viewLink}" target="_blank">👁 צפה</a>` : '';
+    const note = (p.status === 'rejected' && p.customerNote) ? `<div class="note">📝 ${escapeHtml(p.customerNote)}</div>` : '';
+    return `<tr>
+      <td>${escapeHtml(p.title || p.fileName || '—')}${note}</td>
+      <td><span class="badge ${cls}">${txt}</span></td>
+      <td>${fmt(p.createdAt)}</td>
+      <td><div class="acts">
+        <button data-copy="${clientLink}">📤 קישור ללקוח</button>
+        ${view}
+        ${gen}
+        <button class="del" data-del="${p.id}" title="מחק קובץ ורשומה">🗑</button>
+      </div></td>
+    </tr>`;
+  };
+
+  const folders = [...byCustomer.entries()].map(([customer, items]) => `
+    <details class="folder" open>
+      <summary>📁 ${escapeHtml(customer)} <span class="count">(${items.length})</span></summary>
+      <table><thead><tr><th>שם העבודה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
+      <tbody>${items.map(rowHtml).join('')}</tbody></table>
+    </details>`).join('');
+
+  $('tableWrap').innerHTML = folders;
+
+  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
+  document.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => {
+    const id = b.dataset.gen;
+    const sheet = parseInt(document.querySelector(`[data-sheet="${id}"]`).value, 10);
+    generateRuns(_allRows.find(r => r.id === id), sheet, b);
+  });
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () =>
+    deleteProof(_allRows.find(r => r.id === b.dataset.del)));
+}
+
+// מחיקת קובץ: מוחק את הקובץ מ-Storage ואת הרשומה מ-RTDB.
+async function deleteProof(p) {
+  if (!p) return;
+  if (!confirm(`למחוק לצמיתות את "${p.title || p.fileName}"?\nהקובץ והרשומה יימחקו ולא ניתן לשחזר.`)) return;
+  msg('מוחק…');
+  try {
+    if (p.filePath) {
+      for (const bucket of ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com']) {
+        try {
+          const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(p.filePath)}`, { method: 'DELETE' });
+          if (r.ok || r.status === 404) break;
+        } catch (e) { /* נסה bucket הבא */ }
+      }
+    }
+    await fetch(`${_FBURL}/customerProofs/${p.id}.json`, { method: 'DELETE' });
+    await loadProofs();
+  } catch (e) { console.error(e); msg('✗ שגיאה במחיקה: ' + e.message); }
+}
+
+// ── ייצור ריצות מהקובץ המאושר ──
+function splitToKontresim(totalPages, fullSheet) {
+  const layers = [];
+  if (fullSheet === 32 && (totalPages === 20 || totalPages === 24)) layers.push(totalPages - 16, 16);
+  else {
+    const rem = totalPages % fullSheet;
+    if (rem !== 0) layers.push(rem);
+    let inner = totalPages - rem;
+    while (inner > 0) { layers.push(fullSheet); inner -= fullSheet; }
+  }
+  let front = 1, back = totalPages;
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
+  return layers.map((lp, i) => {
+    const isLast = i === layers.length - 1, half = lp / 2;
+    let pages, label;
+    if (isLast && lp === fullSheet) { pages = range(front, front + lp - 1); label = `${front}-${front+lp-1}`; front += lp; }
+    else {
+      const fe = front + half - 1, bs = back - half + 1;
+      if (fe + 1 === bs) { pages = range(front, back); label = `${front}-${back}`; }
+      else { pages = [...range(front, fe), ...range(bs, back)]; label = `${front}-${fe}+${bs}-${back}`; }
+      front += half; back -= half;
+    }
+    return { num: i + 1, pages, count: lp, label };
+  });
+}
+
+async function generateRuns(proof, fullSheet, btn) {
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'מוריד קובץ…';
+  try {
+    const bytes = await (await fetch(proof.fileUrl)).arrayBuffer();
+    btn.textContent = 'מפצל…';
+    const src = await PDFLib.PDFDocument.load(bytes);
+    const total = src.getPageCount();
+    const runs = splitToKontresim(total, fullSheet);
+
+    const zip = new JSZip();
+    const pad = n => String(n).padStart(2, '0');
+    for (const run of runs) {
+      const folder = zip.folder(`ריצה ${run.num} (עמ ${run.label})`);
+      for (let i = 0; i < run.pages.length; i++) {
+        const sp = run.pages[i];
+        if (sp > total) continue;
+        const out = await PDFLib.PDFDocument.create();
+        const [pg] = await out.copyPages(src, [sp - 1]);
+        out.addPage(pg);
+        folder.file(`${pad(i + 1)}_pg${pad(sp)}.pdf`, await out.save());
+      }
+    }
+    btn.textContent = 'בונה ZIP…';
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, `${(proof.title || 'חוברת')} — ריצות.zip`);
+    btn.textContent = '✓ הורד';
+    setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 2500);
+  } catch (e) {
+    console.error(e); alert('שגיאה בייצור ריצות: ' + e.message);
+    btn.textContent = old; btn.disabled = false;
+  }
+}
+
+// ── עזרים ──
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+function downloadBlob(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+async function copyText(text, btn) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; }
+  catch (e) {
+    try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove(); } catch (e2) {}
+  }
+  const t = btn.textContent; btn.textContent = ok ? '✓' : '⚠️';
+  setTimeout(() => btn.textContent = t, 1200);
+}
+
+// יצירת הזמנה ללקוח — רשומה ריקה + קישור להעלאה
+$('invite').onclick = async () => {
+  const customer = prompt('שם הלקוח (עיתון):');
+  if (!customer || !customer.trim()) return;
+  const title = prompt('שם העבודה (אופציונלי):') || '';
+  const id = crypto.randomUUID?.() || (Date.now().toString(36) + Math.random().toString(36).slice(2));
+  msg('יוצר…');
+  await fetch(`${_FBURL}/customerProofs/${id}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'awaiting_upload', customer: customer.trim(), title: title.trim(), createdAt: Date.now() }),
+  });
+  const base = location.href.replace(/[^/]+(\?.*)?$/, '');
+  const link = `${base}proof-client.html?id=${id}`;
+  await loadProofs();
+  prompt('הקישור ללקוח (העתק ושלח):', link);
+};
+
+$('refresh').onclick = loadProofs;
+loadProofs();
+</script>
+</body>
+</html>
