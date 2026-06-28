@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782646657';
+window.APP_VERSION = '1782648496';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15500,5 +15500,74 @@ registerPushServiceWorker().then(function(){ setTimeout(_checkPushState, 300); }
     <iframe src="proof-admin.html" allow="clipboard-read; clipboard-write" style="flex:1;border:none;width:100%"></iframe>
   </div>
 </div>
+
+<!-- מעקב אחר אישורי לקוחות — הודעה + צפצוף כשלקוח מאשר עיתון/ריצה -->
+<script>
+(function(){
+  var KEY = 'solanProofLastSeen';
+  var FB  = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+
+  function beep(){
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = 'sine'; o.frequency.value = 880; g.gain.value = 0.18; o.start();
+      setTimeout(function(){ o.frequency.value = 1175; }, 140);
+      setTimeout(function(){ o.stop(); ctx.close(); }, 320);
+    } catch(e){}
+  }
+
+  function popup(msg){
+    var d = document.createElement('div');
+    d.textContent = '✅ ' + msg;
+    d.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:99999;'
+      + 'background:#16a34a;color:#fff;padding:14px 26px;border-radius:12px;font-weight:800;'
+      + 'font-family:Heebo,sans-serif;font-size:1rem;box-shadow:0 6px 24px rgba(0,0,0,.25);'
+      + 'direction:rtl;cursor:pointer';
+    d.onclick = function(){ d.remove(); };
+    document.body.appendChild(d);
+    setTimeout(function(){ d.remove(); }, 8000);
+  }
+
+  function approvals(data){
+    var ev = [];
+    Object.keys(data || {}).forEach(function(id){
+      var p = data[id] || {};
+      if (p.mode === 'full' && p.status === 'approved' && p.approvedAt)
+        ev.push({ t: p.approvedAt, label: (p.customer||'לקוח') + ' — ' + (p.title||'עיתון') });
+      if (p.parts) Object.keys(p.parts).forEach(function(k){
+        var pt = p.parts[k];
+        if (pt && pt.approvedAt) ev.push({ t: pt.approvedAt, label: (p.customer||'לקוח') + ' — ' + (pt.name||'ריצה') });
+      });
+    });
+    return ev;
+  }
+
+  function poll(){
+    fetch(FB + '/customerProofs.json?t=' + Date.now(), { cache:'no-store' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(data){
+        var ev = approvals(data);
+        var last = parseInt(localStorage.getItem(KEY) || '0', 10);
+        if (!last) {  // הרצה ראשונה — אל תצפצף על אישורים ישנים
+          var max0 = ev.reduce(function(m,e){ return Math.max(m, e.t); }, 0);
+          localStorage.setItem(KEY, String(max0 || Date.now()));
+          return;
+        }
+        var fresh = ev.filter(function(e){ return e.t > last; }).sort(function(a,b){ return a.t - b.t; });
+        if (fresh.length) {
+          beep();
+          fresh.forEach(function(e){ popup('לקוח אישר: ' + e.label); });
+          localStorage.setItem(KEY, String(fresh[fresh.length-1].t));
+        }
+      })
+      .catch(function(){});
+  }
+
+  setTimeout(poll, 4000);
+  setInterval(poll, 30000);
+})();
+</script>
 </body>
 </html>
