@@ -128,7 +128,7 @@
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const _FBURL   = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
-const _BUCKETS = ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com'];
+const _BUCKETS = ['solan-printing.firebasestorage.app']; // appspot.com לא קיים (404) — הוסר
 const RENDER_H = 1100;          // גובה הרינדור (פעם אחת לעמוד) — חד גם במסך מלא
 
 const $ = id => document.getElementById(id);
@@ -415,6 +415,7 @@ $('approve').onclick = async () => {
     if (!runName) return;
   }
   if (!confirm(`לאשר ולשלוח ${pages.length} עמודים בסדר הנוכחי?\nלאחר האישור לא ניתן לשנות.`)) return;
+  _uploading = true; await acquireWakeLock();
   try {
     showOverlay('מרכיב קובץ…', true);
     const out = await PDFLib.PDFDocument.create();
@@ -445,21 +446,30 @@ $('approve').onclick = async () => {
       showOverlay('', false); alert(`✓ "${runName}" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.`); goHome();
     }
   } catch (e) { console.error(e); showOverlay('שגיאה: ' + e.message + '\n\nנסו שוב או פנו לבית הדפוס.', true); }
+  finally { _uploading = false; releaseWakeLock(); }
 };
 
 async function patch(fields) {
   await fetch(`${_FBURL}/customerProofs/${proofId}.json`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(fields) });
 }
 
-// העלאה עם מד אחוזים (XHR) + ניסיון שני buckets
+// העלאה עם מד אחוזים (XHR), עם ניסיונות חוזרים על תקלות רשת זמניות (למשל מעבר חלון).
+// שגיאת הרשאה (403) מזוהה ומדווחת בנפרד — סימן שכללי Firebase Storage חוסמים כתיבה.
 async function uploadBytes(path, bytes, onProgress) {
   let lastErr;
   for (const bucket of _BUCKETS) {
-    try {
-      const json = await xhrPost(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(path)}`, bytes, onProgress);
-      const token = (json.downloadTokens || '').split(',')[0] || '';
-      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
-    } catch (e) { lastErr = e; }
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const json = await xhrPost(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(path)}`, bytes, onProgress);
+        const token = (json.downloadTokens || '').split(',')[0] || '';
+        return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
+      } catch (e) {
+        lastErr = e;
+        if (e.code === 403) throw e;               // הרשאה — אין טעם לנסות שוב
+        if (e.code && e.code !== 0 && e.code < 500 && e.code !== 408 && e.code !== 429) break; // שגיאת לקוח קבועה — נסה bucket הבא
+        await new Promise(r => setTimeout(r, 1500 * attempt)); // המתנה וניסיון חוזר
+      }
+    }
   }
   throw lastErr || new Error('העלאה נכשלה');
 }
@@ -467,13 +477,28 @@ function xhrPost(url, bytes, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
+    xhr.timeout = 0; // ללא timeout — קבצים גדולים
     xhr.setRequestHeader('Content-Type', 'application/pdf');
     xhr.upload.onprogress = e => e.lengthComputable && onProgress && onProgress(Math.round(e.loaded / e.total * 100));
-    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve(JSON.parse(xhr.responseText)) : reject(new Error('Storage ' + xhr.status));
-    xhr.onerror = () => reject(new Error('שגיאת רשת'));
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { try { resolve(JSON.parse(xhr.responseText)); } catch(e){ const er=new Error('תגובה לא תקינה'); er.code=xhr.status; reject(er);} return; }
+      let msg = 'Storage ' + xhr.status;
+      if (xhr.status === 403) msg = 'אין הרשאת כתיבה (403) — יש לעדכן את כללי האחסון ב-Firebase';
+      const er = new Error(msg); er.code = xhr.status; reject(er);
+    };
+    xhr.onerror   = () => { const e = new Error('שגיאת רשת'); e.code = 0; reject(e); };
+    xhr.ontimeout = () => { const e = new Error('פג זמן ההעלאה'); e.code = 408; reject(e); };
     xhr.send(bytes);
   });
 }
+
+// Wake Lock — מונע מהמכשיר/מסך להירדם בזמן עיבוד והעלאה, כדי שההעלאה תמשיך גם במעבר חלון
+let _wakeLock = null;
+async function acquireWakeLock(){ try { if (navigator.wakeLock && !_wakeLock) _wakeLock = await navigator.wakeLock.request('screen'); } catch(e){} }
+function releaseWakeLock(){ try { if (_wakeLock) { _wakeLock.release(); _wakeLock = null; } } catch(e){} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && _uploading) acquireWakeLock(); });
+let _uploading = false;
+window.addEventListener('beforeunload', e => { if (_uploading) { e.preventDefault(); e.returnValue = ''; return ''; } });
 
 function done(text){ show('home',false); show('editor',false); showOverlay('',false);
   const s=$('status'); s.classList.remove('hidden'); s.innerHTML=`<div style="color:var(--green);font-size:2.4rem">✓</div>${text}`; }
