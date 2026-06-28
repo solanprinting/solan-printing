@@ -78,7 +78,7 @@ async function loadProofs() {
 function render(rows) {
   if (!rows.length) { $('tableWrap').innerHTML = '<div class="empty">אין קבצים עדיין. לחץ "קובץ חדש".</div>'; return; }
   const base = location.href.replace(/[^/]+(\?.*)?$/, '');
-  const fmt = t => t ? new Date(t).toLocaleDateString('he-IL', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
+  const fmt = t => t ? new Date(t).toLocaleString('he-IL', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
 
   // קיבוץ לפי לקוח — תיקייה לכל לקוח
   const byCustomer = new Map();
@@ -106,7 +106,7 @@ function render(rows) {
       const head = `<tr>
         <td><b>${escapeHtml(p.title || '—')}</b></td>
         <td><span class="badge b-approved">${parts.length} ריצות התקבלו</span></td>
-        <td>${fmt(p.createdAt)}</td>
+        <td>נוצר: ${fmt(p.createdAt)}</td>
         <td><div class="acts">
           <a href="${clientLink}" target="_blank">🔗 פתח</a>
           <button data-link="${clientLink}">📤 קישור ללקוח</button>
@@ -115,7 +115,7 @@ function render(rows) {
       const partRows = parts.map(pt => `<tr>
         <td style="padding-right:26px;color:#555">↳ ${escapeHtml(pt.name)} <span style="color:#9ca3af">(${pt.pageCount} עמ')</span></td>
         <td><span class="badge b-approved">מאושר</span></td>
-        <td>${fmt(pt.approvedAt)}</td>
+        <td>אושר: ${fmt(pt.approvedAt)}</td>
         <td><div class="acts">
           <a href="${pt.fileUrl}" target="_blank">👁 פתח</a>
           ${genCell(pt.fileUrl, (p.title ? p.title + ' — ' : '') + pt.name)}
@@ -130,12 +130,14 @@ function render(rows) {
       : `<button disabled title="זמין רק לאחר אישור">⬇ ייצר ריצות</button>`;
     const view = p.fileUrl ? `<a href="${base}proof-viewer.html?id=${p.id}" target="_blank">👁 צפה</a>` : '';
     const note = (p.status === 'rejected' && p.customerNote) ? `<div class="note">📝 ${escapeHtml(p.customerNote)}</div>` : '';
+    const approvedLine = p.approvedAt ? `<div class="note" style="color:#16a34a">✓ אושר: ${fmt(p.approvedAt)}</div>` : '';
     return `<tr>
       <td>${escapeHtml(p.title || p.fileName || '—')}${note}</td>
       <td><span class="badge ${cls}">${txt}</span></td>
-      <td>${fmt(p.createdAt)}</td>
+      <td>נוצר: ${fmt(p.createdAt)}${approvedLine}</td>
       <td><div class="acts">
-        <button data-copy="${clientLink}">📤 קישור ללקוח</button>
+        <a href="${clientLink}" target="_blank">🔗 פתח</a>
+        <button data-link="${clientLink}">📤 קישור ללקוח</button>
         ${view}${gen}
         <button class="del" data-deljob="${p.id}" title="מחק עבודה">🗑</button>
       </div></td></tr>`;
@@ -292,11 +294,16 @@ $('invite').onclick = async () => {
   const customer = prompt('שם הלקוח (עיתון):');
   if (!customer || !customer.trim()) return;
   const title = prompt('שם העבודה (אופציונלי):') || '';
+  // גודל נדרש לעמוד — הלקוח יקבל אזהרה אם יעלה בגודל אחר
+  const sizeRaw = prompt('גודל עמוד נדרש במ"מ (רוחב x גובה), למשל 330x500 — או רֵיק לדלג:', '') || '';
+  let reqW = 0, reqH = 0;
+  const m = sizeRaw.replace(',', '.').match(/(\d+(?:\.\d+)?)\s*[xX*×]\s*(\d+(?:\.\d+)?)/);
+  if (m) { reqW = +m[1]; reqH = +m[2]; }
   const id = crypto.randomUUID?.() || (Date.now().toString(36) + Math.random().toString(36).slice(2));
   msg('יוצר…');
   await fetch(`${_FBURL}/customerProofs/${id}.json`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'awaiting_upload', customer: customer.trim(), title: title.trim(), createdAt: Date.now() }),
+    body: JSON.stringify({ status: 'awaiting_upload', customer: customer.trim(), title: title.trim(), reqW, reqH, createdAt: Date.now() }),
   });
   const base = location.href.replace(/[^/]+(\?.*)?$/, '');
   const link = `${base}proof-client.html?id=${id}`;
