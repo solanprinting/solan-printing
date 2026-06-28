@@ -313,11 +313,26 @@ $('invite').onclick = async () => {
   const customer = prompt('שם הלקוח (עיתון):');
   if (!customer || !customer.trim()) return;
   const title = prompt('שם העבודה (אופציונלי):') || '';
-  // גודל נדרש לעמוד — הלקוח יקבל אזהרה אם יעלה בגודל אחר
-  const sizeRaw = prompt('גודל עמוד נדרש במ"מ (רוחב x גובה), למשל 330x500 — או רֵיק לדלג:', '') || '';
+  // גודל נדרש לעמוד (מ"מ) — הלקוח יקבל אזהרה אם יעלה בגודל אחר.
+  // גדלי העיתונים הרגילים שלנו מוצעים כבחירה מהירה לפי מספר; אפשר גם להקליד גודל מותאם.
+  const PRESETS = [
+    { label: 'עיתון רגיל 16.5×24 ס"מ', w: 165, h: 240 },
+    { label: '24×33 ס"מ',             w: 240, h: 330 },
+    { label: 'A4 (21×29.7)',          w: 210, h: 297 },
+    { label: 'A5 (14.8×21)',          w: 148, h: 210 },
+    { label: 'A3 (29.7×42)',          w: 297, h: 420 },
+    { label: 'טאבלויד 28×40 ס"מ',     w: 280, h: 400 },
+  ];
+  const menu = 'גודל עמוד נדרש — בחר/י מספר מהרשימה,\nאו הקלד/י גודל מותאם במ"מ (רוחב x גובה, למשל 330x500),\nאו השאר/י ריק לדילוג:\n\n'
+    + PRESETS.map((p,i)=>`${i+1}. ${p.label}  (${p.w}×${p.h} מ"מ)`).join('\n');
+  const sizeRaw = (prompt(menu, '1') || '').trim();
   let reqW = 0, reqH = 0;
-  const m = sizeRaw.replace(',', '.').match(/(\d+(?:\.\d+)?)\s*[xX*×]\s*(\d+(?:\.\d+)?)/);
-  if (m) { reqW = +m[1]; reqH = +m[2]; }
+  const pick = /^\d{1,2}$/.test(sizeRaw) ? PRESETS[+sizeRaw - 1] : null;
+  if (pick) { reqW = pick.w; reqH = pick.h; }
+  else {
+    const m = sizeRaw.replace(',', '.').match(/(\d+(?:\.\d+)?)\s*[xX*×]\s*(\d+(?:\.\d+)?)/);
+    if (m) { reqW = +m[1]; reqH = +m[2]; }
+  }
   const id = crypto.randomUUID?.() || (Date.now().toString(36) + Math.random().toString(36).slice(2));
   msg('יוצר…');
   await fetch(`${_FBURL}/customerProofs/${id}.json`, {
