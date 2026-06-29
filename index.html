@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782739172';
+window.APP_VERSION = '1782739860';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4371,6 +4371,10 @@ function renderManualRuns() {
         value="${r.pages}"
         onchange="manualRuns[${i}].pages=this.value"
         style="width:80px;padding:6px 8px;border:1.5px solid var(--line);border-radius:6px;font-family:Heebo,sans-serif;font-size:.88rem;outline:none">
+      <input type="number" placeholder="פעמים בגיליון" min="1" title="כמה פעמים העמודים נכנסים בגיליון — מעדכן את הכמות אוטומטית"
+        value="${r.upCount||''}"
+        onchange="setManualRunUpCount(${i},this.value)"
+        style="width:120px;padding:6px 8px;border:1.5px solid var(--gold,#c9a84c);border-radius:6px;font-family:Heebo,sans-serif;font-size:.88rem;outline:none;background:#fffdf5">
       <input type="number" placeholder="כמות עותקים" min="1"
         value="${r.copies}"
         onchange="manualRuns[${i}].copies=this.value"
@@ -4421,6 +4425,15 @@ function toggleManualRunExtra(i, key) {
 }
 function setManualRunExtraCustomSize(i, val) { if (manualRuns[i]) manualRuns[i].abExtraCustomSize = val; }
 function setManualRunManualExtra(i, val) { if (manualRuns[i]) manualRuns[i].manualExtra = val; } // לא מרנדר מחדש כדי לא לאבד פוקוס
+// "פעמים בגיליון" — כמה פעמים העמודים נכנסים בגיליון. מעדכן את הכמות: עותקים = סה"כ ÷ פעמים
+function setManualRunUpCount(i, n) {
+  var r = manualRuns[i]; if (!r) return;
+  n = parseInt(n) || 1;
+  r.upCount = n;
+  var total = parseInt((document.getElementById('f-copies')||{}).value) || 0;
+  if (total > 0) r.copies = Math.ceil(total / n);
+  renderManualRuns();
+}
 
 function getEffectiveRuns() {
   // ריצות ידניות גוברות על אוטומטיות כשיש לפחות ריצה אחת מוגדרת
@@ -4445,6 +4458,7 @@ function getEffectiveRuns() {
         machine: r.machine,
         paper: r.paper||'',
         tumble: !!r.tumble,
+        upCount: parseInt(r.upCount)||0,
         abEnabled: !!r.abEnabled,
         abExtras: (r.abExtras||[]).slice(),
         abExtraCustomSize: r.abExtraCustomSize||'',
@@ -5545,7 +5559,7 @@ function editCard(id) {
   // runs
   if (c.runs && c.runs.length) {
     manualRuns = c.runs.map(function(r){ return { id: Date.now()+Math.random(), pages: r.pages||'', copies: r.copies||'', machine: r.machine||'', paper: r.paper||'', tumble: !!r.tumble,
-      abEnabled: !!r.abEnabled, abExtras: (r.abExtras||[]).slice(), abExtraCustomSize: r.abExtraCustomSize||'', manualExtra: r.manualExtra||'', folds: r.folds||'' }; });
+      upCount: r.upCount||'', abEnabled: !!r.abEnabled, abExtras: (r.abExtras||[]).slice(), abExtraCustomSize: r.abExtraCustomSize||'', manualExtra: r.manualExtra||'', folds: r.folds||'' }; });
     renderManualRuns();
   }
   // mark as editing
@@ -5980,7 +5994,7 @@ function buildPrintCard(c) {
     return `
     <tr>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd"><strong>ריצה ${r.num}</strong></td>
-      <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.pages ? r.pages+' עמ\'' : '—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.pages ? r.pages+' עמ\'' : '—'}${(r.upCount && r.upCount>1) ? ` <span style="font-size:.7rem;font-weight:700;color:#6d28d9;white-space:nowrap">· ×${r.upCount} בגיליון</span>` : ''}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-size:.8rem">${r.pageRange||'—'}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-weight:700">${r.copies?parseInt(r.copies).toLocaleString():'—'}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.folds||'—'}${r.tumble?' <span style="color:#1d4ed8;font-weight:600;font-size:.65rem"> · מתהפך</span>':''}</td>
