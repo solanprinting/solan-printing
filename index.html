@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782726131';
+window.APP_VERSION = '1782730996';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -14716,6 +14716,35 @@ function _opApprovedProofs() {
   return out.sort(function(a,b){ return b.when - a.when; });
 }
 
+// מחיקת עבודה מאושרת ישירות ממסך הדפס (מוחק קובץ מ-Storage ורשומה מ-RTDB)
+async function _opDeleteProof(id, part) {
+  var all = window._opCustomerProofs || {};
+  var p = all[id]; if (!p) return;
+  var base = ([p.customer, p.title].filter(Boolean).join(' · ') || 'עיתון');
+  var label = part ? (base + ' — ' + (((p.parts||{})[part]||{}).name || 'ריצה')) : base;
+  if (!confirm('למחוק לצמיתות את "' + label + '"?\nהקובץ יימחק ולא ניתן יהיה לשחזר.')) return;
+  var BUCKET = 'solan-printing.firebasestorage.app';
+  var delStorage = function(pth){
+    if (!pth) return Promise.resolve();
+    return fetch('https://firebasestorage.googleapis.com/v0/b/' + BUCKET + '/o/' + encodeURIComponent(pth), { method: 'DELETE' }).catch(function(){});
+  };
+  try {
+    if (part) {
+      await delStorage(((p.parts||{})[part]||{}).filePath);
+      await fetch(_FBURL + '/customerProofs/' + id + '/parts/' + part + '.json', { method: 'DELETE' });
+      if (all[id] && all[id].parts) delete all[id].parts[part];
+    } else {
+      var paths = [];
+      if (p.filePath) paths.push(p.filePath);
+      if (p.parts) Object.keys(p.parts).forEach(function(k){ if (p.parts[k] && p.parts[k].filePath) paths.push(p.parts[k].filePath); });
+      for (var i = 0; i < paths.length; i++) await delStorage(paths[i]);
+      await fetch(_FBURL + '/customerProofs/' + id + '.json', { method: 'DELETE' });
+      delete all[id];
+    }
+  } catch(e) {}
+  if (typeof _opLoadAndRender === 'function') _opLoadAndRender(); else _renderOperatorScreen();
+}
+
 // פתיחת דפדוף מהיר בחלון פנימי (iframe) — נשאר בתוך מסך הדפסים (גם בקיוסק)
 function _opOpenFlipbook(id, part) {
   var ex = document.getElementById('op-flip-overlay'); if (ex) ex.remove();
@@ -14858,6 +14887,8 @@ function _renderOperatorScreen() {
             + '<span style="font-size:.85rem;font-weight:700;color:#1e293b;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(a.name) + '</span>'
             + '<button onclick="_opOpenFlipbook(' + sq(a.id) + ',' + (a.part?sq(a.part):'null') + ')" '
             + 'style="font-size:.8rem;font-weight:800;padding:6px 14px;border:none;border-radius:8px;background:#7c3aed;color:#fff;cursor:pointer;flex-shrink:0;font-family:Heebo,sans-serif">📖 דפדוף</button>'
+            + '<button onclick="_opDeleteProof(' + sq(a.id) + ',' + (a.part?sq(a.part):'null') + ')" title="מחק עבודה" '
+            + 'style="font-size:.85rem;font-weight:800;padding:6px 11px;border:none;border-radius:8px;background:#dc2626;color:#fff;cursor:pointer;flex-shrink:0;font-family:Heebo,sans-serif">🗑</button>'
             + '</div>';
         }).join('')
       + '</div></div>';
