@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782730996';
+window.APP_VERSION = '1782733293';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -14967,9 +14967,16 @@ function _renderOperatorScreen() {
     html += '</div>'; // end grid
 
     // ── הושלמו ────────────────────────────────────────────
-    var cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
-    var recentDone  = done.filter(function(e){ return !e.doneAt || new Date(e.doneAt).getTime() >= cutoff24h; });
-    var historyDone = done.filter(function(e){ return e.doneAt  && new Date(e.doneAt).getTime() <  cutoff24h; });
+    // "הושלמו היום" = רק עבודות שהושלמו באמת בתאריך של היום (לפי doneAt).
+    // עבודות ישנות, או כאלה ללא חותמת זמן, עוברות ל"היסטוריית עבודות".
+    var _nowD = new Date();
+    var _isDoneToday = function(e){
+      if (!e.doneAt) return false;
+      var d = new Date(e.doneAt);
+      return d.getFullYear() === _nowD.getFullYear() && d.getMonth() === _nowD.getMonth() && d.getDate() === _nowD.getDate();
+    };
+    var recentDone  = done.filter(_isDoneToday);
+    var historyDone = done.filter(function(e){ return !_isDoneToday(e); });
 
     function _doneRow(e, sq) {
       var ji = _opJobInfo(e);
