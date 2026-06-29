@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782736751';
+window.APP_VERSION = '1782739172';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4394,12 +4394,37 @@ function renderManualRuns() {
       <button onclick="removeManualRun(${r.id})"
         style="background:none;border:none;color:#ccc;font-size:1.1rem;cursor:pointer;padding:0 2px"
         onmouseover="this.style.color='#c62828'" onmouseout="this.style.color='#ccc'">✕</button>
+      <div style="width:100%;margin-top:4px;border-top:1px dashed #dde3f8;padding-top:8px">
+        <label onclick="toggleManualRunAB(${i})"
+          style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;font-weight:700;white-space:nowrap;padding:5px 10px;border-radius:6px;border:1.5px solid ${r.abEnabled?'#7c3aed':'#cbd5e1'};background:${r.abEnabled?'#f6f1ff':'#f8fafc'};color:${r.abEnabled?'#6d28d9':'#64748b'}">🗞️ גיליון A+B${r.abEnabled?' ✓':''}</label>
+        ${r.abEnabled ? `<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+          ${RUN_AB_EXTRAS.map(ex=>{var checked=(r.abExtras||[]).indexOf(ex.key)!==-1;return `<label onclick="toggleManualRunExtra(${i},'${ex.key}')" style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;font-size:.76rem;padding:3px 8px;border-radius:5px;border:1px solid ${checked?'#7c3aed':'#cbd5e1'};background:${checked?'#f6f1ff':'#fff'};color:${checked?'#6d28d9':'#475569'}">${checked?'✓ ':''}${ex.label}</label>`;}).join('')}
+          ${(r.abExtras||[]).indexOf('custom')!==-1 ? `<input type="text" placeholder="גודל..." value="${escHtml(r.abExtraCustomSize||'')}" oninput="setManualRunExtraCustomSize(${i},this.value)" style="font-size:.76rem;padding:3px 6px;border:1px solid #cbd5e1;border-radius:5px;width:100px">` : ''}
+          <input type="text" placeholder="פירוט תוספות / מלל חופשי..." value="${escHtml(r.manualExtra||'')}" oninput="setManualRunManualExtra(${i},this.value)" style="flex:1;min-width:160px;font-size:.78rem;padding:5px 9px;border:1px solid #cbd5e1;border-radius:6px;font-family:Heebo,sans-serif">
+        </div>` : ''}
+      </div>
     </div>`).join('');
 }
+// ── עריכת A+B לריצות ידניות (מקבילות לפונקציות שבמודל הריצות, אך על manualRuns) ──
+function toggleManualRunAB(i) {
+  var r = manualRuns[i]; if (!r) return;
+  r.abEnabled = !r.abEnabled;
+  if (!r.abEnabled) { r.abExtras = []; r.abExtraCustomSize = ''; }
+  renderManualRuns();
+}
+function toggleManualRunExtra(i, key) {
+  var r = manualRuns[i]; if (!r) return;
+  r.abExtras = r.abExtras || [];
+  var idx = r.abExtras.indexOf(key);
+  if (idx === -1) r.abExtras.push(key); else r.abExtras.splice(idx, 1);
+  renderManualRuns();
+}
+function setManualRunExtraCustomSize(i, val) { if (manualRuns[i]) manualRuns[i].abExtraCustomSize = val; }
+function setManualRunManualExtra(i, val) { if (manualRuns[i]) manualRuns[i].manualExtra = val; } // לא מרנדר מחדש כדי לא לאבד פוקוס
 
 function getEffectiveRuns() {
   // ריצות ידניות גוברות על אוטומטיות כשיש לפחות ריצה אחת מוגדרת
-  var validManual = manualRuns.filter(r => r.pages || r.copies || r.machine || r.paper);
+  var validManual = manualRuns.filter(r => r.pages || r.copies || r.machine || r.paper || r.abEnabled || (r.manualExtra && r.manualExtra.trim()));
   var _src = validManual.length ? validManual : null;
   if (_src) {
     var _nextPage = 1;
@@ -4415,11 +4440,15 @@ function getEffectiveRuns() {
         num: i+1,
         pages: pages,
         copies: parseInt(r.copies)||0,
-        folds: '',
+        folds: r.folds||'',
         pageRange: pageRange,
         machine: r.machine,
         paper: r.paper||'',
-        tumble: !!r.tumble
+        tumble: !!r.tumble,
+        abEnabled: !!r.abEnabled,
+        abExtras: (r.abExtras||[]).slice(),
+        abExtraCustomSize: r.abExtraCustomSize||'',
+        manualExtra: r.manualExtra||''
       };
     });
   }
@@ -5515,7 +5544,8 @@ function editCard(id) {
   }
   // runs
   if (c.runs && c.runs.length) {
-    manualRuns = c.runs.map(function(r){ return { id: Date.now()+Math.random(), pages: r.pages||'', copies: r.copies||'', machine: r.machine||'', paper: r.paper||'', tumble: !!r.tumble }; });
+    manualRuns = c.runs.map(function(r){ return { id: Date.now()+Math.random(), pages: r.pages||'', copies: r.copies||'', machine: r.machine||'', paper: r.paper||'', tumble: !!r.tumble,
+      abEnabled: !!r.abEnabled, abExtras: (r.abExtras||[]).slice(), abExtraCustomSize: r.abExtraCustomSize||'', manualExtra: r.manualExtra||'', folds: r.folds||'' }; });
     renderManualRuns();
   }
   // mark as editing
@@ -5944,6 +5974,7 @@ function buildPrintCard(c) {
       }).filter(Boolean);
       _abRowHtml = '<tr><td colspan="'+_abColCount+'" style="padding:5px 10px;border-bottom:1px solid #ddd;background:#faf8ff;font-size:.78rem;color:#6d28d9">'+
         '🗞️ גיליון A+B'+(_extraLabels.length ? ' · תוספות: '+_extraLabels.join(', ') : '')+
+        ((r.manualExtra && r.manualExtra.trim()) ? ' · ' + escHtml(r.manualExtra.trim()) : '')+
       '</td></tr>';
     }
     return `
