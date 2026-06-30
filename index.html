@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782840940';
+window.APP_VERSION = '1782841143';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15671,7 +15671,7 @@ function _opProofOverlay(url, type, label, revoke) {
   if (revoke) setTimeout(function(){ URL.revokeObjectURL(url); }, 120000);
 }
 // ── מחשבון ברזי צבע (Heidelberg) — אופציונלי, מתחת לפרופר ──────────────────
-var _opInk = { zones:32, C:0, M:0, Y:0, K:0, factor:100, keys:{C:{},M:{},Y:{},K:{}}, job:'' };
+var _opInk = { zones:32, C:0, M:0, Y:0, K:0, factor:100, keys:{C:{},M:{},Y:{},K:{}}, job:'', showPct:false };
 var _OP_INK_META = [
   { k:'C', label:'ציאן (C)', bar:'#00AEEF' },
   { k:'M', label:'מגנטה (M)', bar:'#EC008C' },
@@ -15683,6 +15683,18 @@ function _opInkKeyVal(color, i){
   var base = (ov !== undefined && ov !== '' && ov !== null) ? ov : _opInk[color];
   var v = (parseFloat(base)||0) * (parseFloat(_opInk.factor)||100)/100;
   return Math.max(0, Math.min(100, Math.round(v)));
+}
+// אחוז הצבע (כיסוי) הגולמי לאזור — לפני מקדם הכיול
+function _opInkKeyRaw(color, i){
+  var ov = _opInk.keys[color] && _opInk.keys[color][i];
+  var base = (ov !== undefined && ov !== '' && ov !== null) ? ov : _opInk[color];
+  return Math.max(0, Math.min(100, Math.round(parseFloat(base)||0)));
+}
+function _opInkToggleMode(){
+  _opInk.showPct = !_opInk.showPct;
+  var b = document.getElementById('op-ink-mode');
+  if (b) b.textContent = _opInk.showPct ? '％ אחוז צבע' : '🎚️ פתיחת ברז';
+  _opInkRenderBars();
 }
 function _opInkMachine(){
   var mv = (typeof _machineViewMachine!=='undefined' && _machineViewMachine) ? _machineViewMachine : '';
@@ -15708,6 +15720,7 @@ function _opInkPanelEl(jobName){
     + _OP_INK_META.map(function(m){ return '<label style="font-size:1rem;font-weight:900;color:'+(m.k==='Y'?'#FFD400':(m.k==='K'?'#e2e8f0':m.bar))+'">'+m.k+' % <input id="op-ink-'+m.k+'" type="number" min="0" max="100" value="'+_opInk[m.k]+'" style="'+bigInput+'"></label>'; }).join('')
     + '<span style="width:1px;height:34px;background:#334155"></span>'
     + '<label style="font-size:.9rem;font-weight:700">מקדם כיול % <input id="op-ink-factor" type="number" min="10" max="200" value="'+_opInk.factor+'" style="'+bigInput+'"></label>'
+    + '<button id="op-ink-mode" onclick="_opInkToggleMode()" title="החלף בין פתיחת ברז לאחוז צבע" style="height:46px;padding:0 16px;font-size:1rem;font-weight:900;background:#334155;color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:Heebo,sans-serif">'+(_opInk.showPct?'％ אחוז צבע':'🎚️ פתיחת ברז')+'</button>'
     + '<button onclick="_opInkFromProof()" style="height:46px;padding:0 18px;font-size:1.05rem;font-weight:900;background:#7c3aed;color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:Heebo,sans-serif">📷 קרא מהפרופר</button>'
     + '<button onclick="_opInkApply()" style="height:46px;padding:0 22px;font-size:1.05rem;font-weight:900;background:#16a34a;color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:Heebo,sans-serif">חשב ✓</button>'
     + '</div>'
@@ -15747,11 +15760,11 @@ function _opInkRenderBars(){
   var sections = _OP_INK_META.map(function(m){
     var bars = '';
     for (var i=0;i<N;i++){
-      var v = _opInkKeyVal(m.k, i);
+      var v = _opInk.showPct ? _opInkKeyRaw(m.k, i) : _opInkKeyVal(m.k, i);
       var fh = Math.round(v/100*rowH);
       var edited = _opInk.keys[m.k] && _opInk.keys[m.k][i] !== undefined && _opInk.keys[m.k][i] !== '';
       bars += '<div onclick="_opInkSetKey(\''+m.k+'\','+i+')" title="ברז '+(i+1)+'" style="flex:1;min-width:'+minKeyW+'px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;cursor:pointer">'
-        + '<span style="font-size:.95rem;font-weight:900;color:#fff;line-height:1.1">'+v+'</span>'
+        + '<span style="font-size:.95rem;font-weight:900;color:#fff;line-height:1.1">'+v+(_opInk.showPct?'%':'')+'</span>'
         + '<div style="width:82%;height:'+fh+'px;background:'+m.bar+';border-radius:2px 2px 0 0;'+(edited?'outline:2px solid #fff;':'')+'"></div>'
         + '<span style="font-size:.78rem;font-weight:700;color:#94a3b8;line-height:1.4">'+(i+1)+'</span>'
         + '</div>';
