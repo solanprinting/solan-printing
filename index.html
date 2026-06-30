@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782840497';
+window.APP_VERSION = '1782840940';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15733,14 +15733,24 @@ function _opInkSetKey(color, i){
 }
 function _opInkRenderBars(){
   var host = document.getElementById('op-ink-bars'); if(!host) return;
-  var N = _opInk.zones, rowH = 96;
-  host.innerHTML = _OP_INK_META.map(function(m){
+  var N = _opInk.zones, rowH = 96, minKeyW = 26;
+  var trackMin = N * minKeyW;     // רוחב מינימלי של ה"מסילה" כדי שכל הברזים ייראו
+  // תצוגת הפרופר מתוחה לרוחב הסרגל + קווי הפרדה לאזורים — כל אזור מיושר לברז שמתחתיו
+  var imgSrc = (window._opPV && window._opPV.imgs && window._opPV.imgs.length) ? window._opPV.imgs[window._opPV.idx] : null;
+  var divs = '';
+  for (var z=1; z<N; z++){ divs += '<div style="position:absolute;top:0;bottom:0;left:'+(z/N*100).toFixed(3)+'%;width:1px;background:rgba(255,255,255,.4)"></div>'; }
+  var imgHtml = imgSrc
+    ? '<div style="position:relative;width:100%;height:130px;margin-bottom:6px;background:#0b1220;border-radius:7px;overflow:hidden;border:1px solid #334155">'
+      + '<img src="'+imgSrc+'" style="width:100%;height:100%;object-fit:fill;display:block">'
+      + divs + '</div>'
+    : '';
+  var sections = _OP_INK_META.map(function(m){
     var bars = '';
     for (var i=0;i<N;i++){
       var v = _opInkKeyVal(m.k, i);
       var fh = Math.round(v/100*rowH);
       var edited = _opInk.keys[m.k] && _opInk.keys[m.k][i] !== undefined && _opInk.keys[m.k][i] !== '';
-      bars += '<div onclick="_opInkSetKey(\''+m.k+'\','+i+')" title="ברז '+(i+1)+'" style="flex:1;min-width:26px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;cursor:pointer">'
+      bars += '<div onclick="_opInkSetKey(\''+m.k+'\','+i+')" title="ברז '+(i+1)+'" style="flex:1;min-width:'+minKeyW+'px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;cursor:pointer">'
         + '<span style="font-size:.95rem;font-weight:900;color:#fff;line-height:1.1">'+v+'</span>'
         + '<div style="width:82%;height:'+fh+'px;background:'+m.bar+';border-radius:2px 2px 0 0;'+(edited?'outline:2px solid #fff;':'')+'"></div>'
         + '<span style="font-size:.78rem;font-weight:700;color:#94a3b8;line-height:1.4">'+(i+1)+'</span>'
@@ -15748,9 +15758,11 @@ function _opInkRenderBars(){
     }
     return '<div style="margin-bottom:9px">'
       + '<div style="font-size:.92rem;font-weight:900;margin-bottom:3px;color:'+(m.k==='Y'?'#FFD400':(m.k==='K'?'#e2e8f0':m.bar))+'">'+m.label+'</div>'
-      + '<div style="display:flex;gap:2px;align-items:flex-end;height:'+(rowH+18)+'px;background:#1e293b;padding:5px 6px;border-radius:7px;overflow-x:auto">'+bars+'</div>'
+      + '<div style="display:flex;gap:2px;align-items:flex-end;height:'+(rowH+18)+'px;background:#1e293b;padding:5px 6px;border-radius:7px">'+bars+'</div>'
       + '</div>';
   }).join('');
+  // מסילה משותפת (הפרופר + כל שורות הברזים) ברוחב אחיד, גלילה אופקית יחד → יישור מושלם
+  host.innerHTML = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><div style="min-width:'+trackMin+'px">' + imgHtml + sections + '</div></div>';
 }
 function _opInkToggle(){
   var p = document.getElementById('op-ink-panel'); if(!p) return;
