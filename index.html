@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782801751';
+window.APP_VERSION = '1782803806';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -5643,22 +5643,47 @@ function _readProofFile(file, cb) {
 }
 
 function _saveProofFor(cardId, runKey, proof) {
-  if (!cardId || cardId === 'preview') return;
+  if (!cardId || cardId === 'preview' || !proof) return;
   var path = runKey ? 'proofs/' + cardId + '/' + runKey : 'proofs/' + cardId;
-  if (window._fbPut) window._fbPut(path, proof);
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
   if (c) {
     c.hasProof = true;
+    c.proofUploading = true;          // עדיין בהעלאה — עד שה-fbPut יסתיים
     c.proofUploadedAt = Date.now(); // לניקוי אוטומטי אחרי 24 שעות
     if (runKey) {
       if (!c.runProofs) c.runProofs = {};
-      c.runProofs[runKey] = { name: proof.name, type: proof.type, uploadedAt: Date.now() };
+      c.runProofs[runKey] = { name: proof.name, type: proof.type, uploadedAt: Date.now(), uploading: true };
     } else {
       c.proofName = proof.name; c.proofType = proof.type;
     }
     persist();
     if (typeof renderCards === 'function') renderCards();
   }
+  showToast('⏳ מעלה פרופר... (אל תסגור עד לאישור)');
+  var put = window._fbPut ? window._fbPut(path, proof) : Promise.resolve(false);
+  Promise.resolve(put).then(function(ok){
+    if (ok === false) throw new Error('upload failed');
+    if (c) {
+      c.proofUploading = false;
+      if (runKey && c.runProofs && c.runProofs[runKey]) c.runProofs[runKey].uploading = false;
+      persist();
+      if (typeof renderCards === 'function') renderCards();
+    }
+    showToast('✅ הפרופר הועלה ונשמר');
+  }).catch(function(){
+    // ההעלאה נכשלה — בטל את הסימון כדי שלא יוצג פרופר שלא קיים
+    if (c) {
+      c.proofUploading = false;
+      if (runKey) {
+        if (c.runProofs) { delete c.runProofs[runKey]; if (!Object.keys(c.runProofs).length) { delete c.runProofs; c.hasProof = false; } }
+      } else {
+        c.hasProof = false; delete c.proofName; delete c.proofType;
+      }
+      persist();
+      if (typeof renderCards === 'function') renderCards();
+    }
+    showToast('❌ העלאת הפרופר נכשלה — נסה לצרף שוב');
+  });
 }
 
 // ניקוי פרופרים — מוחק מ-Firebase ומנקה את דגלי הכרטיס.
@@ -5721,10 +5746,9 @@ function _onModalProofPicked(input) {
   var id = window._printModalCardId;
   if (!id || id === 'preview') { showToast('⚠️ יש לשמור קודם את הכרטיס'); return; }
   _readProofFile(file, function(proof) {
-    _saveProofFor(id, proof);
+    _saveProofFor(id, null, proof);
     var vb = document.getElementById('print-modal-proof-btn');
     if (vb) vb.style.display = 'inline-block';
-    showToast('✅ פרופר צורף לכרטיס');
   });
 }
 
@@ -5770,10 +5794,15 @@ function _dataUrlToBlob(dataUrl) {
 }
 
 function _openProofByKey(cardId, runKey) {
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  var uploading = c && (c.proofUploading || (runKey && c.runProofs && c.runProofs[runKey] && c.runProofs[runKey].uploading));
   var path = runKey ? 'proofs/' + cardId + '/' + runKey : 'proofs/' + cardId;
   showToast('📄 טוען פרופר...');
   window._fbGet(path).then(function(p) {
-    if (!p || !p.data) { showToast('⚠️ אין פרופר מצורף לכרטיס זה'); return; }
+    if (!p || !p.data) {
+      showToast(uploading ? '⏳ הפרופר עדיין בהעלאה — נסה שוב בעוד כמה שניות' : '⚠️ אין פרופר מצורף לכרטיס זה');
+      return;
+    }
     try {
       var url = URL.createObjectURL(_dataUrlToBlob(p.data));
       var w = window.open(url, '_blank');
@@ -10709,9 +10738,10 @@ function _jobCardHtml(c) {
           ${(function(){
             if (!c.hasProof) return '';
             var cnt = c.runProofs ? Object.keys(c.runProofs).length : 0;
-            var lbl = cnt > 1 ? '📄×'+cnt : '📄';
-            var tip = cnt > 1 ? cnt+' פרופרים מצורפים' : escHtml(c.proofName||'פרופר מצורף');
-            return '<span title="'+tip+'" style="background:#7c3aed;color:white;padding:2px 9px;border-radius:20px;font-size:.74rem;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_viewProof('+c.id+')">'+lbl+'</span>';
+            var lbl = c.proofUploading ? '⏳ מעלה…' : (cnt > 1 ? '📄×'+cnt : '📄');
+            var tip = c.proofUploading ? 'הפרופר בהעלאה — המתן לאישור' : (cnt > 1 ? cnt+' פרופרים מצורפים' : escHtml(c.proofName||'פרופר מצורף'));
+            var bg = c.proofUploading ? '#d97706' : '#7c3aed';
+            return '<span title="'+tip+'" style="background:'+bg+';color:white;padding:2px 9px;border-radius:20px;font-size:.74rem;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_viewProof('+c.id+')">'+lbl+'</span>';
           })()}
           ${c.papyrusReminder?'<span title="פפירוס — לצרף מדבקות · לבדוק אריזה בקרטונים" style="font-size:.72rem;background:#fef9c3;color:#854d0e;border:1px solid #fde047;border-radius:5px;padding:2px 7px;font-weight:700">📌 פפירוס: מדבקות/קרטונים</span>':''}
           ${c.printedAt?'<span style="font-size:.72rem;background:#dcfce7;color:#15803d;border-radius:5px;padding:2px 7px;font-weight:700">🖨️ '+(c.printCount>1?c.printCount+'x ':'')+new Date(c.printedAt).toLocaleDateString("he-IL")+'</span>':''}
