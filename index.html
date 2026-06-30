@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782814492';
+window.APP_VERSION = '1782816107';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1054,6 +1054,10 @@ textarea.fi{resize:none;min-height:52px;}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
+</script>
 <script>
 // ── Firebase REST API (ללא SDK) ──────────────────────────────
 const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
@@ -5676,6 +5680,31 @@ function _deleteProofStorage(spath) {
   if (!spath) return;
   try { fetch('https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o/' + encodeURIComponent(spath), { method: 'DELETE' }).catch(function(){}); } catch(e){}
 }
+// רינדור עמודי PDF לתמונות JPEG איכותיות ושמירתן כ-JSON ב-Storage — לפתיחה מהירה במסך הדפס.
+// הצבעים זהים למה שהדפדפן מציג ב-PDF (אותו מנוע רינדור), איכות 0.92. best-effort.
+async function _renderProofPagesCache(file, spath) {
+  if (!window.pdfjsLib || !file) return '';
+  try {
+    var buf = await file.arrayBuffer();
+    var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    var imgs = [], RENDER_H = 1500;
+    for (var i = 1; i <= pdf.numPages; i++) {
+      var page = await pdf.getPage(i);
+      var v1 = page.getViewport({ scale: 1 });
+      var scale = Math.min(2.2, RENDER_H / v1.height);
+      var vp = page.getViewport({ scale: scale });
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
+      await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      imgs.push(c.toDataURL('image/jpeg', 0.92));
+      page.cleanup && page.cleanup();
+    }
+    pdf.cleanup && pdf.cleanup();
+    var bytes = new TextEncoder().encode(JSON.stringify(imgs));
+    var blob = new Blob([bytes], { type: 'application/json' });
+    return await _uploadProofToStorage(spath, blob, null);
+  } catch(e) { console.warn('proof pages cache failed', e); return ''; }
+}
 
 // ── מדי התקדמות העלאת פרופרים — מצב משותף ב-Firebase ──────────────────────
 // כל העלאה פעילה נרשמת תחת proofUploads/<uid> כדי שתהיה גלויה לכל המשתמשים,
@@ -5786,6 +5815,19 @@ function _saveProofFor(cardId, runKey, proof) {
       if (typeof renderCards === 'function') renderCards();
     }
     showToast('✅ הפרופר הועלה ונשמר');
+    // תצוגה מהירה לדפסים: רנדר עמודים לתמונות ושמור cache (ברקע, לא חוסם). PDF בלבד.
+    if ((proof.type||'').indexOf('pdf') !== -1 && window.pdfjsLib) {
+      var cpath = 'cardProofs/' + cardId + '/' + (runKey || 'full') + '-pages-' + Date.now() + '.json';
+      _renderProofPagesCache(proof.file, cpath).then(function(pagesUrl){
+        if (!pagesUrl) return;
+        var c3 = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+        if (!c3) return;
+        if (runKey) { if (c3.runProofs && c3.runProofs[runKey]) { c3.runProofs[runKey].pagesUrl = pagesUrl; c3.runProofs[runKey].pagesPath = cpath; } }
+        else { c3.proofPagesUrl = pagesUrl; c3.proofPagesPath = cpath; }
+        persist();
+        if (typeof renderCards === 'function') renderCards();
+      });
+    }
   }).catch(function(){
     _proofUploadEnd(uid);
     // ההעלאה נכשלה — בטל את הסימון כדי שלא יוצג פרופר שלא קיים (מוצאים מחדש לפי id)
@@ -5827,6 +5869,7 @@ function _cleanupOldProofs() {
         var up = c.runProofs[rk] && c.runProofs[rk].uploadedAt;
         if (_proofExpired(up, doneAtMs, now)) {
           if (c.runProofs[rk] && c.runProofs[rk].path) _deleteProofStorage(c.runProofs[rk].path); // מחק מ-Storage
+          if (c.runProofs[rk] && c.runProofs[rk].pagesPath) _deleteProofStorage(c.runProofs[rk].pagesPath); // cache תמונות
           if (window._fbPut) window._fbPut('proofs/' + c.id + '/' + rk, null);                    // ניקוי legacy
           delete c.runProofs[rk];
           changed = true;
@@ -5838,8 +5881,9 @@ function _cleanupOldProofs() {
       if (!c.proofUploadedAt) { c.proofUploadedAt = now; changed = true; }
       else if (_proofExpired(c.proofUploadedAt, doneAtMs, now)) {
         if (c.proofPath) _deleteProofStorage(c.proofPath);          // מחק מ-Storage
+        if (c.proofPagesPath) _deleteProofStorage(c.proofPagesPath); // cache תמונות
         if (window._fbPut) window._fbPut('proofs/' + c.id, null);   // ניקוי legacy
-        c.hasProof = false; delete c.proofName; delete c.proofType; delete c.proofUploadedAt; delete c.proofUrl; delete c.proofPath;
+        c.hasProof = false; delete c.proofName; delete c.proofType; delete c.proofUploadedAt; delete c.proofUrl; delete c.proofPath; delete c.proofPagesUrl; delete c.proofPagesPath;
         changed = true;
       }
     }
@@ -5885,9 +5929,10 @@ function _clearFormProof() {
     var c = (cards||[]).find(function(x){ return String(x.id) === String(window._editingCardId); });
     if (c && c.hasProof) {
       if (c.proofPath) _deleteProofStorage(c.proofPath);
-      if (c.runProofs) Object.keys(c.runProofs).forEach(function(rk){ if (c.runProofs[rk] && c.runProofs[rk].path) _deleteProofStorage(c.runProofs[rk].path); });
+      if (c.proofPagesPath) _deleteProofStorage(c.proofPagesPath);
+      if (c.runProofs) Object.keys(c.runProofs).forEach(function(rk){ if (c.runProofs[rk] && c.runProofs[rk].path) _deleteProofStorage(c.runProofs[rk].path); if (c.runProofs[rk] && c.runProofs[rk].pagesPath) _deleteProofStorage(c.runProofs[rk].pagesPath); });
       if (window._fbPut) window._fbPut('proofs/' + c.id, null);
-      c.hasProof = false; delete c.proofName; delete c.proofType; delete c.proofUrl; delete c.proofPath; delete c.runProofs;
+      c.hasProof = false; delete c.proofName; delete c.proofType; delete c.proofUrl; delete c.proofPath; delete c.proofPagesUrl; delete c.proofPagesPath; delete c.runProofs;
       // persist + renderCards יקראו בשמירת הכרטיס — לא כאן כדי לא לאפס את הטופס
     }
   }
@@ -15386,46 +15431,89 @@ function _operatorMarkDone(qid) {
   _renderOperatorScreen();
 }
 
-function _opProofOverlay(url, type, label, revoke) {
-  var isPdf = (type||'').indexOf('pdf') !== -1 || /\.pdf(\?|$)/i.test(url);
+function _opSpinStyle() {
   if (!document.getElementById('op-spin-style')) {
     var st = document.createElement('style'); st.id = 'op-spin-style';
     st.textContent = '@keyframes opspin{to{transform:rotate(360deg)}}';
     document.head.appendChild(st);
   }
-  var ov = document.createElement('div');
-  ov.id = 'op-proof-overlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;flex-direction:column';
-  var hideLoad = "var l=document.getElementById('op-proof-loading');if(l)l.remove();";
-  ov.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;flex-shrink:0">'
-    + '<span style="color:white;font-size:.85rem;font-weight:700;font-family:Heebo,sans-serif">' + escHtml(label||'פרופר') + '</span>'
-    + '<button onclick="var o=document.getElementById(\'op-proof-overlay\');if(o)o.remove()" '
-    + 'style="background:white;border:none;border-radius:8px;padding:8px 18px;font-size:1rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">✕ סגור</button></div>'
-    + '<div id="op-proof-loading" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;font-family:Heebo,sans-serif;pointer-events:none">'
-    +   '<div style="width:48px;height:48px;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:opspin 1s linear infinite"></div>'
-    +   '<div style="font-size:1rem;font-weight:700">⏳ טוען פרופר…</div></div>'
-    + (isPdf
-      ? '<iframe src="' + url + '" onload="' + hideLoad + '" style="flex:1;border:none;width:100%"></iframe>'
-      : '<img src="' + url + '" onload="' + hideLoad + '" onerror="' + hideLoad + '" style="flex:1;object-fit:contain;width:100%;min-height:0">');
+}
+function _opCloseProof() {
+  var o = document.getElementById('op-proof-overlay');
+  if (o) { try { if (document.fullscreenElement) document.exitFullscreen(); } catch(e){} o.remove(); }
+}
+function _opProofFullscreen() {
+  var o = document.getElementById('op-proof-overlay'); if (!o) return;
+  try { if (document.fullscreenElement) document.exitFullscreen(); else (o.requestFullscreen || o.webkitRequestFullscreen || function(){}).call(o); } catch(e){}
+}
+function _opLoadingEl() {
+  var load = document.createElement('div'); load.id = 'op-proof-loading';
+  load.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;font-family:Heebo,sans-serif;pointer-events:none';
+  load.innerHTML = '<div style="width:48px;height:48px;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:opspin 1s linear infinite"></div><div style="font-size:1rem;font-weight:700">⏳ טוען פרופר…</div>';
+  return load;
+}
+function _opProofBar(label, onPdf) {
+  var bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 14px;flex-shrink:0';
+  bar.innerHTML = '<span style="color:white;font-size:.85rem;font-weight:700;font-family:Heebo,sans-serif">' + escHtml(label||'פרופר') + '</span>';
+  var grp = document.createElement('div'); grp.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+  var mk = function(txt, bg, col){ var b=document.createElement('button'); b.textContent=txt; b.style.cssText='background:'+bg+';color:'+col+';border:none;border-radius:8px;padding:8px 14px;font-size:.95rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif'; return b; };
+  if (onPdf) { var bp = mk('📄 PDF מלא', '#475569', '#fff'); bp.onclick = onPdf; grp.appendChild(bp); }
+  var bf = mk('⛶ מסך מלא', '#1e3a5f', '#fff'); bf.onclick = _opProofFullscreen; grp.appendChild(bf);
+  var bc = mk('✕ סגור', '#fff', '#1e293b'); bc.onclick = _opCloseProof; grp.appendChild(bc);
+  bar.appendChild(grp);
+  return bar;
+}
+// תצוגה מהירה מבוססת תמונות (cache שנשמר בהעלאה) — נפתחת כמעט מיידית, בלי להוריד את כל ה-PDF
+function _opProofImagesOverlay(pagesUrl, pdfUrl, type, label) {
+  _opSpinStyle();
+  var ov = document.createElement('div'); ov.id = 'op-proof-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:99999;display:flex;flex-direction:column';
+  ov.appendChild(_opProofBar(label, pdfUrl ? function(){ _opCloseProof(); _opProofOverlay(pdfUrl, type||'application/pdf', label, false); } : null));
+  ov.appendChild(_opLoadingEl());
+  var scroll = document.createElement('div');
+  scroll.style.cssText = 'flex:1;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px';
+  ov.appendChild(scroll);
   document.body.appendChild(ov);
-  // גיבוי: הסתרת מחוון הטעינה גם אם onload לא נורה (חלק מדפדפנים ב-iframe PDF)
-  setTimeout(function(){ var l=document.getElementById('op-proof-loading'); if(l) l.remove(); }, 8000);
+  fetch(pagesUrl).then(function(r){ return r.json(); }).then(function(imgs){
+    var l = document.getElementById('op-proof-loading'); if (l) l.remove();
+    if (!Array.isArray(imgs) || !imgs.length) { if (pdfUrl){ _opCloseProof(); _opProofOverlay(pdfUrl, type||'application/pdf', label, false); } return; }
+    scroll.innerHTML = imgs.map(function(src){ return '<img src="' + src + '" style="max-width:97%;height:auto;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.45)">'; }).join('');
+  }).catch(function(){
+    var l = document.getElementById('op-proof-loading'); if (l) l.remove();
+    if (pdfUrl){ _opCloseProof(); _opProofOverlay(pdfUrl, type||'application/pdf', label, false); }
+  });
+}
+function _opProofOverlay(url, type, label, revoke) {
+  var isPdf = (type||'').indexOf('pdf') !== -1 || /\.pdf(\?|$)/i.test(url);
+  _opSpinStyle();
+  var ov = document.createElement('div'); ov.id = 'op-proof-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;flex-direction:column';
+  ov.appendChild(_opProofBar(label, null));
+  ov.appendChild(_opLoadingEl());
+  var hide = function(){ var l = document.getElementById('op-proof-loading'); if (l) l.remove(); };
+  var view;
+  if (isPdf) { view = document.createElement('iframe'); view.src = url; view.style.cssText = 'flex:1;border:none;width:100%'; }
+  else { view = document.createElement('img'); view.src = url; view.style.cssText = 'flex:1;object-fit:contain;width:100%;min-height:0'; }
+  view.onload = hide; view.onerror = hide;
+  ov.appendChild(view);
+  document.body.appendChild(ov);
+  setTimeout(hide, 8000); // גיבוי אם onload לא נורה
   if (revoke) setTimeout(function(){ URL.revokeObjectURL(url); }, 120000);
 }
 function _opViewProof(cardId, runKey) {
   if (!cardId) return;
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
-  // פרופר חדש ב-Storage — פתח ישירות מה-URL
   var rec = runKey ? (c && c.runProofs && c.runProofs[runKey]) : c;
-  var directUrl = runKey ? (rec && rec.url) : (c && c.proofUrl);
-  var directType = runKey ? (rec && rec.type) : (c && c.proofType);
+  var pagesUrl  = runKey ? (rec && rec.pagesUrl) : (c && c.proofPagesUrl);
+  var directUrl = runKey ? (rec && rec.url)      : (c && c.proofUrl);
+  var directType= runKey ? (rec && rec.type)     : (c && c.proofType);
+  // תצוגה מהירה מתמונות (אם קיים cache) — כמעט מיידי, בלי הורדת PDF כבד
+  if (pagesUrl) { _opProofImagesOverlay(pagesUrl, directUrl || '', directType, runKey || 'פרופר'); return; }
   if (directUrl) { _opProofOverlay(directUrl, directType, runKey || 'פרופר', false); return; }
   // פרופר ישן (legacy) — base64 ב-RTDB
   showToast('📄 טוען פרופר...');
-  var hasRunProof = runKey && c && c.runProofs && c.runProofs[runKey];
-  var path = hasRunProof ? 'proofs/' + cardId + '/' + runKey
-           : runKey       ? 'proofs/' + cardId + '/' + runKey
-           :                'proofs/' + cardId;
+  var path = runKey ? 'proofs/' + cardId + '/' + runKey : 'proofs/' + cardId;
   window._fbGet(path).then(function(p) {
     if (!p || !p.data) { showToast('⚠️ אין פרופר מצורף'); return; }
     try { _opProofOverlay(URL.createObjectURL(_dataUrlToBlob(p.data)), p.type, runKey || 'פרופר', true); }
