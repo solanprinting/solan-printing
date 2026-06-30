@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782806015';
+window.APP_VERSION = '1782807562';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -370,9 +370,9 @@ textarea.fi{resize:none;min-height:52px;}
 .print-modal{background:#f0ebe0;border-radius:8px;width:100%;max-width:700px;max-height:95vh;
   overflow-y:auto;box-shadow:0 12px 50px rgba(0,0,0,.5);}
 .print-modal-bar{background:var(--press);color:white;padding:11px 18px;display:flex;
-  justify-content:space-between;align-items:center;border-radius:8px 8px 0 0;}
+  justify-content:space-between;align-items:center;border-radius:8px 8px 0 0;flex-wrap:wrap;gap:8px;}
 .print-modal-bar h3{font-size:.95rem;font-weight:800;}
-.pma{display:flex;gap:9px;}
+.pma{display:flex;gap:9px;flex-wrap:wrap;justify-content:flex-end;}
 .print-card-wrap{padding:18px;}
 
 /* THE PRINT CARD */
@@ -5633,61 +5633,86 @@ function _readProofFile(file, cb) {
   var okType = file.type === 'application/pdf' || /^image\//.test(file.type);
   if (!okType) { showToast('⚠️ יש לצרף קובץ PDF או תמונה'); return; }
   if (file.size > _MAX_PROOF_BYTES) { showToast('⚠️ הקובץ גדול מדי (מקסימום 100MB)'); return; }
-  if (file.size > 12 * 1024 * 1024) showToast('⏳ מעלה קובץ גדול (' + Math.round(file.size/1024/1024) + 'MB) — ייתכן שיקח כמה שניות...');
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    cb({ name: file.name, type: file.type, data: e.target.result,
-         uploadedAt: new Date().toISOString(), uploadedBy: currentUser ? currentUser.id : 'admin' });
-  };
-  reader.readAsDataURL(file);
+  // מעבירים את ה-File עצמו (בלי המרה ל-base64) — מועלה ישירות ל-Storage, מהיר וקל יותר
+  cb({ name: file.name, type: file.type, file: file, size: file.size,
+       uploadedAt: new Date().toISOString(), uploadedBy: currentUser ? currentUser.id : 'admin' });
 }
 
-// העלאת פרופר ל-RTDB עם מעקב אחוזי התקדמות (XHR, בניגוד ל-fetch שאין בו progress)
-function _uploadProofWithProgress(path, proof, onProgress) {
-  return new Promise(function(resolve){
+// ── העלאת פרופר ל-Firebase Storage (מהיר בהרבה מ-base64 ב-RTDB) ──────────────
+var _PROOF_BUCKET = 'solan-printing.firebasestorage.app';
+function _proofExt(proof) {
+  if (!proof || !proof.type) return '';
+  if (proof.type === 'application/pdf') return '.pdf';
+  var m = /^image\/(\w+)/.exec(proof.type);
+  return m ? '.' + (m[1] === 'jpeg' ? 'jpg' : m[1]) : '';
+}
+function _uploadProofToStorage(path, file, onProgress) {
+  return new Promise(function(resolve, reject){
     try {
-      var body = JSON.stringify(proof);
       var xhr = new XMLHttpRequest();
-      xhr.open('PUT', _FBURL + '/' + path + '.json', true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.open('POST', 'https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o?name=' + encodeURIComponent(path));
+      xhr.timeout = 0; // קבצים גדולים — בלי timeout
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
       if (xhr.upload) xhr.upload.onprogress = function(e){
         if (e.lengthComputable && onProgress) onProgress(Math.min(99, Math.round(e.loaded / e.total * 100)));
       };
-      xhr.onload  = function(){ if (onProgress) onProgress(100); resolve(xhr.status >= 200 && xhr.status < 300); };
-      xhr.onerror = function(){ resolve(false); };
-      xhr.ontimeout = function(){ resolve(false); };
-      xhr.send(body);
-    } catch(e) { resolve(false); }
+      xhr.onload = function(){
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            var j = JSON.parse(xhr.responseText);
+            var token = (j.downloadTokens || '').split(',')[0] || '';
+            if (onProgress) onProgress(100);
+            resolve('https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o/' + encodeURIComponent(path) + '?alt=media&token=' + token);
+          } catch(e){ reject(new Error('bad-response')); }
+        } else { reject(new Error('storage-' + xhr.status)); }
+      };
+      xhr.onerror = function(){ reject(new Error('network')); };
+      xhr.send(file);
+    } catch(e) { reject(e); }
   });
 }
-function _showProofProgress(pct) {
-  var el = document.getElementById('proof-upload-progress');
+function _deleteProofStorage(spath) {
+  if (!spath) return;
+  try { fetch('https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o/' + encodeURIComponent(spath), { method: 'DELETE' }).catch(function(){}); } catch(e){}
+}
+
+// ── מדי התקדמות מרובים: מוערמים בפינה השמאלית-תחתונה, אחד מתחת לשני ──
+function _showProofProgress(uid, label, pct) {
+  var stack = document.getElementById('proof-progress-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'proof-progress-stack';
+    stack.style.cssText = 'position:fixed;bottom:18px;left:18px;z-index:100001;display:flex;flex-direction:column;gap:10px;direction:rtl;max-width:320px';
+    document.body.appendChild(stack);
+  }
+  var el = document.getElementById(uid);
   if (!el) {
     el = document.createElement('div');
-    el.id = 'proof-upload-progress';
-    el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:100001;background:#1e293b;color:#fff;padding:13px 20px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);font-family:Heebo,sans-serif;min-width:280px;direction:rtl';
-    el.innerHTML = '<div style="font-size:.86rem;font-weight:800;margin-bottom:9px">⏳ מעלה פרופר... <span id="pup-pct">0%</span></div>'
-      + '<div style="height:9px;background:#334155;border-radius:6px;overflow:hidden"><div id="pup-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#c9a84c);transition:width .25s"></div></div>'
-      + '<div style="font-size:.72rem;color:#94a3b8;margin-top:7px">אל תסגור את החלון עד לסיום</div>';
-    document.body.appendChild(el);
+    el.id = uid;
+    el.style.cssText = 'background:#1e293b;color:#fff;padding:11px 15px;border-radius:12px;box-shadow:0 6px 22px rgba(0,0,0,.32);font-family:Heebo,sans-serif;min-width:240px';
+    el.innerHTML = '<div style="font-size:.8rem;font-weight:800;margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">⏳ מעלה: ' + escHtml(label || 'פרופר') + ' <span class="pup-pct">0%</span></div>'
+      + '<div style="height:8px;background:#334155;border-radius:6px;overflow:hidden"><div class="pup-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#c9a84c);transition:width .25s"></div></div>';
+    stack.appendChild(el);
   }
-  var bar = document.getElementById('pup-bar'), lbl = document.getElementById('pup-pct');
+  var bar = el.querySelector('.pup-bar'), lbl = el.querySelector('.pup-pct');
   if (bar) bar.style.width = pct + '%';
   if (lbl) lbl.textContent = pct + '%';
 }
-function _hideProofProgress() {
-  var el = document.getElementById('proof-upload-progress');
+function _hideProofProgress(uid) {
+  var el = document.getElementById(uid);
   if (el) el.remove();
+  var stack = document.getElementById('proof-progress-stack');
+  if (stack && !stack.children.length) stack.remove();
 }
 
 function _saveProofFor(cardId, runKey, proof) {
-  if (!cardId || cardId === 'preview' || !proof) return;
-  var path = runKey ? 'proofs/' + cardId + '/' + runKey : 'proofs/' + cardId;
+  if (!cardId || cardId === 'preview' || !proof || !proof.file) return;
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  var spath = 'cardProofs/' + cardId + '/' + (runKey || 'full') + '-' + Date.now() + _proofExt(proof);
   if (c) {
     c.hasProof = true;
-    c.proofUploading = true;          // עדיין בהעלאה — עד שה-fbPut יסתיים
-    c.proofUploadedAt = Date.now(); // לניקוי אוטומטי אחרי 24 שעות
+    c.proofUploading = true;
+    c.proofUploadedAt = Date.now(); // לניקוי אוטומטי
     if (runKey) {
       if (!c.runProofs) c.runProofs = {};
       c.runProofs[runKey] = { name: proof.name, type: proof.type, uploadedAt: Date.now(), uploading: true };
@@ -5697,26 +5722,31 @@ function _saveProofFor(cardId, runKey, proof) {
     persist();
     if (typeof renderCards === 'function') renderCards();
   }
-  _showProofProgress(0);
-  _uploadProofWithProgress(path, proof, function(pct){ _showProofProgress(pct); }).then(function(ok){
-    _hideProofProgress();
-    if (ok === false) throw new Error('upload failed');
+  var uid = 'pu_' + cardId + '_' + (runKey || 'full') + '_' + Date.now();
+  _showProofProgress(uid, proof.name, 0);
+  _uploadProofToStorage(spath, proof.file, function(pct){ _showProofProgress(uid, proof.name, pct); }).then(function(url){
+    _hideProofProgress(uid);
     if (c) {
       c.proofUploading = false;
-      if (runKey && c.runProofs && c.runProofs[runKey]) c.runProofs[runKey].uploading = false;
+      if (runKey) {
+        if (!c.runProofs) c.runProofs = {};
+        c.runProofs[runKey] = { name: proof.name, type: proof.type, url: url, path: spath, uploadedAt: Date.now() };
+      } else {
+        c.proofUrl = url; c.proofPath = spath; c.proofName = proof.name; c.proofType = proof.type;
+      }
       persist();
       if (typeof renderCards === 'function') renderCards();
     }
     showToast('✅ הפרופר הועלה ונשמר');
   }).catch(function(){
-    _hideProofProgress();
+    _hideProofProgress(uid);
     // ההעלאה נכשלה — בטל את הסימון כדי שלא יוצג פרופר שלא קיים
     if (c) {
       c.proofUploading = false;
       if (runKey) {
         if (c.runProofs) { delete c.runProofs[runKey]; if (!Object.keys(c.runProofs).length) { delete c.runProofs; c.hasProof = false; } }
       } else {
-        c.hasProof = false; delete c.proofName; delete c.proofType;
+        c.hasProof = false; delete c.proofName; delete c.proofType; delete c.proofUrl; delete c.proofPath;
       }
       persist();
       if (typeof renderCards === 'function') renderCards();
@@ -5747,7 +5777,8 @@ function _cleanupOldProofs() {
       Object.keys(c.runProofs).forEach(function(rk) {
         var up = c.runProofs[rk] && c.runProofs[rk].uploadedAt;
         if (_proofExpired(up, doneAtMs, now)) {
-          if (window._fbPut) window._fbPut('proofs/' + c.id + '/' + rk, null);
+          if (c.runProofs[rk] && c.runProofs[rk].path) _deleteProofStorage(c.runProofs[rk].path); // מחק מ-Storage
+          if (window._fbPut) window._fbPut('proofs/' + c.id + '/' + rk, null);                    // ניקוי legacy
           delete c.runProofs[rk];
           changed = true;
         }
@@ -5757,8 +5788,9 @@ function _cleanupOldProofs() {
       // פרופר יחיד — אם אין חותמת העלאה (פרופר ישן), קבע אותה עכשיו כדי שתחל ספירת השבוע
       if (!c.proofUploadedAt) { c.proofUploadedAt = now; changed = true; }
       else if (_proofExpired(c.proofUploadedAt, doneAtMs, now)) {
-        if (window._fbPut) window._fbPut('proofs/' + c.id, null);
-        c.hasProof = false; delete c.proofName; delete c.proofType; delete c.proofUploadedAt;
+        if (c.proofPath) _deleteProofStorage(c.proofPath);          // מחק מ-Storage
+        if (window._fbPut) window._fbPut('proofs/' + c.id, null);   // ניקוי legacy
+        c.hasProof = false; delete c.proofName; delete c.proofType; delete c.proofUploadedAt; delete c.proofUrl; delete c.proofPath;
         changed = true;
       }
     }
@@ -5803,8 +5835,10 @@ function _clearFormProof() {
   if (window._editingCardId) {
     var c = (cards||[]).find(function(x){ return String(x.id) === String(window._editingCardId); });
     if (c && c.hasProof) {
+      if (c.proofPath) _deleteProofStorage(c.proofPath);
+      if (c.runProofs) Object.keys(c.runProofs).forEach(function(rk){ if (c.runProofs[rk] && c.runProofs[rk].path) _deleteProofStorage(c.runProofs[rk].path); });
       if (window._fbPut) window._fbPut('proofs/' + c.id, null);
-      c.hasProof = false; delete c.proofName; delete c.proofType;
+      c.hasProof = false; delete c.proofName; delete c.proofType; delete c.proofUrl; delete c.proofPath; delete c.runProofs;
       // persist + renderCards יקראו בשמירת הכרטיס — לא כאן כדי לא לאפס את הטופס
     }
   }
@@ -5835,13 +5869,23 @@ function _dataUrlToBlob(dataUrl) {
 function _openProofByKey(cardId, runKey) {
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
   var uploading = c && (c.proofUploading || (runKey && c.runProofs && c.runProofs[runKey] && c.runProofs[runKey].uploading));
+  // פרופר חדש שמור ב-Storage — נפתח ישירות מה-URL (מהיר, בלי הורדה מ-RTDB)
+  var directUrl = null;
+  if (c) {
+    if (runKey) { if (c.runProofs && c.runProofs[runKey]) directUrl = c.runProofs[runKey].url; }
+    else { directUrl = c.proofUrl; }
+  }
+  if (directUrl) {
+    var w0 = window.open(directUrl, '_blank');
+    if (!w0) showToast('יש לאפשר חלונות קופצים בדפדפן');
+    return;
+  }
+  if (uploading) { showToast('⏳ הפרופר עדיין בהעלאה — נסה שוב בעוד כמה שניות'); return; }
+  // פרופר ישן (legacy) — base64 ב-RTDB
   var path = runKey ? 'proofs/' + cardId + '/' + runKey : 'proofs/' + cardId;
   showToast('📄 טוען פרופר...');
   window._fbGet(path).then(function(p) {
-    if (!p || !p.data) {
-      showToast(uploading ? '⏳ הפרופר עדיין בהעלאה — נסה שוב בעוד כמה שניות' : '⚠️ אין פרופר מצורף לכרטיס זה');
-      return;
-    }
+    if (!p || !p.data) { showToast('⚠️ אין פרופר מצורף לכרטיס זה'); return; }
     try {
       var url = URL.createObjectURL(_dataUrlToBlob(p.data));
       var w = window.open(url, '_blank');
@@ -15255,34 +15299,39 @@ function _operatorMarkDone(qid) {
   _renderOperatorScreen();
 }
 
+function _opProofOverlay(url, type, label, revoke) {
+  var isPdf = (type||'').indexOf('pdf') !== -1 || /\.pdf(\?|$)/i.test(url);
+  var ov = document.createElement('div');
+  ov.id = 'op-proof-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;flex-direction:column';
+  ov.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;flex-shrink:0">'
+    + '<span style="color:white;font-size:.85rem;font-weight:700;font-family:Heebo,sans-serif">' + escHtml(label||'פרופר') + '</span>'
+    + '<button onclick="var o=document.getElementById(\'op-proof-overlay\');if(o)o.remove()" '
+    + 'style="background:white;border:none;border-radius:8px;padding:8px 18px;font-size:1rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">✕ סגור</button></div>'
+    + (isPdf
+      ? '<iframe src="' + url + '" style="flex:1;border:none;width:100%"></iframe>'
+      : '<img src="' + url + '" style="flex:1;object-fit:contain;width:100%;min-height:0">');
+  document.body.appendChild(ov);
+  if (revoke) setTimeout(function(){ URL.revokeObjectURL(url); }, 120000);
+}
 function _opViewProof(cardId, runKey) {
   if (!cardId) return;
-  showToast('📄 טוען פרופר...');
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  // פרופר חדש ב-Storage — פתח ישירות מה-URL
+  var rec = runKey ? (c && c.runProofs && c.runProofs[runKey]) : c;
+  var directUrl = runKey ? (rec && rec.url) : (c && c.proofUrl);
+  var directType = runKey ? (rec && rec.type) : (c && c.proofType);
+  if (directUrl) { _opProofOverlay(directUrl, directType, runKey || 'פרופר', false); return; }
+  // פרופר ישן (legacy) — base64 ב-RTDB
+  showToast('📄 טוען פרופר...');
   var hasRunProof = runKey && c && c.runProofs && c.runProofs[runKey];
-  var hasLegacy   = c && c.hasProof && (!c.runProofs || !Object.keys(c.runProofs).length);
   var path = hasRunProof ? 'proofs/' + cardId + '/' + runKey
-           : hasLegacy   ? 'proofs/' + cardId
            : runKey       ? 'proofs/' + cardId + '/' + runKey
            :                'proofs/' + cardId;
   window._fbGet(path).then(function(p) {
     if (!p || !p.data) { showToast('⚠️ אין פרופר מצורף'); return; }
-    try {
-      var url  = URL.createObjectURL(_dataUrlToBlob(p.data));
-      var isPdf = (p.type||'').indexOf('pdf') !== -1;
-      var ov = document.createElement('div');
-      ov.id = 'op-proof-overlay';
-      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;flex-direction:column';
-      ov.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;flex-shrink:0">'
-        + '<span style="color:white;font-size:.85rem;font-weight:700;font-family:Heebo,sans-serif">' + (runKey||'פרופר') + '</span>'
-        + '<button onclick="var o=document.getElementById(\'op-proof-overlay\');if(o)o.remove()" '
-        + 'style="background:white;border:none;border-radius:8px;padding:8px 18px;font-size:1rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">✕ סגור</button></div>'
-        + (isPdf
-          ? '<iframe src="' + url + '" style="flex:1;border:none;width:100%"></iframe>'
-          : '<img src="' + url + '" style="flex:1;object-fit:contain;width:100%;min-height:0">');
-      document.body.appendChild(ov);
-      setTimeout(function(){ URL.revokeObjectURL(url); }, 120000);
-    } catch(e) { showToast('⚠️ שגיאה בטעינת הפרופר'); }
+    try { _opProofOverlay(URL.createObjectURL(_dataUrlToBlob(p.data)), p.type, runKey || 'פרופר', true); }
+    catch(e) { showToast('⚠️ שגיאה בטעינת הפרופר'); }
   });
 }
 
