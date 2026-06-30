@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782808470';
+window.APP_VERSION = '1782811198';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -5677,33 +5677,75 @@ function _deleteProofStorage(spath) {
   try { fetch('https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o/' + encodeURIComponent(spath), { method: 'DELETE' }).catch(function(){}); } catch(e){}
 }
 
-// ── מדי התקדמות מרובים: מוערמים בפינה השמאלית-תחתונה, אחד מתחת לשני ──
-function _showProofProgress(uid, label, pct) {
+// ── מדי התקדמות העלאת פרופרים — מצב משותף ב-Firebase ──────────────────────
+// כל העלאה פעילה נרשמת תחת proofUploads/<uid> כדי שתהיה גלויה לכל המשתמשים,
+// ותשרוד ריענון מסך (מתרנדרת מחדש מ-Firebase). העלאה שמתה (סגירת חלון) נעלמת
+// אוטומטית אחרי שאין עדכון (staleness).
+var _proofUploadsLocal = {};           // uid -> {cardName, fileName, pct, at, by}
+var _proofUploadsRemote = {};          // מה שהתקבל מ-Firebase ב-poll
+var _PROOF_UP_STALE = 90 * 1000;       // ללא עדכון 90ש' → נחשב לא פעיל
+function _proofUploaderName() {
+  try { if (typeof currentUser !== 'undefined' && currentUser) return currentUser.name || currentUser.id || 'משתמש'; } catch(e){}
+  try { if (_machineViewOpName) return _machineViewOpName; } catch(e){}
+  return 'משתמש';
+}
+function _proofUploadStart(uid, info) {
+  _proofUploadsLocal[uid] = { cardName: info.cardName||'', fileName: info.fileName||'', pct: 0, at: Date.now(), by: _proofUploaderName() };
+  if (window._fbPut) window._fbPut('proofUploads/' + uid, _proofUploadsLocal[uid]);
+  _renderProofUploads();
+}
+function _proofUploadProgress(uid, pct) {
+  var e = _proofUploadsLocal[uid]; if (!e) return;
+  e.pct = pct; e.at = Date.now();
+  _renderProofUploads();
+  // כתיבה ל-Firebase מדודה (כל ~5% או בסיום) כדי לא להציף
+  if (pct >= 100 || pct - (e._lastFb == null ? -10 : e._lastFb) >= 5) {
+    e._lastFb = pct;
+    if (window._fbPut) window._fbPut('proofUploads/' + uid, { cardName:e.cardName, fileName:e.fileName, pct:pct, at:e.at, by:e.by });
+  }
+}
+function _proofUploadEnd(uid) {
+  delete _proofUploadsLocal[uid];
+  if (window._fbPut) window._fbPut('proofUploads/' + uid, null);
+  _renderProofUploads();
+}
+function _pollProofUploads() {
+  if (!window._fbGet) return;
+  window._fbGet('proofUploads').then(function(d){
+    var now = Date.now(), remote = {};
+    if (d && typeof d === 'object') {
+      Object.keys(d).forEach(function(uid){
+        var e = d[uid]; if (!e) return;
+        if (now - (e.at||0) > 2 * _PROOF_UP_STALE) { if (window._fbPut) window._fbPut('proofUploads/' + uid, null); return; } // נקה רשומות מתות
+        remote[uid] = e;
+      });
+    }
+    _proofUploadsRemote = remote;
+    _renderProofUploads();
+  }).catch(function(){});
+}
+function _renderProofUploads() {
+  var now = Date.now(), merged = {};
+  Object.keys(_proofUploadsRemote).forEach(function(uid){ var e=_proofUploadsRemote[uid]; if (e && now-(e.at||0) <= _PROOF_UP_STALE) merged[uid]=e; });
+  Object.keys(_proofUploadsLocal).forEach(function(uid){ merged[uid]=_proofUploadsLocal[uid]; }); // מקומי גובר (טרי יותר)
+  var uids = Object.keys(merged).sort();
   var stack = document.getElementById('proof-progress-stack');
+  if (!uids.length) { if (stack) stack.remove(); return; }
   if (!stack) {
     stack = document.createElement('div');
     stack.id = 'proof-progress-stack';
-    stack.style.cssText = 'position:fixed;bottom:18px;left:18px;z-index:100001;display:flex;flex-direction:column;gap:10px;direction:rtl;max-width:320px';
+    stack.style.cssText = 'position:fixed;bottom:18px;left:18px;z-index:100001;display:flex;flex-direction:column;gap:10px;direction:rtl;max-width:340px';
     document.body.appendChild(stack);
   }
-  var el = document.getElementById(uid);
-  if (!el) {
-    el = document.createElement('div');
-    el.id = uid;
-    el.style.cssText = 'background:#1e293b;color:#fff;padding:11px 15px;border-radius:12px;box-shadow:0 6px 22px rgba(0,0,0,.32);font-family:Heebo,sans-serif;min-width:240px';
-    el.innerHTML = '<div style="font-size:.8rem;font-weight:800;margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">⏳ מעלה: ' + escHtml(label || 'פרופר') + ' <span class="pup-pct">0%</span></div>'
-      + '<div style="height:8px;background:#334155;border-radius:6px;overflow:hidden"><div class="pup-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#c9a84c);transition:width .25s"></div></div>';
-    stack.appendChild(el);
-  }
-  var bar = el.querySelector('.pup-bar'), lbl = el.querySelector('.pup-pct');
-  if (bar) bar.style.width = pct + '%';
-  if (lbl) lbl.textContent = pct + '%';
-}
-function _hideProofProgress(uid) {
-  var el = document.getElementById(uid);
-  if (el) el.remove();
-  var stack = document.getElementById('proof-progress-stack');
-  if (stack && !stack.children.length) stack.remove();
+  stack.innerHTML = uids.map(function(uid){
+    var e = merged[uid], pct = Math.max(0, Math.min(100, e.pct||0));
+    var title = (e.cardName ? escHtml(e.cardName) : 'פרופר') + (e.fileName ? ' — ' + escHtml(e.fileName) : '');
+    return '<div style="background:#1e293b;color:#fff;padding:11px 15px;border-radius:12px;box-shadow:0 6px 22px rgba(0,0,0,.32);font-family:Heebo,sans-serif;min-width:250px">'
+      + '<div style="font-size:.8rem;font-weight:800;margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">⏳ מעלה: ' + title + ' <span style="float:left;direction:ltr">' + pct + '%</span></div>'
+      + '<div style="height:8px;background:#334155;border-radius:6px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,#7c3aed,#c9a84c);transition:width .25s"></div></div>'
+      + (e.by ? '<div style="font-size:.68rem;color:#94a3b8;margin-top:5px">מעלה: ' + escHtml(e.by) + '</div>' : '')
+      + '</div>';
+  }).join('');
 }
 
 function _saveProofFor(cardId, runKey, proof) {
@@ -5724,9 +5766,9 @@ function _saveProofFor(cardId, runKey, proof) {
     if (typeof renderCards === 'function') renderCards();
   }
   var uid = 'pu_' + cardId + '_' + (runKey || 'full') + '_' + Date.now();
-  _showProofProgress(uid, proof.name, 0);
-  _uploadProofToStorage(spath, proof.file, function(pct){ _showProofProgress(uid, proof.name, pct); }).then(function(url){
-    _hideProofProgress(uid);
+  _proofUploadStart(uid, { cardName: (c && c.name) || '', fileName: proof.name });
+  _uploadProofToStorage(spath, proof.file, function(pct){ _proofUploadProgress(uid, pct); }).then(function(url){
+    _proofUploadEnd(uid);
     if (c) {
       c.proofUploading = false;
       if (runKey) {
@@ -5740,7 +5782,7 @@ function _saveProofFor(cardId, runKey, proof) {
     }
     showToast('✅ הפרופר הועלה ונשמר');
   }).catch(function(){
-    _hideProofProgress(uid);
+    _proofUploadEnd(uid);
     // ההעלאה נכשלה — בטל את הסימון כדי שלא יוצג פרופר שלא קיים
     if (c) {
       c.proofUploading = false;
@@ -6151,9 +6193,15 @@ function buildPrintCard(c) {
           (r.tumble?' <span style="font-size:.7rem;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:5px;padding:1px 6px;white-space:nowrap">מתהפך</span>':'')+
           ((r.paper||c.paper)?' <span style="font-size:.7rem;font-weight:600;color:#374151;background:#f3f4f6;border:1px solid #d1d5db;border-radius:5px;padding:1px 7px;white-space:nowrap">'+(r.paper||c.paper)+'</span>':'')+
         '</div>'; }).join('')
-    : (c.sheetsMode && _copiesNum)
-      ? '<strong style="font-size:1.35rem;font-weight:900">'+_copiesNum.toLocaleString()+'</strong><span style="font-size:.9rem;color:#555;margin-right:6px"> גיליונות</span>'
-      : '<span style="display:inline-block;min-width:170px;border-bottom:1.5px solid #999;height:1.5em"></span>';
+    : (function(){
+        // ללא ריצות (מצב גיליונות / מילוי ידני): מציגים את סימון "מתהפך" ברמת הכרטיס, שאחרת לא היה מופיע כלל
+        var _tb = c.tumble ? ' <span style="font-size:.75rem;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:5px;padding:2px 8px;white-space:nowrap">🔄 מתהפך</span>' : '';
+        return (c.sheetsMode && _copiesNum)
+          ? '<strong style="font-size:1.35rem;font-weight:900">'+_copiesNum.toLocaleString()+'</strong><span style="font-size:.9rem;color:#555;margin-right:6px"> גיליונות</span>' + _tb
+          : (c.tumble
+              ? '<span style="display:inline-block;min-width:90px;border-bottom:1.5px solid #999;height:1.5em"></span>' + _tb
+              : '<span style="display:inline-block;min-width:170px;border-bottom:1.5px solid #999;height:1.5em"></span>');
+      })();
 
   // "סה״כ עותקים" — יורד לחלק התחתון של הכרטיס כשאין ריצות מחושבות ואין מצב גיליונות
   const _totalCopiesBottomRow = (!_hasRuns && !c.sheetsMode && _copiesNum)
@@ -15416,6 +15464,9 @@ setTimeout(function(){ try { _purgeCustomerCards(); } catch(e){} }, 3000);
 setInterval(function(){ try { _purgeCustomerCards(); } catch(e){} }, 30 * 60 * 1000);
 setTimeout(function(){ try { _cleanupOldProofs(); } catch(e){} }, 5000);
 setInterval(function(){ try { _cleanupOldProofs(); } catch(e){} }, 60 * 60 * 1000);
+// מצב העלאות פרופרים משותף — נראה לכל המשתמשים ושורד ריענון מסך
+setTimeout(function(){ try { _pollProofUploads(); } catch(e){} }, 2500);
+setInterval(function(){ try { _pollProofUploads(); } catch(e){} }, 5000);
 // אתחול לוגין — אם זה מסך מפעיל, מדלגים על לוגין
 (function(){
   if (_initMachineViewMode()) return;
