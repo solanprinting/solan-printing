@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782807562';
+window.APP_VERSION = '1782808470';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2231,6 +2231,7 @@ window._fbSnapshot = {};
         <button class="btn" id="print-modal-proof-btn" onclick="_viewProof(window._printModalCardId)" style="background:#7c3aed;color:white;border-color:#7c3aed;display:none">📄 פרופר / פריסה</button>
         <button class="btn" id="print-modal-proof-attach-btn" onclick="document.getElementById('pm-proof-input').click()" style="background:#ede9fe;color:#5b21b6;border-color:#ddd6fe;display:none">📎 צרף/החלף פרופר</button>
         <button class="btn btn-primary" id="print-modal-save-btn" onclick="saveFromPreview()" style="display:none">💾 שמור כרטיס</button>
+        <button class="btn" id="print-modal-dup-btn" onclick="duplicateCard(window._printModalCardId)" style="background:#0f766e;color:white;border-color:#0f766e;display:none">📑 שכפל כרטיס</button>
         <button class="btn" id="print-modal-delete-btn" onclick="softDeleteCard(window._printModalCardId)" style="background:#991b1b;color:white;border-color:#991b1b;display:none">🗑️ מחק</button>
         <button class="btn btn-outline-w" onclick="closePrintModal()">סגור</button>
       </div>
@@ -6545,6 +6546,8 @@ function showPrintModal(card) {
   document.getElementById('print-modal-save-btn').style.display = 'none';
   var _delBtn = document.getElementById('print-modal-delete-btn');
   if (_delBtn) _delBtn.style.display = (card.id && card.id !== 'preview') ? 'inline-block' : 'none';
+  var _dupBtn = document.getElementById('print-modal-dup-btn');
+  if (_dupBtn) _dupBtn.style.display = (card.id && card.id !== 'preview') ? 'inline-block' : 'none';
   var _isReal = card.id && card.id !== 'preview';
   var _pvb = document.getElementById('print-modal-proof-btn');
   if (_pvb) _pvb.style.display = (_isReal && card.hasProof) ? 'inline-block' : 'none';
@@ -10600,6 +10603,34 @@ function softDeleteCard(id) {
   renderCards();
   if (typeof renderWorkList === 'function') renderWorkList();
   showToast('🗑️ הועבר לנמחקו');
+}
+
+function duplicateCard(id) {
+  if (!id || id === 'preview') return;
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(id); });
+  if (!c) { showToast('⚠️ לא נמצא כרטיס לשכפול'); return; }
+  var copy = JSON.parse(JSON.stringify(c));
+  copy.id = Date.now();
+  copy.status = 'pending';
+  copy.createdAt = new Date().toLocaleDateString('he-IL');
+  copy.orderDate = new Date().toISOString().split('T')[0];
+  copy.createdBy = currentUser ? currentUser.id : 'admin';
+  // איפוס מצב שלא צריך לעבור לעותק חדש: היסטוריית הדפסה, השלמה, צפיות, פרופר, מחיקה
+  delete copy.printedAt; delete copy.printCount; delete copy.doneAt; delete copy.deletedAt;
+  delete copy.viewedBy; delete copy.lastUpdatedBy; delete copy.lastUpdatedAt;
+  delete copy.hasProof; delete copy.proofUrl; delete copy.proofPath; delete copy.proofName;
+  delete copy.proofType; delete copy.proofUploading; delete copy.proofUploadedAt; delete copy.runProofs;
+  // איפוס סטטוס/חותמות הדפסה בריצות (אם קיימות) כדי שהעותק יהיה זמין מחדש
+  if (Array.isArray(copy.runs)) copy.runs.forEach(function(r){ delete r.done; delete r.doneAt; delete r.printDurationSec; });
+  cards.unshift(copy);
+  if (typeof _autoQueueAssignedRuns === 'function') _autoQueueAssignedRuns(copy); // ריצות עם מכונה → לתור; אחרת זמין
+  persist();
+  _logActivity && _logActivity('📑', 'כרטיס "' + (copy.name||'') + '" שוכפל');
+  closePrintModal();
+  switchTab('saved');
+  if (typeof renderCards === 'function') renderCards();
+  if (typeof renderWorkList === 'function') renderWorkList();
+  showToast('📑 הכרטיס שוכפל — מופיע בעבודות הזמינות');
 }
 
 function restoreCard(id) {
