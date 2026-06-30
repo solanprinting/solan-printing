@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782840248';
+window.APP_VERSION = '1782840497';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15684,15 +15684,25 @@ function _opInkKeyVal(color, i){
   var v = (parseFloat(base)||0) * (parseFloat(_opInk.factor)||100)/100;
   return Math.max(0, Math.min(100, Math.round(v)));
 }
+function _opInkMachine(){
+  var mv = (typeof _machineViewMachine!=='undefined' && _machineViewMachine) ? _machineViewMachine : '';
+  var name = mv.indexOf('8')>=0 ? 'היידלברג · 8 צבעים' : (mv.indexOf('4')>=0 ? 'Roland · 4 צבעים' : (mv||'מכונה'));
+  return { mv: mv, name: name };
+}
 function _opInkPanelEl(jobName){
   _opInk.job = jobName || '';
+  var _m = _opInkMachine();
+  var _savedZones = parseInt(localStorage.getItem('solanInkZones_'+_m.mv)) || 32;  // ברירת מחדל 32 לכל מכונה ללא ערך שמור
+  _opInk.zones = _savedZones;
   var bigInput = 'width:62px;height:42px;font-size:1.15rem;font-weight:800;text-align:center;border:2px solid #475569;border-radius:8px;background:#fff;color:#0f172a;font-family:Heebo,sans-serif';
   var p = document.createElement('div');
   p.id = 'op-ink-panel';
   p.style.cssText = 'display:none;background:#0f172a;color:#fff;border-top:4px solid #c9a84c;padding:12px 14px;max-height:48vh;overflow:auto;font-family:Heebo,sans-serif;direction:rtl;flex-shrink:0';
   p.innerHTML =
       '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:12px">'
-    + '<span style="font-size:1.05rem;font-weight:900;color:#c9a84c">🎨 ברזי צבע — '+escHtml(jobName||'עבודה')+'</span>'
+    + '<span style="font-size:1.05rem;font-weight:900;color:#c9a84c">🎨 ברזי צבע</span>'
+    + '<span style="font-size:.9rem;font-weight:800;color:#fff;background:#334155;border-radius:6px;padding:4px 10px">🖨️ '+escHtml(_m.name)+'</span>'
+    + (jobName ? '<span style="font-size:.88rem;color:#cbd5e1">'+escHtml(jobName)+'</span>' : '')
     + '<label style="font-size:.9rem;font-weight:700">אזורים <input id="op-ink-zones" type="number" min="1" max="60" value="'+_opInk.zones+'" style="'+bigInput+';width:70px"></label>'
     + '<span style="width:1px;height:34px;background:#334155"></span>'
     + _OP_INK_META.map(function(m){ return '<label style="font-size:1rem;font-weight:900;color:'+(m.k==='Y'?'#FFD400':(m.k==='K'?'#e2e8f0':m.bar))+'">'+m.k+' % <input id="op-ink-'+m.k+'" type="number" min="0" max="100" value="'+_opInk[m.k]+'" style="'+bigInput+'"></label>'; }).join('')
@@ -15710,6 +15720,7 @@ function _opInkApply(){
   _opInk.zones  = Math.max(1, Math.min(60, parseInt(g('op-ink-zones'))||32));
   ['C','M','Y','K'].forEach(function(k){ _opInk[k] = Math.max(0, Math.min(100, parseFloat(g('op-ink-'+k))||0)); });
   _opInk.factor = Math.max(10, Math.min(200, parseFloat(g('op-ink-factor'))||100));
+  try { localStorage.setItem('solanInkZones_'+_opInkMachine().mv, _opInk.zones); } catch(e){}  // זכור מס' ברזים לכל מכונה
   _opInkRenderBars();
 }
 function _opInkSetKey(color, i){
