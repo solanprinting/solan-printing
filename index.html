@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782837239';
+window.APP_VERSION = '1782838286';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3924,20 +3924,9 @@ var RUN_AB_EXTRAS = [
   { key:'custom',      label:'עלון בגודל מצויין' }
 ];
 
-function buildRuns(totalPages, copies, fullSheet, singleSheet) {
+function buildRuns(totalPages, copies, fullSheet) {
   const halfSheet    = fullSheet / 2;
   const quarterSheet = fullSheet / 4;
-
-  // אופציה: כל העמודים על גיליון אחד (חתימה אחת) — אם הם נכנסים בגיליון מלא.
-  // ריצה אחת, כל הכמות, עם אפשרות A+B (להוסיף פלאייר במקום הפנוי בגיליון).
-  if (singleSheet && totalPages > 0 && totalPages <= fullSheet) {
-    return [{
-      num: 1, pages: totalPages, pageRange: 'עמ\' 1–' + totalPages, copies: copies,
-      folds: (fullSheet === 32 ? '4 קיפולים' : '3 קיפולים'),
-      machine: '', abMandatory: false, abEligible: true, abEnabled: false,
-      abExtras: [], abExtraCustomSize: '', manualExtra: '', upCount: 1, singleSheet: true
-    }];
-  }
 
   // בנה שכבות מבחוץ פנימה
   // השאר = totalPages mod fullSheet → שכבה חלקית (הריצה הקצרה ביותר), והיא ברירת
@@ -4063,8 +4052,8 @@ function calcRuns() {
   var _ssFits = pages > 0 && pages <= fs;
   if (_ssRow) _ssRow.style.display = _ssFits ? 'flex' : 'none';
   if (!_ssFits && _ssBox) _ssBox.checked = false;
-  var _single = !!(_ssBox && _ssBox.checked && _ssFits);
-  currentRuns = buildRuns(pages, copies, fs, _single);
+  // הדגל משפיע על התצוגה בלבד (גיליון משותף A+B) — הריצות נשארות מפוצלות עם הטווח הנכון
+  currentRuns = buildRuns(pages, copies, fs);
   currentRuns.forEach(r=>{
     if(prev[r.num]) r.machine=prev[r.num];
     if(prevTumble[r.num]) r.tumble=true;
@@ -4082,6 +4071,11 @@ function calcRuns() {
       r.copies = Math.ceil(copies / _up);
     }
   });
+  // גיליון משותף A+B: מדפיסים את כל העמודים על גיליון אחד וחותכים אחרי ההדפסה.
+  // לכן כמות הגיליונות = כל הכמות (לא מחולקת), והדגל נשמר לתצוגה.
+  if (_ssBox && _ssBox.checked && _ssFits) {
+    currentRuns.forEach(function(r){ r.copies = copies; r.upCount = 1; });
+  }
 
   _runsLabel = lbl; _runsPages = pages; _runsCopies = copies; _runsFs = fs;
   _renderCurrentRunsOutput();
@@ -6260,9 +6254,29 @@ function buildPrintCard(c) {
     : null;
   const _copiesNum = parseInt(c.copies)||0;
 
+  // גיליון משותף A+B: כל העמודים מודפסים על גיליון אחד ונחתכים אחר כך לריצות
+  const _combined = !!c.singleSheet && _hasRuns;
+  const _runBreak = _runs.map(function(r){ return r.pages; }).join('+');   // לדוגמה "8+16"
+  // תוספות A+B (פלאייר/פלייסמנט/מלל) שנוספו לגיליון — לאיסוף להערות
+  const _abExtrasText = (function(){
+    var out=[];
+    _runs.forEach(function(r){
+      if (!r.abEnabled) return;
+      (r.abExtras||[]).forEach(function(k){
+        var fnd=(RUN_AB_EXTRAS||[]).find(function(e){return e.key===k;});
+        if (fnd) out.push((k==='custom' && r.abExtraCustomSize) ? (fnd.label+' ('+r.abExtraCustomSize+')') : fnd.label);
+      });
+      if (r.manualExtra && r.manualExtra.trim()) out.push(r.manualExtra.trim());
+    });
+    return out;
+  })();
+
   // שדה "מס' גיליונות" — מוצג תמיד (ריק וניתן למילוי ביד כשאין ריצות מחושבות)
   const _sheetsLabel = 'מס\' גיליונות';
-  const _sheetsVal   = _hasRuns
+  const _sheetsVal   = _combined
+    ? ('<strong style="font-size:1.35rem;font-weight:900">'+_copiesNum.toLocaleString()+'</strong><span style="font-size:.9rem;color:#555;margin-right:6px"> גיליונות</span>'
+       + ' <span style="font-size:.74rem;font-weight:800;color:#6d28d9;background:#f3e8ff;border:1.5px solid #c4b5fd;border-radius:6px;padding:2px 9px;white-space:nowrap">🗞️ גיליון A+B</span>')
+    : _hasRuns
     ? _runs.map(function(r,i){ return (i>0?'<div style="border-top:1px solid #e0e0e0;margin:4px 0"></div>':'')+
         '<div style="font-size:1.2rem;font-weight:900;line-height:1.9;display:flex;align-items:center;gap:10px">'+
           'ריצה '+r.num+' — '+(parseInt(r.copies)||0).toLocaleString()+
@@ -6299,7 +6313,12 @@ function buildPrintCard(c) {
       _sheetsTotalLine = 'סה"כ: <strong>' + _si.total.toLocaleString() + ' יח\'</strong>';
     }
   }
-  const _notesVal = [c.notes||'',
+  // גיליון משותף A+B — שורת פירוט להערות: הריצות שייחתכו + התוספת שנוספה לגיליון
+  const _combinedNote = _combined
+    ? ('🗞️ גיליון משותף A+B · ייחתך ל: ' + _runs.map(function(r){ return r.pages+' עמ\''; }).join(' + ')
+       + (_abExtrasText.length ? ' · תוספת בגיליון: ' + _abExtrasText.join(', ') : ''))
+    : '';
+  const _notesVal = [_combinedNote, c.notes||'',
       _copiesLine ? 'מספר עותקים: <strong>'+_copiesLine+'</strong>' : '',
       _sheetsTotalLine]
     .filter(Boolean).join('<br>');
@@ -6314,7 +6333,7 @@ function buildPrintCard(c) {
   const _pagesRow = `
     <div style="display:flex;padding:12px 0 0;align-items:baseline">
       <div style="width:165px;font-size:1.05rem;font-weight:700;color:#333;flex-shrink:0">מס' עמ'</div>
-      <div style="font-size:1.18rem;color:#111;font-weight:500;flex:1">${c.pages ? '<strong style="font-size:1.45rem;font-weight:900">'+c.pages+'</strong>' : (c.pagesNote ? '' : '<span style="display:inline-block;min-width:170px;border-bottom:1.5px solid #999;height:1.5em"></span>')}${c.pagesNote ? ' <span style="font-size:1.05rem;color:#333;font-weight:600">'+escHtml(c.pagesNote)+'</span>' : ''}</div>
+      <div style="font-size:1.18rem;color:#111;font-weight:500;flex:1">${c.pages ? '<strong style="font-size:1.45rem;font-weight:900">'+c.pages+'</strong>' : (c.pagesNote ? '' : '<span style="display:inline-block;min-width:170px;border-bottom:1.5px solid #999;height:1.5em"></span>')}${(_combined && _runBreak.indexOf('+')>=0) ? ' <span style="font-size:1.05rem;color:#6d28d9;font-weight:800">('+_runBreak+')</span>' : ''}${c.pagesNote ? ' <span style="font-size:1.05rem;color:#333;font-weight:600">'+escHtml(c.pagesNote)+'</span>' : ''}</div>
     </div>`;
 
   const fieldsTop = [
