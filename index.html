@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782893912';
+window.APP_VERSION = '1782898127';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1333,6 +1333,10 @@ window._fbSnapshot = {};
           <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.82rem;color:#374151;background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:7px;padding:4px 10px">
             <input type="checkbox" id="f-sheets-mode" onchange="toggleSheetsMode()" style="accent-color:#0284c7">
             גיליונות (במקום עותקים)
+          </label>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.82rem;color:#92400e;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:7px;padding:4px 10px;margin-right:8px">
+            <input type="checkbox" id="f-all-paper" onchange="toggleAllPaper()" style="accent-color:#d97706">
+            📦 כל הנייר שיש
           </label>
           <div id="f-per-sheet-wrap" style="display:none;margin-top:6px;display:none;align-items:center;gap:8px">
             <label style="font-size:.82rem;color:#374151;font-weight:600;white-space:nowrap">יח' בגיליון:</label>
@@ -4098,6 +4102,23 @@ function toggleSheetsMode() {
   updateSheetsCalc();
 }
 
+// "כל הנייר שיש" — במקום כמות מספרית, הכרטיס יסמן להדפיס על כל הנייר הקיים.
+// כשמסומן: מנטרלים את שדה הכמות (אין מספר) ומכבים "גיליונות במקום עותקים".
+function toggleAllPaper() {
+  var checked = (document.getElementById('f-all-paper')||{}).checked;
+  var inp = document.getElementById('f-copies');
+  if (inp) {
+    inp.disabled = checked;
+    inp.style.opacity = checked ? '0.5' : '';
+    if (checked) inp.value = '';
+  }
+  if (checked) {
+    var sm = document.getElementById('f-sheets-mode');
+    if (sm && sm.checked) { sm.checked = false; toggleSheetsMode(); }
+  }
+  updateSheetsCalc();
+}
+
 function toggleMachineTumble() {
   var m = (document.getElementById('f-machine')||{}).value;
   var wrap = document.getElementById('f-tumble-wrap');
@@ -5585,6 +5606,9 @@ function editCard(id) {
   if (_pswEdit) _pswEdit.style.display = c.sheetsMode ? 'flex' : 'none';
   var _psEdit = document.getElementById('f-per-sheet');
   if (_psEdit) _psEdit.value = String(c.perSheet && c.perSheet > 1 ? c.perSheet : 1);
+  // כל הנייר שיש
+  var _apEdit = document.getElementById('f-all-paper');
+  if (_apEdit) { _apEdit.checked = !!c.allPaper; toggleAllPaper(); }
   // tumble
   toggleMachineTumble();
   var _tumbleEdit = document.getElementById('f-tumble');
@@ -5613,7 +5637,8 @@ function clearForm() {
   ['f-name','f-type','f-order-date','f-delivery-date','f-copies','f-pages','f-pages-note','f-size','f-paper','f-notes','f-internal-notes','f-machine','f-placement-details']
     .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   document.querySelectorAll('input[name="color"]').forEach(r=>r.checked=false);
-  ['f-needs-folding','f-needs-binding','f-single-sheet'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=false; });
+  ['f-needs-folding','f-needs-binding','f-single-sheet','f-all-paper'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=false; });
+  var _apClr = document.getElementById('f-copies'); if (_apClr) { _apClr.disabled = false; _apClr.style.opacity = ''; }
   document.querySelectorAll('#view-new .size-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('runs-field').style.display='none';
   document.getElementById('runs-output').innerHTML='';
@@ -6142,6 +6167,7 @@ function _saveCardNew() {
     deliveryDate: document.getElementById('f-delivery-date').value,
     copies:       document.getElementById('f-copies').value,
     sheetsMode:   !!(document.getElementById('f-sheets-mode')&&document.getElementById('f-sheets-mode').checked),
+    allPaper:     !!(document.getElementById('f-all-paper')&&document.getElementById('f-all-paper').checked),
     pages:        document.getElementById('f-pages').value,
     pagesNote:    (document.getElementById('f-pages-note')||{value:''}).value.trim(),
     color:        getColor(),
@@ -6198,6 +6224,7 @@ function buildTempCard() {
     deliveryDate: document.getElementById('f-delivery-date').value,
     copies:       document.getElementById('f-copies').value,
     sheetsMode:   !!(document.getElementById('f-sheets-mode')&&document.getElementById('f-sheets-mode').checked),
+    allPaper:     !!(document.getElementById('f-all-paper')&&document.getElementById('f-all-paper').checked),
     pages:        document.getElementById('f-pages').value,
     pagesNote:    (document.getElementById('f-pages-note')||{value:''}).value.trim(),
     color:        getColor(),
@@ -6313,7 +6340,9 @@ function buildPrintCard(c) {
 
   // שדה "מס' גיליונות" — מוצג תמיד (ריק וניתן למילוי ביד כשאין ריצות מחושבות)
   const _sheetsLabel = 'מס\' גיליונות';
-  const _sheetsVal   = _combined
+  const _sheetsVal   = c.allPaper
+    ? '<strong style="font-size:1.3rem;font-weight:900;color:#92400e;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:7px;padding:3px 12px;white-space:nowrap">📦 כל הנייר שיש</strong>'
+    : _combined
     ? ('<strong style="font-size:1.35rem;font-weight:900">'+_copiesNum.toLocaleString()+'</strong><span style="font-size:.9rem;color:#555;margin-right:6px"> גיליונות</span>'
        + ' <span style="font-size:.74rem;font-weight:800;color:#6d28d9;background:#f3e8ff;border:1.5px solid #c4b5fd;border-radius:6px;padding:2px 9px;white-space:nowrap">🗞️ גיליון A+B</span>')
     : _hasRuns
@@ -6359,7 +6388,9 @@ function buildPrintCard(c) {
     ? ('🗞️ גיליון משותף A+B · ייחתך ל: ' + _runs.map(function(r){ return r.pages+' עמ\''; }).join(' + ')
        + (_abExtrasText.length ? ' · תוספת בגיליון: ' + _abExtrasText.join(', ') : ''))
     : '';
-  const _notesVal = [_combinedNote, c.notes||'',
+  // הערות המשתמש: משמרים ירידות שורה (\n → <br>) כדי שהכרטיס יראה בדיוק כמו שהוקלד
+  const _userNotesHtml = (c.notes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+  const _notesVal = [_combinedNote, _userNotesHtml,
       _copiesLine ? 'מספר עותקים: <strong>'+_copiesLine+'</strong>' : '',
       _sheetsTotalLine]
     .filter(Boolean).join('<br>');
@@ -6447,13 +6478,13 @@ function buildPrintCardBlankRuns(c) {
     ['סוג עבודה', c.type||''],
     ['תאריך הזמנה', c.orderDate||''],
     ['מועד אספקה', `<strong>${c.deliveryDate||'לא הוגדר'}</strong>`],
-    ['מס\' עותקים', c.copies ? '<strong style="font-size:1.35rem;font-weight:900">'+parseInt(c.copies).toLocaleString()+'</strong>' : ''],
+    ['מס\' עותקים', c.allPaper ? '<strong style="font-size:1.2rem;font-weight:900;color:#92400e">📦 כל הנייר שיש</strong>' : (c.copies ? '<strong style="font-size:1.35rem;font-weight:900">'+parseInt(c.copies).toLocaleString()+'</strong>' : '')],
     ['מס\' עמודים', c.pages ? '<strong style="font-size:1.35rem;font-weight:900">'+c.pages+'</strong>' : ''],
     ['גודל סופי', c.size||''],
     ['סוג נייר', c.paper||''],
     ['מכונה', c.machine||''],
     ['צבע', c.color||''],
-    ['הערות', c.notes||''],
+    ['הערות', (c.notes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')],
   ];
 
   const fieldRows = fields.map(([lbl,val]) => val ? `
@@ -11065,13 +11096,13 @@ function _jobCardHtml(c) {
       <div class="jc-meta">
         <div class="jc-field"><div class="jcf-label">תאריך הזמנה</div><div class="jcf-val">${c.orderDate||'—'}</div></div>
         <div class="jc-field"><div class="jcf-label">מועד אספקה</div><div class="jcf-val">${c.deliveryDate||'—'}</div></div>
-        <div class="jc-field"><div class="jcf-label">עותקים / עמודים</div><div class="jcf-val" style="display:flex;align-items:center;gap:6px">${c.copies||'—'} / ${c.pages||'—'} <button onclick="editCardCopies(${c.id})" title="עדכן כמות" style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:0;color:var(--gray)">✏️</button></div></div>
+        <div class="jc-field"><div class="jcf-label">עותקים / עמודים</div><div class="jcf-val" style="display:flex;align-items:center;gap:6px">${c.allPaper?'📦 כל הנייר':(c.copies||'—')} / ${c.pages||'—'} <button onclick="editCardCopies(${c.id})" title="עדכן כמות" style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:0;color:var(--gray)">✏️</button></div></div>
         <div class="jc-field"><div class="jcf-label">גודל</div><div class="jcf-val">${c.size||'—'}</div></div>
         <div class="jc-field"><div class="jcf-label">נייר</div><div class="jcf-val">${c.paper||'—'}</div></div>
         <div class="jc-field"><div class="jcf-label">צבע</div><div class="jcf-val">${c.color||'—'}</div></div>
         ${c.machine?`<div class="jc-field"><div class="jcf-label">מכונה</div><div class="jcf-val">${c.machine}</div></div>`:''}
       </div>
-      ${c.notes?'<div style="padding:7px 16px;font-size:.84rem;color:var(--gray);border-bottom:1px solid var(--line)"><strong>הערות:</strong> '+c.notes+'</div>':''}
+      ${c.notes?'<div style="padding:7px 16px;font-size:.84rem;color:var(--gray);border-bottom:1px solid var(--line)"><strong>הערות:</strong> '+escHtml(c.notes).replace(/\n/g,'<br>')+'</div>':''}
       ${c.internalNotes?'<div style="padding:7px 16px;font-size:.84rem;background:#fffbeb;border-bottom:1px solid #fde68a;color:#92400e"><strong>🔒 פנימי:</strong> '+escHtml(c.internalNotes)+'</div>':''}
       ${(c.runs&&c.runs.length)?'<div class="jc-runs">'+c.runs.map(r=>'<span class="run-chip">ריצה '+r.num+': '+r.pages+' עמ\' · '+r.copies.toLocaleString()+' יח\''+(r.machine?' · '+r.machine:'')+'</span>').join('')+'</div>':''}
       <div class="jc-actions">
@@ -11993,7 +12024,7 @@ function validateCard(card) {
   var _hasRunPaper = (card.runs||[]).some(function(r){ return r && r.paper && String(r.paper).trim(); });
   if ((!card.paper || !card.paper.trim()) && !_hasRunPaper)
     warns.push({ code: 'no_paper',    msg: 'סוג נייר לא הוזן',      sev: 'error' });
-  if (copies === 0)
+  if (copies === 0 && !card.allPaper)
     warns.push({ code: 'zero_copies', msg: 'כמות עותקים היא 0',      sev: 'error' });
 
   // ── אזהרות (אפשר להמשיך אבל כדאי לתקן) ──────────────────────
