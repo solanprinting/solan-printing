@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782902251';
+window.APP_VERSION = '1782902815';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15314,8 +15314,24 @@ function _renderOperatorScreen() {
   // בדוק מצב הדפסה נוכחי
   var printing = _opGetPrinting(machine);
   var printingEntry = printing ? active.find(function(e){ return String(e.qid) === String(printing.qid); }) : null;
-  // אם העבודה המודפסת כבר סומנה done — נקה
-  if (printing && !printingEntry) { _opSetPrinting(machine, null); printing = null; }
+  if (printing) {
+    var _qEntry = (machineQueue||[]).find(function(e){ return String(e.qid) === String(printing.qid); });
+    if (_qEntry && _qEntry.done) {
+      // העבודה הושלמה באמת — נקה מצב "בהדפסה"
+      _opSetPrinting(machine, null); printing = null; printingEntry = null;
+      window._opPrintCache = null;
+    } else if (printingEntry) {
+      // תקין — שומרים עותק גיבוי כדי שרענון עם נתונים חלקיים לא יוציא את העבודה מהדפסה
+      window._opPrintCache = { machine: machine, entry: printingEntry };
+    } else {
+      // לא נמצאה ב-active וגם לא סומנה הושלמה — כנראה רענון עם נתונים חלקיים/מרוץ poll.
+      // אל תוציא את העבודה מהדפסה: משתמשים בעותק האחרון הידוע.
+      if (window._opPrintCache && window._opPrintCache.machine === machine &&
+          String(window._opPrintCache.entry.qid) === String(printing.qid)) {
+        printingEntry = window._opPrintCache.entry;
+      }
+    }
+  }
 
   var sq = function(v){ return "'" + String(v).replace(/\\/g,'\\\\').replace(/'/g,"\\'") + "'"; };
 
@@ -15595,7 +15611,20 @@ function _operatorMarkDone(qid) {
 function _opSpinStyle() {
   if (!document.getElementById('op-spin-style')) {
     var st = document.createElement('style'); st.id = 'op-spin-style';
-    st.textContent = '@keyframes opspin{to{transform:rotate(360deg)}}';
+    st.textContent = '@keyframes opspin{to{transform:rotate(360deg)}}'
+      // מסך מלא: הפרופר ימלא את כל המסך כמה שאפשר — מבטלים ריווח, צל וסרגל דחוס,
+      // כדי שהתמונה תשתמש בכל הגובה (object-fit:contain שומר שלא ייחתך)
+      + '#op-proof-overlay:fullscreen{background:#000}'
+      + '#op-proof-overlay:fullscreen #op-pv-viewport{padding:0!important}'
+      + '#op-proof-overlay:fullscreen .op-pv-stage{padding:0!important;gap:2px!important}'
+      + '#op-proof-overlay:fullscreen .op-pv-img{box-shadow:none!important}'
+      // סרגל דחוס במסך מלא — כפתורים קטנים יותר, פחות גובה, יותר מקום לתמונה
+      + '#op-proof-overlay:fullscreen>div:first-child{padding:4px 8px!important;gap:4px!important}'
+      + '#op-proof-overlay:fullscreen>div:first-child button{padding:5px 9px!important;font-size:.8rem!important}'
+      + '#op-proof-overlay:-webkit-full-screen{background:#000}'
+      + '#op-proof-overlay:-webkit-full-screen #op-pv-viewport{padding:0!important}'
+      + '#op-proof-overlay:-webkit-full-screen .op-pv-stage{padding:0!important}'
+      + '#op-proof-overlay:-webkit-full-screen .op-pv-img{box-shadow:none!important}';
     document.head.appendChild(st);
   }
 }
@@ -15695,8 +15724,8 @@ function _opPVRender(){
   if (pv.idx > pv.imgs.length-1) pv.idx = pv.imgs.length-1;
   var pages = inSpread ? [pv.imgs[pv.idx], pv.imgs[pv.idx+1]].filter(Boolean) : [pv.imgs[pv.idx]];
   var z = pv.zoom;
-  vp.innerHTML = '<div style="width:'+(z*100)+'%;height:'+(z*100)+'%;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;padding:10px;margin:auto">'
-    + pages.map(function(src){ return '<img src="'+src+'" style="max-width:'+(inSpread?'49%':'100%')+';max-height:100%;object-fit:contain;background:#fff;box-shadow:0 3px 16px rgba(0,0,0,.55)">'; }).join('')
+  vp.innerHTML = '<div class="op-pv-stage" style="width:'+(z*100)+'%;height:'+(z*100)+'%;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;padding:10px;margin:auto">'
+    + pages.map(function(src){ return '<img class="op-pv-img" src="'+src+'" style="max-width:'+(inSpread?'49%':'100%')+';max-height:100%;object-fit:contain;background:#fff;box-shadow:0 3px 16px rgba(0,0,0,.55)">'; }).join('')
     + '</div>';
   vp.scrollTop = (vp.scrollHeight - vp.clientHeight)/2;
   vp.scrollLeft = (vp.scrollWidth - vp.clientWidth)/2;
