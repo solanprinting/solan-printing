@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782910892';
+window.APP_VERSION = '1782913035';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3093,6 +3093,11 @@ function persist() {
       // זה מונע ממסך/לשונית "תקוע" (שלא נגע ב-collection הזה) לדרוס בטעות מחיקה
       // שבוצעה במקום אחר רק בגלל ש-persist() נקרא על שינוי בקולקציה אחרת.
       if (window._fbSnapshot && window._fbSnapshot[p] === _json) return;
+      // הגנת מלאי: אם לטאב הזה אין עדיין baseline מהשרת עבור האוסף (למשל מסך הדפסים,
+      // שמריץ persist דרך טיימרים כמו _purgeCustomerCards אך לא סנכרן מלאי) — אל תדחוף
+      // אותו, כדי לא לדרוס מלאי/הורדות תקינים בנתון מקומי ישן/ריק.
+      if (window._fbSnapshot[p] === undefined &&
+          (p==='inventory'||p==='inventoryDeductions'||p==='inventoryHistory'||p==='invoiceLogs'||p==='inventoryPress')) return;
       window._fbSnapshot[p] = _json;
       // מסמנים "כתיבה בתהליך" כדי שה-poll (כל 15 שניות) לא ימשוך בטעות נתון ישן
       // מהשרת בזמן שהכתיבה הזו עדיין באוויר, וידרוס איתו את העדכון המקומי שלנו
@@ -14254,6 +14259,27 @@ async function _fbPollAll() {
       if (document.getElementById('view-inventory').style.display!=='none') renderInventory();
       }
     }
+    // הורדות מלאי (תעודות משלוח) + היסטוריה + חשבוניות — נכתבים ב-persist אך לא נקראו כאן,
+    // ולכן מכשיר/טאב שנטען עם רשימה ריקה היה דוחס אותם (ריקים) על השרת ומוחק את ההורדות.
+    // קוראים אותם עכשיו, עם הגנה: אם השרת ריק אך מקומית יש נתונים — דוחפים המקומי (ריפוי).
+    var _syncArr = async function(key, getVal, setVal){
+      var sv = await window._fbGet(key);
+      if (_pend[key] > 0) return;
+      var incoming = Array.isArray(sv) ? sv : (sv && typeof sv==='object' ? Object.values(sv) : []);
+      var local = getVal();
+      if (incoming.length === 0 && local.length > 0) {
+        window._fbPut(key, local);                                  // ריפוי/הגנה מפני דריסה בריק
+        window._fbSnapshot[key] = JSON.stringify(local);
+      } else {
+        if (sv !== null) setVal(incoming);                          // אימוץ נתון השרת
+        // מקבעים baseline תמיד (גם אם השרת ריק/null) — כדי שההגנה ב-persist לא תחסום
+        // דחיפת שינוי עתידי לגיטימי (למשל הורדת מלאי חדשה) מהטאב הזה.
+        window._fbSnapshot[key] = JSON.stringify(sv !== null ? incoming : local);
+      }
+    };
+    await _syncArr('inventoryDeductions', function(){ return inventoryDeductions; }, function(v){ inventoryDeductions = v; localStorage.setItem('solanInventoryDeductions', JSON.stringify(v)); if (document.getElementById('view-inventory') && document.getElementById('view-inventory').style.display!=='none') renderInventory(); });
+    await _syncArr('inventoryHistory',    function(){ return inventoryHistory;    }, function(v){ inventoryHistory = v;    localStorage.setItem('solanInventoryHistory', JSON.stringify(v)); });
+    await _syncArr('invoiceLogs',         function(){ return invoiceLogs;         }, function(v){ invoiceLogs = v;         localStorage.setItem('solanInvoiceLogs', JSON.stringify(v)); });
     // עיתונים
     var nv = await window._fbGet('newspapers');
     if (nv !== null && !(_pend.newspapers > 0)) {
