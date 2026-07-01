@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782902815';
+window.APP_VERSION = '1782903393';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15157,11 +15157,15 @@ function _opLoadAndRender() {
   Promise.all([
     window._fbGet('machineQueue').catch(function(){ return null; }),
     window._fbGet('cards').catch(function(){ return null; }),
-    fetchProofs ? window._fbGet('customerProofs').catch(function(){ return null; }) : Promise.resolve(undefined)
+    fetchProofs ? window._fbGet('customerProofs').catch(function(){ return null; }) : Promise.resolve(undefined),
+    window._fbGet('printingState').catch(function(){ return null; })
   ]).then(function(res) {
     if (res[0] && Array.isArray(res[0])) machineQueue = res[0];
     if (res[1] && Array.isArray(res[1])) cards = res[1];
     if (res[2] !== undefined) window._opCustomerProofs = (res[2] && typeof res[2] === 'object') ? res[2] : {};
+    // מצב "בהדפסה" משותף — מעדכנים רק אם החיבור נראה תקין (machineQueue הגיע כמערך),
+    // כדי שבליפ רשת רגעי לא ינקה את הפאנל. צומת ריק => אף מכונה לא מדפיסה ({}).
+    if (Array.isArray(res[0])) window._opPrintingState = (res[3] && typeof res[3] === 'object') ? res[3] : {};
     _renderOperatorScreen();
   });
 }
@@ -15270,12 +15274,31 @@ function _enterFullscreen() {
 })();
 
 // ── מצב הדפסה נוכחי — localStorage per machine ───────────────
+// מפתח מכונה בטוח ל-Firebase (בלי תווים אסורים במפתחות RTDB)
+function _machineKey(machine){ return String(machine||'').replace(/[.#$\[\]\/\s]/g,'_'); }
+// מצב "בהדפסה" משותף בין כל המסכים דרך Firebase (window._opPrintingState).
+// עד שהמצב המשותף נטען לראשונה מ-poll — נפילה למטמון המקומי (localStorage).
 function _opGetPrinting(machine) {
+  var key = _machineKey(machine);
+  if (window._opPrintingState) {
+    var s = window._opPrintingState[key];
+    return (s && s.qid) ? s : null;
+  }
   try { return JSON.parse(localStorage.getItem('solanPrinting_' + machine)) || null; } catch(e){ return null; }
 }
 function _opSetPrinting(machine, qid) {
-  if (qid) localStorage.setItem('solanPrinting_' + machine, JSON.stringify({qid:String(qid), startAt:Date.now()}));
-  else localStorage.removeItem('solanPrinting_' + machine);
+  var key = _machineKey(machine);
+  if (!window._opPrintingState) window._opPrintingState = {};
+  if (qid) {
+    var val = { qid:String(qid), startAt:Date.now() };
+    window._opPrintingState[key] = val;                                  // עדכון מיידי מקומי
+    try { localStorage.setItem('solanPrinting_' + machine, JSON.stringify(val)); } catch(e){}
+    if (window._fbPut) window._fbPut('printingState/' + key, val);       // שיתוף לכל המסכים
+  } else {
+    delete window._opPrintingState[key];
+    try { localStorage.removeItem('solanPrinting_' + machine); } catch(e){}
+    if (window._fbPut) window._fbPut('printingState/' + key, null);      // מחיקה משותפת
+  }
 }
 function _opStartPrinting(qid) {
   var machine = _machineViewMachine;
