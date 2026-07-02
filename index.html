@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782975053';
+window.APP_VERSION = '1782975708';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -12055,18 +12055,19 @@ function addInventoryItem() {
 // הורדות ידניות/תעודות משלוח כבר מופחתות ישירות מכמות החשבונית עצמה.
 // (לפני התיקון: הטבלה התעלמה מהורדות הסוכן, וכל הורדה ידנית "מחקה" אותן מהסה"כ.)
 function _invItemTotal(item) {
-  var tin = (item.invoices && item.invoices.length)
-    ? item.invoices.reduce(function(s,x){ return s+(x.qty||0); }, 0)
-    : (item.qty||0);
-  var tout = (item.deductions||[]).reduce(function(s,x){ return s+(x.qty||0); }, 0);
-  return Math.max(0, tin - tout);
+  if (item.invoices && item.invoices.length) {
+    var tin  = item.invoices.reduce(function(s,x){ return s+(x.qty||0); }, 0);
+    var tout = (item.deductions||[]).reduce(function(s,x){ return s+(x.qty||0); }, 0);
+    return Math.max(0, tin - tout);
+  }
+  // בלי חשבוניות — item.qty הוא הערך המנוהל ידנית (כבר נטו); אסור להפחית שוב
+  // הורדות, אחרת כל קריאה חוזרת הייתה מפחיתה אותן פעם נוספת
+  return item.qty||0;
 }
 // עדכון item.qty מהחישוב האחיד — לקרוא אחרי כל שינוי בחשבוניות/הורדות
 function _invRecalcQty(item) {
   if (!item) return;
-  if ((item.invoices && item.invoices.length) || (item.deductions && item.deductions.length)) {
-    item.qty = _invItemTotal(item);
-  }
+  if (item.invoices && item.invoices.length) item.qty = _invItemTotal(item);
 }
 
 // עריכה ידנית של סה"כ הכמות: כשיש חשבוניות — מתאימים את החשבוניות (מהאחרונה אחורה)
@@ -12204,6 +12205,8 @@ function renderInventory() {
     }
 
     const totalInvQty = _invItemTotal(item);   // חישוב אחיד — כולל הפחתת הורדות הסוכן
+    const dedList = item.deductions||[];       // הורדות מטאב הסוכן — מוצגות כשורות כדי שהחשבון יהיה שקוף
+    const rowSpanCnt = invList.length + dedList.length;
     invList.forEach((inv, j) => {
       const isFirst = j === 0;
       const isLast  = j === invList.length - 1;
@@ -12220,7 +12223,7 @@ function renderInventory() {
 
       if (isFirst) {
         rows += `<tr style="border-top:2px solid #e0d8c0">
-          <td rowspan="${invList.length}"
+          <td rowspan="${rowSpanCnt}"
             style="border-right:3px solid var(--gold);background:#fffdf5;vertical-align:middle;font-weight:700">
             ${nameCell}
           </td>`;
@@ -12257,17 +12260,17 @@ function renderInventory() {
 
       if (isFirst) {
         rows += `
-          <td rowspan="${invList.length}" class="inv-qty ${totalInvQty<5000?'low':''}"
+          <td rowspan="${rowSpanCnt}" class="inv-qty ${totalInvQty<5000?'low':''}"
             style="text-align:center;vertical-align:middle;font-size:1rem">
             ${parseInt(totalInvQty).toLocaleString()}
             <div style="font-size:.66rem;font-weight:400;color:#aaa">גיל'</div>
           </td>
-          <td rowspan="${invList.length}" style="vertical-align:middle">
+          <td rowspan="${rowSpanCnt}" style="vertical-align:middle">
             <input class="inv-edit" type="number" value="${totalInvQty}"
               title="ערוך כמות ידנית — מתאים את החשבוניות בהתאם"
               onchange="setItemTotalManual(${i},this.value)">
           </td>
-          <td rowspan="${invList.length}" style="vertical-align:middle;white-space:nowrap">
+          <td rowspan="${rowSpanCnt}" style="vertical-align:middle;white-space:nowrap">
             ${_q ? '' : `<div style="display:flex;flex-direction:column;gap:2px;margin-bottom:4px">
               <button onclick="moveInventoryItem(${i},-1)" ${i===0?'disabled':''} title="הזז למעלה" style="background:#f0f4ff;border:1px solid #c0ccf0;color:#2d3561;border-radius:5px;padding:1px 7px;cursor:pointer;font-size:.75rem;${i===0?'opacity:.3;cursor:default':''}">▲</button>
               <button onclick="moveInventoryItem(${i},1)" ${i===inventory.length-1?'disabled':''} title="הזז למטה" style="background:#f0f4ff;border:1px solid #c0ccf0;color:#2d3561;border-radius:5px;padding:1px 7px;cursor:pointer;font-size:.75rem;${i===inventory.length-1?'opacity:.3;cursor:default':''}">▼</button>
@@ -12277,6 +12280,25 @@ function renderInventory() {
       }
 
       rows += `</tr>`;
+    });
+    // שורות הורדה מטאב הסוכן — עד עכשיו הופחתו מהסה"כ בלי להיראות בטבלה,
+    // מה שגרם לסכום להיראות "שגוי" (סכום החשבוניות ≠ הסה"כ המוצג)
+    dedList.forEach((d, k) => {
+      rows += `<tr style="background:#fff7ed">
+        <td style="text-align:center;font-size:.78rem;color:#9a3412;white-space:nowrap">${d.date||'—'}</td>
+        <td style="text-align:center;font-size:.78rem;line-height:1.4;color:#9a3412">
+          <div style="font-weight:800">📤 הורדה (תעודת משלוח)</div>
+          ${d.orderNum ? `<div style="font-size:.72rem">הזמנה: ${escHtml(String(d.orderNum))}</div>` : ''}
+          ${d.customer ? `<div style="font-size:.72rem">${escHtml(String(d.customer))}</div>` : ''}
+        </td>
+        <td style="text-align:center;color:#d0c0b0">—</td>
+        <td style="text-align:center;font-size:.85rem;font-weight:800;color:#c2410c">−${parseInt(d.qty||0).toLocaleString()} <span style="font-size:.7rem;font-weight:400">גיל'</span></td>
+        <td style="text-align:center;vertical-align:middle">
+          <button onclick="deleteAgentDeduction(${i},${k})"
+            style="background:none;border:none;color:#ddd;font-size:.9rem;cursor:pointer;padding:2px 5px"
+            onmouseover="this.style.color='#c62828'" onmouseout="this.style.color='#ddd'" title="מחק רשומת הורדה זו (הכמות תוחזר לסה&quot;כ)">✕</button>
+        </td>
+      </tr>`;
     });
   });
 
@@ -12400,6 +12422,20 @@ function deleteInventoryItem(i) {
   persist();
   renderInventory();
   showToast('🗑️ פריט נמחק');
+}
+
+// מחיקת רשומת הורדה של הסוכן — אם הרשומה שגויה/כפולה; הכמות חוזרת לסה"כ
+function deleteAgentDeduction(i, k) {
+  var item = inventory[i];
+  if (!item || !item.deductions || !item.deductions[k]) return;
+  var d = item.deductions[k];
+  if (!confirm('למחוק את רשומת ההורדה של ' + parseInt(d.qty||0).toLocaleString() + ' גיל\'' + (d.orderNum ? ' (הזמנה ' + d.orderNum + ')' : '') + '?\nהכמות תוחזר לסה"כ המלאי.')) return;
+  item.deductions.splice(k, 1);
+  if (!item.deductions.length) delete item.deductions;
+  _invRecalcQty(item);
+  persist();
+  renderInventory();
+  showToast('✅ רשומת ההורדה נמחקה — הכמות עודכנה');
 }
 
 function deleteInvoiceEntry(i, j) {
