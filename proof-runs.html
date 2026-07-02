@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>חלוקה לריצות — סולן הדפסות</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root { --press:#2d3561; --green:#16a34a; --line:#e5e7eb; --ink:#1f2937; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, "Segoe UI", Arial, sans-serif;
+    background: #f3f4f6; color: var(--ink); min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; padding: 24px;
+  }
+  .card {
+    background: #fff; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,.08);
+    padding: 28px; width: 100%; max-width: 560px;
+  }
+  h1 { font-size: 1.2rem; margin: 0 0 4px; }
+  .sub { color: #6b7280; font-size: .82rem; margin-bottom: 20px; }
+  label { display: block; font-weight: 600; font-size: .85rem; margin: 14px 0 5px; }
+  input[type=file], select {
+    width: 100%; padding: 10px 12px; border: 1.5px solid var(--line);
+    border-radius: 8px; font-family: inherit; font-size: .95rem; background: #fff;
+  }
+  button {
+    margin-top: 20px; width: 100%; padding: 14px; border: none; border-radius: 10px;
+    background: var(--press); color: #fff; font-size: 1.05rem; font-weight: 800; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  #log { margin-top: 18px; font-size: .85rem; white-space: pre-wrap; color: #374151; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: .85rem; display: none; }
+  th, td { border: 1px solid var(--line); padding: 7px 9px; text-align: right; }
+  th { background: #f0f4ff; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>חלוקה לריצות לפי קונטרסים</h1>
+  <div class="sub">מפצל PDF מקורי לתיקיות ריצה (ZIP), עמודים בודדים בסדר הנכון להזנה ל-Apogee.</div>
+
+  <label>קובץ PDF מקורי (איכות מלאה)</label>
+  <input type="file" id="file" accept="application/pdf">
+
+  <label>גודל גיליון</label>
+  <select id="sheet">
+    <option value="32">70×100 — 32 עמ' לגיליון</option>
+    <option value="16">64×90 / A4 — 16 עמ' לגיליון</option>
+  </select>
+
+  <button id="go">פצל לריצות והורד ZIP</button>
+
+  <table id="preview"><thead><tr><th>ריצה</th><th>עמודים</th><th>כמות</th><th>קיפולים</th></tr></thead><tbody></tbody></table>
+  <div id="log"></div>
+</div>
+
+<script>
+// ── חלוקה לקונטרסים — לוגיקה זהה ל-buildRuns של האפליקציה ──
+function splitToKontresim(totalPages, fullSheet) {
+  const layers = [];
+  if (fullSheet === 32 && (totalPages === 20 || totalPages === 24)) {
+    layers.push(totalPages - 16, 16);
+  } else {
+    const rem = totalPages % fullSheet;
+    if (rem !== 0) layers.push(rem);
+    let inner = totalPages - rem;
+    while (inner > 0) { layers.push(fullSheet); inner -= fullSheet; }
+  }
+  let front = 1, back = totalPages;
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
+  return layers.map((layerPages, i) => {
+    const isLast = i === layers.length - 1;
+    const half = layerPages / 2;
+    let pages, label;
+    if (isLast && layerPages === fullSheet) {
+      pages = range(front, front + layerPages - 1);
+      label = `${front}–${front + layerPages - 1}`;
+      front += layerPages;
+    } else {
+      const fe = front + half - 1, bs = back - half + 1;
+      if (fe + 1 === bs) { pages = range(front, back); label = `${front}–${back}`; }
+      else { pages = [...range(front, fe), ...range(bs, back)]; label = `${front}–${fe} + ${bs}–${back}`; }
+      front += half; back -= half;
+    }
+    const folds = fullSheet === 32
+      ? (layerPages === 32 ? '4 קיפולים' : layerPages === 16 ? '3 קיפולים' : layerPages === 8 ? '2 קיפולים' : '1 קיפול')
+      : (layerPages === 16 ? '3 קיפולים' : layerPages === 8 ? '2 קיפולים' : '1 קיפול');
+    return { num: i + 1, pages, count: layerPages, folds, label };
+  });
+}
+
+const $ = id => document.getElementById(id);
+const log = m => $('log').textContent = m;
+
+// פיצול עמודי "כפולה" (רוחב כפול = שני עמודי עיתון מחוברים) לשני עמודים נפרדים:
+// החצי הימני קודם (עברית — העמוד הנמוך מימין), אחריו החצי השמאלי.
+async function normalizeSpreads(src) {
+  const pages = src.getPages();
+  if (pages.length < 2) return src;
+  const bucket = v => Math.round(v / 14.17);
+  const freq = {}; let bestK = null;
+  pages.forEach(pg => {
+    const mb = pg.getMediaBox();
+    const k = bucket(mb.width) + 'x' + bucket(mb.height);
+    freq[k] = (freq[k] || 0) + 1;
+    if (bestK === null || freq[k] > freq[bestK]) bestK = k;
+  });
+  const baseIdx = pages.findIndex(pg => { const mb = pg.getMediaBox(); return bucket(mb.width) + 'x' + bucket(mb.height) === bestK; });
+  const baseW = pages[baseIdx].getMediaBox().width, baseH = pages[baseIdx].getMediaBox().height;
+  const isSpread = pg => { const mb = pg.getMediaBox(); return mb.width > baseW * 1.6 && Math.abs(mb.height - baseH) < baseH * 0.12; };
+  if (!pages.some(isSpread)) return src;
+  const out = await PDFLib.PDFDocument.create();
+  for (let i = 0; i < pages.length; i++) {
+    if (!isSpread(pages[i])) {
+      const [pg] = await out.copyPages(src, [i]); out.addPage(pg);
+      continue;
+    }
+    const mb = pages[i].getMediaBox();
+    let tb; try { tb = pages[i].getTrimBox(); } catch (e) { tb = mb; }
+    if (!tb || !tb.width) tb = mb;
+    const halves = [
+      { mx: mb.x + mb.width / 2, tx: tb.x + tb.width / 2 },
+      { mx: mb.x,                tx: tb.x }
+    ];
+    for (const h of halves) {
+      const [pg] = await out.copyPages(src, [i]);
+      pg.setMediaBox(h.mx, mb.y, mb.width / 2, mb.height);
+      pg.setCropBox(h.mx, mb.y, mb.width / 2, mb.height);
+      try { pg.setTrimBox(h.tx, tb.y, tb.width / 2, tb.height); } catch (e) {}
+      try { pg.setBleedBox(h.mx, mb.y, mb.width / 2, mb.height); } catch (e) {}
+      out.addPage(pg);
+    }
+  }
+  return out;
+}
+
+$('go').onclick = async () => {
+  const file = $('file').files[0];
+  if (!file) return log('⚠️ בחר קובץ PDF.');
+  const fullSheet = parseInt($('sheet').value, 10);
+
+  $('go').disabled = true;
+  try {
+    log('קורא את ה-PDF…');
+    const bytes = await file.arrayBuffer();
+    let src = await PDFLib.PDFDocument.load(bytes);
+    src = await normalizeSpreads(src);   // כפולות → שני עמודים (ימין ואז שמאל)
+    const total = src.getPageCount();
+
+    if (total % 4 !== 0) log(`⚠️ שים לב: ${total} עמודים אינו כפולה של 4. ממשיך בכל זאת.`);
+
+    const runs = splitToKontresim(total, fullSheet);
+    renderPreview(runs);
+
+    log(`מפצל ${total} עמ' ל-${runs.length} ריצות…`);
+    const zip = new JSZip();
+    const pad = n => String(n).padStart(2, '0');
+
+    for (const run of runs) {
+      const folder = zip.folder(`ריצה ${run.num} (עמ ${run.label})`);
+      for (let i = 0; i < run.pages.length; i++) {
+        const srcPage = run.pages[i];               // מספר עמוד בחוברת (1-based)
+        if (srcPage > total) continue;
+        const out = await PDFLib.PDFDocument.create();
+        const [p] = await out.copyPages(src, [srcPage - 1]);
+        out.addPage(p);
+        const pdfBytes = await out.save();
+        // שם: רצף להזנה + מספר העמוד המקורי לבקרה
+        folder.file(`${pad(i + 1)}_pg${pad(srcPage)}.pdf`, pdfBytes);
+      }
+      log(`✓ ריצה ${run.num} — ${run.count} עמ'`);
+    }
+
+    log('בונה ZIP…');
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const name = file.name.replace(/\.pdf$/i, '') + ' — ריצות.zip';
+    downloadBlob(blob, name);
+    log(`✓ הושלם. ${runs.length} תיקיות ריצה ב-${name}`);
+  } catch (e) {
+    console.error(e); log('✗ שגיאה: ' + e.message);
+  } finally {
+    $('go').disabled = false;
+  }
+};
+
+function renderPreview(runs) {
+  const tb = $('preview').querySelector('tbody');
+  tb.innerHTML = runs.map(r =>
+    `<tr><td>ריצה ${r.num}</td><td>${r.label}</td><td>${r.count}</td><td>${r.folds}</td></tr>`).join('');
+  $('preview').style.display = 'table';
+}
+
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+</script>
+</body>
+</html>
