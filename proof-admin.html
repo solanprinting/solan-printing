@@ -156,14 +156,14 @@ function render(rows) {
 
     // ── עבודה רגילה (עיתון מלא / ממתין) ──
     const [txt, cls] = STATUS[p.status] || ['—', ''];
-    const gen = p.status === 'approved' ? genCell(p.fileUrl, p.title || p.fileName)
+    const gen = p.status === 'approved' ? genCell(p.fileUrl, p.title || p.customer || 'עיתון')
       : `<button disabled title="זמין רק לאחר אישור">⬇ ייצר ריצות</button>`;
     const view = p.fileUrl ? `<a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>` : '';
     const toWorkers = p.fileUrl ? `<button data-link="${viewerLink}">📤 שלח לעובדים</button>` : '';
     const note = (p.status === 'rejected' && p.customerNote) ? `<div class="note">📝 ${escapeHtml(p.customerNote)}</div>` : '';
     const approvedLine = p.approvedAt ? `<div class="note" style="color:#16a34a">✓ אושר: ${fmt(p.approvedAt)}</div>` : '';
     return `<tr>
-      <td>${escapeHtml(p.title || p.fileName || '—')}${note}</td>
+      <td>${escapeHtml(p.title || (p.customer ? p.customer + ' — עיתון' : 'עיתון'))}${note}</td>
       <td><span class="badge ${cls}">${txt}</span></td>
       <td>נוצר: ${fmt(p.createdAt)}${approvedLine}</td>
       <td><div class="acts">
@@ -232,7 +232,7 @@ async function deletePart(jobId, pid, filePath) {
 // מחיקת קובץ: מוחק את הקובץ מ-Storage ואת הרשומה מ-RTDB.
 async function deleteProof(p) {
   if (!p) return;
-  if (!confirm(`למחוק לצמיתות את "${p.title || p.fileName}"?\nכל הקבצים והרשומה יימחקו ולא ניתן לשחזר.`)) return;
+  if (!confirm(`למחוק לצמיתות את "${p.title || p.customer || 'עיתון'}"?\nכל הקבצים והרשומה יימחקו ולא ניתן לשחזר.`)) return;
   msg('מוחק…');
   try {
     // אסוף את כל הנתיבים: קובץ ראשי + כל הריצות
@@ -278,13 +278,58 @@ function splitToKontresim(totalPages, fullSheet) {
   });
 }
 
+// פיצול עמודי "כפולה" (עמוד PDF ברוחב כפול = שני עמודי עיתון מחוברים) לשני עמודים
+// נפרדים: החצי הימני קודם (עברית — העמוד הנמוך מימין), אחריו החצי השמאלי.
+// כך ספירת העמודים והחלוקה לריצות מתיישרות עם המספור האמיתי של העיתון.
+async function normalizeSpreads(src) {
+  const pages = src.getPages();
+  if (pages.length < 2) return src;
+  // גודל הבסיס = הגודל השכיח בקובץ (דליים של ~5 מ"מ)
+  const bucket = v => Math.round(v / 14.17);
+  const freq = {}; let bestK = null;
+  pages.forEach(pg => {
+    const mb = pg.getMediaBox();
+    const k = bucket(mb.width) + 'x' + bucket(mb.height);
+    freq[k] = (freq[k] || 0) + 1;
+    if (bestK === null || freq[k] > freq[bestK]) bestK = k;
+  });
+  const baseIdx = pages.findIndex(pg => { const mb = pg.getMediaBox(); return bucket(mb.width) + 'x' + bucket(mb.height) === bestK; });
+  const baseW = pages[baseIdx].getMediaBox().width, baseH = pages[baseIdx].getMediaBox().height;
+  const isSpread = pg => { const mb = pg.getMediaBox(); return mb.width > baseW * 1.6 && Math.abs(mb.height - baseH) < baseH * 0.12; };
+  if (!pages.some(isSpread)) return src;
+  const out = await PDFLib.PDFDocument.create();
+  for (let i = 0; i < pages.length; i++) {
+    if (!isSpread(pages[i])) {
+      const [pg] = await out.copyPages(src, [i]); out.addPage(pg);
+      continue;
+    }
+    const mb = pages[i].getMediaBox();
+    let tb; try { tb = pages[i].getTrimBox(); } catch (e) { tb = mb; }
+    if (!tb || !tb.width) tb = mb;
+    const halves = [
+      { mx: mb.x + mb.width / 2, tx: tb.x + tb.width / 2 },   // ימין קודם (RTL)
+      { mx: mb.x,                tx: tb.x }                    // שמאל
+    ];
+    for (const h of halves) {
+      const [pg] = await out.copyPages(src, [i]);
+      pg.setMediaBox(h.mx, mb.y, mb.width / 2, mb.height);
+      pg.setCropBox(h.mx, mb.y, mb.width / 2, mb.height);
+      try { pg.setTrimBox(h.tx, tb.y, tb.width / 2, tb.height); } catch (e) {}
+      try { pg.setBleedBox(h.mx, mb.y, mb.width / 2, mb.height); } catch (e) {}
+      out.addPage(pg);
+    }
+  }
+  return out;
+}
+
 async function generateRuns(proof, fullSheet, btn) {
   const old = btn.textContent;
   btn.disabled = true; btn.textContent = 'מוריד קובץ…';
   try {
     const bytes = await (await fetch(proof.fileUrl)).arrayBuffer();
     btn.textContent = 'מפצל…';
-    const src = await PDFLib.PDFDocument.load(bytes);
+    let src = await PDFLib.PDFDocument.load(bytes);
+    src = await normalizeSpreads(src);   // כפולות → שני עמודים (ימין ואז שמאל)
     const total = src.getPageCount();
     const runs = splitToKontresim(total, fullSheet);
 
