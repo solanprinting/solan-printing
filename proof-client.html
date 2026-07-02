@@ -447,23 +447,48 @@ function bindDnD(el) {
   });
 }
 
-// ── דפדוף (כפולה RTL) — מיידי (תמונות מוכנות) ──
-function showingPages() {
-  if (!pages.length) return [];
-  if (vIndex === 0) return [0];
-  const left = vIndex % 2 === 1 ? vIndex : vIndex - 1;
-  return [left, left + 1].filter(i => i < pages.length);
+// ── דפדוף (כפולה RTL) לפי מספרי עמודים אפקטיביים ──
+// שער (עמ' 1) לבד; אחר כך זוגות 2-3, 4-5...; פריט "כפולה" (עמוד PDF כפול-רוחב)
+// תופס זוג שלם ולכן מוצג לבד — והעמוד שאחריו עובר לדפדוף הבא.
+function buildViews() {
+  const views = [];
+  let n = 1, i = 0;                       // n = מספר העמוד האפקטיבי של הפריט הבא
+  while (i < pages.length) {
+    const p = pages[i];
+    if (p.isSpread) { views.push([i]); n += 2; i++; continue; }   // כפולה = זוג שלם, לבד
+    if (n === 1) { views.push([i]); n++; i++; continue; }         // שער
+    if (n % 2 === 0 && i + 1 < pages.length && !pages[i + 1].isSpread) {
+      views.push([i, i + 1]); n += 2; i += 2; continue;           // זוג רגיל
+    }
+    views.push([i]); n++; i++;                                    // בודד (סוף/לפני כפולה)
+  }
+  return views;
 }
-function alignSpread(idx) { return idx === 0 ? 0 : (idx % 2 === 1 ? idx : idx - 1); }
+function showingPages() {
+  const v = buildViews();
+  if (!v.length) return [];
+  if (vIndex >= v.length) vIndex = v.length - 1;
+  if (vIndex < 0) vIndex = 0;
+  return v[vIndex];
+}
+// אינדקס התצוגה (view) שמכיל את העמוד — לקליק על ממוזערת/גרירה
+function alignSpread(idx) {
+  const v = buildViews();
+  for (let k = 0; k < v.length; k++) if (v[k].includes(idx)) return k;
+  return 0;
+}
 
 function renderViewer() {
   const spread = $('spread');
   if (!pages.length) { spread.innerHTML = '<div class="ph">העלו קבצים כדי לצפות ולדפדף</div>'; $('vlabel').textContent=''; return; }
-  const s = showingPages();
+  const _views = buildViews();
+  if (vIndex >= _views.length) vIndex = _views.length - 1;
+  if (vIndex < 0) vIndex = 0;
+  const s = _views[vIndex] || [];
   const _lbls = pageLabels();
   $('vlabel').textContent = `עמוד ${s.map(i=>_lbls[i]).join('–')} מתוך ${effPageCount()}`;
   $('vprev').disabled = vIndex <= 0;
-  $('vnext').disabled = s[s.length-1] >= pages.length - 1;
+  $('vnext').disabled = vIndex >= _views.length - 1;
   // dir rtl: עמוד נמוך מימין. עוטף ב-.page עם קו חיתוך (TrimBox), כפתור מחיקה, ויעד גרירה.
   spread.innerHTML = s.map(i => {
     const p = pages[i];
@@ -511,9 +536,8 @@ function renderViewer() {
 }
 
 function step(d) {
-  if (vIndex === 0) vIndex = d > 0 ? 1 : 0;
-  else vIndex = Math.max(0, Math.min(vIndex + d * 2, pages.length - 1));
-  if (vIndex > 0 && vIndex % 2 === 0) vIndex -= 1;
+  const v = buildViews();
+  vIndex = Math.max(0, Math.min(vIndex + d, v.length - 1));
   renderViewer(); renderSidebar();
 }
 $('vprev').onclick = () => step(-1);
