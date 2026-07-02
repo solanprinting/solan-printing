@@ -94,11 +94,12 @@ function splitToKontresim(totalPages, fullSheet) {
 const $ = id => document.getElementById(id);
 const log = m => $('log').textContent = m;
 
-// פיצול עמודי "כפולה" (רוחב כפול = שני עמודי עיתון מחוברים) לשני עמודים נפרדים:
-// החצי הימני קודם (עברית — העמוד הנמוך מימין), אחריו החצי השמאלי.
+// עמודי "כפולה" (רוחב כפול = שני עמודי עיתון מחוברים): לא חותכים — מכפילים את
+// אותו עמוד לשני קבצים זהים ומסמנים "כפולה" בשם. מחזיר { doc, labels, spread }.
 async function normalizeSpreads(src) {
   const pages = src.getPages();
-  if (pages.length < 2) return src;
+  const plain = { doc: src, labels: pages.map((_, i) => String(i + 1)), spread: pages.map(() => false) };
+  if (pages.length < 2) return plain;
   const bucket = v => Math.round(v / 14.17);
   const freq = {}; let bestK = null;
   pages.forEach(pg => {
@@ -110,30 +111,24 @@ async function normalizeSpreads(src) {
   const baseIdx = pages.findIndex(pg => { const mb = pg.getMediaBox(); return bucket(mb.width) + 'x' + bucket(mb.height) === bestK; });
   const baseW = pages[baseIdx].getMediaBox().width, baseH = pages[baseIdx].getMediaBox().height;
   const isSpread = pg => { const mb = pg.getMediaBox(); return mb.width > baseW * 1.6 && Math.abs(mb.height - baseH) < baseH * 0.12; };
-  if (!pages.some(isSpread)) return src;
+  if (!pages.some(isSpread)) return plain;
   const out = await PDFLib.PDFDocument.create();
+  const labels = [], spread = [];
+  let n = 1;
   for (let i = 0; i < pages.length; i++) {
     if (!isSpread(pages[i])) {
       const [pg] = await out.copyPages(src, [i]); out.addPage(pg);
-      continue;
-    }
-    const mb = pages[i].getMediaBox();
-    let tb; try { tb = pages[i].getTrimBox(); } catch (e) { tb = mb; }
-    if (!tb || !tb.width) tb = mb;
-    const halves = [
-      { mx: mb.x + mb.width / 2, tx: tb.x + tb.width / 2 },
-      { mx: mb.x,                tx: tb.x }
-    ];
-    for (const h of halves) {
-      const [pg] = await out.copyPages(src, [i]);
-      pg.setMediaBox(h.mx, mb.y, mb.width / 2, mb.height);
-      pg.setCropBox(h.mx, mb.y, mb.width / 2, mb.height);
-      try { pg.setTrimBox(h.tx, tb.y, tb.width / 2, tb.height); } catch (e) {}
-      try { pg.setBleedBox(h.mx, mb.y, mb.width / 2, mb.height); } catch (e) {}
-      out.addPage(pg);
+      labels.push(String(n)); spread.push(false); n++;
+    } else {
+      const lbl = n + '-' + (n + 1);
+      for (let c = 0; c < 2; c++) {
+        const [pg] = await out.copyPages(src, [i]); out.addPage(pg);
+        labels.push(lbl); spread.push(true);
+      }
+      n += 2;
     }
   }
-  return out;
+  return { doc: out, labels: labels, spread: spread };
 }
 
 $('go').onclick = async () => {
@@ -145,8 +140,9 @@ $('go').onclick = async () => {
   try {
     log('קורא את ה-PDF…');
     const bytes = await file.arrayBuffer();
-    let src = await PDFLib.PDFDocument.load(bytes);
-    src = await normalizeSpreads(src);   // כפולות → שני עמודים (ימין ואז שמאל)
+    const raw = await PDFLib.PDFDocument.load(bytes);
+    const norm = await normalizeSpreads(raw);   // כפולה → אותו קובץ פעמיים + "כפולה" בשם
+    const src = norm.doc;
     const total = src.getPageCount();
 
     if (total % 4 !== 0) log(`⚠️ שים לב: ${total} עמודים אינו כפולה של 4. ממשיך בכל זאת.`);
@@ -167,8 +163,10 @@ $('go').onclick = async () => {
         const [p] = await out.copyPages(src, [srcPage - 1]);
         out.addPage(p);
         const pdfBytes = await out.save();
-        // שם: רצף להזנה + מספר העמוד המקורי לבקרה
-        folder.file(`${pad(i + 1)}_pg${pad(srcPage)}.pdf`, pdfBytes);
+        // שם: רצף להזנה + מספר העמוד המקורי לבקרה (+ "כפולה" לעמוד כפול)
+        const lbl = norm.labels[srcPage - 1] || String(srcPage);
+        const mark = norm.spread[srcPage - 1] ? '_כפולה' : '';
+        folder.file(`${pad(i + 1)}_pg${lbl}${mark}.pdf`, pdfBytes);
       }
       log(`✓ ריצה ${run.num} — ${run.count} עמ'`);
     }
