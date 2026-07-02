@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1782998091';
+window.APP_VERSION = '1783011554';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -17284,57 +17284,72 @@ function openImpositionTool(){
     } catch(e){}
   }
 
-  // חלונית התראה שנשארת על המסך עד שלוחצים "אישור" — לא נעלמת לבד
-  function popup(msg){
-    var ov = document.getElementById('cp-approve-modal');
-    if (!ov) {
-      ov = document.createElement('div');
-      ov.id = 'cp-approve-modal';
-      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100002;display:flex;align-items:center;justify-content:center;direction:rtl;padding:18px';
-      ov.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:460px;width:100%;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);font-family:Heebo,sans-serif">'
-        + '<div style="background:#16a34a;color:#fff;padding:16px 22px;font-size:1.15rem;font-weight:900">✅ לקוח אישר להדפסה</div>'
-        + '<div id="cp-approve-list" style="padding:18px 22px;font-size:1rem;font-weight:700;color:#111;line-height:1.9"></div>'
-        + '<div style="padding:0 22px 18px"><button id="cp-approve-ok" style="width:100%;padding:13px;border:none;border-radius:10px;background:#16a34a;color:#fff;font-family:Heebo,sans-serif;font-size:1.05rem;font-weight:900;cursor:pointer">אישור</button></div>'
-        + '</div>';
-      document.body.appendChild(ov);
-      ov.querySelector('#cp-approve-ok').onclick = function(){ ov.remove(); };
-    }
-    var li = document.createElement('div');
-    li.textContent = '📰 ' + msg;
-    ov.querySelector('#cp-approve-list').appendChild(li);
-  }
-
-  function approvals(data){
+  // רשימת אישורים "פתוחים" — אושרו אך הריצות שלהם עדיין לא הורדו (proof-admin
+  // מסמן runsDownloadedAt אחרי "ייצר ריצות"). אלה מוצגים בפאנל צדדי קבוע.
+  function pendingApprovals(data){
     var ev = [];
     Object.keys(data || {}).forEach(function(id){
       var p = data[id] || {};
-      if (p.mode === 'full' && p.status === 'approved' && p.approvedAt)
-        ev.push({ t: p.approvedAt, label: (p.customer||'לקוח') + ' — ' + (p.title||'עיתון') });
+      if (p.mode === 'full' && p.status === 'approved' && p.approvedAt && !(p.runsDownloadedAt >= p.approvedAt))
+        ev.push({ key: id + '_' + p.approvedAt, t: p.approvedAt, label: (p.customer||'לקוח') + ' — ' + (p.title||'עיתון') });
       if (p.parts) Object.keys(p.parts).forEach(function(k){
         var pt = p.parts[k];
-        if (pt && pt.approvedAt) ev.push({ t: pt.approvedAt, label: (p.customer||'לקוח') + ' — ' + (pt.name||'ריצה') });
+        if (pt && pt.approvedAt && !(pt.runsDownloadedAt >= pt.approvedAt))
+          ev.push({ key: id + '_' + k + '_' + pt.approvedAt, t: pt.approvedAt, label: (p.customer||'לקוח') + ' — ' + (pt.name||'ריצה') });
       });
     });
     return ev;
+  }
+  function dismissed(){ try { return JSON.parse(localStorage.getItem('solanCpApproveDismissed')||'{}'); } catch(e){ return {}; } }
+  function dismiss(key){ var d = dismissed(); d[key] = Date.now(); try { localStorage.setItem('solanCpApproveDismissed', JSON.stringify(d)); } catch(e){} renderPanel(window._cpPendingList||[]); }
+  window._cpDismissApprove = dismiss;
+  // פאנל צדדי — לא חוסם עבודה; כרטיס נעלם רק אחרי הורדת הריצות (או ✕ ידני)
+  function renderPanel(entries){
+    window._cpPendingList = entries;
+    var dis = dismissed();
+    var show = entries.filter(function(e){ return !dis[e.key]; });
+    var panel = document.getElementById('cp-approve-stack');
+    if (!show.length) { if (panel) panel.remove(); return; }
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'cp-approve-stack';
+      panel.style.cssText = 'position:fixed;top:76px;left:16px;z-index:100001;display:flex;flex-direction:column;gap:9px;direction:rtl;max-width:300px';
+      document.body.appendChild(panel);
+    }
+    panel.innerHTML = show.map(function(e){
+      return '<div style="background:#f0fdf4;border:2px solid #16a34a;border-radius:12px;padding:11px 14px;box-shadow:0 6px 20px rgba(0,0,0,.22);font-family:Heebo,sans-serif;position:relative">'
+        + '<button onclick="_cpDismissApprove(\'' + e.key.replace(/'/g,"\\'") + '\')" title="הסתר" style="position:absolute;top:6px;left:8px;background:none;border:none;color:#9ca3af;cursor:pointer;font-size:.85rem">✕</button>'
+        + '<div style="font-weight:900;color:#15803d;font-size:.9rem">✅ לקוח אישר להדפסה</div>'
+        + '<div style="font-weight:700;color:#111;font-size:.88rem;margin-top:3px">📰 ' + e.label.replace(/</g,'&lt;') + '</div>'
+        + '<div style="font-size:.7rem;color:#6b7280;margin-top:4px">ייעלם לאחר הורדת הריצות</div>'
+        + '</div>';
+    }).join('');
   }
 
   function poll(){
     fetch(FB + '/customerProofs.json?t=' + Date.now(), { cache:'no-store' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(data){
-        var ev = approvals(data);
+        if (!data) return;
+        var ev = pendingApprovals(data);
         var last = parseInt(localStorage.getItem(KEY) || '0', 10);
-        if (!last) {  // הרצה ראשונה — אל תצפצף על אישורים ישנים
+        if (!last) {  // הרצה ראשונה — אל תצפצף על אישורים ישנים, אבל כן הצג את הפאנל
           var max0 = ev.reduce(function(m,e){ return Math.max(m, e.t); }, 0);
           localStorage.setItem(KEY, String(max0 || Date.now()));
-          return;
+        } else {
+          var fresh = ev.filter(function(e){ return e.t > last; });
+          if (fresh.length) {
+            beep();
+            localStorage.setItem(KEY, String(Math.max.apply(null, fresh.map(function(e){ return e.t; }))));
+          }
         }
-        var fresh = ev.filter(function(e){ return e.t > last; }).sort(function(a,b){ return a.t - b.t; });
-        if (fresh.length) {
-          beep();
-          fresh.forEach(function(e){ popup('לקוח אישר: ' + e.label); });
-          localStorage.setItem(KEY, String(fresh[fresh.length-1].t));
-        }
+        renderPanel(ev);
+        // ניקוי הסתרות ידניות ישנות (שבוע)
+        try {
+          var d = dismissed(), now = Date.now(), ch = false;
+          Object.keys(d).forEach(function(k){ if (now - d[k] > 7*86400000) { delete d[k]; ch = true; } });
+          if (ch) localStorage.setItem('solanCpApproveDismissed', JSON.stringify(d));
+        } catch(e){}
       })
       .catch(function(){});
   }
