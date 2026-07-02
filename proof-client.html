@@ -326,6 +326,37 @@ async function renderPage(pdf, pageNo, box) {
 // כך "16.5×24" מזוהה כ-165×240, אותו הדבר.
 function _toMM(v) { v = +v || 0; return v > 0 && v < 60 ? v * 10 : v; }
 
+// ── זיהוי "כפולה" (spread): עמוד PDF אחד שמכיל שני עמודי עיתון זה-לצד-זה ──
+// עמוד כזה רחב בערך פי 2 מרוחב העיתון (ובאותו גובה) — נספר כ-2 עמודים, לא 1.
+// הבסיס להשוואה: הגודל שהוגדר לעיתון; אם לא הוגדר — הגודל השכיח מבין העמודים שהועלו.
+function detectSpreads() {
+  const tol = 6;                                     // סובלנות במ"מ
+  let baseW = _toMM(record.reqW), baseH = _toMM(record.reqH);
+  if (!baseW || !baseH) {
+    const counts = {};
+    let best = null;
+    pages.forEach(p => {
+      if (!p.wmm || !p.hmm) return;
+      const key = Math.round(p.wmm / 5) * 5 + 'x' + Math.round(p.hmm / 5) * 5;
+      counts[key] = (counts[key] || 0) + 1;
+      if (best === null || counts[key] > counts[best]) best = key;
+    });
+    if (best) { const kp = best.split('x'); baseW = +kp[0]; baseH = +kp[1]; }
+  }
+  pages.forEach(p => {
+    p.isSpread = !!(baseW && baseH && p.wmm != null &&
+      Math.abs(p.wmm - 2 * baseW) <= tol * 2 && Math.abs(p.hmm - baseH) <= tol);
+  });
+}
+// ספירת עמודים אפקטיבית — כפולה = 2 עמודים
+function effPageCount() { return pages.reduce((s, p) => s + (p.isSpread ? 2 : 1), 0); }
+function spreadCount()  { return pages.filter(p => p.isSpread).length; }
+// מספור רץ לכל פריט: כפולה מקבלת "n–n+1", עמוד רגיל "n"
+function pageLabels() {
+  let n = 1;
+  return pages.map(p => { const l = p.isSpread ? (n + '–' + (n + 1)) : String(n); n += p.isSpread ? 2 : 1; return l; });
+}
+
 // בדיקת גודל מול הגודל שהוגדר לעיתון
 function buildWarnings() {
   const reqW = _toMM(record.reqW), reqH = _toMM(record.reqH);
@@ -333,29 +364,44 @@ function buildWarnings() {
   if (!reqW || !reqH || !pages.length) { wb.classList.add('hidden'); wb.innerHTML = ''; return; }
   const tol = 1.5;
   const bad = [];
+  const labels = pageLabels();
   pages.forEach((p, idx) => {
     if (p.wmm == null) return;
+    if (p.isSpread) return;   // כפולה: רוחב כפול הוא תקין בכוונה — לא "גודל שגוי"
     const ok = (Math.abs(p.wmm - reqW) <= tol && Math.abs(p.hmm - reqH) <= tol) ||
                (Math.abs(p.wmm - reqH) <= tol && Math.abs(p.hmm - reqW) <= tol);
-    if (!ok) bad.push(`עמ' ${idx+1} (${Math.round(p.wmm)}×${Math.round(p.hmm)})`);
+    if (!ok) bad.push(`עמ' ${labels[idx]} (${Math.round(p.wmm)}×${Math.round(p.hmm)})`);
   });
-  if (!bad.length) { wb.classList.add('hidden'); wb.innerHTML = ''; return; }
+  const spr = spreadCount();
+  const sprInfo = spr
+    ? `<div style="margin-top:6px;color:#1d4ed8"><b>📖 זוהו ${spr} כפולות</b> — כל כפולה נספרת כ-2 עמודים (סה"כ ${effPageCount()} עמודים).</div>`
+    : '';
+  if (!bad.length && !spr) { wb.classList.add('hidden'); wb.innerHTML = ''; return; }
   wb.classList.remove('hidden');
-  wb.innerHTML = `<b>⚠️ גודל לא תואם.</b> הגודל הנדרש: <b>${reqW}×${reqH} מ"מ</b>. ` +
-    `העמודים הבאים בגודל שונה: <span class="bad">${bad.join(', ')}</span>. ` +
-    `אפשר לתקן ולהעלות מחדש, או לשלוח כך אם זה בכוונה.`;
+  wb.innerHTML = (bad.length
+    ? `<b>⚠️ גודל לא תואם.</b> הגודל הנדרש: <b>${reqW}×${reqH} מ"מ</b>. ` +
+      `העמודים הבאים בגודל שונה: <span class="bad">${bad.join(', ')}</span>. ` +
+      `אפשר לתקן ולהעלות מחדש, או לשלוח כך אם זה בכוונה.`
+    : '') + sprInfo;
 }
 
 // ── סרגל צד ──
 function renderSidebar() {
   const sb = $('sidebar'); sb.innerHTML = '';
-  if (pages.length) { const t = document.createElement('div'); t.className='sb-title'; t.textContent = `עמודים (${pages.length}) — גררו לסידור`; sb.appendChild(t); }
+  if (pages.length) {
+    const t = document.createElement('div'); t.className='sb-title';
+    const spr = spreadCount();
+    t.textContent = `עמודים (${effPageCount()})` + (spr ? ` · ${spr} כפולות` : '') + ` — גררו לסידור`;
+    sb.appendChild(t);
+  }
+  const labels = pageLabels();
   const active = showingPages();
   pages.forEach((p, idx) => {
     const d = document.createElement('div');
     d.className = 'thumb' + (active.includes(idx) ? ' active' : '');
     d.draggable = true; d.dataset.uid = p.uid;
-    d.innerHTML = `<img src="${p.src}" alt=""><span class="n">${idx+1}</span>
+    d.innerHTML = `<img src="${p.src}" alt=""><span class="n">${labels[idx]}</span>
+      ${p.isSpread ? '<span style="position:absolute;top:4px;left:4px;background:#1d4ed8;color:#fff;font-size:.62rem;font-weight:800;border-radius:5px;padding:1px 6px">📖 כפולה</span>' : ''}
       <div class="tools"><button class="rep">החלף</button><button class="rm">מחק</button></div>`;
     d.onclick = e => { if (!e.target.closest('.tools')) { vIndex = alignSpread(idx); renderViewer(); renderSidebar(); } };
     d.querySelector('.rep').onclick = e => { e.stopPropagation(); replacePage(p.uid); };
@@ -414,7 +460,8 @@ function renderViewer() {
   const spread = $('spread');
   if (!pages.length) { spread.innerHTML = '<div class="ph">העלו קבצים כדי לצפות ולדפדף</div>'; $('vlabel').textContent=''; return; }
   const s = showingPages();
-  $('vlabel').textContent = `עמוד ${s.map(i=>i+1).join('–')} מתוך ${pages.length}`;
+  const _lbls = pageLabels();
+  $('vlabel').textContent = `עמוד ${s.map(i=>_lbls[i]).join('–')} מתוך ${effPageCount()}`;
   $('vprev').disabled = vIndex <= 0;
   $('vnext').disabled = s[s.length-1] >= pages.length - 1;
   // dir rtl: עמוד נמוך מימין. עוטף ב-.page עם קו חיתוך (TrimBox), כפתור מחיקה, ויעד גרירה.
@@ -433,13 +480,13 @@ function renderViewer() {
       return `<div class="pagewrap">`
         + `<div class="page netcrop" data-idx="${i}" data-uid="${p.uid}" style="${st}">`
         + `<button class="pgdel" title="מחק עמוד זה" data-uid="${p.uid}">✕</button></div>`
-        + `<div class="pgnum">עמוד ${i+1}</div></div>`;
+        + `<div class="pgnum">${p.isSpread ? '📖 כפולה — עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
     }
     return `<div class="pagewrap">`
       + `<div class="page" data-idx="${i}" data-uid="${p.uid}">`
       + `<img src="${p.src}" alt="">`
       + `<button class="pgdel" title="מחק עמוד זה" data-uid="${p.uid}">✕</button></div>`
-      + `<div class="pgnum">עמוד ${i+1}</div></div>`;
+      + `<div class="pgnum">${p.isSpread ? '📖 כפולה — עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
   }).join('');
   // כפתור מחיקה לכל עמוד בדפדוף
   spread.querySelectorAll('.pgdel').forEach(b => {
@@ -482,7 +529,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') step(-1);
 });
 
-function renderAll() { renderSidebar(); renderViewer(); buildWarnings(); }
+function renderAll() { detectSpreads(); renderSidebar(); renderViewer(); buildWarnings(); }
 
 // ── אישור + העלאה עם מד אחוזים ──
 $('approve').onclick = async () => {
@@ -493,8 +540,11 @@ $('approve').onclick = async () => {
     runName = (prompt('שם / מספר הריצה:', `ריצה ${count + 1}`) || '').trim();
     if (!runName) return;
   }
-  if (!confirm(`לאשר ולשלוח ${pages.length} עמודים בסדר הנוכחי?\nלאחר האישור לא ניתן לשנות.`)) return;
+  const _spr = spreadCount();
+  if (!confirm(`לאשר ולשלוח ${effPageCount()} עמודים${_spr ? ` (כולל ${_spr} כפולות שנספרות כ-2 עמודים)` : ''} בסדר הנוכחי?\nלאחר האישור לא ניתן לשנות.`)) return;
   _uploading = true; await acquireWakeLock();
+  // אות "לקוח מעלה קובץ" — כדי שבית הדפוס יקבל התראה (גם קולית) בזמן אמת
+  try { patch({ uploading: { at: Date.now(), name: (mode === 'run' ? runName : 'עיתון מלא'), pages: effPageCount() } }); } catch(e){}
   try {
     showOverlay('מרכיב קובץ…', true);
     const out = await PDFLib.PDFDocument.create();
@@ -521,7 +571,7 @@ $('approve').onclick = async () => {
       const fileUrl = await uploadBytes(path, pdfBytes, onUp);
       // תצוגה מהירה: שמירת העמודים המרונדרים (שכבר קיימים) לפתיחה מיידית בקדם-דפוס/דפסים — תקף 12ש'
       const cache = await uploadPagesCache(`customerProofs/${folder}/${proofId}/pages.json`);
-      await patch({ status:'approved', mode:'full', fileUrl, filePath:path, fileName:'full.pdf', pageCount:pages.length, fileSize:pdfBytes.byteLength, approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at });
+      await patch({ status:'approved', mode:'full', fileUrl, filePath:path, fileName:'full.pdf', pageCount:effPageCount(), spreadCount:_spr, fileSize:pdfBytes.byteLength, approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at });
       return done('✓ העיתון אושר ונשלח לדפוס. תודה!');
     } else {
       const partId = 'p' + Date.now();
@@ -530,13 +580,13 @@ $('approve').onclick = async () => {
       const cache = await uploadPagesCache(`customerProofs/${folder}/${proofId}/${partId}-pages.json`);
       await fetch(`${_FBURL}/customerProofs/${proofId}/parts/${partId}.json`, {
         method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ name:runName, fileUrl, filePath:path, pageCount:pages.length, fileSize:pdfBytes.byteLength, status:'approved', approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at }) });
+        body: JSON.stringify({ name:runName, fileUrl, filePath:path, pageCount:effPageCount(), spreadCount:_spr, fileSize:pdfBytes.byteLength, status:'approved', approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at }) });
       await patch({ status:'parts', mode:'parts' });
       record = await (await fetch(`${_FBURL}/customerProofs/${proofId}.json`)).json();
       showOverlay('', false); alert(`✓ "${runName}" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.`); goHome();
     }
   } catch (e) { console.error(e); showOverlay('שגיאה: ' + e.message + '\n\nנסו שוב או פנו לבית הדפוס.', true); }
-  finally { _uploading = false; releaseWakeLock(); }
+  finally { _uploading = false; releaseWakeLock(); try { patch({ uploading: null }); } catch(e){} }
 };
 
 async function patch(fields) {
