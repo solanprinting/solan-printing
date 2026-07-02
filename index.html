@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783011770';
+window.APP_VERSION = '1783012083';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4666,11 +4666,26 @@ function _cardDoneThisWeek(name) {
   // סימון ידני (גובר על "נוקה" אם סומן אחריו) — ללא הגבלת שבוע
   var mk = weekCardMarked[name] || 0;
   if (mk && mk > clearedSince) return true;
+  // חותמת קבועה על העבודה עצמה (cardCreatedAt) — נרשמת בעת יצירת הכרטיס ושורדת
+  // גם אם הכרטיס נמחק/פונה אחר כך. בלי זה הירוק "נעלם" כשהכרטיס נמחק.
+  var nm = String(name||'').trim();
+  var stamped = function(arr){ return (arr||[]).some(function(x){ return x && String(x.name||'').trim() === nm && (x.cardCreatedAt||0) > clearedSince; }); };
+  if (stamped(weeklyJobs) || stamped(newspapers) || stamped(flyers)) return true;
   // נוצר כרטיס לעבודה אחרי הניקוי האחרון — מסומן ירוק עד הניקוי הבא
   return cards.some(c => {
     if (c.name !== name) return false;
     return c.id && c.id > clearedSince;
   });
+}
+
+// חותמת "נוצר כרטיס" קבועה על העבודה התואמת ביומן (עבודה שבועית/עיתון/עלון) —
+// נשמרת ומסונכרנת כחלק מהעבודה עצמה, כך שהחיווי הירוק לא נעלם כשהכרטיס נמחק
+function _stampWeekDone(name) {
+  if (!name) return;
+  var nm = String(name).trim(), now = Date.now();
+  (weeklyJobs||[]).forEach(function(w){ if (w && String(w.name||'').trim() === nm) w.cardCreatedAt = now; });
+  (newspapers||[]).forEach(function(n){ if (n && String(n.name||'').trim() === nm) n.cardCreatedAt = now; });
+  (flyers||[]).forEach(function(f){ if (f && String(f.name||'').trim() === nm) f.cardCreatedAt = now; });
 }
 
 // החלפת סימון ידני "נוצר כרטיס" (ירוק) לעבודה לפי שם
@@ -6270,6 +6285,7 @@ function _saveCardNew() {
     showCardValidationModal(warns, function() {
       _attachPendingProof(card);
       cards.unshift(card);
+      _stampWeekDone(card.name);   // חיווי ירוק קבוע ביומן — שורד גם מחיקת הכרטיס
       _autoQueueAssignedRuns(card);
       persist();
       _logActivity('🆕', 'עבודה "'+card.name+'" נוצרה');
@@ -6281,6 +6297,7 @@ function _saveCardNew() {
   }
   _attachPendingProof(card);
   cards.unshift(card);
+  _stampWeekDone(card.name);   // חיווי ירוק קבוע ביומן — שורד גם מחיקת הכרטיס
   _autoQueueAssignedRuns(card);
   persist();
   _logActivity('🆕', 'עבודה "'+card.name+'" נוצרה');
@@ -10955,6 +10972,8 @@ function quickWeeklyJobCard(weeklyJobId) {
   _applyAutoDeptFlags(card);
   cards.unshift(card);
   w.cardCreated = card.id;
+  w.cardCreatedAt = Date.now();   // חותמת קבועה — הירוק לא נעלם גם אם הכרטיס יימחק
+  _stampWeekDone(card.name);
   persist();
   renderCards();
   showPrintModal(card);
@@ -15312,7 +15331,8 @@ function _dashEnsureCardForItem(it) {
   };
   _applyAutoDeptFlags(card);
   cards.unshift(card);
-  if (it.kind === 'weekly') { var w = weeklyJobs.find(function(x){ return x.id === it.id; }); if (w) w.cardCreated = card.id; }
+  if (it.kind === 'weekly') { var w = weeklyJobs.find(function(x){ return x.id === it.id; }); if (w) { w.cardCreated = card.id; w.cardCreatedAt = Date.now(); } }
+  _stampWeekDone(card.name);   // חותמת קבועה ביומן — שורדת מחיקת כרטיס
   persist();
   if (typeof renderCards === 'function') renderCards();
   return card;
