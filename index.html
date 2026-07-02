@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783012083';
+window.APP_VERSION = '1783012620';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -8243,6 +8243,9 @@ function _hardPurgeCard(id) {
 // סורק את כל הכרטיסים ומוחק לצמיתות עבודות מלקוחות בכלל המחיקה שעברו את מספר הימים
 function _purgeCustomerCards() {
   if (!customerPurgeRules || !customerPurgeRules.length) return;
+  // הגנת נתונים ישנים: לא מוחקים/דוחפים ממסך דפסים או מטאב שלא סונכרן לאחרונה
+  if (window._isMachineView) return;
+  if (_fbConnected && Date.now() - (window._lastPollOkAt||0) > 5*60*1000) return;
   var now = Date.now();
   var ruleByCust = {};
   customerPurgeRules.forEach(function(r){ if (r.customer) ruleByCust[String(r.customer).trim()] = parseInt(r.days)||0; });
@@ -14879,6 +14882,8 @@ async function _fbPollAll() {
         DEPARTMENTS.forEach(function(d){ renderDeptSchedule(d); });
       }
     }
+    // חותמת "סנכרון מלא תקין" — טיימרים שמשנים נתונים בודקים אותה כדי לא לרוץ על נתונים ישנים
+    window._lastPollOkAt = Date.now();
   } catch(e) {
     _fbConnected = false;
     updateFBStatus(false);
@@ -15722,6 +15727,10 @@ function renderActivityFeed() {
 // למחרת היום הקבוע שלה בשבוע, מ-6:00 בבוקר ואילך (לדוגמה: עבודה שבועית
 // הקבועה לראשון → הכרטיס שנוצר לה יסומן הושלם אוטומטית ביום שני ב-6:00).
 function _autoCompleteWeeklyJobs() {
+  // הגנת נתונים ישנים: אם הסנכרון המלא לא רץ בהצלחה ב-5 הדקות האחרונות (טאב קפוא/
+  // ברקע/מסך דפסים) — לא נוגעים בנתונים, אחרת נדחוף מצב ישן וידרוס שינויים חדשים
+  if (window._isMachineView) return;
+  if (_fbConnected && Date.now() - (window._lastPollOkAt||0) > 5*60*1000) return;
   var now = new Date();
   if (now.getHours() < 6) return; // עדיין לפני 6:00 בבוקר
   var todayIdx = now.getDay(); // 0=ראשון ... 6=שבת, כמו DAYS
@@ -15987,23 +15996,24 @@ function _opPushCardsMerged(changedId) {
 function _opStartPrinting(qid) {
   var machine = _machineViewMachine;
   var cur = _opGetPrinting(machine);
-  var _cardsChanged = false, _changedCardId = null;
-  if (cur && cur.qid) {
-    var oldE = (machineQueue||[]).find(function(x){ return String(x.qid) === String(cur.qid); });
-    if (oldE && !oldE.done) {
-      oldE.done = true;
-      oldE.doneAt = new Date().toISOString();
-      if (cur.startAt) oldE.printDurationSec = Math.floor((Date.now() - cur.startAt) / 1000);
-      // סנכרן את סטטוס הכרטיס ללוח הייצור (אם כל הריצות הודפסו → הושלם)
-      if (typeof _syncCardStatusFromQueue === 'function' && _syncCardStatusFromQueue(oldE.cardId)) { _cardsChanged = true; _changedCardId = oldE.cardId; }
-    }
-  }
   _opSetPrinting(machine, qid);
-  localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
-  if (window._fbPut) window._fbPut('machineQueue', machineQueue);
-  if (_cardsChanged) {
-    localStorage.setItem('solanCards', JSON.stringify(cards));
-    _opPushCardsMerged(_changedCardId);   // מיזוג עם השרת — לא דורס כרטיסים חדשים
+  if (cur && cur.qid) {
+    var curStartAt = cur.startAt;
+    // סימון העבודה הקודמת כהודפסה — דרך עדכון ממוזג (לא דורסים תור ישן)
+    _opQueuePatch(cur.qid, function(e){
+      if (e.done) return;
+      e.done = true;
+      e.doneAt = new Date().toISOString();
+      if (curStartAt) e.printDurationSec = Math.floor((Date.now() - curStartAt) / 1000);
+    }).then(function(){
+      // סנכרן את סטטוס הכרטיס ללוח הייצור (אם כל הריצות הודפסו → הושלם)
+      var oldE = (machineQueue||[]).find(function(x){ return String(x.qid) === String(cur.qid); });
+      if (oldE && typeof _syncCardStatusFromQueue === 'function' && _syncCardStatusFromQueue(oldE.cardId)) {
+        localStorage.setItem('solanCards', JSON.stringify(cards));
+        _opPushCardsMerged(oldE.cardId);   // מיזוג עם השרת — לא דורס כרטיסים חדשים
+      }
+      _renderOperatorScreen();
+    });
   }
   _renderOperatorScreen();
 }
@@ -16303,16 +16313,32 @@ function _operatorShowDetail(qid) {
   document.body.appendChild(ov);
 }
 
-function _operatorMarkDone(qid) {
-  var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
-  if (!e) return;
-  e.done = true;
-  e.doneAt = new Date().toISOString();
-  e.doneBy = _machineViewOpName;
-  e.doneByName = _machineViewOpName;
-  localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
-  if (window._fbPut) window._fbPut('machineQueue', machineQueue);
+// עדכון בטוח של רשומת תור ממסך הדפסים: מביאים קודם את התור העדכני מהשרת,
+// מחילים רק את השינוי הספציפי (לפי qid), ואז דוחפים. בלי זה — מסך דפסים שהוקפא
+// (למשל בזמן צפייה בפרופר) דוחף תור ישן של שעות ודורס סידור/מחיקות שנעשו באדמין.
+function _opQueuePatch(qid, mutFn) {
+  var apply = function(){
+    var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
+    if (e) mutFn(e);
+    localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
+  };
+  apply();                       // עדכון מקומי מיידי — הדפס רואה את השינוי מיד
   _renderOperatorScreen();
+  return window._fbGet('machineQueue').then(function(sv){
+    var server = Array.isArray(sv) ? sv : (sv && typeof sv === 'object' ? Object.values(sv) : []);
+    if (server.length) { machineQueue = server; apply(); }   // בסיס עדכני + השינוי שלנו
+    if (window._fbPut) return window._fbPut('machineQueue', machineQueue);
+  }).then(function(){ _renderOperatorScreen(); })
+    .catch(function(){ /* אין רשת — נשאר מקומי, בלי דחיפה (לא דורסים) */ });
+}
+
+function _operatorMarkDone(qid) {
+  _opQueuePatch(qid, function(e){
+    e.done = true;
+    e.doneAt = new Date().toISOString();
+    e.doneBy = _machineViewOpName;
+    e.doneByName = _machineViewOpName;
+  });
 }
 
 function _opSpinStyle() {
@@ -16342,6 +16368,9 @@ function _opCloseProof() {
   var o = document.getElementById('op-proof-overlay');
   if (o) { try { if (document.fullscreenElement) document.exitFullscreen(); } catch(e){} o.remove(); }
   window._opPV = null;
+  // בזמן שהפרופר היה פתוח הרענון הוקפא — מתעדכנים מיד עם סגירתו,
+  // כדי שפעולה הבאה של הדפס לא תרוץ על נתונים ישנים
+  try { if (typeof _opLoadAndRender === 'function' && _machineViewMachine) _opLoadAndRender(); } catch(e){}
 }
 function _opProofFullscreen() {
   var o = document.getElementById('op-proof-overlay'); if (!o) return;
@@ -16745,12 +16774,9 @@ function _opReturnToPrintQueue() {
 }
 
 function _operatorUnmarkDone(qid) {
-  var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
-  if (!e) return;
-  e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null;
-  localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
-  if (window._fbPut) window._fbPut('machineQueue', machineQueue);
-  _renderOperatorScreen();
+  _opQueuePatch(qid, function(e){
+    e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null;
+  });
 }
 
 // ========== INIT ==========
