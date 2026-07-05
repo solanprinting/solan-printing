@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783240205';
+window.APP_VERSION = '1783241559';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -8371,6 +8371,31 @@ function _hardPurgeCard(id) {
 }
 
 // סורק את כל הכרטיסים ומוחק לצמיתות עבודות מלקוחות בכלל המחיקה שעברו את מספר הימים
+// ── לקוח "גרפיק" — עבודות פנימיות: שקטות ביומן/התראות + מחיקה אוטומטית אחרי 24 שעות ──
+function _isGraphicCard(c){ if (!c) return false; return (((c.customer||'') + ' ' + (c.name||'')).indexOf('גרפיק') >= 0); }
+function _isSilentCardId(cardId){
+  if (cardId == null) return false;
+  var c = (cards||[]).find(function(x){ return x && String(x.id) === String(cardId); });
+  return _isGraphicCard(c);
+}
+function _cardCreatedMs(c){ return (typeof c.id === 'number' && c.id > 1e12) ? c.id : (Date.parse(c.createdAt) || 0); }
+// מחיקה שקטה של כרטיסי "גרפיק" מעל 24 שעות — בלי רישום ביומן ובלי התראה
+function _purgeGraphicCards(){
+  if (window._isMachineView) return;
+  if (_fbConnected && Date.now() - (window._lastPollOkAt||0) > 5*60*1000) return;
+  var now = Date.now();
+  var toPurge = (cards||[]).filter(function(c){
+    if (!c || !_isGraphicCard(c)) return false;
+    var cr = _cardCreatedMs(c);
+    return cr && (now - cr >= 24*3600*1000);
+  }).map(function(c){ return c.id; });
+  if (!toPurge.length) return;
+  toPurge.forEach(function(id){ if (typeof _markDeleted === 'function') _markDeleted('cards', id); });
+  cards = (cards||[]).filter(function(c){ return toPurge.indexOf(c.id) < 0; });
+  persist();   // שקט — בלי _logActivity
+  if (typeof renderCards === 'function') renderCards();
+}
+
 function _purgeCustomerCards() {
   if (!customerPurgeRules || !customerPurgeRules.length) return;
   // הגנת נתונים ישנים: לא מוחקים/דוחפים ממסך דפסים או מטאב שלא סונכרן לאחרונה
@@ -9138,7 +9163,7 @@ function removeFromWorkList(cardId, machine, isWlistOnly) {
     if (typeof _markDeleted === 'function') _markDeleted('cards', cardId);
     cards = cards.filter(function(c){ return c.id !== cardId; });
     persist();
-    if (typeof _logActivity === 'function') _logActivity('❌', 'עבודה "' + ((_c&&_c.name)||'') + '" נמחקה');
+    if (typeof _logActivity === 'function' && !_isGraphicCard(_c)) _logActivity('❌', 'עבודה "' + ((_c&&_c.name)||'') + '" נמחקה');
   } else {
     // הכרטיס נשאר קיים ועדיין "שייך" למכונה הזו (c.machine / run.machine) —
     // בלי רשימת חסימה, _syncWorkOrder היה מחזיר אותו אוטומטית ברינדור הבא
@@ -11264,7 +11289,7 @@ function softDeleteCard(id) {
   c.status = 'trash';
   c.deletedAt = new Date().toISOString();
   persist();
-  _logActivity('🗑️', 'עבודה "' + (c.name||'') + '" הועברה לנמחקו');
+  _logActivity('🗑️', 'עבודה "' + (c.name||'') + '" הועברה לנמחקו', c.id);
   closePrintModal();
   renderCards();
   if (typeof renderWorkList === 'function') renderWorkList();
@@ -11305,7 +11330,7 @@ function restoreCard(id) {
   c.status = 'pending';
   delete c.deletedAt;
   persist();
-  _logActivity('↩️', 'עבודה "' + (c.name||'') + '" שוחזרה מהנמחקים');
+  _logActivity('↩️', 'עבודה "' + (c.name||'') + '" שוחזרה מהנמחקים', c.id);
   renderCards();
   showToast('↩ כרטיס שוחזר');
 }
@@ -11317,7 +11342,7 @@ function deleteCard(id) {
   _markDeleted('cards', id);
   cards = cards.filter(c=>c.id!==id);
   persist(); renderCards();
-  _logActivity('❌', 'עבודה "' + (item.name||item.customer||'') + '" נמחקה לצמיתות');
+  if (!_isGraphicCard(item)) _logActivity('❌', 'עבודה "' + (item.name||item.customer||'') + '" נמחקה לצמיתות');
   // ניקוי רשימות חסימה/סדר עבודה כדי שלא יישארו אסמכתאות לכרטיס שנמחק
   _loadWorkOrder();
   WORKLIST_MACHINES.forEach(function(m){
@@ -15328,6 +15353,7 @@ function _actMergeById(a, b) {
 function _logActivity(icon, text, cardId) {
   // עבודות של לקוח "גרפיק" — פעולה שקטה: לא נרשמת ביומן/התראות ולא נראית בשום מקום
   if (typeof _isSilentCardId === 'function' && cardId && _isSilentCardId(cardId)) return;
+  if (typeof text === 'string' && text.indexOf('גרפיק') >= 0) return;   // גם לפי שם העבודה
   var uname = currentUser ? (currentUser.name || _userName(currentUser.id))
     : (typeof _machineViewMachine !== 'undefined' && _machineViewMachine ? ('דפס' + (_machineViewOpName && _machineViewOpName !== 'מפעיל' ? ' ' + _machineViewOpName : '')) : null);
   var entry = { id: Date.now() + '_' + Math.random().toString(36).slice(2,7), t: Date.now(), icon: icon, text: text, user: uname };
@@ -17036,8 +17062,8 @@ setTimeout(checkLowInventory, 1000);
 setTimeout(autoBackup, 2000);
 setTimeout(_autoCompleteWeeklyJobs, 1500);
 setInterval(_autoCompleteWeeklyJobs, 5 * 60 * 1000);
-setTimeout(function(){ try { _purgeCustomerCards(); } catch(e){} }, 3000);
-setInterval(function(){ try { _purgeCustomerCards(); } catch(e){} }, 30 * 60 * 1000);
+setTimeout(function(){ try { _purgeCustomerCards(); } catch(e){} try { _purgeGraphicCards(); } catch(e){} }, 3000);
+setInterval(function(){ try { _purgeCustomerCards(); } catch(e){} try { _purgeGraphicCards(); } catch(e){} }, 30 * 60 * 1000);
 setTimeout(function(){ try { _cleanupOldProofs(); } catch(e){} }, 5000);
 setInterval(function(){ try { _cleanupOldProofs(); } catch(e){} }, 60 * 60 * 1000);
 // מצב העלאות פרופרים משותף — נראה לכל המשתמשים ושורד ריענון מסך
