@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783252256';
+window.APP_VERSION = '1783253790';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -18115,7 +18115,7 @@ function _ccApplyMode(){
 function _ccSetMode(m){ _ccMode=m; _ccApplyMode(); _ccRenderTypes(); _ccSave(); _ccCalc(); }
 function _ccAddType(){ _ccTypes.push({ name:'סוג '+(_ccTypes.length+1), perSheet:6, cartons:20 }); _ccRenderTypes(); _ccSave(); _ccCalc(); }
 function _ccRemoveType(i){ _ccTypes.splice(i,1); _ccRenderTypes(); _ccSave(); _ccCalc(); }
-function _ccUpd(i,k,v){ if(!_ccTypes[i])return; _ccTypes[i][k]=(k==='name')?v:(parseFloat(v)||0); _ccSave(); _ccCalc(); }
+function _ccUpd(i,k,v){ if(!_ccTypes[i])return; _ccTypes[i][k]=(k==='name')?v:(k==='exact'?!!v:(parseFloat(v)||0)); _ccSave(); _ccCalc(); }
 function _ccRenderTypes(){
   var host=document.getElementById('cc-types'); if(!host) return;
   host.innerHTML = _ccTypes.map(function(t,i){
@@ -18123,7 +18123,9 @@ function _ccRenderTypes(){
       +   '<input class="fi" style="margin:0" value="'+String(t.name||'').replace(/"/g,'&quot;')+'" oninput="_ccUpd('+i+',\'name\',this.value)"></div>';
     if (_ccMode==='optimal') {
       cols += '<div style="flex:1;min-width:100px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">כמות דרושה (יח\')</label>'
-        +   '<input class="fi" style="margin:0" type="number" min="0" value="'+(t.demand||'')+'" oninput="_ccUpd('+i+',\'demand\',this.value)"></div>';
+        +   '<input class="fi" style="margin:0" type="number" min="0" value="'+(t.demand||'')+'" oninput="_ccUpd('+i+',\'demand\',this.value)"></div>'
+        + '<label title="חייב לצאת בדיוק הכמות הזו — בלי עודף" style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:#4338ca;font-weight:700;white-space:nowrap;padding-bottom:8px;cursor:pointer">'
+        +   '<input type="checkbox" '+(t.exact?'checked':'')+' onchange="_ccUpd('+i+',\'exact\',this.checked)" style="accent-color:#4338ca;width:15px;height:15px">מדויק</label>';
     } else {
       cols += '<div style="flex:1;min-width:88px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">יח\' בגיליון</label>'
         +   '<input class="fi" style="margin:0" type="number" min="0" value="'+(t.perSheet||'')+'" oninput="_ccUpd('+i+',\'perSheet\',this.value)"></div>';
@@ -18148,7 +18150,7 @@ function _ccCalc(){
   var fmt=function(n){ return Math.round(n).toLocaleString(); };
   var thStyle='padding:6px 8px;font-size:.72rem;color:#475569;border-bottom:2px solid #e2e8f0;text-align:center';
   var tdStyle='padding:6px 8px;font-size:.82rem;border-bottom:1px solid #f1f5f9;text-align:center';
-  var html='';
+  var html='', _buildable=null;
   if(_ccMode==='need'){
     var maxSheets=0;
     types.forEach(function(t){ var need=(t.cartons||0)*perCarton; t._sheets=t.perSheet>0?Math.ceil(need/t.perSheet):0; if(t._sheets>maxSheets)maxSheets=t._sheets; });
@@ -18170,6 +18172,8 @@ function _ccCalc(){
     });
     html+='</tbody></table>';
     if(types.length>1) html+='<div style="font-size:.72rem;color:#94a3b8;margin-top:8px">* כמות הגיליונות נגזרת מהסוג הדורש הכי הרבה; סוגים אחרים ייוצרו בעודף.</div>';
+    var _nLines=types.map(function(t){ return '• '+(t.name||'סוג')+': '+fmt(t.perSheet)+' בגיליון · '+fmt(t.cartons||0)+' קרטונים ('+fmt((t.cartons||0)*perCarton)+' יח\')'; });
+    _buildable={ name:'פלייסמנטים', sheets:maxSheets, spec:'לפי קרטונים ('+fmt(perCarton)+' יח\'/קרטון):\n'+_nLines.join('\n')+'\nסה"כ '+fmt(maxSheets)+' גיליונות.' };
   } else if(_ccMode==='yield'){
     var shEl=document.getElementById('cc-sheets'); var sheets=shEl?(parseFloat(shEl.value)||0):0;
     html+='<div style="background:#1a1a4e;color:#fff;border-radius:10px;padding:12px 16px;text-align:center;margin-bottom:12px;font-size:.9rem">מ-<b>'+fmt(sheets)+'</b> גיליונות ייצאו:</div>';
@@ -18189,64 +18193,96 @@ function _ccCalc(){
     if(slots<=0){ res.innerHTML='<div style="color:#b45309;font-size:.85rem">הזן כמה יחידות (משבצות) נכנסות בגיליון.</div>'; return; }
     if(slots<types.length){ res.innerHTML='<div style="color:#b45309;font-size:.85rem">מספר המשבצות בגיליון ('+slots+') קטן ממספר הסוגים ('+types.length+') — הגדל את המשבצות או הסר סוג.</div>'; return; }
     var demands=types.map(function(t){ return parseFloat(t.demand)||0; });
-    var sol=_ccSolveOptimal(demands, slots);
+    var exacts=types.map(function(t){ return !!t.exact; });
+    var sol=_ccSolveOptimal(demands, exacts, slots);
     if(!sol){ res.innerHTML='<div style="color:#b45309">לא נמצא פתרון.</div>'; return; }
+    var emptySlots=slots-sol.used;
     html+='<div style="background:#1a1a4e;color:#fff;border-radius:10px;padding:13px 16px;text-align:center;margin-bottom:12px">'
       +'<div style="font-size:.78rem;opacity:.82">צריך להדפיס (פיזור אופטימלי)</div>'
       +'<div style="font-size:1.85rem;font-weight:900;line-height:1.1">'+fmt(sol.R)+'</div>'
-      +'<div style="font-size:.82rem;opacity:.82">גיליונות · '+slots+' יח\' בגיליון</div></div>';
+      +'<div style="font-size:.82rem;opacity:.82">גיליונות · '+sol.used+' מתוך '+slots+' משבצות'+(emptySlots>0?' ('+emptySlots+' ריקות)':'')+'</div></div>';
     html+='<table style="width:100%;border-collapse:collapse"><thead><tr>'
       +'<th style="'+thStyle+';text-align:right">סוג</th><th style="'+thStyle+'">דרוש</th><th style="'+thStyle+'">בגיליון</th><th style="'+thStyle+'">ייוצר</th><th style="'+thStyle+'">עודף</th></tr></thead><tbody>';
     types.forEach(function(t,idx){
       var n=sol.n[idx]; var made=sol.R*n; var surplus=made-demands[idx];
       var cartTxt=(perCarton>0)?' <span style="font-size:.66rem;color:#94a3b8">('+fmt(made/perCarton)+' קרט\')</span>':'';
-      html+='<tr><td style="'+tdStyle+';text-align:right;font-weight:700">'+_ccEsc(t.name||'')+'</td>'
+      var exBadge=t.exact?' <span style="font-size:.6rem;background:#ede9fe;color:#4338ca;border:1px solid #c7d2fe;border-radius:4px;padding:0 4px;font-weight:800">מדויק</span>':'';
+      html+='<tr><td style="'+tdStyle+';text-align:right;font-weight:700">'+_ccEsc(t.name||'')+exBadge+'</td>'
         +'<td style="'+tdStyle+'">'+fmt(demands[idx])+'</td>'
         +'<td style="'+tdStyle+';font-weight:800;color:#4338ca;font-size:1rem">'+n+' <span style="font-size:.62rem;color:#94a3b8">/ '+slots+'</span></td>'
         +'<td style="'+tdStyle+';font-weight:700;color:#15803d">'+fmt(made)+cartTxt+'</td>'
-        +'<td style="'+tdStyle+';color:'+(surplus>0?'#b45309':'#94a3b8')+'">'+(surplus>0?('+'+fmt(surplus)):'0')+'</td></tr>';
+        +'<td style="'+tdStyle+';color:'+(surplus>0?'#b45309':'#15803d')+'">'+(surplus>0?('+'+fmt(surplus)):(t.exact?'✓':'0'))+'</td></tr>';
     });
     html+='</tbody></table>';
+    if(sol.exactViol>0) html+='<div style="font-size:.72rem;color:#b45309;margin-top:8px">⚠️ לא ניתן לצאת מדויק לכל סוג שסומן (הכמות אינה מתחלקת במשבצות) — הוצג הפתרון הקרוב ביותר.</div>';
     html+='<div style="font-size:.72rem;color:#64748b;margin-top:8px;line-height:1.6">'
-      +'📐 סדר את הגיליון: '+types.map(function(t,idx){ return '<b>'+_ccEsc(t.name||'')+'</b> ×'+sol.n[idx]; }).join(' · ')
-      +' (סה"כ '+slots+' בגיליון). סה"כ יודפסו '+fmt(sol.R*slots)+' יח\', מתוכן עודף '+fmt(sol.totS)+' יח\'.</div>';
+      +'📐 סדר את הגיליון: '+types.map(function(t,idx){ return '<b>'+_ccEsc(t.name||'')+'</b> ×'+sol.n[idx]; }).join(' · ')+(emptySlots>0?' · '+emptySlots+' ריק':'')
+      +' (סה"כ '+slots+'). יודפסו '+fmt(sol.R*sol.used)+' יח\', עודף '+fmt(sol.totS)+' יח\'.</div>';
+    var _oLines=types.map(function(t,idx){ var made=sol.R*sol.n[idx]; return '• '+(t.name||'סוג')+' ×'+sol.n[idx]+' בגיליון = '+fmt(made)+' יח\''+(t.exact?' (מדויק)':(made>demands[idx]?' (עודף '+fmt(made-demands[idx])+')':'')); });
+    _buildable={ name:'פלייסמנטים', sheets:sol.R,
+      spec:'פיזור אופטימלי — '+slots+' יח\' בגיליון:\n'+_oLines.join('\n')+'\nסה"כ '+fmt(sol.R)+' גיליונות'+(emptySlots>0?' ('+emptySlots+' משבצות ריקות)':'')+'.' };
+  }
+  if(_buildable){
+    window._ccLast=_buildable;
+    html+='<button onclick="_ccBuildCard()" style="margin-top:14px;width:100%;padding:10px;border:none;border-radius:9px;background:#16a34a;color:#fff;font-family:Heebo,sans-serif;font-weight:800;font-size:.9rem;cursor:pointer">🗂️ צור כרטיס עבודה לפי המפרט</button>';
   }
   res.innerHTML=html;
+}
+// בונה כרטיס עבודה מהמפרט האחרון של המחשבון — המשתמש רק מוסיף סוג נייר ושומר.
+function _ccBuildCard(){
+  var b=window._ccLast; if(!b){ showToast('אין מפרט לבנייה — הזן נתונים במחשבון.'); return; }
+  closeCartonCalc();
+  if(typeof clearForm==='function') clearForm();
+  if(typeof switchTab==='function') switchTab('new');
+  var setV=function(id,v){ var e=document.getElementById(id); if(e) e.value=(v==null?'':v); };
+  setV('f-name', b.name || 'פלייסמנטים');
+  setV('f-type', 'פלייסמנט');
+  setV('f-copies', b.sheets || '');
+  setV('f-notes', b.spec || '');
+  var od=document.getElementById('f-order-date'); if(od && !od.value) od.value=new Date().toISOString().split('T')[0];
+  // מצב גיליונות: הכמות היא מספר גיליונות
+  var sm=document.getElementById('f-sheets-mode'); if(sm){ sm.checked=true; if(typeof toggleSheetsMode==='function') toggleSheetsMode(); }
+  var pel=document.getElementById('f-paper'); if(pel){ try{ pel.focus(); }catch(e){} }
+  window.scrollTo(0,0);
+  showToast('📋 כרטיס עבודה מוכן — הוסף סוג נייר ושמור');
 }
 function _ccEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 // פותר פיזור אופטימלי: בהינתן כמויות דרושות וסה"כ משבצות בגיליון — כמה מכל סוג בגיליון,
 // כדי לכסות הכל במינימום גיליונות (ואז מינימום עודף). מיזעור הגיליונות = מיזעור הבזבוז.
 function _ccBinom(n,k){ if(k<0||k>n) return Infinity; k=Math.min(k,n-k); var r=1; for(var i=0;i<k;i++){ r=r*(n-i)/(i+1); } return r; }
-function _ccSolveOptimal(demands, slots){
+function _ccLess(a,b){ for(var i=0;i<a.length;i++){ if(a[i]<b[i])return true; if(a[i]>b[i])return false; } return false; }
+// פותר: כמה מכל סוג בגיליון (סכום ≤ slots — מותר להשאיר משבצות ריקות) כדי:
+//   1) לכבד סוגים ש"חייבים כמות מדויקת" (עודף 0) ; 2) מינ' גיליונות ; 3) מילוי הגיליון ; 4) מינ' עודף.
+function _ccSolveOptimal(demands, exacts, slots){
   var k=demands.length; if(k===0||slots<k) return null;
-  var best=null;
+  exacts = exacts || [];
+  var best=null, bk=null;
   function consider(n){
     var R=0,i; for(i=0;i<k;i++){ var r=Math.ceil(demands[i]/n[i]); if(r>R)R=r; }
-    var maxS=0; for(i=0;i<k;i++){ var s=R*n[i]-demands[i]; if(s>maxS)maxS=s; }
-    if(!best || R<best.R || (R===best.R && maxS<best.maxS)) best={ n:n.slice(), R:R, maxS:maxS };
+    var used=0, exactViol=0, exactSurp=0, totS=0, maxS=0;
+    for(i=0;i<k;i++){ used+=n[i]; var s=R*n[i]-demands[i]; totS+=s; if(s>maxS)maxS=s; if(exacts[i]){ exactSurp+=s; if(s!==0) exactViol++; } }
+    // מינ' גיליונות ראשון (לא מגדילים דפוס בשביל "מדויק"); ואז מינ' עודף של הסוגים המדויקים;
+    // ואז מילוי הגיליון; ואז מינ' עודף כולל; ואז איזון.
+    var key=[R, exactSurp, slots-used, totS, maxS];
+    if(!bk || _ccLess(key,bk)){ bk=key; best={ n:n.slice(), R:R, totS:totS, used:used, exactViol:exactViol }; }
   }
-  if(_ccBinom(slots-1,k-1) <= 300000){
+  if(_ccBinom(slots,k) <= 400000){
+    // כל ההקצאות עם sum ≤ slots (n_i ≥ 1)
     var arr=new Array(k);
-    (function rec(idx,rem){
-      if(idx===k-1){ arr[idx]=rem; consider(arr); return; }
-      for(var v=1; v<=rem-(k-1-idx); v++){ arr[idx]=v; rec(idx+1, rem-v); }
-    })(0,slots);
+    (function rec(idx, used){
+      if(idx===k-1){ for(var last=1; last<=slots-used; last++){ arr[idx]=last; consider(arr); } return; }
+      for(var v=1; v<=slots-used-(k-1-idx); v++){ arr[idx]=v; rec(idx+1, used+v); }
+    })(0,0);
   } else {
-    var total=demands.reduce(function(a,b){return a+b;},0);
-    var base=demands.map(function(d){ return Math.max(1, Math.floor(d/total*slots)); });
-    var used=base.reduce(function(a,b){return a+b;},0), i;
-    while(used<slots){ var bi=0,bv=-1; for(i=0;i<k;i++){ var v=demands[i]/base[i]; if(v>bv){bv=v;bi=i;} } base[bi]++; used++; }
-    while(used>slots){ var si=-1,sv=Infinity; for(i=0;i<k;i++){ if(base[i]>1){ var v2=demands[i]/base[i]; if(v2<sv){sv=v2;si=i;} } } if(si<0)break; base[si]--; used--; }
-    consider(base);
-    var improved=true, guard=0;
-    while(improved && guard++<2000){ improved=false;
-      for(var a=0;a<k;a++) for(var b=0;b<k;b++){ if(a===b||best.n[b]<=1) continue;
-        var cand=best.n.slice(); cand[a]++; cand[b]--; var pr=best.R+'|'+best.maxS; consider(cand);
-        if(best.R+'|'+best.maxS!==pr) improved=true;
-      }
+    // fallback לגדול מאוד: התחל מ-1 לכל סוג והגדל את הצוואר-בקבוק
+    var n=new Array(k).fill(1);
+    for(var iter=0; iter<slots*4; iter++){
+      var used=n.reduce(function(a,b){return a+b;},0); if(used>=slots) break;
+      var bi=-1,bv=-1; for(var i=0;i<k;i++){ var v=demands[i]/n[i]; if(v>bv){bv=v;bi=i;} }
+      if(bi<0)break; n[bi]++;
     }
+    consider(n.slice());
   }
-  if(best){ var tot=demands.reduce(function(a,b){return a+b;},0); best.totS=best.R*slots-tot; }
   return best;
 }
 </script>
