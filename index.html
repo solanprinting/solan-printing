@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783246057';
+window.APP_VERSION = '1783246410';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6126,6 +6126,17 @@ function _foldCheckProof(cardId, runKey){
   var modal = document.getElementById('impositionModal');
   if (modal) modal.style.display = 'flex';
 }
+// בחירת ריצה לקיפול: אם יש כמה פרופרי-ריצות — הצג בורר; אחרת קפל ישר.
+function _foldCheckPick(cardId){
+  var c = (cards||[]).find(function(x){ return String(x.id)===String(cardId); });
+  if (!c) return;
+  var rp = {};
+  if (c.runProofs) Object.keys(c.runProofs).forEach(function(k){ if (c.runProofs[k] && c.runProofs[k].url) rp[k] = c.runProofs[k]; });
+  var keys = Object.keys(rp);
+  if (keys.length > 1) { _showProofRunPicker(cardId, rp, 'fold'); return; }
+  if (keys.length === 1) { _foldCheckProof(cardId, keys[0]); return; }
+  _foldCheckProof(cardId, null);   // פרופר יחיד / legacy
+}
 async function _checkProofValidity(cardId, runKey, file, fileName){
   try {
     var c = (cards||[]).find(function(x){ return String(x.id)===String(cardId); });
@@ -6456,15 +6467,18 @@ function _openProofByKey(cardId, runKey) {
   });
 }
 
-function _showProofRunPicker(cardId, runProofs) {
+function _showProofRunPicker(cardId, runProofs, mode) {
   var ex = document.getElementById('proof-run-picker');
   if (ex) ex.remove();
+  var isFold = mode === 'fold';
+  var fn = isFold ? '_foldCheckProof' : '_openProofByKey';
+  var icon = isFold ? '📖' : '📄';
   var keys = Object.keys(runProofs).sort();
   var btns = keys.map(function(k) {
     var nm = (runProofs[k] && runProofs[k].name) ? escHtml(runProofs[k].name) : k;
-    return '<button onclick="document.getElementById(\'proof-run-picker\').remove();_openProofByKey(' + cardId + ',\'' + k + '\')" '
+    return '<button onclick="document.getElementById(\'proof-run-picker\').remove();' + fn + '(' + cardId + ',\'' + k + '\')" '
       + 'style="display:flex;flex-direction:column;align-items:center;padding:14px 18px;border:2px solid #ddd6fe;border-radius:10px;background:#f5f3ff;cursor:pointer;font-family:Heebo,sans-serif;min-width:80px;gap:4px">'
-      + '<span style="font-size:1.4rem">📄</span>'
+      + '<span style="font-size:1.4rem">' + icon + '</span>'
       + '<span style="font-size:.9rem;font-weight:800;color:#5b21b6">' + k + '</span>'
       + '<span style="font-size:.65rem;color:#94a3b8;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + nm + '">' + nm + '</span>'
       + '</button>';
@@ -6473,7 +6487,7 @@ function _showProofRunPicker(cardId, runProofs) {
   ov.id = 'proof-run-picker';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
   ov.innerHTML = '<div style="background:white;border-radius:14px;padding:20px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);font-family:Heebo,sans-serif">'
-    + '<div style="font-weight:800;font-size:1rem;margin-bottom:14px;color:#1e293b">📄 בחר פרופר לצפייה</div>'
+    + '<div style="font-weight:800;font-size:1rem;margin-bottom:14px;color:#1e293b">' + (isFold ? '📖 בחר ריצה לקיפול ובדיקה' : '📄 בחר פרופר לצפייה') + '</div>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap">' + btns + '</div>'
     + '<button onclick="document.getElementById(\'proof-run-picker\').remove()" style="width:100%;margin-top:14px;padding:9px;border:1.5px solid #e2e8f0;background:white;border-radius:8px;cursor:pointer;font-weight:700;font-family:Heebo,sans-serif">סגור</button>'
     + '</div>';
@@ -11744,7 +11758,7 @@ function _jobCardHtml(c) {
             // כפתור "קפל ובדוק" — פותח את הפרופר בכלי הקיפול לבדיקת סדר העמודים בחוברת
             var hasUrl = c.proofUrl || (c.runProofs && Object.keys(c.runProofs).some(function(k){ return c.runProofs[k] && c.runProofs[k].url; }));
             if (!hasUrl) return '';
-            return '<span title="קפל את הגיליון הפרוס לחוברת ובדוק את סדר העמודים" onclick="event.stopPropagation();_foldCheckProof('+c.id+',null)" '
+            return '<span title="קפל את הגיליון הפרוס לחוברת ובדוק את סדר העמודים" onclick="event.stopPropagation();_foldCheckPick('+c.id+')" '
               + 'style="background:#0369a1;color:#fff;padding:2px 8px;border-radius:20px;font-size:.72rem;font-weight:700;cursor:pointer">📖 קפל ובדוק</span>';
           })()}
           ${(function(){
