@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783265961';
+window.APP_VERSION = '1783266347';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6222,6 +6222,15 @@ function _foldCheckProof(cardId, runKey){
   var modal = document.getElementById('impositionModal');
   if (modal) modal.style.display = 'flex';
 }
+// האם הכרטיס הוא חוברת אמיתית (עיתון/חוברת/8+ עמ')? רק אז מציעים קיפול —
+// פוסטר/פלייסמנט/עלון שטוח לא הופכים לחוברת.
+function _isBookletCard(c){
+  if (!c) return false;
+  var pg = parseInt(c.pages, 10);
+  if (!isNaN(pg) && pg >= 8) return true;
+  var txt = ((c.type||'') + ' ' + (c.name||'')).toLowerCase();
+  return /עיתון|חוברת|קטלוג|ספר/.test(txt);
+}
 // בחירת ריצה לקיפול: אם יש כמה פרופרי-ריצות — הצג בורר; אחרת קפל ישר.
 function _foldCheckPick(cardId){
   var c = (cards||[]).find(function(x){ return String(x.id)===String(cardId); });
@@ -12056,7 +12065,8 @@ function _jobCardHtml(c) {
             return '<span title="'+tip+'" style="background:'+bg+';color:white;padding:2px 9px;border-radius:20px;font-size:.74rem;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_viewProof('+c.id+')">'+lbl+'</span>';
           })()}
           ${(function(){
-            // כפתור "קפל ובדוק" — פותח את הפרופר בכלי הקיפול לבדיקת סדר העמודים בחוברת
+            // כפתור "קפל ובדוק" — רק לחוברות אמיתיות (לא פוסטר/עלון שטוח), עם פרופר
+            if (typeof _isBookletCard === 'function' && !_isBookletCard(c)) return '';
             var hasUrl = c.proofUrl || (c.runProofs && Object.keys(c.runProofs).some(function(k){ return c.runProofs[k] && c.runProofs[k].url; }));
             if (!hasUrl) return '';
             return '<span title="קפל את הגיליון הפרוס לחוברת ובדוק את סדר העמודים" onclick="event.stopPropagation();_foldCheckPick('+c.id+')" '

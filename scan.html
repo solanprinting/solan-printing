@@ -30,10 +30,12 @@
 </div>
 <script>
 // דף סריקת QR מכרטיס עבודה מודפס: ?c=<מזהה כרטיס> [&r=<ריצה>]
-// מאתר את הפרופר העדכני של הכרטיס ופותח אותו כחוברת מקופלת בדפדוף (בכלי הקיפול),
-// או ישירות (אם ידוע שהקובץ אינו גיליון פרוס). ההפניה לפי מזהה — תמיד הפרופר העדכני.
-// אם עדיין אין קבצים: הדף ממתין ומתעדכן אוטומטית ברגע שמצורף פרופר (מעקב דרך
-// _rev/cards הזעיר — כמעט אפס תעבורה בזמן ההמתנה).
+// סדר עדיפויות:
+//   1) חוברת אמיתית (עיתון/חוברת/8+ עמ') עם קובץ שהלקוח העלה במערכת האישורים →
+//      דפדוף מקובץ הלקוח (proof-viewer) — סדר קריאה כפי שאושר.
+//   2) חוברת בלי קובץ לקוח אך עם פרופר גיליון → קיפול הפרופר לחוברת (כלי הקיפול).
+//   3) לא-חוברת (פוסטר/פלייסמנט/עלון שטוח) → פתיחת הקובץ ישירות — בלי קיפול בכלל.
+//   4) אין קבצים עדיין → המתנה; הדף נפתח אוטומטית ברגע שמגיע קובץ (לקוח או פרופר).
 var _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
 var _FB_APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
 var TOKEN = null;
@@ -55,20 +57,55 @@ function _tok(){
   }).then(function(a){ try { localStorage.setItem('solanFbAnonRT', a.rt); } catch(e){} return a.t; })
     .catch(function(){ return null; });
 }
-function fetchCards(){
-  return fetch(_FBURL + '/cards.json' + (TOKEN ? '?auth=' + TOKEN : '')).then(function(r){
+function fbGet(path){
+  return fetch(_FBURL + '/' + path + '.json' + (TOKEN ? '?auth=' + TOKEN : '')).then(function(r){
     if (!r.ok) throw new Error('http ' + r.status);
     return r.json();
   });
 }
-function fetchCardsRev(){
-  return fetch(_FBURL + '/_rev/cards.json' + (TOKEN ? '?auth=' + TOKEN : ''))
-    .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function norm(s){ return String(s||'').toLowerCase().replace(/[^0-9a-zא-ת ]+/g,' ').replace(/\s+/g,' ').trim(); }
+
+// ── האם זו חוברת אמיתית? רק אז מקפלים/מדפדפים. פוסטר/פלייסמנט/עלון שטוח — לא. ──
+function isBooklet(card){
+  var pg = parseInt(card.pages, 10);
+  if (!isNaN(pg) && pg >= 8) return true;
+  var txt = norm((card.type||'') + ' ' + (card.name||''));
+  if (/עיתון|חוברת|קטלוג|ספר/.test(txt)) return true;
+  if (/פוסטר|פלייסמנט|פלסמנט|מדבק|כרזה/.test(txt)) return false;
+  return false;   // ספק — לא מקפלים (פותחים ישירות); עדיף מלהפוך פוסטר לחוברת
 }
 
-function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// ── קבצי לקוח (מערכת האישורים): התאמה לפי שם העבודה מול לקוח/כותרת ──
+function customerMatches(card, proofsMap){
+  var cn = norm(card.name); if (!cn) return [];
+  var out = [];
+  Object.keys(proofsMap||{}).forEach(function(pid){
+    var rec = proofsMap[pid]; if (!rec) return;
+    var viewable = !!rec.fileUrl || (rec.parts && Object.keys(rec.parts).some(function(k){ return rec.parts[k] && rec.parts[k].fileUrl; }));
+    if (!viewable) return;
+    var fields = [rec.title, rec.customer, ((rec.customer||'') + ' ' + (rec.title||''))];
+    var hit = fields.some(function(f){ var fn = norm(f); return fn && fn.length >= 2 && (cn.indexOf(fn) >= 0 || fn.indexOf(cn) >= 0); });
+    if (!hit) return;
+    var when = rec.approvedAt || 0;
+    if (rec.parts) Object.keys(rec.parts).forEach(function(k){ var p=rec.parts[k]; if (p && p.approvedAt > when) when = p.approvedAt; });
+    out.push({ id: pid, rec: rec, when: when });
+  });
+  out.sort(function(a,b){ return b.when - a.when; });
+  return out;
+}
 
-// זיהוי סוג הפריסה — אותם כללים כמו באפליקציה (תווית ← מס' עמודים ← מכונה)
+// ── פרופרים על הכרטיס ──
+function collectProofs(card){
+  var entries = [];
+  if (card.runProofs) Object.keys(card.runProofs).sort().forEach(function(k){
+    var rp = card.runProofs[k];
+    if (rp && rp.url) entries.push({ key:k, name:rp.name||k, url:rp.url, check:rp.check||null });
+  });
+  if (card.proofUrl) entries.push({ key:null, name:card.proofName||'פרופר', url:card.proofUrl, check:card.proofCheck||null });
+  if (rk) entries = entries.filter(function(e){ return String(e.key) === String(rk); });
+  return entries;
+}
 function _lab(name){
   var s = String(name||'').toLowerCase();
   return {
@@ -85,9 +122,11 @@ function _machineOf(card, runKey){
   }
   return card.machine || '';
 }
-function _target(card, entry){
+// יעד לפרופר: חוברת → קיפול; לא-חוברת → פתיחה ישירה (בלי להפוך פוסטר לחוברת)
+function proofTarget(card, entry){
+  if (!isBooklet(card)) return entry.url;
   var chk = entry.check || null;
-  if (chk && chk.imposed === false) return entry.url;   // לא גיליון פרוס — פתח ישירות
+  if (chk && chk.imposed === false) return entry.url;
   var lab = _lab(entry.name);
   var pages = chk && chk.pages;
   var sides2;
@@ -110,63 +149,90 @@ function findCard(v){
   var cards = Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
   return cards.find(function(x){ return x && String(x.id) === String(cid); });
 }
-function collectProofs(card){
-  var entries = [];
-  if (card.runProofs) Object.keys(card.runProofs).sort().forEach(function(k){
-    var rp = card.runProofs[k];
-    if (rp && rp.url) entries.push({ key:k, name:rp.name||k, url:rp.url, check:rp.check||null });
-  });
-  if (card.proofUrl) entries.push({ key:null, name:card.proofName||'פרופר', url:card.proofUrl, check:card.proofCheck||null });
-  if (rk) entries = entries.filter(function(e){ return String(e.key) === String(rk); });
-  return entries;
+function go(url, msg){
+  body.innerHTML = '<div class="spin"></div><div style="font-size:.85rem;color:rgba(255,255,255,.65)">' + esc(msg||'פותח…') + '</div>';
+  location.replace(url);
 }
-function proceed(card, entries){
-  if (entries.length === 1) {
-    body.innerHTML = '<div class="spin"></div><div style="font-size:.85rem;color:rgba(255,255,255,.65)">פותח את החוברת…</div>';
-    location.replace(_target(card, entries[0]));
-    return;
+// החלטה ראשית: קובץ לקוח קודם (לחוברות), אחר כך פרופר. מחזיר true אם נמצא יעד.
+function resolveAndGo(card, proofsMap){
+  var booklet = isBooklet(card);
+  if (booklet) {
+    var cm = customerMatches(card, proofsMap);
+    if (cm.length === 1) { go('proof-viewer.html?id=' + encodeURIComponent(cm[0].id), 'פותח את החוברת שהלקוח העלה…'); return true; }
+    if (cm.length > 1) {
+      body.innerHTML = '<div style="font-size:.9rem;margin-bottom:4px">נמצאו כמה קבצי לקוח — בחר:</div>'
+        + cm.map(function(m,i){
+            var nm = [m.rec.customer, m.rec.title].filter(Boolean).join(' · ') || 'עיתון';
+            return '<button class="btn' + (i>0?' alt':'') + '" data-u="proof-viewer.html?id=' + encodeURIComponent(m.id) + '">📖 ' + esc(nm) + '</button>';
+          }).join('');
+      body.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ location.href = b.dataset.u; }; });
+      return true;
+    }
   }
-  body.innerHTML = '<div style="font-size:.9rem;margin-bottom:4px">לעבודה זו כמה פרופרים — בחר ריצה:</div>'
-    + entries.map(function(e,i){
-        return '<button class="btn' + (i>0?' alt':'') + '" data-i="' + i + '">📖 ' + esc(e.key||'פרופר') + ' — ' + esc(e.name) + '</button>';
-      }).join('');
-  body.querySelectorAll('button').forEach(function(b){
-    b.onclick = function(){ location.href = _target(card, entries[parseInt(b.dataset.i,10)]); };
-  });
+  var entries = collectProofs(card);
+  if (entries.length === 1) { go(proofTarget(card, entries[0]), booklet ? 'אין קובץ לקוח — מקפל את הפרופר לחוברת…' : 'פותח את הקובץ…'); return true; }
+  if (entries.length > 1) {
+    body.innerHTML = '<div style="font-size:.9rem;margin-bottom:4px">לעבודה זו כמה קבצים — בחר ריצה:</div>'
+      + entries.map(function(e,i){
+          return '<button class="btn' + (i>0?' alt':'') + '" data-i="' + i + '">📖 ' + esc(e.key||'קובץ') + ' — ' + esc(e.name) + '</button>';
+        }).join('');
+    body.querySelectorAll('button').forEach(function(b){
+      b.onclick = function(){ location.href = proofTarget(card, entries[parseInt(b.dataset.i,10)]); };
+    });
+    return true;
+  }
+  return false;
 }
-// אין עדיין קבצים: המתן והתעדכן אוטומטית. עוקבים אחרי _rev/cards הזעיר (כמה בייטים)
-// כל 15ש'; רק כשהוא משתנה מורידים את הכרטיסים מחדש. ברגע שמופיע פרופר — ממשיכים.
+// אין עדיין קבצים: המתן — בודק גם קבצי לקוח (customerProofs) וגם פרופרים (דרך _rev/cards הזעיר)
 function waitForFiles(){
   body.innerHTML = '<div class="spin"></div>'
-    + '<div class="wait">⏳ עדיין לא צורפו קבצים לעבודה זו.<br>'
-    + 'ברגע שיצורף פרופר — החוברת תיפתח כאן אוטומטית.<br>'
+    + '<div class="wait">⏳ עדיין לא הגיעו קבצים לעבודה זו.<br>'
+    + 'ברגע שיגיע קובץ (מהלקוח או פרופר) — הוא ייפתח כאן אוטומטית.<br>'
     + '<span style="font-size:.75rem;color:rgba(255,255,255,.55)">אפשר להשאיר את המסך פתוח או לסרוק שוב מאוחר יותר.</span></div>'
     + '<button class="btn alt" id="chk-now">🔄 בדוק עכשיו</button>';
   var lastRev, ticks = 0, iv;
   function check(force){
-    fetchCardsRev().then(function(rv){
-      if (!force && lastRev !== undefined && rv === lastRev) return;   // אין שינוי — בלי הורדה
-      lastRev = rv;
-      fetchCards().then(function(v){
-        var c = findCard(v); if (!c) return;
-        var es = collectProofs(c);
-        if (es.length) { if (iv) clearInterval(iv); proceed(c, es); }
-      }).catch(function(){});
+    // קבצי לקוח — צומת קטן, נבדק בכל סבב
+    fbGet('customerProofs').catch(function(){ return null; }).then(function(cp){
+      fetch(_FBURL + '/_rev/cards.json' + (TOKEN ? '?auth=' + TOKEN : ''))
+        .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; })
+        .then(function(rv){
+          var revChanged = force || lastRev === undefined || rv !== lastRev;
+          lastRev = rv;
+          if (!revChanged) {
+            // הכרטיס לא השתנה — בדוק רק התאמת קובץ לקוח מול הכרטיס שבידינו
+            if (window._scanCard && cp && resolveIfReady(window._scanCard, cp)) { if (iv) clearInterval(iv); }
+            return;
+          }
+          fbGet('cards').then(function(v){
+            var c = findCard(v); if (!c) return;
+            window._scanCard = c;
+            if (resolveIfReady(c, cp || {})) { if (iv) clearInterval(iv); }
+          }).catch(function(){});
+        });
     });
   }
-  iv = setInterval(function(){ if (++ticks > 120) { clearInterval(iv); return; } check(false); }, 15000);   // עד 30 דק'
+  function resolveIfReady(card, proofsMap){
+    var hasCustomer = isBooklet(card) && customerMatches(card, proofsMap).length > 0;
+    var hasProof = collectProofs(card).length > 0;
+    if (hasCustomer || hasProof) { resolveAndGo(card, proofsMap); return true; }
+    return false;
+  }
+  iv = setInterval(function(){ if (++ticks > 90) { clearInterval(iv); return; } check(false); }, 20000);   // עד 30 דק'
   document.getElementById('chk-now').onclick = function(){ check(true); };
-  check(false);   // קיבוע נקודת פתיחה
+  check(false);
 }
 
 if (!cid) { sub.textContent = ''; body.innerHTML = '<div class="err">חסר מזהה כרטיס בקישור.</div>'; }
-else _tok().then(function(t){ TOKEN = t; return fetchCards(); }).then(function(v){
-  var card = findCard(v);
+else _tok().then(function(t){
+  TOKEN = t;
+  return Promise.all([ fbGet('cards'), fbGet('customerProofs').catch(function(){ return {}; }) ]);
+}).then(function(res){
+  var card = findCard(res[0]);
   if (!card) { sub.textContent = ''; body.innerHTML = '<div class="err">הכרטיס לא נמצא — ייתכן שהעבודה הושלמה ועברה לארכיון.</div>'; return; }
+  window._scanCard = card;
   sub.textContent = card.name || '';
-  var entries = collectProofs(card);
-  if (!entries.length) { waitForFiles(); return; }
-  proceed(card, entries);
+  if (!resolveAndGo(card, res[1] || {})) waitForFiles();
 }).catch(function(e){
   sub.textContent = '';
   body.innerHTML = '<div class="err">שגיאה בטעינה — בדוק חיבור לאינטרנט ונסה שוב.</div>';
