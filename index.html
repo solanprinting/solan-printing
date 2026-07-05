@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783255223';
+window.APP_VERSION = '1783258222';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2452,6 +2452,11 @@ window._fbSnapshot = {};
       </div>
       <button class="btn btn-clear" onclick="openSnapshotRestore()" style="width:100%;font-size:.83rem">🕐 שחזר מתמונת מצב שמורה</button>
       <div id="snapshot-restore-panel" style="display:none;margin-top:8px"></div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-tpl" onclick="_cloudBackup(true)" style="flex:1;font-size:.83rem">☁️ גבה עכשיו לענן</button>
+        <button class="btn btn-clear" onclick="openCardsArchive()" style="flex:1;font-size:.83rem">🗄️ ארכיון כרטיסים</button>
+      </div>
+      <div style="font-size:.7rem;color:#94a3b8;margin-top:5px">גיבוי ענן רץ אוטומטית פעם ביום; כרטיסים שהושלמו לפני 60+ יום עוברים לארכיון אוטומטית.</div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-clear" onclick="closeSettings()">ביטול</button>
@@ -3183,6 +3188,89 @@ function _doPushCardsMerged(){
   }).catch(function(){ window._fbPendingPuts.cards = Math.max(0, (window._fbPendingPuts.cards||1) - 1); });
 }
 
+// ═══ מיזוג כללי לפי מזהה — הרחבת מנגנון הכרטיסים לאוספים הפעילים ═══
+// פותר את משפחת הבאגים "מערך שלם דורס מערך שלם": שני מכשירים שעורכים בו-זמנית,
+// או טאב ישן שדוחף נתון ישן. כל פריט נושא חותמת _upd; מיזוג שומר את החדש יותר.
+// מחיקות מוגנות ב-tombstones (deletedIds) — כמו בכרטיסים.
+var _MERGED_COLLS = ['orders','quotes','weeklyJobs','printFiles'];
+var _COLL_REF = {
+  orders:     { get:function(){return orders;},     set:function(v){orders=v;},     ls:'solanOrders' },
+  quotes:     { get:function(){return quotes;},     set:function(v){quotes=v;},     ls:'solanQuotes' },
+  weeklyJobs: { get:function(){return weeklyJobs;}, set:function(v){weeklyJobs=v;}, ls:'solanWeeklyJobs' },
+  printFiles: { get:function(){return printFiles;}, set:function(v){printFiles=v;}, ls:'solanPrintFiles' }
+};
+window._arrSnap = window._arrSnap || {};
+var _arrPushTimers = {};
+function _unmarkDeleted(coll, id){
+  if (deletedIds[coll]) {
+    deletedIds[coll] = deletedIds[coll].filter(function(x){ return x !== id; });
+    localStorage.setItem('solanDeletedIds', JSON.stringify(deletedIds));
+    if (window._fbPut) window._fbPut('deletedIds', deletedIds);   // דחיפה מיידית — לפני שה-union ממכשיר אחר יחזיר
+  }
+}
+function _itemKeyJson(it){ var c = Object.assign({}, it); delete c._upd; return JSON.stringify(c); }
+function _seedArrSnap(coll, arr){
+  var m = {};
+  (arr||[]).forEach(function(it){ if (it && it.id != null) m[String(it.id)] = _itemKeyJson(it); });
+  window._arrSnap[coll] = m;
+}
+// מטביע _upd=עכשיו על פריטים שתוכנם השתנה מאז הסנכרון האחרון (או שהם חדשים)
+function _stampChangedArr(coll, arr){
+  var snap = window._arrSnap[coll]; var now = Date.now();
+  (arr||[]).forEach(function(it){
+    if (!it || it.id == null) return;
+    var j = _itemKeyJson(it);
+    if (!snap || snap[String(it.id)] !== j) it._upd = now;
+  });
+}
+// מיזוג: בסיס=שרת; לכל מזהה נשמרת הגרסה עם _upd גבוה יותר; פריט מקומי-בלבד נשמר
+// רק אם עודכן ב-12 השעות האחרונות (חדש אמיתי) — פריט ישן שאינו בשרת = נמחק במקום אחר.
+function _mergeArrById(server, local){
+  var FRESH = 12*3600*1000, now = Date.now();
+  var out = [], seen = {}, localById = {};
+  (local||[]).forEach(function(it){ if (it && it.id != null) localById[String(it.id)] = it; });
+  (server||[]).forEach(function(s){
+    if (!s) return;
+    if (s.id == null) { out.push(s); return; }
+    var id = String(s.id); seen[id] = 1;
+    var l = localById[id];
+    out.push(l && (l._upd||0) > (s._upd||0) ? l : s);
+  });
+  (local||[]).forEach(function(l){
+    if (!l) return;
+    if (l.id == null) {   // פריט ללא מזהה — שמור אם אין זהה בשרת
+      var j = _itemKeyJson(l);
+      if (!(server||[]).some(function(s){ return s && _itemKeyJson(s) === j; })) out.push(l);
+      return;
+    }
+    if (seen[String(l.id)]) return;
+    if ((l._upd||0) > now - FRESH) out.push(l);
+  });
+  return out;
+}
+function _pushArrMerged(coll){
+  if (window._isMachineView || !window._fbGet || !window._fbPut) return;
+  if (_arrPushTimers[coll]) return;
+  _arrPushTimers[coll] = setTimeout(function(){ _arrPushTimers[coll] = null; _doPushArrMerged(coll); }, 350);
+}
+function _doPushArrMerged(coll){
+  var ref = _COLL_REF[coll]; if (!ref) return;
+  window._fbPendingPuts = window._fbPendingPuts || {};
+  window._fbPendingPuts[coll] = (window._fbPendingPuts[coll]||0) + 1;
+  window._fbGet(coll).then(function(sv){
+    var server = Array.isArray(sv) ? sv : (sv && typeof sv==='object' ? Object.values(sv) : []);
+    var local = ref.get();
+    _stampChangedArr(coll, local);
+    var merged = _filterDeleted(coll, _mergeArrById(_filterDeleted(coll, server), local));
+    ref.set(merged);
+    localStorage.setItem(ref.ls, JSON.stringify(merged));
+    _seedArrSnap(coll, merged);
+    window._fbSnapshot[coll] = JSON.stringify(merged);
+    return window._fbPut(coll, merged);
+  }).then(function(){ window._fbPendingPuts[coll] = Math.max(0, (window._fbPendingPuts[coll]||1) - 1); })
+    .catch(function(){ window._fbPendingPuts[coll] = Math.max(0, (window._fbPendingPuts[coll]||1) - 1); });
+}
+
 function persist() {
   // Always write to localStorage (works offline too)
   localStorage.setItem('solanHistory',             JSON.stringify(historyDB));
@@ -3217,13 +3305,19 @@ function persist() {
   if (_fbConnected && !window._isMachineView) {
     // כרטיסים נדחפים בנפרד דרך מיזוג חסין-דריסה (לא במערך הכללי שנדרס)
     _pushCardsMerged();
+    // הזמנות/הצעות/יומן-שבועי/קבצי-הדפסה — גם הם דרך מיזוג לפי מזהה (לא דריסת מערך)
+    _MERGED_COLLS.forEach(function(cl){
+      var ref = _COLL_REF[cl];
+      var cur = JSON.stringify(_filterDeleted(cl, ref.get()));
+      if (window._fbSnapshot[cl] !== cur) _pushArrMerged(cl);
+    });
     var _paths = {
       newspapers: newspapers, inventory: inventory,
       inventoryPress: inventoryPress, inventoryDeductions: inventoryDeductions,
       inventoryHistory: inventoryHistory, invoiceLogs: invoiceLogs,
-      quotes: _filterDeleted('quotes', quotes), customers: customers, orders: _filterDeleted('orders', orders),
-      weeklyJobs: weeklyJobs, recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds,
-      machineQueue: machineQueue, printFiles: printFiles
+      customers: customers,
+      recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds,
+      machineQueue: machineQueue
     };
     window._fbPendingPuts = window._fbPendingPuts || {};
     Object.keys(_paths).forEach(function(p) {
@@ -3734,7 +3828,7 @@ function handleOrderFile(input) {
     var b64 = e.target.result.split(',')[1];
     var isPdf = file.type === 'application/pdf';
     var payload = {
-      model: 'claude-opus-4-5',
+      model: 'claude-sonnet-5',
       max_tokens: 1024,
       system: 'אתה עוזר של בית דפוס. חלץ פרטי הזמנה מהמסמך. החזר JSON בלבד: {"customer":"","desc":"","qty":"","date":"","notes":"","address":"","area":""}. date בפורמט YYYY-MM-DD אם קיים. area אחד מ: מרכז/צפון/דרום/ירושלים/שפלה — לפי הכתובת אם ניתן.',
       messages: [{role:'user', content:[
@@ -7964,7 +8058,7 @@ function extractDeliveryWithAI(dataUrl) {
   return fetch("http://localhost:8766/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model:"claude-opus-4-5", max_tokens:512,
+    body: JSON.stringify({ model:"claude-sonnet-5", max_tokens:512,
       messages:[{ role:"user", content:content }] })
   }).then(function(r){ return r.json(); }).then(function(data) {
     try {
@@ -8155,6 +8249,150 @@ function autoBackup() {
   _saveInternalSnapshot();
   // גיבוי חיצוני — הוסר הורדה אוטומטית
 
+}
+
+// ═══ גיבוי ענן אוטומטי — קובץ JSON יומי ב-Storage (backups/) ═══════════════
+// עד עכשיו הגיבוי חי רק ב-localStorage של המכשיר; אם מסד הנתונים בענן נפגע —
+// אין עותק חיצוני. כאן: פעם ביום, המכשיר הניהולי הראשון שמחובר מעלה גיבוי מלא
+// ל-Storage: 7 קבצים יומיים מתחלפים (daily-0..6) + קובץ חודשי (monthly-YYYY-MM).
+// הפורמט זהה לייצוא הידני — ניתן לשחזור דרך "ייבוא גיבוי" הקיים.
+function _cloudBackup(manual){
+  return new Promise(function(resolve){
+    try {
+      var data = _collectBackupData();
+      var json = JSON.stringify(data);
+      var blob = new Blob([json], { type:'application/json' });
+      var d = new Date();
+      var dailyPath = 'backups/daily-' + d.getDay() + '.json';
+      var monthPath = 'backups/monthly-' + d.toISOString().slice(0,7) + '.json';
+      _uploadProofToStorage(dailyPath, blob, null).then(function(url){
+        var meta = { at: Date.now(), path: dailyPath, bytes: json.length,
+                     by: (typeof currentUser!=='undefined' && currentUser) ? (currentUser.name||'') : '' };
+        if (window._fbPut) window._fbPut('backupMeta', meta);
+        try { localStorage.setItem('solanLastCloudBackup', String(Date.now())); } catch(e){}
+        if (manual) showToast('☁️ גיבוי הועלה לענן (' + Math.round(json.length/1024) + 'KB)');
+        // קובץ חודשי — פעם בחודש (אם עוד לא קיים החודש)
+        var mKey = 'solanMonthlyBackup_' + d.toISOString().slice(0,7);
+        if (!localStorage.getItem(mKey)) {
+          _uploadProofToStorage(monthPath, blob, null).then(function(){ try{ localStorage.setItem(mKey,'1'); }catch(e){} }).catch(function(){});
+        }
+        resolve(true);
+      }).catch(function(){ if (manual) showToast('❌ גיבוי הענן נכשל — נסה שוב'); resolve(false); });
+    } catch(e){ resolve(false); }
+  });
+}
+// בדיקה תקופתית: אם לא בוצע גיבוי ענן היום (לפי backupMeta המשותף) — בצע.
+function _cloudBackupCheck(){
+  try {
+    if (window._isMachineView || !_fbConnected || !window._fbGet) return;
+    if (_fbConnected && Date.now() - (window._lastPollOkAt||0) > 5*60*1000) return;   // נתונים לא טריים
+    var lastLocal = parseInt(localStorage.getItem('solanLastCloudBackup')||'0',10);
+    if (Date.now() - lastLocal < 2*60*60*1000) return;   // בדיקה לכל היותר פעם בשעתיים מטאב זה
+    window._fbGet('backupMeta').then(function(meta){
+      var lastAt = (meta && meta.at) || 0;
+      var todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      if (lastAt >= todayStart.getTime()) { try{ localStorage.setItem('solanLastCloudBackup', String(lastAt)); }catch(e){} return; }
+      _cloudBackup(false);
+    }).catch(function(){});
+  } catch(e){}
+}
+
+// ═══ ארכוב כרטיסים ישנים — שומר את מערך העבודה קטן ומהיר ═══════════════════
+// כרטיס שהושלם לפני 60+ יום (ולא נגעו בו שבועיים) עובר לצומת cardsArchive/<id>
+// ונמחק מהמערך הפעיל (עם tombstone — לא חוזר במיזוג). צפייה/שחזור: חלון הארכיון.
+function _archiveOldCards(){
+  try {
+    if (window._isMachineView || !_fbConnected || !window._fbPut) return;
+    if (Date.now() - (window._lastPollOkAt||0) > 5*60*1000) return;
+    var now = Date.now(), CUT = 60*24*3600*1000, FRESH = 14*24*3600*1000;
+    var cands = (cards||[]).filter(function(c){
+      if (!c || c.status !== 'done') return false;
+      var doneMs = c.printedAt ? (Date.parse(c.printedAt)||0) : 0;
+      if (!doneMs) doneMs = (typeof c.id === 'number' && c.id > 1e12) ? c.id : 0;
+      if (!doneMs || (now - doneMs) < CUT) return false;
+      if ((c._upd||0) > now - FRESH) return false;   // עודכן לאחרונה — לא נוגעים
+      return true;
+    }).slice(0, 80);   // תקרה לסבב
+    if (!cands.length) return;
+    Promise.all(cands.map(function(c){
+      return window._fbPut('cardsArchive/' + c.id, c).then(function(ok){ return ok ? c.id : null; }).catch(function(){ return null; });
+    })).then(function(ids){
+      ids = ids.filter(function(x){ return x != null; });
+      if (!ids.length) return;
+      ids.forEach(function(id){ _markDeleted('cards', id); });
+      cards = (cards||[]).filter(function(x){ return ids.indexOf(x.id) < 0; });
+      persist();
+      if (typeof renderCards === 'function') renderCards();
+      console.log('ארכוב: הועברו ' + ids.length + ' כרטיסים ישנים לארכיון');
+    });
+  } catch(e){}
+}
+// חלון הארכיון: חיפוש, צפייה, שחזור (כעותק עם מזהה חדש — בטוח מול tombstones), מחיקה סופית.
+function openCardsArchive(){
+  var ex = document.getElementById('cards-archive-modal'); if (ex) ex.remove();
+  var ov = document.createElement('div');
+  ov.id = 'cards-archive-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100005;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
+  ov.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:82vh;display:flex;flex-direction:column;font-family:Heebo,sans-serif;overflow:hidden">'
+    + '<div style="background:var(--press);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">'
+    + '<b>🗄️ ארכיון כרטיסים (הושלמו לפני 60+ יום)</b>'
+    + '<button onclick="document.getElementById(\'cards-archive-modal\').remove()" style="background:none;border:none;color:#fff;font-size:1.2rem;cursor:pointer">×</button></div>'
+    + '<div style="padding:10px 14px"><input id="arch-search" class="fi" placeholder="🔍 חיפוש לפי שם / לקוח..." style="margin:0;width:100%" oninput="_archRender()"></div>'
+    + '<div id="arch-list" style="overflow-y:auto;padding:0 14px 14px;flex:1"><div style="padding:20px;text-align:center;color:#9ca3af">טוען ארכיון…</div></div></div>';
+  document.body.appendChild(ov);
+  window._fbGet('cardsArchive').then(function(v){
+    window._archCards = v && typeof v === 'object' ? Object.values(v) : [];
+    window._archCards.sort(function(a,b){ return (Date.parse(b.printedAt)||b.id||0) - (Date.parse(a.printedAt)||a.id||0); });
+    _archRender();
+  }).catch(function(){ var el=document.getElementById('arch-list'); if(el) el.innerHTML='<div style="padding:20px;color:#b91c1c">שגיאה בטעינת הארכיון</div>'; });
+}
+function _archRender(){
+  var el = document.getElementById('arch-list'); if (!el) return;
+  var q = ((document.getElementById('arch-search')||{}).value||'').trim().toLowerCase();
+  var list = (window._archCards||[]).filter(function(c){
+    if (!q) return true;
+    return ((c.name||'')+' '+(c.customer||'')).toLowerCase().indexOf(q) >= 0;
+  });
+  if (!list.length) { el.innerHTML = '<div style="padding:20px;text-align:center;color:#9ca3af">אין כרטיסים בארכיון' + (q?' התואמים לחיפוש':'') + '</div>'; return; }
+  var isAdmin = currentUser && currentUser.isAdmin;
+  el.innerHTML = list.slice(0,200).map(function(c){
+    var when = c.printedAt ? new Date(c.printedAt).toLocaleDateString('he-IL') : '';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:9px 4px;border-bottom:1px solid #f1f5f9">'
+      + '<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(c.name||'ללא שם') + '</div>'
+      + '<div style="font-size:.72rem;color:#6b7280">' + escHtml(c.customer||'') + (when?' · הושלם '+when:'') + '</div></div>'
+      + '<button onclick="_archView(' + JSON.stringify(String(c.id)).replace(/"/g,'&quot;') + ')" style="font-size:.74rem;padding:4px 10px;border:1.5px solid #c7d2fe;border-radius:7px;background:#eef2ff;color:#3730a3;cursor:pointer;font-family:Heebo,sans-serif;font-weight:700">👁️ צפה</button>'
+      + '<button onclick="_archRestore(' + JSON.stringify(String(c.id)).replace(/"/g,'&quot;') + ')" style="font-size:.74rem;padding:4px 10px;border:1.5px solid #6ee7b7;border-radius:7px;background:#ecfdf5;color:#059669;cursor:pointer;font-family:Heebo,sans-serif;font-weight:700">📋 שחזר</button>'
+      + (isAdmin ? '<button onclick="_archDelete(' + JSON.stringify(String(c.id)).replace(/"/g,'&quot;') + ')" style="font-size:.9rem;background:none;border:none;color:#ef4444;cursor:pointer">🗑</button>' : '')
+      + '</div>';
+  }).join('');
+}
+function _archFind(id){ return (window._archCards||[]).find(function(c){ return String(c.id) === String(id); }); }
+function _archView(id){ var c=_archFind(id); if(!c) return; if (typeof showPrintModal==='function') showPrintModal(c); }
+function _archRestore(id){
+  var c=_archFind(id); if(!c) return;
+  if (!confirm('לשחזר את "'+(c.name||'')+'" לרשימת הכרטיסים?\n(ישוחזר כעותק חדש)')) return;
+  var copy = JSON.parse(JSON.stringify(c));
+  copy.id = Date.now();                    // מזהה חדש — עוקף את ה-tombstone של המקור
+  copy._upd = Date.now();
+  copy.status = 'pending';
+  copy.restoredFromArchive = String(c.id);
+  delete copy.printedAt;
+  cards.unshift(copy);
+  persist();
+  if (typeof renderCards==='function') renderCards();
+  var m=document.getElementById('cards-archive-modal'); if(m) m.remove();
+  showToast('📋 הכרטיס שוחזר לרשימה');
+  if (typeof _logActivity==='function') _logActivity('📋', 'כרטיס "'+(copy.name||'')+'" שוחזר מהארכיון', copy.id);
+}
+function _archDelete(id){
+  if (!(currentUser && currentUser.isAdmin)) { showToast('🔒 מחיקה מהארכיון למנהלים בלבד'); return; }
+  var c=_archFind(id); if(!c) return;
+  if (!confirm('למחוק לצמיתות מהארכיון את "'+(c.name||'')+'"?\nלא ניתן לשחזר לאחר מכן.')) return;
+  window._fbPut('cardsArchive/' + id, null).then(function(){
+    window._archCards = (window._archCards||[]).filter(function(x){ return String(x.id) !== String(id); });
+    _archRender();
+    showToast('🗑️ נמחק מהארכיון');
+  });
 }
 function openSnapshotRestore() {
   const panel = document.getElementById('snapshot-restore-panel');
@@ -11312,6 +11550,7 @@ function printFileDelete(id){
   if (!p) return;
   if (!confirm('למחוק את "'+(p.name||'')+'" והקובץ המצורף?')) return;
   if (p.filePath && typeof _deleteProofStorage==='function') _deleteProofStorage(p.filePath);
+  _markDeleted('printFiles', p.id);   // tombstone — שהמחיקה לא "תקום לתחייה" במיזוג
   printFiles=(printFiles||[]).filter(function(x){ return String(x.id)!==String(id); });
   persist();
   _logActivity('🗑️', 'קובץ הדפסה "' + (p.name||'') + '" נמחק');
@@ -11327,12 +11566,14 @@ function removeWeeklyJob(id) {
   if (!confirm('🗑️ למחוק את "' + _nm + '" מהיומן השבועי?')) return;
   if (!confirm('⚠️ אישור אחרון — למחוק סופית את "' + _nm + '" מהיומן?')) return;
   const snap = [...weeklyJobs];
+  _markDeleted('weeklyJobs', item.id);   // tombstone — שהמחיקה לא תחזור במיזוג ממכשיר אחר
   weeklyJobs = weeklyJobs.filter(w => w.id !== id);
   persist();
   _logActivity('🗑️', 'עבודה שבועית "' + (item.name||'') + '" נמחקה מהיומן');
   renderWeek();
   renderWeeklyJobMgmt();
   showUndoToast('עבודה שבועית "' + (item.name||'') + '" הוסרה', function() {
+    _unmarkDeleted('weeklyJobs', item.id);   // ביטול המחיקה מסיר גם את ה-tombstone
     weeklyJobs = snap; persist(); renderWeek(); renderWeeklyJobMgmt();
   });
 }
@@ -15115,9 +15356,12 @@ async function _fbPollAll() {
       if (_incOrders.length === 0 && orders.length > 0) {
         window._fbPut('orders', _filterDeleted('orders', orders)); // הגנה מפני דריסה ע"י שרת ריק
       } else {
-        orders = _incOrders;
+        // מיזוג במקום דריסה — שינוי מקומי טרי לא נמחק ע"י נתון שרת ישן
+        orders = _filterDeleted('orders', _mergeArrById(_incOrders, orders));
         localStorage.setItem('solanOrders', JSON.stringify(orders));
         window._fbSnapshot.orders = JSON.stringify(orders);
+        _seedArrSnap('orders', orders);
+        if (JSON.stringify(orders) !== JSON.stringify(_incOrders)) _pushArrMerged('orders');
         if (document.getElementById('view-orders') && document.getElementById('view-orders').style.display!=='none') renderOrders();
       }
     }
@@ -15165,10 +15409,17 @@ async function _fbPollAll() {
     // עבודות שבועיות
     var wjv = await _pollGet('weeklyJobs');
     if (wjv !== null && !(_pend.weeklyJobs > 0)) {
-      weeklyJobs = Array.isArray(wjv) ? wjv : Object.values(wjv);
-      localStorage.setItem('solanWeeklyJobs', JSON.stringify(weeklyJobs));
-      window._fbSnapshot.weeklyJobs = JSON.stringify(weeklyJobs);
-      if (document.getElementById('view-week') && document.getElementById('view-week').style.display!=='none') renderWeek();
+      var _incWJ = _filterDeleted('weeklyJobs', Array.isArray(wjv) ? wjv : Object.values(wjv));
+      if (_incWJ.length === 0 && weeklyJobs.length > 0) {
+        window._fbPut('weeklyJobs', _filterDeleted('weeklyJobs', weeklyJobs)); // הגנה מפני שרת ריק
+      } else {
+        weeklyJobs = _filterDeleted('weeklyJobs', _mergeArrById(_incWJ, weeklyJobs));
+        localStorage.setItem('solanWeeklyJobs', JSON.stringify(weeklyJobs));
+        window._fbSnapshot.weeklyJobs = JSON.stringify(weeklyJobs);
+        _seedArrSnap('weeklyJobs', weeklyJobs);
+        if (JSON.stringify(weeklyJobs) !== JSON.stringify(_incWJ)) _pushArrMerged('weeklyJobs');
+        if (document.getElementById('view-week') && document.getElementById('view-week').style.display!=='none') renderWeek();
+      }
     }
     // עבודות קבועות
     var rjv = await _pollGet('recurringJobs');
@@ -15182,10 +15433,17 @@ async function _fbPollAll() {
     // קבצים להדפסה ("להכניס בחורים")
     var pfv = await _pollGet('printFiles');
     if (pfv !== null && !(_pend.printFiles > 0)) {
-      printFiles = Array.isArray(pfv) ? pfv : Object.values(pfv);
-      localStorage.setItem('solanPrintFiles', JSON.stringify(printFiles));
-      window._fbSnapshot.printFiles = JSON.stringify(printFiles);
-      if (document.getElementById('view-printfiles') && document.getElementById('view-printfiles').style.display!=='none' && typeof renderPrintFiles==='function') renderPrintFiles();
+      var _incPF = _filterDeleted('printFiles', Array.isArray(pfv) ? pfv : Object.values(pfv));
+      if (_incPF.length === 0 && printFiles.length > 0) {
+        window._fbPut('printFiles', _filterDeleted('printFiles', printFiles)); // הגנה מפני שרת ריק
+      } else {
+        printFiles = _filterDeleted('printFiles', _mergeArrById(_incPF, printFiles));
+        localStorage.setItem('solanPrintFiles', JSON.stringify(printFiles));
+        window._fbSnapshot.printFiles = JSON.stringify(printFiles);
+        _seedArrSnap('printFiles', printFiles);
+        if (JSON.stringify(printFiles) !== JSON.stringify(_incPF)) _pushArrMerged('printFiles');
+        if (document.getElementById('view-printfiles') && document.getElementById('view-printfiles').style.display!=='none' && typeof renderPrintFiles==='function') renderPrintFiles();
+      }
     }
     // הצעות מחיר
     var qv = await _pollGet('quotes');
@@ -15194,9 +15452,11 @@ async function _fbPollAll() {
       if (_incQuotes.length === 0 && quotes.length > 0) {
         window._fbPut('quotes', _filterDeleted('quotes', quotes)); // הגנה מפני דריסה ע"י שרת ריק
       } else {
-        quotes = _incQuotes;
+        quotes = _filterDeleted('quotes', _mergeArrById(_incQuotes, quotes));
         localStorage.setItem('solanQuotes', JSON.stringify(quotes));
         window._fbSnapshot.quotes = JSON.stringify(quotes);
+        _seedArrSnap('quotes', quotes);
+        if (JSON.stringify(quotes) !== JSON.stringify(_incQuotes)) _pushArrMerged('quotes');
       }
     }
     // מזהים שנמחקו לצמיתות — מיזוג (איחוד) כדי שמחיקה מכל מכשיר תחול בכל המכשירים
@@ -17453,6 +17713,8 @@ function _operatorUnmarkDone(qid) {
 
 // ========== INIT ==========
 _seedCardSnap();   // בסיס השוואה לזיהוי שינויים בכרטיסים (לפני כל פעולה)
+// בסיסי השוואה לאוספים הממוזגים (הזמנות/הצעות/יומן/קבצים) — לזיהוי פריטים שהשתנו
+try { _MERGED_COLLS.forEach(function(cl){ _seedArrSnap(cl, _COLL_REF[cl].get()); }); } catch(e){}
 updateBadge();
 renderDashboard();
 renderWeek();
@@ -17463,6 +17725,11 @@ setTimeout(_autoCompleteWeeklyJobs, 1500);
 setInterval(_autoCompleteWeeklyJobs, 5 * 60 * 1000);
 setTimeout(function(){ try { _purgeCustomerCards(); } catch(e){} try { _purgeGraphicCards(); } catch(e){} }, 3000);
 setInterval(function(){ try { _purgeCustomerCards(); } catch(e){} try { _purgeGraphicCards(); } catch(e){} }, 30 * 60 * 1000);
+// גיבוי ענן יומי + ארכוב כרטיסים ישנים — רצים ברקע ממכשיר ניהולי מחובר
+setTimeout(function(){ try { _cloudBackupCheck(); } catch(e){} }, 90 * 1000);
+setInterval(function(){ try { _cloudBackupCheck(); } catch(e){} }, 4 * 60 * 60 * 1000);
+setTimeout(function(){ try { _archiveOldCards(); } catch(e){} }, 2 * 60 * 1000);
+setInterval(function(){ try { _archiveOldCards(); } catch(e){} }, 12 * 60 * 60 * 1000);
 setTimeout(function(){ try { _cleanupOldProofs(); } catch(e){} }, 5000);
 setInterval(function(){ try { _cleanupOldProofs(); } catch(e){} }, 60 * 60 * 1000);
 // מצב העלאות פרופרים משותף — נראה לכל המשתמשים ושורד ריענון מסך
