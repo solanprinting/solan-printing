@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783254806';
+window.APP_VERSION = '1783255223';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15254,6 +15254,7 @@ async function _fbPollAll() {
         localStorage.setItem('solanDashActivity', JSON.stringify(dashActivity));
         if (typeof renderActivityFeed === 'function') renderActivityFeed();
         if (typeof _notifRenderBadge === 'function') _notifRenderBadge();
+        if (typeof _notifRefreshOpen === 'function') _notifRefreshOpen();
         // פופ (toast) על פעילות חדשה שהגיעה ממכשיר/משתמש אחר — לא על טעינת היסטוריה ולא על פעולות שלי
         try {
           var _mine = (typeof _myActName==='function') ? _myActName() : null;
@@ -15724,6 +15725,7 @@ function _logActivity(icon, text, cardId) {
   localStorage.setItem('solanDashActivity', JSON.stringify(dashActivity));
   renderActivityFeed();
   if (typeof _notifRenderBadge === 'function') _notifRenderBadge();
+  if (typeof _notifRefreshOpen === 'function') _notifRefreshOpen();
   // דחיפה משותפת — מביאים מהשרת, ממזגים, ודוחפים (בטוח גם ממסך דפסים)
   if (window._fbGet && window._fbPut) {
     window._fbGet('activityLog').then(function(sv){
@@ -15732,6 +15734,7 @@ function _logActivity(icon, text, cardId) {
       localStorage.setItem('solanDashActivity', JSON.stringify(dashActivity));
       window._fbPut('activityLog', dashActivity);
       renderActivityFeed();
+      if (typeof _notifRefreshOpen === 'function') _notifRefreshOpen();
     }).catch(function(){});
   }
 }
@@ -16314,16 +16317,7 @@ function _notifRenderBadge(){
   b.style.display = n ? '' : 'none';
   b.textContent = n > 99 ? '99+' : String(n);
 }
-function _notifToggle(){
-  var ex = document.getElementById('notif-panel');
-  if (ex) { ex.remove(); return; }
-  // פתיחה = סימון הכל כנקרא
-  try { localStorage.setItem('solanNotifSeenAt', String(Date.now())); } catch(e){}
-  _notifRenderBadge();
-  var p = document.createElement('div');
-  p.id = 'notif-panel';
-  p.style.cssText = 'position:fixed;top:calc(var(--hdr-h,60px) + 6px);left:10px;z-index:100003;width:min(360px, calc(100vw - 20px));'
-    + 'background:#fff;border:1.5px solid #d1d5db;border-radius:14px;box-shadow:0 14px 44px rgba(0,0,0,.28);direction:rtl;overflow:hidden;font-family:Heebo,sans-serif';
+function _notifRenderPanel(p){
   var _isAdmin = currentUser && currentUser.isAdmin;
   var rows = (dashActivity||[]).slice(0, 50).map(function(a){
     var d = new Date(a.t);
@@ -16348,8 +16342,22 @@ function _notifToggle(){
     + '<button onclick="document.getElementById(\'notif-panel\').remove()" style="background:none;border:none;color:#fff;font-size:1.15rem;cursor:pointer;line-height:1">×</button>'
     + '</div>'
     + '<div style="max-height:min(60vh, 480px);overflow-y:auto">' + (rows || '<div style="padding:26px;text-align:center;color:#9ca3af;font-size:.88rem">אין פעילות עדיין</div>') + '</div>';
+}
+function _notifToggle(){
+  var ex = document.getElementById('notif-panel');
+  if (ex) { ex.remove(); return; }
+  // פתיחה = סימון הכל כנקרא
+  try { localStorage.setItem('solanNotifSeenAt', String(Date.now())); } catch(e){}
+  _notifRenderBadge();
+  var p = document.createElement('div');
+  p.id = 'notif-panel';
+  p.style.cssText = 'position:fixed;top:calc(var(--hdr-h,60px) + 6px);left:10px;z-index:100003;width:min(360px, calc(100vw - 20px));'
+    + 'background:#fff;border:1.5px solid #d1d5db;border-radius:14px;box-shadow:0 14px 44px rgba(0,0,0,.28);direction:rtl;overflow:hidden;font-family:Heebo,sans-serif';
+  _notifRenderPanel(p);
   document.body.appendChild(p);
 }
+// רענון החלונית אם היא פתוחה — כדי שפעילות חדשה (שלי או ממכשיר אחר) תופיע מיד בלי לסגור ולפתוח.
+function _notifRefreshOpen(){ var p=document.getElementById('notif-panel'); if(p){ try{ localStorage.setItem('solanNotifSeenAt', String(Date.now())); }catch(e){} _notifRenderPanel(p); if (typeof _notifRenderBadge==='function') _notifRenderBadge(); } }
 // לחיצה על התראה → מוביל לכרטיס שאליו היא קשורה
 function _notifOpenCard(cardId){
   var p = document.getElementById('notif-panel'); if (p) p.remove();
