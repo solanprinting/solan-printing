@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783248647';
+window.APP_VERSION = '1783249329';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6687,6 +6687,37 @@ function showPreviewModal(card) {
   window._printModalIsPreview = true; // סגירה תשאיר את המשתמש בטופס, לא תזרוק לרשימת הכרטיסים
 }
 
+// ── זיהוי מבריק/מט + גרמז' משם הנייר (טקסט חופשי) → תג GLOSS/MATT להצגה ליד סוג הנייר ──
+function _paperKindGram(paper){
+  var s = String(paper||''); var low = s.toLowerCase();
+  var kind = '';
+  // מט: "מט"/"matt" (בלי מטאלי/מטר/מטבע); מבריק: גלוס/מבריק/כרומו/קופה/gloss
+  if (/matt|matte/.test(low) || (low.indexOf('מט') >= 0 && !/מטא|מטר|מטב/.test(low))) kind = 'MATT';
+  else if (/gloss|גלוס|מבריק|כרומו|קופה|couche/.test(low)) kind = 'GLOSS';
+  var gram = '';
+  var m = s.match(/(\d{2,4})\s*(?:גר|גרם|gsm|g\/m|g\b)/i);   // "80 גר" / "90g" / "115 גרם"
+  if (m) gram = m[1];
+  else {
+    // אין יחידה מפורשת — קח מספר גרמז' טיפוסי (50-400), אך התעלם ממידות (70*100, 880/630)
+    var cleaned = s.replace(/\d+\s*[*x×\/]\s*\d+/gi, ' ');
+    var m2 = cleaned.match(/\b(\d{2,3})\b/);
+    if (m2 && +m2[1] >= 50 && +m2[1] <= 400) gram = m2[1];
+  }
+  return { kind: kind, gram: gram };
+}
+function _paperTagText(paper){
+  var k = _paperKindGram(paper);
+  if (!k.kind) return '';                                  // תג רק כשזוהה מבריק/מט (לא לאופסט וכו')
+  return k.gram ? (k.kind + ' ' + k.gram + 'g') : k.kind;  // "GLOSS 80g" / "MATT 90g" / "GLOSS"
+}
+// תג HTML קטן (ריק אם לא זוהה סוג) — לשיבוץ ליד סוג הנייר בכרטיס/מסך הדפס
+function _paperTagBadge(paper){
+  var t = _paperTagText(paper); if (!t) return '';
+  var isMatt = t.indexOf('MATT') >= 0;
+  var bg = isMatt ? '#eef2f7' : '#fffbeb', bd = isMatt ? '#cbd5e1' : '#fcd34d', col = isMatt ? '#334155' : '#92400e';
+  return ' <span style="font-size:.66rem;font-weight:800;color:' + col + ';background:' + bg + ';border:1px solid ' + bd + ';border-radius:5px;padding:1px 6px;white-space:nowrap;letter-spacing:.04em">' + t + '</span>';
+}
+
 // ========== PRINT ==========
 function buildPrintCard(c) {
   const _runs = c.runs||[];
@@ -6715,7 +6746,7 @@ function buildPrintCard(c) {
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-weight:700">${(c.singleSheet && _runs.length>1) ? '<span style="font-size:.72rem;font-weight:700;color:#6d28d9">גיליון משותף</span>' : (r.copies?parseInt(r.copies).toLocaleString():'—')}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.folds||'—'}${r.tumble?' <span style="color:#1d4ed8;font-weight:600;font-size:.65rem"> · מתהפך</span>':''}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-weight:700">${r.machine||'—'}</td>
-      ${_hasPaper ? `<td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-size:.8rem">${r.paper||c.paper||'—'}</td>` : ''}
+      ${_hasPaper ? `<td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-size:.8rem">${r.paper||c.paper||'—'}${_paperTagBadge(r.paper||c.paper)}</td>` : ''}
     </tr>${_abRowHtml}`;
   }).join('');
 
@@ -6755,7 +6786,7 @@ function buildPrintCard(c) {
         '<div style="font-size:1.2rem;font-weight:900;line-height:1.9;display:flex;align-items:center;gap:10px">'+
           'ריצה '+r.num+' — '+(parseInt(r.copies)||0).toLocaleString()+
           (r.tumble?' <span style="font-size:.7rem;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:5px;padding:1px 6px;white-space:nowrap">מתהפך</span>':'')+
-          ((r.paper||c.paper)?' <span style="font-size:.7rem;font-weight:600;color:#374151;background:#f3f4f6;border:1px solid #d1d5db;border-radius:5px;padding:1px 7px;white-space:nowrap">'+(r.paper||c.paper)+'</span>':'')+
+          ((r.paper||c.paper)?' <span style="font-size:.7rem;font-weight:600;color:#374151;background:#f3f4f6;border:1px solid #d1d5db;border-radius:5px;padding:1px 7px;white-space:nowrap">'+(r.paper||c.paper)+'</span>'+_paperTagBadge(r.paper||c.paper):'')+
         '</div>'; }).join('')
     : (function(){
         // ללא ריצות (מצב גיליונות / מילוי ידני): מציגים את סימון "מתהפך" ברמת הכרטיס, שאחרת לא היה מופיע כלל
@@ -9949,7 +9980,7 @@ function renderWorkList() {
   // infoBadges — paper-type + print-quantity chips
   var infoBadges = function(paper, copies){
     var h = '';
-    if (paper)  h += '<span style="font-size:.63rem;color:#475569;background:#f1f5f9;border:1px solid #e5e7eb;border-radius:4px;padding:1px 5px;white-space:nowrap">📄 ' + escHtml(paper) + '</span>';
+    if (paper)  h += '<span style="font-size:.63rem;color:#475569;background:#f1f5f9;border:1px solid #e5e7eb;border-radius:4px;padding:1px 5px;white-space:nowrap">📄 ' + escHtml(paper) + '</span>' + _paperTagBadge(paper);
     if (copies) h += '<span style="font-size:.63rem;color:#475569;background:#f1f5f9;border:1px solid #e5e7eb;border-radius:4px;padding:1px 5px;white-space:nowrap">🖨️ ' + escHtml(fmtQty(copies)) + '</span>';
     return h;
   };
@@ -10964,7 +10995,7 @@ function renderMachineQueue() {
           + '<div style="font-weight:700;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (printing?'🖨️ ':'') + escHtml(name) + '</div>'
           + (j.runLabel ? '<div style="font-size:.72rem;color:#6b7280">' + escHtml(j.runLabel) + '</div>' : '')
           + '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">'
-          + (j.paper ? badge('📄', j.paper) : '')
+          + (j.paper ? badge('📄', j.paper) + _paperTagBadge(j.paper) : '')
           + (j.copies ? badge('🖨️', fmtQty(j.copies)) : '')
           + (j.tumble ? '<span style="font-size:.7rem;color:#1d4ed8;background:#eff6ff;border:1px solid #93c5fd;border-radius:5px;padding:2px 7px;font-weight:700">🔄 מתהפך</span>' : '')
           + (j.hrs ? '<span style="font-size:.7rem;color:#0369a1;background:#f0f9ff;border:1px solid #bae6fd;border-radius:5px;padding:2px 7px">⏱ ' + _fmtHours(j.hrs) + '</span>' : '')
@@ -11784,7 +11815,7 @@ function _jobCardHtml(c) {
         <div class="jc-field"><div class="jcf-label">מועד אספקה</div><div class="jcf-val">${c.deliveryDate||'—'}</div></div>
         <div class="jc-field"><div class="jcf-label">עותקים / עמודים</div><div class="jcf-val" style="display:flex;align-items:center;gap:6px">${c.allPaper?'📦 כל הנייר':(c.copies||'—')} / ${c.pages||'—'} <button onclick="editCardCopies(${c.id})" title="עדכן כמות" style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:0;color:var(--gray)">✏️</button></div></div>
         <div class="jc-field"><div class="jcf-label">גודל</div><div class="jcf-val">${c.size||'—'}</div></div>
-        <div class="jc-field"><div class="jcf-label">נייר</div><div class="jcf-val">${c.paper||'—'}</div></div>
+        <div class="jc-field"><div class="jcf-label">נייר</div><div class="jcf-val">${c.paper||'—'}${_paperTagBadge(c.paper)}</div></div>
         <div class="jc-field"><div class="jcf-label">צבע</div><div class="jcf-val">${c.color||'—'}</div></div>
         ${c.machine?`<div class="jc-field"><div class="jcf-label">מכונה</div><div class="jcf-val">${c.machine}</div></div>`:''}
       </div>
