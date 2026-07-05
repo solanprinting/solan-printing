@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783021203';
+window.APP_VERSION = '1783232897';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1136,6 +1136,9 @@ window._fbSnapshot = {};
     <button class="btn btn-outline-w" onclick="switchTab('papers')">📰 ניהול עיתונים</button>
     <button class="btn btn-outline-w" onclick="document.getElementById('newspapersModal').style.display='flex'">📥 לקוחות עיתונים</button>
     <button class="btn btn-outline-w" onclick="openImpositionTool()">✂️ קיפול לחוברת</button>
+    <button class="btn btn-outline-w" id="notif-bell-btn" onclick="_notifToggle()" style="position:relative" title="התראות — מי עשה מה">
+      🔔<span id="notif-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span>
+    </button>
     <span id="header-username" style="color:rgba(255,255,255,.75);font-size:.8rem;font-weight:600"></span>
     <button class="btn btn-outline-w" onclick="openSettings()">⚙️ הגדרות</button>
     <button class="btn btn-outline-w" onclick="logoutUser()" style="font-size:.8rem">🚪 יציאה</button>
@@ -6241,6 +6244,7 @@ function saveCard() {
       _saveWorkOrder();
       _autoQueueAssignedRuns(existing); // ריצות ששויכו למכונה — הכנס אוטומטית לתור המכונה
       persist();
+      _logActivity('✏️', 'עבודה "' + (existing.name||'') + '" נערכה');
       renderCards();
       window._editingCardId = null;
       clearForm();
@@ -7161,6 +7165,7 @@ function confirmDeduct() {
   renderInventory();
   document.getElementById("inv-modal").classList.remove("open");
   window._deductCard = null;
+  _logActivity('📤', 'הורדו ' + qty.toLocaleString() + ' גיל\' מהמלאי — ' + item2.name);
   showToast("✅ הורד " + qty.toLocaleString() + " גיליינות מ-" + item2.name + (_matchedOrderNum ? " (הזמנה " + _matchedOrderNum + ")" : ""));
   switchTab("saved");
 }
@@ -7317,6 +7322,7 @@ function confirmOrderDeduct() {
   });
   if (!count) { showToast("⚠️ הכנס כמות להורדה לפחות לנייר אחד"); return; }
   persist();
+  _logActivity('📤', 'הורדת מלאי לפי הזמנה' + (orderNumUsed ? ' ' + orderNumUsed : ''));
   renderInventory();
   document.getElementById("inv-modal").classList.remove("open");
   window._deductCard = null;
@@ -7721,6 +7727,7 @@ function confirmDelivery() {
       cardId: null, cardName: "", note: docNum
     });
     persist();
+    _logActivity('📤', 'תעודת משלוח: הורדו ' + qty.toLocaleString() + ' גיל\' — ' + item.name);
     closeDeliveryModal();
     renderInventory();
     showToast("✅ הורד " + qty.toLocaleString() + " גיליינות מ-" + item.name + (_matchedOrderNum ? " (הזמנה " + _matchedOrderNum + ")" : ""));
@@ -10732,6 +10739,7 @@ function confirmMakeCardWeekly(cardId, day) {
     needsBinding:  c.needsBinding || false
   });
   persist();
+  _logActivity('📅', 'עבודה "' + (c.name||'') + '" נוספה ליומן השבועי (' + day + ')');
   renderWeek();
   renderWeeklyJobMgmt();
   switchTab('week');
@@ -10834,6 +10842,7 @@ function addPrintFile(){
     if (fileEl) fileEl.value='';
     if (status){ status.style.display='none'; }
     renderPrintFiles();
+    _logActivity('📥', 'קובץ הדפסה "' + name + '" נוסף (' + qty.toLocaleString() + ' עותקים)');
     showToast('✅ הקובץ נוסף');
   }).catch(function(){
     if (status){ status.textContent='❌ העלאת הקובץ נכשלה — נסה שוב'; }
@@ -10866,6 +10875,7 @@ function printFileLogQty(id){
   p.sessions.push({ at:new Date().toISOString(), qty:q, by:((currentUser&&currentUser.name)||'') });
   p.printedQty=(parseInt(p.printedQty)||0)+q;
   persist(); renderPrintFiles();
+  _logActivity('🖨️', 'הודפסו ' + q.toLocaleString() + ' עותקים מ"' + (p.name||'') + '"' + (_pfDone(p) ? ' — הושלם!' : ''));
   if (_pfDone(p)) showToast('🎉 "'+(p.name||'')+'" — הודפס במלואו!');
   else showToast('✅ נרשמו '+q.toLocaleString()+' · נותרו '+_pfRemaining(p).toLocaleString());
 }
@@ -10924,6 +10934,7 @@ function printFileDelete(id){
   if (p.filePath && typeof _deleteProofStorage==='function') _deleteProofStorage(p.filePath);
   printFiles=(printFiles||[]).filter(function(x){ return String(x.id)!==String(id); });
   persist();
+  _logActivity('🗑️', 'קובץ הדפסה "' + (p.name||'') + '" נמחק');
   renderPrintFiles();
   showToast('🗑️ נמחק');
 }
@@ -10938,6 +10949,7 @@ function removeWeeklyJob(id) {
   const snap = [...weeklyJobs];
   weeklyJobs = weeklyJobs.filter(w => w.id !== id);
   persist();
+  _logActivity('🗑️', 'עבודה שבועית "' + (item.name||'') + '" נמחקה מהיומן');
   renderWeek();
   renderWeeklyJobMgmt();
   showUndoToast('עבודה שבועית "' + (item.name||'') + '" הוסרה', function() {
@@ -11133,6 +11145,7 @@ function softDeleteCard(id) {
   c.status = 'trash';
   c.deletedAt = new Date().toISOString();
   persist();
+  _logActivity('🗑️', 'עבודה "' + (c.name||'') + '" הועברה לנמחקו');
   closePrintModal();
   renderCards();
   if (typeof renderWorkList === 'function') renderWorkList();
@@ -11173,6 +11186,7 @@ function restoreCard(id) {
   c.status = 'pending';
   delete c.deletedAt;
   persist();
+  _logActivity('↩️', 'עבודה "' + (c.name||'') + '" שוחזרה מהנמחקים');
   renderCards();
   showToast('↩ כרטיס שוחזר');
 }
@@ -11184,6 +11198,7 @@ function deleteCard(id) {
   _markDeleted('cards', id);
   cards = cards.filter(c=>c.id!==id);
   persist(); renderCards();
+  _logActivity('❌', 'עבודה "' + (item.name||item.customer||'') + '" נמחקה לצמיתות');
   // ניקוי רשימות חסימה/סדר עבודה כדי שלא יישארו אסמכתאות לכרטיס שנמחק
   _loadWorkOrder();
   WORKLIST_MACHINES.forEach(function(m){
@@ -14813,6 +14828,17 @@ async function _fbPollAll() {
       var cpv2 = await window._fbGet('customerProofs');
       if (cpv2 && typeof cpv2 === 'object') _checkCustomerUploadAlerts(cpv2);
     } catch(e){}
+    // יומן פעילות משותף — מיזוג עם המקומי (מציג פעולות של כל המשתמשים)
+    try {
+      var alv = await window._fbGet('activityLog');
+      if (alv !== null) {
+        var _incAct = Array.isArray(alv) ? alv : (typeof alv === 'object' ? Object.values(alv) : []);
+        dashActivity = _actMergeById(_incAct, dashActivity);
+        localStorage.setItem('solanDashActivity', JSON.stringify(dashActivity));
+        if (typeof renderActivityFeed === 'function') renderActivityFeed();
+        if (typeof _notifRenderBadge === 'function') _notifRenderBadge();
+      }
+    } catch(e){}
     // משתמשים
     var uv = await window._fbGet('solanUsers');
     if (uv !== null) {
@@ -15165,12 +15191,32 @@ var dashActivity   = JSON.parse(localStorage.getItem('solanDashActivity') || '[]
 var _dashTheme      = localStorage.getItem('solanDashTheme') || 'light';
 var _dashTickTimer  = null;
 
+// יומן פעילות משותף: כל פעולה נרשמת עם משתמש+תאריך+שעה, מסונכרנת ל-Firebase
+// במיזוג לפי מזהה (לא דריסה) — כך כל המכשירים רואים מי עשה מה.
+function _actMergeById(a, b) {
+  var byId = {};
+  (a||[]).concat(b||[]).forEach(function(e){ if (e) byId[e.id || (e.t + '_' + (e.text||''))] = e; });
+  return Object.keys(byId).map(function(k){ return byId[k]; })
+    .sort(function(x,y){ return (y.t||0) - (x.t||0); }).slice(0, 100);
+}
 function _logActivity(icon, text) {
-  var uname = currentUser ? (currentUser.name || _userName(currentUser.id)) : null;
-  dashActivity.unshift({ t: Date.now(), icon: icon, text: text, user: uname });
-  dashActivity = dashActivity.slice(0, 60);
+  var uname = currentUser ? (currentUser.name || _userName(currentUser.id))
+    : (typeof _machineViewMachine !== 'undefined' && _machineViewMachine ? ('דפס' + (_machineViewOpName && _machineViewOpName !== 'מפעיל' ? ' ' + _machineViewOpName : '')) : null);
+  var entry = { id: Date.now() + '_' + Math.random().toString(36).slice(2,7), t: Date.now(), icon: icon, text: text, user: uname };
+  dashActivity = _actMergeById([entry], dashActivity);
   localStorage.setItem('solanDashActivity', JSON.stringify(dashActivity));
   renderActivityFeed();
+  if (typeof _notifRenderBadge === 'function') _notifRenderBadge();
+  // דחיפה משותפת — מביאים מהשרת, ממזגים, ודוחפים (בטוח גם ממסך דפסים)
+  if (window._fbGet && window._fbPut) {
+    window._fbGet('activityLog').then(function(sv){
+      var server = Array.isArray(sv) ? sv : (sv && typeof sv === 'object' ? Object.values(sv) : []);
+      dashActivity = _actMergeById(server, dashActivity);
+      localStorage.setItem('solanDashActivity', JSON.stringify(dashActivity));
+      window._fbPut('activityLog', dashActivity);
+      renderActivityFeed();
+    }).catch(function(){});
+  }
 }
 
 function applyDashTheme() {
@@ -15732,6 +15778,47 @@ function renderActivityFeed() {
   }).join('');
   el.innerHTML = '<div class="dash-card-head"><span>📜 פעילות אחרונה</span></div>'
     + '<div class="dash-activity-list">' + (rows || '<div class="dash-empty">אין פעילות עדיין</div>') + '</div>';
+}
+
+// ── חלונית התראות (🔔 בכותרת): מי עשה מה, עם תאריך ושעה ─────────────────
+function _notifSeenAt(){ return parseInt(localStorage.getItem('solanNotifSeenAt')||'0', 10); }
+function _notifUnreadCount(){
+  var seen = _notifSeenAt();
+  return (dashActivity||[]).filter(function(a){ return a && a.t > seen; }).length;
+}
+function _notifRenderBadge(){
+  var b = document.getElementById('notif-badge');
+  if (!b) return;
+  var n = _notifUnreadCount();
+  b.style.display = n ? '' : 'none';
+  b.textContent = n > 99 ? '99+' : String(n);
+}
+function _notifToggle(){
+  var ex = document.getElementById('notif-panel');
+  if (ex) { ex.remove(); return; }
+  // פתיחה = סימון הכל כנקרא
+  try { localStorage.setItem('solanNotifSeenAt', String(Date.now())); } catch(e){}
+  _notifRenderBadge();
+  var p = document.createElement('div');
+  p.id = 'notif-panel';
+  p.style.cssText = 'position:fixed;top:calc(var(--hdr-h,60px) + 6px);left:10px;z-index:100003;width:min(360px, calc(100vw - 20px));'
+    + 'background:#fff;border:1.5px solid #d1d5db;border-radius:14px;box-shadow:0 14px 44px rgba(0,0,0,.28);direction:rtl;overflow:hidden;font-family:Heebo,sans-serif';
+  var rows = (dashActivity||[]).slice(0, 50).map(function(a){
+    var d = new Date(a.t);
+    var when = d.toLocaleDateString('he-IL', { day:'2-digit', month:'2-digit' }) + ' · ' + d.toLocaleTimeString('he-IL', { hour:'2-digit', minute:'2-digit' });
+    return '<div style="display:flex;gap:9px;padding:9px 14px;border-bottom:1px solid #f1f5f9;align-items:flex-start">'
+      + '<span style="font-size:1rem;flex-shrink:0">' + (a.icon||'•') + '</span>'
+      + '<div style="min-width:0;flex:1">'
+      +   '<div style="font-size:.85rem;font-weight:700;color:#111;line-height:1.45">' + escHtml(a.text||'') + '</div>'
+      +   '<div style="font-size:.72rem;color:#6b7280;margin-top:2px">' + (a.user ? '👤 ' + escHtml(a.user) + ' · ' : '') + when + '</div>'
+      + '</div></div>';
+  }).join('');
+  p.innerHTML = '<div style="background:var(--press);color:#fff;padding:11px 16px;display:flex;justify-content:space-between;align-items:center">'
+    + '<span style="font-weight:900;font-size:.95rem">🔔 התראות — פעילות משתמשים</span>'
+    + '<button onclick="document.getElementById(\'notif-panel\').remove()" style="background:none;border:none;color:#fff;font-size:1.15rem;cursor:pointer;line-height:1">×</button>'
+    + '</div>'
+    + '<div style="max-height:min(60vh, 480px);overflow-y:auto">' + (rows || '<div style="padding:26px;text-align:center;color:#9ca3af;font-size:.88rem">אין פעילות עדיין</div>') + '</div>';
+  document.body.appendChild(p);
 }
 
 // ── סיווג אוטומטי של עבודות שבועיות כהושלמו ────────────────
@@ -16345,12 +16432,15 @@ function _opQueuePatch(qid, mutFn) {
 }
 
 function _operatorMarkDone(qid) {
+  var _e0 = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
+  var _c0 = _e0 ? (cards||[]).find(function(x){ return String(x.id) === String(_e0.cardId); }) : null;
   _opQueuePatch(qid, function(e){
     e.done = true;
     e.doneAt = new Date().toISOString();
     e.doneBy = _machineViewOpName;
     e.doneByName = _machineViewOpName;
   });
+  try { _logActivity('🖨️', 'עבודה "' + ((_c0 && _c0.name)||'') + '" סומנה הודפסה (' + (_machineViewMachine||'') + ')'); } catch(e){}
 }
 
 function _opSpinStyle() {
