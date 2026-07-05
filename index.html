@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783267944';
+window.APP_VERSION = '1783269125';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1193,6 +1193,7 @@ window._fbSnapshot = {};
     <button class="btn btn-outline-w" onclick="document.getElementById('newspapersModal').style.display='flex'">📥 לקוחות עיתונים</button>
     <button class="btn btn-outline-w" onclick="openImpositionTool()">✂️ קיפול לחוברת</button>
     <button class="btn btn-outline-w" onclick="openCartonCalc()">🧮 מחשבון</button>
+    <button class="btn btn-outline-w admin-only" onclick="openReports()">📊 דוחות</button>
     <button class="btn btn-outline-w" id="notif-bell-btn" onclick="_notifToggle()" style="position:relative" title="התראות — מי עשה מה">
       🔔<span id="notif-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span>
     </button>
@@ -16949,7 +16950,15 @@ function _opStartPrinting(qid) {
       if (e.done) return;
       e.done = true;
       e.doneAt = new Date().toISOString();
-      if (curStartAt) e.printDurationSec = Math.floor((Date.now() - curStartAt) / 1000);
+      if (curStartAt) {
+        e.printDurationSec = Math.floor((Date.now() - curStartAt) / 1000);
+        // צבירה על הכרטיס — שורד גם אחרי שהתור מתנקה; משמש לדוח "שעות בפועל"
+        var _cc = (cards||[]).find(function(x){ return String(x.id) === String(e.cardId); });
+        if (_cc && e.printDurationSec > 0 && e.printDurationSec < 48*3600) {
+          _cc.actualPrintSec = (_cc.actualPrintSec||0) + e.printDurationSec;
+          if (machine) _cc.printMachine = machine;
+        }
+      }
     }).then(function(){
       // סנכרן את סטטוס הכרטיס ללוח הייצור (אם כל הריצות הודפסו → הושלם)
       var oldE = (machineQueue||[]).find(function(x){ return String(x.qid) === String(cur.qid); });
@@ -18379,6 +18388,173 @@ function openImpositionTool(){
   setTimeout(poll, 4000);
   setInterval(poll, 30000);
 })();
+</script>
+
+<!-- ===== REPORTS ===== -->
+<div class="modal-overlay" id="reportsModal">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-header">
+      <h3>📊 דוחות ניהוליים</h3>
+      <button class="modal-close" onclick="closeReports()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+        <button id="rp-tab-month" onclick="_rpSetTab('month')" class="rp-tab" style="flex:1;min-width:120px;padding:8px;border-radius:9px;border:2px solid #c7d2fe;background:#4338ca;color:#fff;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer;font-size:.85rem">📅 דוח חודשי</button>
+        <button id="rp-tab-inv" onclick="_rpSetTab('inv')" class="rp-tab" style="flex:1;min-width:120px;padding:8px;border-radius:9px;border:2px solid #c7d2fe;background:#fff;color:#64748b;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer;font-size:.85rem">📉 חיזוי מלאי</button>
+      </div>
+      <div id="rp-month-controls" style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:12px">
+        <button onclick="_rpMonthNav(-1)" style="background:#eef2ff;border:1.5px solid #c7d2fe;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:1rem;font-family:Heebo,sans-serif">‹</button>
+        <span id="rp-month-label" style="font-weight:900;font-size:1.05rem;color:var(--press);min-width:150px;text-align:center"></span>
+        <button onclick="_rpMonthNav(1)" style="background:#eef2ff;border:1.5px solid #c7d2fe;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:1rem;font-family:Heebo,sans-serif">›</button>
+      </div>
+      <div id="rp-body"></div>
+    </div>
+  </div>
+</div>
+<script>
+// ── דוחות: חודשי (עבודות/גיליונות לפי לקוח/נייר/מכונה) + חיזוי מלאי ─────────
+var _rpTab = 'month';
+var _rpMonth = new Date();  // מצביע על החודש המוצג (1 בחודש)
+function openReports(){
+  if (currentUser && !currentUser.isAdmin) { showToast('🔒 הדוחות זמינים למנהלים בלבד'); return; }
+  var m = document.getElementById('reportsModal'); if (!m) return;
+  _rpMonth = new Date(); _rpMonth.setDate(1);
+  m.classList.add('open'); _rpApplyTab(); _rpRender();
+}
+function closeReports(){ var m=document.getElementById('reportsModal'); if(m) m.classList.remove('open'); }
+function _rpSetTab(t){ _rpTab=t; _rpApplyTab(); _rpRender(); }
+function _rpApplyTab(){
+  var tm=document.getElementById('rp-tab-month'), ti=document.getElementById('rp-tab-inv'), mc=document.getElementById('rp-month-controls');
+  function set(b,a){ if(!b)return; b.style.background=a?'#4338ca':'#fff'; b.style.color=a?'#fff':'#64748b'; }
+  set(tm,_rpTab==='month'); set(ti,_rpTab==='inv');
+  if (mc) mc.style.display = (_rpTab==='month') ? 'flex' : 'none';
+}
+function _rpMonthNav(d){ _rpMonth.setMonth(_rpMonth.getMonth()+d); _rpRender(); }
+// כמות גיליונות/עותקים של כרטיס (סכום ריצות, אחרת copies)
+function _cardSheets(c){
+  if (c.runs && c.runs.length) return c.runs.reduce(function(s,r){ return s + (parseInt(r.copies||r.sheets,10)||0); }, 0);
+  return parseInt(c.copies,10)||0;
+}
+// תאריך רלוונטי לדוח: השלמה (printedAt) אם קיים, אחרת יצירה
+function _cardDateMs(c){
+  if (c.printedAt) { var p=Date.parse(c.printedAt); if (p) return p; }
+  if (typeof c.id==='number' && c.id>1e12) return c.id;
+  var d=Date.parse(c.createdAt); return d||0;
+}
+function _rpEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _rpFmt(n){ return Math.round(n).toLocaleString(); }
+function _rpMachineShort(m){ m=String(m||''); if(m.indexOf('4')>=0)return'4 צבעים'; if(m.indexOf('8')>=0)return'8 צבעים'; return m||'לא הוגדר'; }
+
+function _rpRender(){
+  var el = document.getElementById('rp-body'); if (!el) return;
+  if (_rpTab==='inv') { el.innerHTML = _rpInventoryHtml(); return; }
+  // דוח חודשי
+  var y=_rpMonth.getFullYear(), mo=_rpMonth.getMonth();
+  var months=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  var lbl=document.getElementById('rp-month-label'); if(lbl) lbl.textContent = months[mo]+' '+y;
+  var start=new Date(y,mo,1).getTime(), end=new Date(y,mo+1,1).getTime();
+  var list=(cards||[]).filter(function(c){ if(!c||c.status==='trash')return false; var t=_cardDateMs(c); return t>=start && t<end; });
+  var themeCss='padding:6px 8px;font-size:.72rem;color:#475569;border-bottom:2px solid #e2e8f0;text-align:center';
+  var tdCss='padding:6px 8px;font-size:.83rem;border-bottom:1px solid #f1f5f9;text-align:center';
+  if (!list.length) { el.innerHTML='<div style="padding:30px;text-align:center;color:#94a3b8">אין עבודות בחודש זה.<br><span style="font-size:.75rem">(עבודות שהושלמו לפני 60+ יום עברו לארכיון)</span></div>'; return; }
+  var totalSheets=0, byCust={}, byPaper={}, byMach={}, hoursByMach={};
+  list.forEach(function(c){
+    var sh=_cardSheets(c); totalSheets+=sh;
+    var cu=(c.customer||'—').trim()||'—';
+    byCust[cu]=byCust[cu]||{jobs:0,sheets:0}; byCust[cu].jobs++; byCust[cu].sheets+=sh;
+    var pp=(c.paper||'—').trim()||'—';
+    byPaper[pp]=byPaper[pp]||{jobs:0,sheets:0}; byPaper[pp].jobs++; byPaper[pp].sheets+=sh;
+    // לפי מכונה (מריצות אם יש, אחרת מהכרטיס)
+    var machs={};
+    if (c.runs && c.runs.length) c.runs.forEach(function(r){ if(r&&r.machine) machs[r.machine]=(machs[r.machine]||0)+(parseInt(r.copies||r.sheets,10)||0); });
+    else if (c.machine) machs[c.machine]=sh;
+    Object.keys(machs).forEach(function(m){ var k=_rpMachineShort(m); byMach[k]=byMach[k]||{jobs:0,sheets:0}; byMach[k].jobs++; byMach[k].sheets+=machs[m]; });
+    // שעות בפועל — מהזמן שנצבר על הכרטיס (מסך הדפסים מודד התחלה→סיום לכל ריצה)
+    if (c.actualPrintSec > 0) { var mk=_rpMachineShort(c.printMachine||c.machine||(c.runs&&c.runs[0]&&c.runs[0].machine)); hoursByMach[mk]=(hoursByMach[mk]||0)+(c.actualPrintSec/3600); }
+  });
+  var custRows=Object.keys(byCust).map(function(k){ return {k:k,v:byCust[k]}; }).sort(function(a,b){ return b.v.sheets-a.v.sheets; });
+  var paperRows=Object.keys(byPaper).map(function(k){ return {k:k,v:byPaper[k]}; }).sort(function(a,b){ return b.v.sheets-a.v.sheets; });
+  var machRows=Object.keys(byMach).map(function(k){ return {k:k,v:byMach[k]}; }).sort(function(a,b){ return b.v.sheets-a.v.sheets; });
+
+  var h='';
+  // כרטיסיות סיכום
+  h+='<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">'
+    + '<div style="flex:1;min-width:100px;background:#1a1a4e;color:#fff;border-radius:10px;padding:11px;text-align:center"><div style="font-size:1.5rem;font-weight:900">'+_rpFmt(list.length)+'</div><div style="font-size:.72rem;opacity:.8">עבודות</div></div>'
+    + '<div style="flex:1;min-width:100px;background:#4338ca;color:#fff;border-radius:10px;padding:11px;text-align:center"><div style="font-size:1.5rem;font-weight:900">'+_rpFmt(totalSheets)+'</div><div style="font-size:.72rem;opacity:.8">גיליונות</div></div>'
+    + '<div style="flex:1;min-width:100px;background:#0369a1;color:#fff;border-radius:10px;padding:11px;text-align:center"><div style="font-size:1.5rem;font-weight:900">'+_rpFmt(custRows.length)+'</div><div style="font-size:.72rem;opacity:.8">לקוחות</div></div>'
+    + '</div>';
+  var section=function(title, rows, extra){
+    var s='<div style="font-weight:800;color:var(--press);margin:14px 0 5px;font-size:.9rem">'+title+'</div>';
+    s+='<table style="width:100%;border-collapse:collapse"><thead><tr><th style="'+themeCss+';text-align:right">'+(extra||'')+'</th><th style="'+themeCss+'">עבודות</th><th style="'+themeCss+'">גיליונות</th></tr></thead><tbody>';
+    s+=rows.map(function(r){ return '<tr><td style="'+tdCss+';text-align:right;font-weight:700">'+_rpEsc(r.k)+'</td><td style="'+tdCss+'">'+_rpFmt(r.v.jobs)+'</td><td style="'+tdCss+';font-weight:800;color:#4338ca">'+_rpFmt(r.v.sheets)+'</td></tr>'; }).join('');
+    s+='</tbody></table>'; return s;
+  };
+  h+=section('👥 לפי לקוח', custRows, 'לקוח');
+  h+=section('📄 לפי סוג נייר', paperRows, 'נייר');
+  // מכונה — עם שעות אם יש
+  h+='<div style="font-weight:800;color:var(--press);margin:14px 0 5px;font-size:.9rem">🖨️ לפי מכונה</div>';
+  h+='<table style="width:100%;border-collapse:collapse"><thead><tr><th style="'+themeCss+';text-align:right">מכונה</th><th style="'+themeCss+'">עבודות</th><th style="'+themeCss+'">גיליונות</th><th style="'+themeCss+'">שעות בפועל</th></tr></thead><tbody>';
+  h+=machRows.map(function(r){ var hr=hoursByMach[r.k]; return '<tr><td style="'+tdCss+';text-align:right;font-weight:700">'+_rpEsc(r.k)+'</td><td style="'+tdCss+'">'+_rpFmt(r.v.jobs)+'</td><td style="'+tdCss+';font-weight:800;color:#4338ca">'+_rpFmt(r.v.sheets)+'</td><td style="'+tdCss+';color:#0f6347">'+(hr?hr.toFixed(1)+' ש\'':'—')+'</td></tr>'; }).join('');
+  h+='</tbody></table>';
+  h+='<button onclick="_rpExportCsv()" style="margin-top:16px;width:100%;padding:10px;border:none;border-radius:9px;background:#16a34a;color:#fff;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">📥 ייצוא לאקסל / הנהלת חשבונות (CSV)</button>';
+  el.innerHTML=h;
+  window._rpLast = { month: months[mo]+' '+y, custRows:custRows, paperRows:paperRows, machRows:machRows, totalSheets:totalSheets, jobs:list.length };
+}
+
+function _rpExportCsv(){
+  var d=window._rpLast; if(!d){ return; }
+  var lines=['סוג,שם,עבודות,גיליונות'];
+  d.custRows.forEach(function(r){ lines.push('לקוח,"'+String(r.k).replace(/"/g,'""')+'",'+r.v.jobs+','+r.v.sheets); });
+  d.paperRows.forEach(function(r){ lines.push('נייר,"'+String(r.k).replace(/"/g,'""')+'",'+r.v.jobs+','+r.v.sheets); });
+  d.machRows.forEach(function(r){ lines.push('מכונה,"'+String(r.k).replace(/"/g,'""')+'",'+r.v.jobs+','+r.v.sheets); });
+  lines.push('סה"כ,,'+d.jobs+','+d.totalSheets);
+  var csv='﻿'+lines.join('\r\n');   // BOM לעברית באקסל
+  var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='דוח-'+d.month+'.csv'; a.click();
+  showToast('📥 הדוח יוצא');
+}
+
+// ── חיזוי מלאי: קצב צריכה יומי ← ימים עד גמר ← התראת הזמנה ──
+function _rpInventoryHtml(){
+  var lbl=document.getElementById('rp-month-label'); if(lbl) lbl.textContent='';
+  var now=Date.now(), WINDOW=30*24*3600*1000;
+  var rows=(inventory||[]).map(function(it){
+    var remaining=(typeof _invItemTotal==='function')?_invItemTotal(it):(it.qty||0);
+    // הורדות ב-30 הימים האחרונים
+    var deds=(it.deductions&&it.deductions.length)?it.deductions:(inventoryDeductions||[]).filter(function(d){ return d && d.paperName===it.name; });
+    var used30=deds.reduce(function(s,d){ var t=d.date?Date.parse(d.date):0; return (t && (now-t)<=WINDOW) ? s+(parseInt(d.qty,10)||0) : s; },0);
+    var rate=used30/30;
+    var days=rate>0 ? Math.floor(remaining/rate) : null;
+    return { name:it.name||'—', remaining:remaining, used30:used30, rate:rate, days:days, reorder:it.reorderPoint||0 };
+  }).filter(function(r){ return r.remaining>0 || r.used30>0; });
+  // מיון: הכי דחוף קודם (הכי מעט ימים)
+  rows.sort(function(a,b){ var av=a.days==null?1e9:a.days, bv=b.days==null?1e9:b.days; return av-bv; });
+  var themeCss='padding:6px 8px;font-size:.72rem;color:#475569;border-bottom:2px solid #e2e8f0;text-align:center';
+  var tdCss='padding:6px 8px;font-size:.83rem;border-bottom:1px solid #f1f5f9;text-align:center';
+  var urgent=rows.filter(function(r){ return r.days!=null && r.days<=14; });
+  var h='';
+  if (urgent.length) {
+    h+='<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:11px 13px;margin-bottom:12px">'
+      +'<div style="font-weight:800;color:#b91c1c;margin-bottom:5px">⚠️ להזמין בקרוב ('+urgent.length+'):</div>'
+      +urgent.map(function(r){ return '<div style="font-size:.82rem;color:#7f1d1d">• '+_rpEsc(r.name)+' — נשאר ל-<b>'+r.days+' ימים</b> ('+_rpFmt(r.remaining)+' גיליונות)</div>'; }).join('')
+      +'</div>';
+  }
+  h+='<div style="font-size:.74rem;color:#94a3b8;margin-bottom:6px">קצב הצריכה מחושב מ-30 הימים האחרונים.</div>';
+  h+='<table style="width:100%;border-collapse:collapse"><thead><tr>'
+    +'<th style="'+themeCss+';text-align:right">נייר</th><th style="'+themeCss+'">יתרה</th><th style="'+themeCss+'">נוצל (30 יום)</th><th style="'+themeCss+'">ליום</th><th style="'+themeCss+'">מספיק ל־</th></tr></thead><tbody>';
+  h+=rows.map(function(r){
+    var col = r.days==null?'#94a3b8':(r.days<=14?'#b91c1c':(r.days<=30?'#b45309':'#16a34a'));
+    var daysTxt = r.days==null ? '<span style="color:#cbd5e1">אין צריכה</span>' : ('<b style="color:'+col+'">'+r.days+' ימים</b>');
+    return '<tr><td style="'+tdCss+';text-align:right;font-weight:700">'+_rpEsc(r.name)+'</td>'
+      +'<td style="'+tdCss+'">'+_rpFmt(r.remaining)+'</td>'
+      +'<td style="'+tdCss+'">'+_rpFmt(r.used30)+'</td>'
+      +'<td style="'+tdCss+'">'+(r.rate>0?_rpFmt(r.rate):'—')+'</td>'
+      +'<td style="'+tdCss+'">'+daysTxt+'</td></tr>';
+  }).join('');
+  h+='</tbody></table>';
+  if (!rows.length) h='<div style="padding:30px;text-align:center;color:#94a3b8">אין נתוני מלאי להצגה.</div>';
+  return h;
+}
 </script>
 
 <!-- ===== CARTON / PLACEMAT CALCULATOR ===== -->
