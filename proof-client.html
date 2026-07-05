@@ -179,6 +179,32 @@
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const _FBURL   = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
 const _BUCKETS = ['solan-printing.firebasestorage.app']; // appspot.com לא קיים (404) — הוסר
+
+// ── הזדהות אנונימית מול Firebase (מנעול אבטחה) — כל בקשה נושאת אסימון ──
+const _FB_APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+let _fbTok = null, _fbTokExp = 0, _fbTokP = null;
+async function _fbAuthToken(){
+  if (_fbTok && Date.now() < _fbTokExp - 120000) return _fbTok;
+  if (_fbTokP) return _fbTokP;
+  _fbTokP = (async function(){
+    try {
+      let j = null, rt = null; try { rt = localStorage.getItem('solanFbAnonRT'); } catch(e){}
+      if (rt) {
+        const r = await fetch('https://securetoken.googleapis.com/v1/token?key='+_FB_APIKEY, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'grant_type=refresh_token&refresh_token='+encodeURIComponent(rt) });
+        if (r.ok) { const d = await r.json(); j = { token:d.id_token, rt:d.refresh_token, exp:Date.now()+(parseInt(d.expires_in)||3600)*1000 }; }
+      }
+      if (!j) {
+        const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_FB_APIKEY, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({returnSecureToken:true}) });
+        if (r.ok) { const d = await r.json(); j = { token:d.idToken, rt:d.refreshToken, exp:Date.now()+(parseInt(d.expiresIn)||3600)*1000 }; }
+      }
+      if (j) { _fbTok = j.token; _fbTokExp = j.exp; try { localStorage.setItem('solanFbAnonRT', j.rt); } catch(e){} _fbTokP = null; return _fbTok; }
+    } catch(e){}
+    _fbTokP = null; return null;
+  })();
+  return _fbTokP;
+}
+async function _au(url){ const t = await _fbAuthToken(); return t ? url + (url.indexOf('?')>=0?'&':'?') + 'auth=' + t : url; }
+_fbAuthToken();   // חימום מוקדם
 const RENDER_H = 1100;          // גובה הרינדור (פעם אחת לעמוד) — חד גם במסך מלא
 
 const $ = id => document.getElementById(id);
@@ -209,7 +235,7 @@ let vIndex = 0;
 (async function init() {
   if (!proofId) return fail('לא נמצא מזהה בכתובת.');
   try {
-    record = await (await fetch(`${_FBURL}/customerProofs/${proofId}.json`)).json();
+    record = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
     if (!record) return fail('הקישור לא תקין או שהוסר.');
     $('sub').textContent = [record.customer, record.title].filter(Boolean).join(' · ') || 'סולן הדפסות';
     showOverlay('', false); goHome();
@@ -602,11 +628,11 @@ $('approve').onclick = async () => {
       const path = `customerProofs/${folder}/${proofId}/${partId}.pdf`;
       const fileUrl = await uploadBytes(path, pdfBytes, onUp);
       const cache = await uploadPagesCache(`customerProofs/${folder}/${proofId}/${partId}-pages.json`);
-      await fetch(`${_FBURL}/customerProofs/${proofId}/parts/${partId}.json`, {
+      await fetch(await _au(`${_FBURL}/customerProofs/${proofId}/parts/${partId}.json`), {
         method:'PUT', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ name:runName, fileUrl, filePath:path, pageCount:effPageCount(), spreadCount:_spr, fileSize:pdfBytes.byteLength, status:'approved', approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at }) });
       await patch({ status:'parts', mode:'parts' });
-      record = await (await fetch(`${_FBURL}/customerProofs/${proofId}.json`)).json();
+      record = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
       showOverlay('', false); alert(`✓ "${runName}" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.`); goHome();
     }
   } catch (e) { console.error(e); showOverlay('שגיאה: ' + e.message + '\n\nנסו שוב או פנו לבית הדפוס.', true); }
@@ -614,7 +640,7 @@ $('approve').onclick = async () => {
 };
 
 async function patch(fields) {
-  await fetch(`${_FBURL}/customerProofs/${proofId}.json`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(fields) });
+  await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(fields) });
 }
 
 // העלאה עם מד אחוזים (XHR), עם ניסיונות חוזרים על תקלות רשת זמניות (למשל מעבר חלון).
@@ -655,6 +681,8 @@ function xhrPost(url, bytes, onProgress) {
     xhr.timeout = 0; // ללא timeout — קבצים גדולים
     xhr.setRequestHeader('Content-Type', 'application/pdf');
     xhr.upload.onprogress = e => e.lengthComputable && onProgress && onProgress(Math.round(e.loaded / e.total * 100));
+    // אסימון הזדהות (כשחוקי ה-Storage ייסגרו)
+    const _finishSend = (t) => { try { if (t) xhr.setRequestHeader('Authorization', 'Firebase ' + t); } catch(e){} xhr.send(bytes); };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) { try { resolve(JSON.parse(xhr.responseText)); } catch(e){ const er=new Error('תגובה לא תקינה'); er.code=xhr.status; reject(er);} return; }
       let msg = 'Storage ' + xhr.status;
@@ -663,7 +691,7 @@ function xhrPost(url, bytes, onProgress) {
     };
     xhr.onerror   = () => { const e = new Error('שגיאת רשת'); e.code = 0; reject(e); };
     xhr.ontimeout = () => { const e = new Error('פג זמן ההעלאה'); e.code = 408; reject(e); };
-    xhr.send(bytes);
+    _fbAuthToken().then(_finishSend, () => _finishSend(null));
   });
 }
 
