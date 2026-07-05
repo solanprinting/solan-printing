@@ -284,6 +284,25 @@ window.fold = fold;
 window.TEMPLATES = TEMPLATES;
 window._buildMap = _buildMap;
 window.showFlipbook = showFlipbook;
+
+// ── טעינה ישירה מפרופר של כרטיס: imposition-tool.html?proofUrl=<url>&type=<32|16perf|16p|8perf|8p>&name=<שם>&auto=1 ──
+(function(){
+  try {
+    var qs = new URLSearchParams(location.search);
+    var url = qs.get('proofUrl'); if (!url) return;
+    var type = qs.get('type'); if (type && TEMPLATES[type]) $('sheet').value = type;
+    var fside = qs.get('firstside'); if (fside==='0'||fside==='1') $('firstside').value = fside;
+    var nm = qs.get('name') || 'פרופר.pdf';
+    $('fileinfo').innerHTML = '⏳ טוען פרופר מהכרטיס…';
+    fetch(url).then(function(r){ if(!r.ok) throw new Error('טעינה נכשלה ('+r.status+')'); return r.blob(); })
+      .then(function(blob){
+        var f = new File([blob], nm.replace(/[\\/:*?"<>|]/g,'_').slice(0,120) + (/\.pdf$/i.test(nm)?'':'.pdf'), { type:'application/pdf' });
+        setFile(f);
+        if (qs.get('auto') !== '0') $('go').click();   // קיפול אוטומטי (אלא אם auto=0)
+      })
+      .catch(function(e){ $('fileinfo').innerHTML = '⚠️ לא ניתן לטעון את הפרופר אוטומטית ('+(e.message||e)+'). גרור/בחר קובץ ידנית.'; });
+  } catch(e){}
+})();
 </script>
 </body>
 </html>
