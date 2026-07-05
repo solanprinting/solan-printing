@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783258222';
+window.APP_VERSION = '1783265603';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1084,6 +1084,7 @@ textarea.fi{resize:none;min-height:52px;}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 </script>
@@ -6819,6 +6820,21 @@ function _paperTagPrint(paper){
   return ' <strong style="font-weight:800;color:#111;letter-spacing:.03em">· ' + t + '</strong>';
 }
 
+// ── QR על כרטיס מודפס: סריקה בטלפון → scan.html?c=<id> → פותח את הפרופר העדכני
+// של הכרטיס כחוברת מקופלת בדפדוף (סדר קריאה). ההפניה דרך מזהה הכרטיס — לא דרך
+// כתובת הקובץ — כך שגם אם הפרופר הוחלף אחרי ההדפסה, הסריקה תמיד תראה את העדכני.
+function _cardQrBox(cardId){
+  try {
+    if (typeof qrcode !== 'function' || cardId == null || cardId === 'preview') return '';
+    var url = 'https://solanprinting.github.io/solan-printing/scan.html?c=' + encodeURIComponent(cardId);
+    var q = qrcode(0, 'M'); q.addData(url); q.make();
+    var svg = q.createSvgTag({ cellSize: 2, margin: 0, scalable: true });
+    svg = svg.replace('<svg ', '<svg style="width:19mm;height:19mm;display:block" ');
+    return '<div style="text-align:center;flex-shrink:0">' + svg
+      + '<div style="font-size:.55rem;color:#555;margin-top:2px;white-space:nowrap">📱 סרוק לחוברת</div></div>';
+  } catch(e){ return ''; }
+}
+
 // ========== PRINT ==========
 function buildPrintCard(c) {
   const _runs = c.runs||[];
@@ -6989,9 +7005,12 @@ function buildPrintCard(c) {
 
   return `<div style="font-family:'Heebo',Arial,sans-serif;direction:rtl;width:100%;background:white;color:#111">
     <!-- כותרת -->
-    <div style="padding:18px 32px 14px;display:flex;justify-content:space-between;align-items:baseline;border-bottom:3px solid #111">
+    <div style="padding:12px 32px 10px;display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:3px solid #111">
       <div style="font-size:1.85rem;font-weight:900;color:#111">כרטיס עבודה</div>
-      <div style="font-size:.88rem;color:#555">נוצר: ${c.createdAt} &nbsp;|&nbsp; מס' עבודה: ${c.id}</div>
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="font-size:.88rem;color:#555">נוצר: ${c.createdAt} &nbsp;|&nbsp; מס' עבודה: ${c.id}</div>
+        ${_cardQrBox(c.id)}
+      </div>
     </div>
     <!-- שדות עליונים (עד מס' עמודים) -->
     <div style="padding:6px 32px 0">${fieldsTop}</div>
@@ -7041,9 +7060,12 @@ function buildPrintCardBlankRuns(c) {
     </tr>`).join('');
 
   return `<div style="font-family:'Heebo',Arial,sans-serif;direction:rtl;max-width:720px;margin:0 auto;background:white;color:#111">
-    <div style="padding:14px 28px 10px;display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111">
+    <div style="padding:10px 28px 8px;display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:2px solid #111">
       <div style="font-size:1.35rem;font-weight:900;color:#111">כרטיס עבודה</div>
-      <div style="font-size:.78rem;color:#555">נוצר: ${c.createdAt} &nbsp;|&nbsp; מס' עבודה: ${c.id}</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="font-size:.78rem;color:#555">נוצר: ${c.createdAt} &nbsp;|&nbsp; מס' עבודה: ${c.id}</div>
+        ${_cardQrBox(c.id)}
+      </div>
     </div>
     <div style="padding:4px 28px 16px">${fieldRows}</div>
     <div style="margin:0 28px 6px;font-size:.85rem;font-weight:800;color:#111;padding:6px 0;border-top:2px solid #111">פירוט ריצות הדפסה — מילוי ידני</div>
