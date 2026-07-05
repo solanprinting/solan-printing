@@ -79,6 +79,33 @@
 
 <script>
 const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+
+// ── הזדהות אנונימית מול Firebase (מנעול אבטחה) ──
+const _FB_APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+let _fbTok = null, _fbTokExp = 0, _fbTokP = null;
+async function _fbAuthToken(){
+  if (_fbTok && Date.now() < _fbTokExp - 120000) return _fbTok;
+  if (_fbTokP) return _fbTokP;
+  _fbTokP = (async function(){
+    try {
+      let j = null, rt = null; try { rt = localStorage.getItem('solanFbAnonRT'); } catch(e){}
+      if (rt) {
+        const r = await fetch('https://securetoken.googleapis.com/v1/token?key='+_FB_APIKEY, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'grant_type=refresh_token&refresh_token='+encodeURIComponent(rt) });
+        if (r.ok) { const d = await r.json(); j = { token:d.id_token, rt:d.refresh_token, exp:Date.now()+(parseInt(d.expires_in)||3600)*1000 }; }
+      }
+      if (!j) {
+        const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_FB_APIKEY, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({returnSecureToken:true}) });
+        if (r.ok) { const d = await r.json(); j = { token:d.idToken, rt:d.refreshToken, exp:Date.now()+(parseInt(d.expiresIn)||3600)*1000 }; }
+      }
+      if (j) { _fbTok = j.token; _fbTokExp = j.exp; try { localStorage.setItem('solanFbAnonRT', j.rt); } catch(e){} _fbTokP = null; return _fbTok; }
+    } catch(e){}
+    _fbTokP = null; return null;
+  })();
+  return _fbTokP;
+}
+async function _au(url){ const t = await _fbAuthToken(); return t ? url + (url.indexOf('?')>=0?'&':'?') + 'auth=' + t : url; }
+async function _authHeaders(base){ const t = await _fbAuthToken(); const h = Object.assign({}, base||{}); if (t) h['Authorization'] = 'Firebase ' + t; return h; }
+_fbAuthToken();   // חימום מוקדם
 const $ = id => document.getElementById(id);
 const msg = m => $('msg').textContent = m;
 
@@ -93,7 +120,7 @@ let _allRows = [];
 
 async function loadProofs() {
   msg('טוען…');
-  const data = await (await fetch(`${_FBURL}/customerProofs.json`)).json() || {};
+  const data = await (await fetch(await _au(`${_FBURL}/customerProofs.json`))).json() || {};
   _allRows = Object.entries(data)
     .map(([id, p]) => ({ id, ...p }))
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -220,11 +247,11 @@ async function deletePart(jobId, pid, filePath) {
   try {
     if (filePath) {
       for (const bucket of ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com']) {
-        try { const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(filePath)}`, { method: 'DELETE' });
+        try { const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(filePath)}`, { method: 'DELETE', headers: await _authHeaders() });
           if (r.ok || r.status === 404) break; } catch (e) {}
       }
     }
-    await fetch(`${_FBURL}/customerProofs/${jobId}/parts/${pid}.json`, { method: 'DELETE' });
+    await fetch(await _au(`${_FBURL}/customerProofs/${jobId}/parts/${pid}.json`), { method: 'DELETE' });
     await loadProofs();
   } catch (e) { console.error(e); msg('✗ שגיאה במחיקה: ' + e.message); }
 }
@@ -242,12 +269,12 @@ async function deleteProof(p) {
     for (const fp of paths) {
       for (const bucket of ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com']) {
         try {
-          const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(fp)}`, { method: 'DELETE' });
+          const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(fp)}`, { method: 'DELETE', headers: await _authHeaders() });
           if (r.ok || r.status === 404) break;
         } catch (e) { /* נסה bucket הבא */ }
       }
     }
-    await fetch(`${_FBURL}/customerProofs/${p.id}.json`, { method: 'DELETE' });
+    await fetch(await _au(`${_FBURL}/customerProofs/${p.id}.json`), { method: 'DELETE' });
     await loadProofs();
   } catch (e) { console.error(e); msg('✗ שגיאה במחיקה: ' + e.message); }
 }
@@ -351,7 +378,7 @@ async function generateRuns(proof, fullSheet, btn) {
     try {
       if (proof.jobId) {
         const p2 = proof.partId ? `customerProofs/${proof.jobId}/parts/${proof.partId}` : `customerProofs/${proof.jobId}`;
-        fetch(`${_FBURL}/${p2}.json`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ runsDownloadedAt: Date.now() }) });
+        _au(`${_FBURL}/${p2}.json`).then(u => fetch(u, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ runsDownloadedAt: Date.now() }) }));
       }
     } catch(e){}
     btn.textContent = '✓ הורד';
@@ -412,7 +439,7 @@ $('invite').onclick = async () => {
   }
   const id = crypto.randomUUID?.() || (Date.now().toString(36) + Math.random().toString(36).slice(2));
   msg('יוצר…');
-  await fetch(`${_FBURL}/customerProofs/${id}.json`, {
+  await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: 'awaiting_upload', customer: customer.trim(), title: title.trim(), reqW, reqH, createdAt: Date.now() }),
   });
