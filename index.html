@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783269125';
+window.APP_VERSION = '1783270139';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2364,6 +2364,7 @@ window._fbSnapshot = {};
         <button class="btn" id="print-modal-proof-attach-btn" onclick="document.getElementById('pm-proof-input').click()" style="background:#ede9fe;color:#5b21b6;border-color:#ddd6fe;display:none">📎 צרף/החלף פרופר</button>
         <button class="btn btn-primary" id="print-modal-save-btn" onclick="saveFromPreview()" style="display:none">💾 שמור כרטיס</button>
         <button class="btn" id="print-modal-dup-btn" onclick="duplicateCard(window._printModalCardId)" style="background:#0f766e;color:white;border-color:#0f766e;display:none">📑 שכפל כרטיס</button>
+        <button class="btn admin-only" onclick="_dnFromCard(window._printModalCardId)" style="background:#b45309;color:white;border-color:#b45309">🧾 תעודת משלוח</button>
         <button class="btn" id="print-modal-delete-btn" onclick="softDeleteCard(window._printModalCardId)" style="background:#991b1b;color:white;border-color:#991b1b;display:none">🗑️ מחק</button>
         <button class="btn btn-outline-w" onclick="closePrintModal()">סגור</button>
       </div>
@@ -2988,6 +2989,8 @@ setTimeout(function(){ _loadTemplates(); }, 0);  // init templates
 let customers      = JSON.parse(localStorage.getItem('solanCustomers')      || '[]');
 let orders         = JSON.parse(localStorage.getItem('solanOrders')         || '[]');
 let inventoryDeductions = JSON.parse(localStorage.getItem('solanInventoryDeductions') || '[]');
+// תעודות משלוח ללקוחות (פיננסי — מוצג למנהלים בלבד ברמת הממשק)
+let deliveryNotes = JSON.parse(localStorage.getItem('solanDeliveryNotes') || '[]');
 let inventoryHistory    = JSON.parse(localStorage.getItem('solanInventoryHistory')    || '[]');
 // תעריפי תמחור עיתון/חוברת — מוזנים פעם אחת דרך ⚙️ תעריפים וניתנים לעדכון
 var DEFAULT_OFFSET_PRICING = {
@@ -3194,12 +3197,13 @@ function _doPushCardsMerged(){
 // פותר את משפחת הבאגים "מערך שלם דורס מערך שלם": שני מכשירים שעורכים בו-זמנית,
 // או טאב ישן שדוחף נתון ישן. כל פריט נושא חותמת _upd; מיזוג שומר את החדש יותר.
 // מחיקות מוגנות ב-tombstones (deletedIds) — כמו בכרטיסים.
-var _MERGED_COLLS = ['orders','quotes','weeklyJobs','printFiles'];
+var _MERGED_COLLS = ['orders','quotes','weeklyJobs','printFiles','deliveryNotes'];
 var _COLL_REF = {
-  orders:     { get:function(){return orders;},     set:function(v){orders=v;},     ls:'solanOrders' },
-  quotes:     { get:function(){return quotes;},     set:function(v){quotes=v;},     ls:'solanQuotes' },
-  weeklyJobs: { get:function(){return weeklyJobs;}, set:function(v){weeklyJobs=v;}, ls:'solanWeeklyJobs' },
-  printFiles: { get:function(){return printFiles;}, set:function(v){printFiles=v;}, ls:'solanPrintFiles' }
+  orders:        { get:function(){return orders;},        set:function(v){orders=v;},        ls:'solanOrders' },
+  quotes:        { get:function(){return quotes;},        set:function(v){quotes=v;},        ls:'solanQuotes' },
+  weeklyJobs:    { get:function(){return weeklyJobs;},    set:function(v){weeklyJobs=v;},    ls:'solanWeeklyJobs' },
+  printFiles:    { get:function(){return printFiles;},    set:function(v){printFiles=v;},    ls:'solanPrintFiles' },
+  deliveryNotes: { get:function(){return deliveryNotes;}, set:function(v){deliveryNotes=v;}, ls:'solanDeliveryNotes' }
 };
 window._arrSnap = window._arrSnap || {};
 var _arrPushTimers = {};
@@ -3283,6 +3287,7 @@ function persist() {
   localStorage.setItem('solanInventoryPress',      JSON.stringify(inventoryPress));
   localStorage.setItem('solanInventoryDeductions', JSON.stringify(inventoryDeductions));
   localStorage.setItem('solanInvoiceLogs',         JSON.stringify(invoiceLogs));
+  localStorage.setItem('solanDeliveryNotes',       JSON.stringify(deliveryNotes));
   localStorage.setItem('solanQuotes',              JSON.stringify(quotes));
   localStorage.setItem('solanDeletedIds',          JSON.stringify(deletedIds));
   localStorage.setItem('solanQuotePricing',        JSON.stringify(quotePricing));
@@ -8238,7 +8243,7 @@ function closeDeliveryModal() {
 // BACKUP / RESTORE
 // ═══════════════════════════════════════════════════════
 const _BACKUP_KEYS = ['solanCards','solanNewspapers','solanFlyers','solanWeeklyJobs','solanInventory',
-  'solanInventoryHistory','solanInventoryDeductions','solanOrders','solanQuotes',
+  'solanInventoryHistory','solanInventoryDeductions','solanOrders','solanQuotes','solanDeliveryNotes',
   'solanUsers','solanManualRuns','solanWeekClearedAt','solanWeekClearedItems','solanWeekCardMarked'];
 
 function _collectBackupData() {
@@ -15478,6 +15483,20 @@ async function _fbPollAll() {
         if (document.getElementById('view-printfiles') && document.getElementById('view-printfiles').style.display!=='none' && typeof renderPrintFiles==='function') renderPrintFiles();
       }
     }
+    // תעודות משלוח (פיננסי — הנתון מסונכרן, התצוגה למנהלים בלבד)
+    var dnv = await _pollGet('deliveryNotes');
+    if (dnv !== null && !(_pend.deliveryNotes > 0)) {
+      var _incDN = _filterDeleted('deliveryNotes', Array.isArray(dnv) ? dnv : Object.values(dnv));
+      if (_incDN.length === 0 && deliveryNotes.length > 0) {
+        window._fbPut('deliveryNotes', _filterDeleted('deliveryNotes', deliveryNotes)); // הגנה מפני שרת ריק
+      } else {
+        deliveryNotes = _filterDeleted('deliveryNotes', _mergeArrById(_incDN, deliveryNotes));
+        localStorage.setItem('solanDeliveryNotes', JSON.stringify(deliveryNotes));
+        window._fbSnapshot.deliveryNotes = JSON.stringify(deliveryNotes);
+        _seedArrSnap('deliveryNotes', deliveryNotes);
+        if (JSON.stringify(deliveryNotes) !== JSON.stringify(_incDN)) _pushArrMerged('deliveryNotes');
+      }
+    }
     // הצעות מחיר
     var qv = await _pollGet('quotes');
     if (qv !== null && !(_pend.quotes > 0)) {
@@ -18401,6 +18420,7 @@ function openImpositionTool(){
       <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
         <button id="rp-tab-month" onclick="_rpSetTab('month')" class="rp-tab" style="flex:1;min-width:120px;padding:8px;border-radius:9px;border:2px solid #c7d2fe;background:#4338ca;color:#fff;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer;font-size:.85rem">📅 דוח חודשי</button>
         <button id="rp-tab-inv" onclick="_rpSetTab('inv')" class="rp-tab" style="flex:1;min-width:120px;padding:8px;border-radius:9px;border:2px solid #c7d2fe;background:#fff;color:#64748b;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer;font-size:.85rem">📉 חיזוי מלאי</button>
+        <button id="rp-tab-dn" onclick="_rpSetTab('dn')" class="rp-tab" style="flex:1;min-width:120px;padding:8px;border-radius:9px;border:2px solid #c7d2fe;background:#fff;color:#64748b;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer;font-size:.85rem">🧾 תעודות משלוח</button>
       </div>
       <div id="rp-month-controls" style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:12px">
         <button onclick="_rpMonthNav(-1)" style="background:#eef2ff;border:1.5px solid #c7d2fe;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:1rem;font-family:Heebo,sans-serif">‹</button>
@@ -18424,10 +18444,10 @@ function openReports(){
 function closeReports(){ var m=document.getElementById('reportsModal'); if(m) m.classList.remove('open'); }
 function _rpSetTab(t){ _rpTab=t; _rpApplyTab(); _rpRender(); }
 function _rpApplyTab(){
-  var tm=document.getElementById('rp-tab-month'), ti=document.getElementById('rp-tab-inv'), mc=document.getElementById('rp-month-controls');
+  var tm=document.getElementById('rp-tab-month'), ti=document.getElementById('rp-tab-inv'), td=document.getElementById('rp-tab-dn'), mc=document.getElementById('rp-month-controls');
   function set(b,a){ if(!b)return; b.style.background=a?'#4338ca':'#fff'; b.style.color=a?'#fff':'#64748b'; }
-  set(tm,_rpTab==='month'); set(ti,_rpTab==='inv');
-  if (mc) mc.style.display = (_rpTab==='month') ? 'flex' : 'none';
+  set(tm,_rpTab==='month'); set(ti,_rpTab==='inv'); set(td,_rpTab==='dn');
+  if (mc) mc.style.display = (_rpTab==='month' || _rpTab==='dn') ? 'flex' : 'none';
 }
 function _rpMonthNav(d){ _rpMonth.setMonth(_rpMonth.getMonth()+d); _rpRender(); }
 // כמות גיליונות/עותקים של כרטיס (סכום ריצות, אחרת copies)
@@ -18448,6 +18468,7 @@ function _rpMachineShort(m){ m=String(m||''); if(m.indexOf('4')>=0)return'4 צב
 function _rpRender(){
   var el = document.getElementById('rp-body'); if (!el) return;
   if (_rpTab==='inv') { el.innerHTML = _rpInventoryHtml(); return; }
+  if (_rpTab==='dn')  { _rpRenderDeliveryNotes(el); return; }
   // דוח חודשי
   var y=_rpMonth.getFullYear(), mo=_rpMonth.getMonth();
   var months=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
@@ -18554,6 +18575,254 @@ function _rpInventoryHtml(){
   h+='</tbody></table>';
   if (!rows.length) h='<div style="padding:30px;text-align:center;color:#94a3b8">אין נתוני מלאי להצגה.</div>';
   return h;
+}
+
+// ═══ תעודות משלוח + קישור להצעת מחיר והנהלת חשבונות — מנהלים בלבד ═══════════
+// כל פונקציה חסומה בקוד (לא רק בהסתרת כפתורים): עובד לא יכול לפתוח/ליצור/לייצא.
+function _dnGuard(){
+  if (!(currentUser && currentUser.isAdmin)) { showToast('🔒 תעודות משלוח זמינות למנהלים בלבד'); return false; }
+  return true;
+}
+function _dnNextNum(){
+  var y = new Date().getFullYear(), mx = 0;
+  (deliveryNotes||[]).forEach(function(n){ if (n && n.year === y && (n.seq||0) > mx) mx = n.seq; });
+  return { year: y, seq: mx + 1, label: y + '/' + ('00' + (mx + 1)).slice(-3) };
+}
+function _dnTotals(n){
+  var sub = (n.items||[]).reduce(function(s,it){ return s + (parseFloat(it.qty)||0) * (parseFloat(it.price)||0); }, 0);
+  var vat = sub * ((parseFloat(n.vatPct)||0) / 100);
+  return { sub: sub, vat: vat, total: sub + vat };
+}
+function _dnForMonth(){
+  var y=_rpMonth.getFullYear(), mo=_rpMonth.getMonth();
+  var start=new Date(y,mo,1).getTime(), end=new Date(y,mo+1,1).getTime();
+  return (deliveryNotes||[]).filter(function(n){
+    if (!n) return false;
+    var t = n.date ? Date.parse(n.date) : (n.ts||0);
+    return t >= start && t < end;
+  }).sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+}
+function _rpRenderDeliveryNotes(el){
+  var months=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  var lbl=document.getElementById('rp-month-label'); if(lbl) lbl.textContent = months[_rpMonth.getMonth()]+' '+_rpMonth.getFullYear();
+  var list=_dnForMonth();
+  var themeCss='padding:6px 8px;font-size:.72rem;color:#475569;border-bottom:2px solid #e2e8f0;text-align:center';
+  var tdCss='padding:6px 8px;font-size:.83rem;border-bottom:1px solid #f1f5f9;text-align:center';
+  var h='<button onclick="_dnOpenEditor(null)" style="width:100%;padding:10px;border:none;border-radius:9px;background:#4338ca;color:#fff;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer;margin-bottom:12px">➕ תעודת משלוח חדשה</button>';
+  if (!list.length) {
+    h+='<div style="padding:24px;text-align:center;color:#94a3b8">אין תעודות בחודש זה.<br><span style="font-size:.75rem">אפשר ליצור גם מכרטיס עבודה — כפתור "🧾 תעודת משלוח" בחלון הכרטיס.</span></div>';
+    el.innerHTML=h; return;
+  }
+  var monthSum=0;
+  h+='<table style="width:100%;border-collapse:collapse"><thead><tr>'
+    +'<th style="'+themeCss+'">מס\'</th><th style="'+themeCss+'">תאריך</th><th style="'+themeCss+';text-align:right">לקוח / עבודה</th><th style="'+themeCss+'">סה"כ</th><th style="'+themeCss+'"></th></tr></thead><tbody>';
+  h+=list.map(function(n){
+    var t=_dnTotals(n); monthSum+=t.total;
+    return '<tr>'
+      +'<td style="'+tdCss+';font-weight:800">'+_rpEsc(n.num||'')+'</td>'
+      +'<td style="'+tdCss+'">'+_rpEsc(n.date||'')+'</td>'
+      +'<td style="'+tdCss+';text-align:right"><b>'+_rpEsc(n.customer||'—')+'</b>'+(n.jobName?'<br><span style="font-size:.72rem;color:#6b7280">'+_rpEsc(n.jobName)+'</span>':'')+'</td>'
+      +'<td style="'+tdCss+';font-weight:800;color:#0f6347">'+(t.total>0?('₪'+_rpFmt(t.total)):'—')+'</td>'
+      +'<td style="'+tdCss+';white-space:nowrap">'
+      +'<button onclick="_dnPrint(\''+String(n.id)+'\')" title="הדפס" style="background:none;border:none;cursor:pointer;font-size:1rem">🖨️</button>'
+      +'<button onclick="_dnOpenEditor(\''+String(n.id)+'\')" title="ערוך" style="background:none;border:none;cursor:pointer;font-size:1rem">✏️</button>'
+      +'<button onclick="_dnDelete(\''+String(n.id)+'\')" title="מחק" style="background:none;border:none;cursor:pointer;font-size:1rem;color:#ef4444">🗑</button>'
+      +'</td></tr>';
+  }).join('');
+  h+='</tbody></table>';
+  h+='<div style="text-align:left;font-weight:800;color:var(--press);margin-top:8px">סה"כ החודש: ₪'+_rpFmt(monthSum)+'</div>';
+  h+='<button onclick="_dnExportCsv()" style="margin-top:12px;width:100%;padding:10px;border:none;border-radius:9px;background:#16a34a;color:#fff;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">📥 ייצוא להנהלת חשבונות (CSV)</button>';
+  el.innerHTML=h;
+}
+// יצירה מכרטיס עבודה (כפתור בחלון הכרטיס — מוצג רק למנהל)
+function _dnFromCard(cardId){
+  if (!_dnGuard()) return;
+  if (!cardId || cardId === 'preview') { showToast('⚠️ שמור קודם את הכרטיס'); return; }
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  if (!c) { showToast('⚠️ הכרטיס לא נמצא'); return; }
+  if (typeof closePrintModal === 'function') closePrintModal();
+  _dnOpenEditor(null, {
+    customer: c.customer || '', jobName: c.name || '', cardId: c.id,
+    items: [{ desc: (c.name||'') + (c.pages ? ' — ' + c.pages + ' עמ\'' : ''), qty: parseInt(c.copies,10)||'', price: '' }]
+  });
+}
+// עורך תעודה (חלון דינמי). noteId=עריכה קיימת; preset=נתוני התחלה מכרטיס.
+function _dnOpenEditor(noteId, preset){
+  if (!_dnGuard()) return;
+  var ex = document.getElementById('dn-editor'); if (ex) ex.remove();
+  var n;
+  if (noteId) {
+    var src = (deliveryNotes||[]).find(function(x){ return String(x.id) === String(noteId); });
+    if (!src) return;
+    n = JSON.parse(JSON.stringify(src));
+  } else {
+    var nn = _dnNextNum();
+    n = Object.assign({
+      id: 'dn_' + Date.now(), num: nn.label, year: nn.year, seq: nn.seq,
+      date: new Date().toISOString().split('T')[0],
+      customer: '', jobName: '', cardId: null, quoteId: null,
+      items: [{ desc:'', qty:'', price:'' }], vatPct: 18, notes: '', showPrices: false,
+      createdBy: currentUser ? (currentUser.name||currentUser.id) : '', ts: Date.now()
+    }, preset || {});
+  }
+  window._dnDraft = n;
+  var ov = document.createElement('div');
+  ov.id = 'dn-editor';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100007;display:flex;align-items:center;justify-content:center;padding:14px;direction:rtl';
+  ov.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:600px;width:100%;max-height:88vh;overflow-y:auto;font-family:Heebo,sans-serif">'
+    + '<div style="background:var(--press);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:2">'
+    + '<b>🧾 תעודת משלוח ' + _rpEsc(n.num) + '</b>'
+    + '<button onclick="document.getElementById(\'dn-editor\').remove()" style="background:none;border:none;color:#fff;font-size:1.2rem;cursor:pointer">×</button></div>'
+    + '<div style="padding:14px 16px">'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">'
+    +   '<div style="flex:1;min-width:130px"><label style="font-size:.72rem;color:#777">תאריך</label><input class="fi" type="date" id="dn-date" value="'+_rpEsc(n.date)+'" style="margin:0" onchange="_dnDraft.date=this.value"></div>'
+    +   '<div style="flex:2;min-width:160px"><label style="font-size:.72rem;color:#777">לקוח</label><input class="fi" id="dn-customer" value="'+_rpEsc(n.customer)+'" style="margin:0" oninput="_dnDraft.customer=this.value;_dnQuoteOptions()"></div>'
+    + '</div>'
+    + '<div style="margin-bottom:10px"><label style="font-size:.72rem;color:#777">עבודה</label><input class="fi" id="dn-job" value="'+_rpEsc(n.jobName)+'" style="margin:0" oninput="_dnDraft.jobName=this.value"></div>'
+    + '<div style="margin-bottom:10px"><label style="font-size:.72rem;color:#777">🔗 קשר להצעת מחיר (ממלא פריטים ומחירים)</label><select id="dn-quote" class="fi" style="margin:0" onchange="_dnPickQuote(this.value)"></select></div>'
+    + '<div style="font-weight:800;color:var(--press);font-size:.88rem;margin-bottom:5px">פריטים</div>'
+    + '<div id="dn-items"></div>'
+    + '<button onclick="_dnDraft.items.push({desc:\'\',qty:\'\',price:\'\'});_dnRenderItems()" style="font-size:.8rem;padding:5px 12px;border:1.5px dashed #a5b4fc;border-radius:7px;background:#f5f7ff;color:#4338ca;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer;margin-bottom:10px">+ שורה</button>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">'
+    +   '<div style="width:90px"><label style="font-size:.72rem;color:#777">מע"מ %</label><input class="fi" type="number" id="dn-vat" value="'+(n.vatPct!=null?n.vatPct:18)+'" style="margin:0" oninput="_dnDraft.vatPct=parseFloat(this.value)||0;_dnRenderItems()"></div>'
+    +   '<label style="display:flex;align-items:center;gap:5px;font-size:.8rem;color:#334155;padding-bottom:8px;cursor:pointer"><input type="checkbox" id="dn-showprices" '+(n.showPrices?'checked':'')+' onchange="_dnDraft.showPrices=this.checked" style="accent-color:#4338ca">הצג מחירים בהדפסה</label>'
+    +   '<div id="dn-total" style="flex:1;text-align:left;font-weight:900;color:var(--press)"></div>'
+    + '</div>'
+    + '<div style="margin-bottom:12px"><label style="font-size:.72rem;color:#777">הערות</label><input class="fi" id="dn-notes" value="'+_rpEsc(n.notes||'')+'" style="margin:0" oninput="_dnDraft.notes=this.value"></div>'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button onclick="_dnSave(false)" style="flex:1;padding:11px;border:none;border-radius:9px;background:#4338ca;color:#fff;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">💾 שמור</button>'
+    +   '<button onclick="_dnSave(true)" style="flex:1;padding:11px;border:none;border-radius:9px;background:#16a34a;color:#fff;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">🖨️ שמור והדפס</button>'
+    + '</div>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+  _dnRenderItems(); _dnQuoteOptions();
+}
+function _dnRenderItems(){
+  var host=document.getElementById('dn-items'); if(!host) return;
+  var n=window._dnDraft;
+  host.innerHTML=(n.items||[]).map(function(it,i){
+    return '<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'
+      +'<input class="fi" placeholder="תיאור" value="'+_rpEsc(it.desc||'')+'" style="margin:0;flex:3;min-width:0" oninput="_dnDraft.items['+i+'].desc=this.value">'
+      +'<input class="fi" type="number" placeholder="כמות" value="'+(it.qty!==''&&it.qty!=null?it.qty:'')+'" style="margin:0;flex:1;min-width:64px" oninput="_dnDraft.items['+i+'].qty=this.value;_dnTotalLine()">'
+      +'<input class="fi" type="number" step="0.01" placeholder="₪ ליח\'" value="'+(it.price!==''&&it.price!=null?it.price:'')+'" style="margin:0;flex:1;min-width:70px" oninput="_dnDraft.items['+i+'].price=this.value;_dnTotalLine()">'
+      +'<button onclick="_dnDraft.items.splice('+i+',1);_dnRenderItems()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:1rem;flex-shrink:0">🗑</button>'
+      +'</div>';
+  }).join('');
+  _dnTotalLine();
+}
+function _dnTotalLine(){
+  var el=document.getElementById('dn-total'); if(!el) return;
+  var t=_dnTotals(window._dnDraft);
+  el.innerHTML = t.total>0 ? 'סה"כ: ₪'+_rpFmt(t.sub)+' + מע"מ = <span style="color:#0f6347">₪'+_rpFmt(t.total)+'</span>' : '';
+}
+function _dnQuoteOptions(){
+  var sel=document.getElementById('dn-quote'); if(!sel) return;
+  var cn=String((window._dnDraft&&window._dnDraft.customer)||'').trim().toLowerCase();
+  var list=(quotes||[]).filter(function(q){ return q && q.items && q.items.length; });
+  if (cn) list=list.filter(function(q){ var qc=String(q.customer||'').toLowerCase(); return qc.indexOf(cn)>=0||cn.indexOf(qc)>=0; });
+  list=list.sort(function(a,b){ return (b.ts||0)-(a.ts||0); }).slice(0,30);
+  var cur=window._dnDraft&&window._dnDraft.quoteId;
+  sel.innerHTML='<option value="">— ללא —</option>'+list.map(function(q){
+    var tot=(q.items||[]).reduce(function(s,it){ return s+(it.qty||0)*(it.price||0); },0);
+    return '<option value="'+_rpEsc(q.id)+'"'+(String(cur)===String(q.id)?' selected':'')+'>'+_rpEsc((q.docNum||'')+' — '+(q.customer||'')+' — ₪'+_rpFmt(tot))+'</option>';
+  }).join('');
+}
+function _dnPickQuote(qid){
+  var n=window._dnDraft; if(!n) return;
+  n.quoteId=qid||null;
+  if(!qid) return;
+  var q=(quotes||[]).find(function(x){ return String(x.id)===String(qid); });
+  if(!q) return;
+  n.items=(q.items||[]).map(function(it){ return { desc:it.desc||'', qty:it.qty||'', price:it.price||'' }; });
+  if (q.vatPct!=null) { n.vatPct=q.vatPct; var v=document.getElementById('dn-vat'); if(v) v.value=q.vatPct; }
+  if (!n.customer && q.customer) { n.customer=q.customer; var c=document.getElementById('dn-customer'); if(c) c.value=q.customer; }
+  n.showPrices=true; var sp=document.getElementById('dn-showprices'); if(sp) sp.checked=true;
+  _dnRenderItems();
+  showToast('🔗 נטען מהצעה '+(q.docNum||''));
+}
+function _dnSave(andPrint){
+  if (!_dnGuard()) return;
+  var n=window._dnDraft; if(!n) return;
+  if (!String(n.customer||'').trim()) { showToast('⚠️ חסר שם לקוח'); return; }
+  n.items=(n.items||[]).filter(function(it){ return String(it.desc||'').trim() || it.qty || it.price; });
+  if (!n.items.length) { showToast('⚠️ הוסף לפחות פריט אחד'); return; }
+  n.ts=n.ts||Date.now(); n._upd=Date.now();
+  var idx=(deliveryNotes||[]).findIndex(function(x){ return String(x.id)===String(n.id); });
+  if (idx>=0) deliveryNotes[idx]=n; else deliveryNotes.unshift(n);
+  persist();
+  var ed=document.getElementById('dn-editor'); if(ed) ed.remove();
+  if (_rpTab==='dn') _rpRender();
+  showToast('🧾 תעודה '+n.num+' נשמרה');
+  if (andPrint) _dnPrint(n.id);
+}
+function _dnDelete(id){
+  if (!_dnGuard()) return;
+  var n=(deliveryNotes||[]).find(function(x){ return String(x.id)===String(id); });
+  if (!n) return;
+  if (!confirm('למחוק את תעודה '+(n.num||'')+' ('+(n.customer||'')+')?')) return;
+  _markDeleted('deliveryNotes', n.id);
+  deliveryNotes=(deliveryNotes||[]).filter(function(x){ return String(x.id)!==String(id); });
+  persist();
+  if (_rpTab==='dn') _rpRender();
+  showToast('🗑️ התעודה נמחקה');
+}
+function _dnPrint(id){
+  if (!_dnGuard()) return;
+  var n=(deliveryNotes||[]).find(function(x){ return String(x.id)===String(id); });
+  if (!n) return;
+  var t=_dnTotals(n), sp=!!n.showPrices;
+  var rows=(n.items||[]).map(function(it,i){
+    var line=(parseFloat(it.qty)||0)*(parseFloat(it.price)||0);
+    return '<tr><td style="padding:8px 10px;border-bottom:1px solid #ddd;text-align:center">'+(i+1)+'</td>'
+      +'<td style="padding:8px 10px;border-bottom:1px solid #ddd">'+_rpEsc(it.desc||'')+'</td>'
+      +'<td style="padding:8px 10px;border-bottom:1px solid #ddd;text-align:center">'+_rpFmt(parseFloat(it.qty)||0)+'</td>'
+      +(sp?'<td style="padding:8px 10px;border-bottom:1px solid #ddd;text-align:center">'+(it.price?('₪'+it.price):'—')+'</td><td style="padding:8px 10px;border-bottom:1px solid #ddd;text-align:center;font-weight:700">'+(line>0?('₪'+_rpFmt(line)):'—')+'</td>':'')
+      +'</tr>';
+  }).join('');
+  var totals=sp?('<div style="text-align:left;margin-top:10px;font-size:.95rem;line-height:1.9">'
+    +'סה"כ לפני מע"מ: <b>₪'+_rpFmt(t.sub)+'</b><br>מע"מ '+(n.vatPct||0)+'%: <b>₪'+_rpFmt(t.vat)+'</b><br>'
+    +'<span style="font-size:1.15rem;font-weight:900">סה"כ לתשלום: ₪'+_rpFmt(t.total)+'</span></div>'):'';
+  var w=window.open('','_blank');
+  if(!w){ showToast('אפשר חלונות קופצים'); return; }
+  w.document.write('<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"><title>תעודת משלוח '+_rpEsc(n.num)+'</title>'
+    +'<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700;900&display=swap" rel="stylesheet">'
+    +'<style>body{font-family:Heebo,Arial,sans-serif;direction:rtl;color:#111;max-width:720px;margin:0 auto;padding:24px}</style></head><body>'
+    +'<div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:3px solid #111;padding-bottom:10px">'
+    +'<div><div style="font-size:1.5rem;font-weight:900">סולן הדפסות בע"מ</div><div style="font-size:.8rem;color:#555">בית דפוס</div></div>'
+    +'<div style="text-align:left"><div style="font-size:1.2rem;font-weight:900">תעודת משלוח '+_rpEsc(n.num)+'</div><div style="font-size:.85rem;color:#555">תאריך: '+_rpEsc(n.date||'')+'</div></div></div>'
+    +'<div style="margin:16px 0;font-size:1rem;line-height:1.9"><b>לכבוד:</b> '+_rpEsc(n.customer||'')
+    +(n.jobName?'<br><b>עבודה:</b> '+_rpEsc(n.jobName):'')+(n.cardId?' <span style="color:#888;font-size:.8rem">(מס\' עבודה '+_rpEsc(n.cardId)+')</span>':'')+'</div>'
+    +'<table style="width:100%;border-collapse:collapse;margin-top:6px"><thead><tr style="background:#111;color:#fff">'
+    +'<th style="padding:8px 10px;font-size:.8rem">#</th><th style="padding:8px 10px;font-size:.8rem;text-align:right">תיאור</th><th style="padding:8px 10px;font-size:.8rem">כמות</th>'
+    +(sp?'<th style="padding:8px 10px;font-size:.8rem">מחיר ליח\'</th><th style="padding:8px 10px;font-size:.8rem">סה"כ</th>':'')
+    +'</tr></thead><tbody>'+rows+'</tbody></table>'
+    +totals
+    +(n.notes?'<div style="margin-top:14px;font-size:.9rem"><b>הערות:</b> '+_rpEsc(n.notes)+'</div>':'')
+    +'<div style="margin-top:44px;display:flex;justify-content:space-between;font-size:.9rem">'
+    +'<div>נתקבל ע"י: ____________</div><div>חתימה: ____________</div><div>תאריך: ____________</div></div>'
+    +'<div style="border-top:1px solid #ccc;margin-top:36px;padding-top:8px;font-size:.75rem;color:#777;text-align:center">סולן הדפסות בע"מ</div>'
+    +'<script>setTimeout(function(){window.print();},600);<\/script></body></html>');
+  w.document.close();
+}
+function _dnExportCsv(){
+  if (!_dnGuard()) return;
+  var list=_dnForMonth();
+  if (!list.length) { showToast('אין תעודות בחודש זה'); return; }
+  var months=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  var lines=['מס תעודה,תאריך,לקוח,עבודה,תיאור,כמות,מחיר ליחידה,סהכ שורה,מעמ %,אסמכתא הצעה'];
+  list.forEach(function(n){
+    var q=(quotes||[]).find(function(x){ return String(x.id)===String(n.quoteId); });
+    (n.items||[]).forEach(function(it){
+      var line=(parseFloat(it.qty)||0)*(parseFloat(it.price)||0);
+      lines.push([n.num, n.date, '"'+String(n.customer||'').replace(/"/g,'""')+'"', '"'+String(n.jobName||'').replace(/"/g,'""')+'"',
+        '"'+String(it.desc||'').replace(/"/g,'""')+'"', it.qty||0, it.price||0, line.toFixed(2), n.vatPct||0, (q&&q.docNum)||''].join(','));
+    });
+  });
+  var csv='﻿'+lines.join('\r\n');
+  var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='תעודות-משלוח-'+months[_rpMonth.getMonth()]+'-'+_rpMonth.getFullYear()+'.csv'; a.click();
+  showToast('📥 יוצא להנהלת חשבונות');
 }
 </script>
 
