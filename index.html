@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783242728';
+window.APP_VERSION = '1783243292';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -9819,7 +9819,7 @@ function renderWorkList() {
       var hasMultiRuns  = c.runs && c.runs.length > 1;
       var isWeekly = _isWeeklySourceCard(c);
       var cIdSq = sq(c.id);
-      var _doneRuns = hasMultiRuns ? c.runs.filter(function(r){ return r.done; }).length : 0;   // ריצות שהושלמו
+      var _doneRuns = hasMultiRuns ? c.runs.filter(function(r, _ri){ return _runIsDone(c.id, _ri); }).length : 0;   // ריצות שהושלמו
 
       poolHtml += '<div style="border:1.5px solid #e5e7eb;border-radius:8px;margin-bottom:7px;background:white;overflow:hidden">';
       var cardDimmed = wholeInQueue ? 'opacity:.45;' : '';
@@ -9853,7 +9853,7 @@ function renderWorkList() {
       if (hasMultiRuns) {
         c.runs.forEach(function(r, ri) {
           var runInQueue = activeEntries.some(function(e){ return e.runIdx === ri; });
-          var runDone = !!r.done;   // ריצה שסומנה הודפסה
+          var runDone = _runIsDone(c.id, ri);   // ריצה שסומנה הודפסה (נגזר מהתור/דגלים)
           var runLabel = r.label || ('ריצה ' + (r.num || (ri+1)));
           var _rowSty = runDone ? 'background:#f0fdf4">' : (runInQueue ? 'opacity:.4">' : 'cursor:grab" draggable="true" ondragstart="_queueDragStart(event,' + cIdSq + ',' + ri + ')">');
           poolHtml += '<div style="padding:4px 9px 4px 20px;border-top:1px solid #f3f4f6;display:flex;align-items:center;gap:4px;flex-wrap:wrap;' + _rowSty
@@ -10412,6 +10412,20 @@ function _isWeeklySourceCard(card) {
 
 function _queueEntriesForCard(cardId) {
   return (machineQueue||[]).filter(function(e){ return String(e.cardId) === String(cardId); });
+}
+
+// האם ריצה מסוימת (או כרטיס חד-ריצה כאשר runIdx<0) כבר הודפסה. נגזר ממקור האמת המשותף
+// (תור המכונות) + דגלי הכרטיס — כך שגם סימון של המפעיל או של מכשיר אחר יופיע מיד בכל מקום
+// (רשימת עבודות, דאשבורד). זה מתקן מצב שבו הסימון נשמר רק על רשומת התור ולא על card.runs[].done.
+function _runIsDone(cardId, runIdx) {
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  if (c && c._wlDone) return true;                                                 // סומן ידנית "הושלם"
+  if (c && (runIdx == null || runIdx < 0) && c.status === 'done') return true;     // כרטיס חד-ריצה שהושלם
+  if (c && c.runs && runIdx >= 0 && c.runs[runIdx] && c.runs[runIdx].done) return true;  // סומן על הריצה עצמה
+  return (machineQueue||[]).some(function(e){
+    return String(e.cardId) === String(cardId) && e.done &&
+           ((runIdx == null || runIdx < 0) ? true : e.runIdx === runIdx);
+  });
 }
 
 var _queueLocked = {};  // { machine: true/false }
@@ -11333,7 +11347,7 @@ function duplicateCard(id) {
   cards.unshift(copy);
   if (typeof _autoQueueAssignedRuns === 'function') _autoQueueAssignedRuns(copy); // ריצות עם מכונה → לתור; אחרת זמין
   persist();
-  _logActivity && _logActivity('📑', 'כרטיס "' + (copy.name||'') + '" שוכפל');
+  _logActivity && _logActivity('📑', 'כרטיס "' + (copy.name||'') + '" שוכפל', copy.id);
   closePrintModal();
   switchTab('saved');
   if (typeof renderCards === 'function') renderCards();
@@ -11382,7 +11396,7 @@ function setStatus(id,s) {
     persist();renderCards();
     var lbl = s==='pending' ? 'הועברה לממתין' : s==='inprogress' ? 'עברה להדפסה' : 'הושלמה';
     var ic  = s==='pending' ? '⏳' : s==='inprogress' ? '🖨️' : '✅';
-    _logActivity(ic, 'עבודה "'+(c.name||'')+'" '+lbl);
+    _logActivity(ic, 'עבודה "'+(c.name||'')+'" '+lbl, c.id);
     showToast(ic+' "'+(c.name||'')+'" '+lbl);
     if (typeof renderDashboard === 'function' && document.getElementById('view-dashboard') && document.getElementById('view-dashboard').style.display !== 'none') renderDashboard();
   }
@@ -15020,6 +15034,23 @@ async function _fbPollAll() {
         if (typeof _notifRenderBadge === 'function') _notifRenderBadge();
       }
     } catch(e){}
+    // tombstones של מחיקת התראות (מנהל) — איחוד כדי שמחיקה תחול בכל המכשירים
+    try {
+      var adv = await _pollGet('activityDeleted');
+      if (adv !== null) {
+        var _incDel = Array.isArray(adv) ? adv : (typeof adv === 'object' ? Object.values(adv) : []);
+        var _delBefore = _actDeletedIds.length;
+        _incDel.forEach(function(idv){ idv = String(idv); if (_actDeletedIds.indexOf(idv) < 0) _actDeletedIds.push(idv); });
+        if (_actDeletedIds.length !== _delBefore) {
+          _actDeletedIds = _actDeletedIds.slice(0, 400);
+          localStorage.setItem('solanActDeletedIds', JSON.stringify(_actDeletedIds));
+          dashActivity = _actMergeById([], dashActivity);   // סנן החוצה רשומות שנמחקו
+          localStorage.setItem('solanDashActivity', JSON.stringify(dashActivity));
+          if (typeof renderActivityFeed === 'function') renderActivityFeed();
+          if (typeof _notifRenderBadge === 'function') _notifRenderBadge();
+        }
+      }
+    } catch(e){}
     // משתמשים
     var uv = await _pollGet('solanUsers');
     if (uv !== null) {
@@ -15371,14 +15402,39 @@ document.addEventListener('keydown', function(e) {
 var dashActivity   = JSON.parse(localStorage.getItem('solanDashActivity') || '[]');
 var _dashTheme      = localStorage.getItem('solanDashTheme') || 'light';
 var _dashTickTimer  = null;
+// מזהי רשומות פעילות שנמחקו ע"י מנהל (tombstone) — כדי שהמחיקה לא "תקום לתחייה"
+// במיזוג עם מכשירים אחרים. מסונכרן דרך צומת Firebase activityDeleted.
+var _actDeletedIds = JSON.parse(localStorage.getItem('solanActDeletedIds') || '[]');
+function _actIsDeleted(id){ return id != null && _actDeletedIds.indexOf(String(id)) >= 0; }
 
 // יומן פעילות משותף: כל פעולה נרשמת עם משתמש+תאריך+שעה, מסונכרנת ל-Firebase
 // במיזוג לפי מזהה (לא דריסה) — כך כל המכשירים רואים מי עשה מה.
 function _actMergeById(a, b) {
   var byId = {};
-  (a||[]).concat(b||[]).forEach(function(e){ if (e) byId[e.id || (e.t + '_' + (e.text||''))] = e; });
+  (a||[]).concat(b||[]).forEach(function(e){
+    if (!e) return;
+    var k = e.id || (e.t + '_' + (e.text||''));
+    if (_actIsDeleted(k)) return;   // דלג על רשומות שנמחקו ע"י מנהל
+    byId[k] = e;
+  });
   return Object.keys(byId).map(function(k){ return byId[k]; })
     .sort(function(x,y){ return (y.t||0) - (x.t||0); }).slice(0, 100);
+}
+// מחיקת רשומת פעילות (מנהלים בלבד) — מוסיפה tombstone, מסירה מהיומן, ומסנכרנת לכל המכשירים.
+function _notifDeleteEntry(id, ev){
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  if (!(currentUser && currentUser.isAdmin)) { showToast('🔒 מחיקת התראות למנהלים בלבד'); return; }
+  id = String(id);
+  if (_actDeletedIds.indexOf(id) < 0) _actDeletedIds.unshift(id);
+  _actDeletedIds = _actDeletedIds.slice(0, 400);   // תקרה — הרשומות עצמן ממילא נושרות אחרי 100
+  localStorage.setItem('solanActDeletedIds', JSON.stringify(_actDeletedIds));
+  dashActivity = (dashActivity||[]).filter(function(a){ return a && String(a.id || (a.t+'_'+(a.text||''))) !== id; });
+  localStorage.setItem('solanDashActivity', JSON.stringify(dashActivity));
+  if (window._fbPut) { window._fbPut('activityDeleted', _actDeletedIds); window._fbPut('activityLog', dashActivity); }
+  if (typeof renderActivityFeed === 'function') renderActivityFeed();
+  if (typeof _notifRenderBadge === 'function') _notifRenderBadge();
+  var p = document.getElementById('notif-panel'); if (p) { p.remove(); _notifToggle(); }   // רענן פאנל פתוח
+  showToast('🗑️ ההתראה נמחקה');
 }
 function _logActivity(icon, text, cardId) {
   // עבודות של לקוח "גרפיק" — פעולה שקטה: לא נרשמת ביומן/התראות ולא נראית בשום מקום
@@ -15650,7 +15706,7 @@ function renderDashTodayWeekly() {
   // בורר מכונה לריצה בודדת (או לכרטיס שלם כשאין ריצות) + מצב תור / כפתור שליחה
   function _runMachineSelect(cardId, runIdx, curMachine, label) {
     var _c = (cards||[]).find(function(x){ return String(x.id)===String(cardId); });
-    var runDone = _c && (runIdx>=0 ? !!(_c.runs && _c.runs[runIdx] && _c.runs[runIdx].done) : (_c.status==='done'));
+    var runDone = _runIsDone(cardId, runIdx);
     var inQueue = (machineQueue||[]).some(function(e){ return String(e.cardId)===String(cardId) && e.runIdx===runIdx && !e.done; });
     var statusHtml = '';
     if (runDone) {
@@ -15992,18 +16048,24 @@ function _notifToggle(){
   p.id = 'notif-panel';
   p.style.cssText = 'position:fixed;top:calc(var(--hdr-h,60px) + 6px);left:10px;z-index:100003;width:min(360px, calc(100vw - 20px));'
     + 'background:#fff;border:1.5px solid #d1d5db;border-radius:14px;box-shadow:0 14px 44px rgba(0,0,0,.28);direction:rtl;overflow:hidden;font-family:Heebo,sans-serif';
+  var _isAdmin = currentUser && currentUser.isAdmin;
   var rows = (dashActivity||[]).slice(0, 50).map(function(a){
     var d = new Date(a.t);
     var when = d.toLocaleDateString('he-IL', { day:'2-digit', month:'2-digit' }) + ' · ' + d.toLocaleTimeString('he-IL', { hour:'2-digit', minute:'2-digit' });
+    var _aid = a.id || (a.t + '_' + (a.text||''));
     // כרטיס קיים ולא-מחוק → השורה לחיצה ומובילה אליו
     var clickable = a.cardId != null && (cards||[]).some(function(c){ return c && String(c.id) === String(a.cardId) && c.status !== 'trash'; });
     var click = clickable ? ' onclick="_notifOpenCard(\'' + String(a.cardId).replace(/'/g,"\\'") + '\')" style="cursor:pointer"' : '';
+    // מנהל בלבד: כפתור מחיקת הרשומה (עוצר את מעבר-הלחיצה לכרטיס)
+    var delBtn = _isAdmin ? '<button onclick="_notifDeleteEntry(\'' + String(_aid).replace(/'/g,"\\'") + '\', event)" title="מחק רשומה"'
+      + ' style="background:none;border:none;color:#cbd5e1;cursor:pointer;font-size:1.05rem;line-height:1;flex-shrink:0;padding:0 2px"'
+      + ' onmouseover="this.style.color=\'#ef4444\'" onmouseout="this.style.color=\'#cbd5e1\'">×</button>' : '';
     return '<div class="notif-row"' + click + ' style="display:flex;gap:9px;padding:9px 14px;border-bottom:1px solid #f1f5f9;align-items:flex-start' + (clickable ? ';cursor:pointer' : '') + '">'
       + '<span style="font-size:1rem;flex-shrink:0">' + (a.icon||'•') + '</span>'
       + '<div style="min-width:0;flex:1">'
       +   '<div style="font-size:.85rem;font-weight:700;color:#111;line-height:1.45">' + escHtml(a.text||'') + (clickable ? ' <span style="font-size:.7rem;color:#2563eb">↗ פתח</span>' : '') + '</div>'
       +   '<div style="font-size:.72rem;color:#6b7280;margin-top:2px">' + (a.user ? '👤 ' + escHtml(a.user) + ' · ' : '') + when + '</div>'
-      + '</div></div>';
+      + '</div>' + delBtn + '</div>';
   }).join('');
   p.innerHTML = '<div style="background:var(--press);color:#fff;padding:11px 16px;display:flex;justify-content:space-between;align-items:center">'
     + '<span style="font-weight:900;font-size:.95rem">🔔 התראות — פעילות משתמשים</span>'
@@ -16648,7 +16710,7 @@ function _operatorMarkDone(qid) {
     e.doneBy = _machineViewOpName;
     e.doneByName = _machineViewOpName;
   });
-  try { _logActivity('🖨️', 'עבודה "' + ((_c0 && _c0.name)||'') + '" סומנה הודפסה (' + (_machineViewMachine||'') + ')'); } catch(e){}
+  try { _logActivity('🖨️', 'עבודה "' + ((_c0 && _c0.name)||'') + '" סומנה הודפסה (' + (_machineViewMachine||'') + ')', (_c0 && _c0.id)); } catch(e){}
 }
 
 function _opSpinStyle() {
