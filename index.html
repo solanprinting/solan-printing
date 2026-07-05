@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783235154';
+window.APP_VERSION = '1783238469';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1090,15 +1090,53 @@ try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn
 <script>
 // ── Firebase REST API (ללא SDK) ──────────────────────────────
 const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+
+// ── הזדהות אנונימית (מנעול אבטחה) — כל בקשה נושאת אסימון ──────────────
+// מפתח Web ציבורי (לא סוד). כשחוקי הגישה ייסגרו ל-"auth != null", רק בקשות
+// עם אסימון תקין יתקבלו. עד אז — האסימון "מצטרף" ולא מזיק (חוקים פתוחים מתעלמים).
+const _FB_APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+window._fbAuthTok = { token: null, exp: 0 };
+window._fbAuthP = null;
+window._fbAuthToken = function(){
+  var A = window._fbAuthTok;
+  if (A.token && Date.now() < A.exp - 120000) return Promise.resolve(A.token);   // מטמון בתוקף
+  if (window._fbAuthP) return window._fbAuthP;
+  window._fbAuthP = (function(){
+    var rt = null; try { rt = localStorage.getItem('solanFbAnonRT'); } catch(e){}
+    var step = rt
+      ? fetch('https://securetoken.googleapis.com/v1/token?key=' + _FB_APIKEY, {
+          method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+          body:'grant_type=refresh_token&refresh_token=' + encodeURIComponent(rt)
+        }).then(function(r){ return r.ok ? r.json() : Promise.reject(); })
+          .then(function(j){ return { token:j.id_token, rt:j.refresh_token, exp:Date.now()+(parseInt(j.expires_in)||3600)*1000 }; })
+      : Promise.reject();
+    return step.catch(function(){   // אין refresh או שנכשל — הזדהות אנונימית חדשה
+      return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + _FB_APIKEY, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ returnSecureToken:true })
+      }).then(function(r){ return r.ok ? r.json() : Promise.reject(); })
+        .then(function(j){ return { token:j.idToken, rt:j.refreshToken, exp:Date.now()+(parseInt(j.expiresIn)||3600)*1000 }; });
+    }).then(function(a){
+      window._fbAuthTok = { token:a.token, exp:a.exp };
+      try { localStorage.setItem('solanFbAnonRT', a.rt); } catch(e){}
+      window._fbAuthP = null;
+      return a.token;
+    }).catch(function(){ window._fbAuthP = null; return null; });   // כשל — בלי אסימון (עובד על חוקים פתוחים)
+  })();
+  return window._fbAuthP;
+};
+try { window._fbAuthToken(); } catch(e){}   // חימום מוקדם — משיג אסימון מיד עם הטעינה
+
 window._fbGet = async path => {
   try {
-    const r = await fetch(_FBURL + '/' + path + '.json');
+    var t = await window._fbAuthToken();
+    const r = await fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''));
     return r.ok ? r.json() : null;
   } catch(e) { return null; }
 };
 window._fbPut = async (path, data) => {
   try {
-    await fetch(_FBURL + '/' + path + '.json', {
+    var t = await window._fbAuthToken();
+    await fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(data)
@@ -5879,7 +5917,11 @@ function _uploadProofOnce(path, file, onProgress, onXhr) {
       xhr.onerror = function(){ fin(reject, new Error('network')); };
       xhr.ontimeout = function(){ fin(reject, new Error('timeout')); };
       xhr.onabort = function(){ fin(reject, new Error('aborted')); };   // ביטול יזום ע"י המשתמש
-      xhr.send(file);
+      // אסימון הזדהות (כשחוקי ה-Storage ייסגרו) ואז שליחה
+      (window._fbAuthToken ? window._fbAuthToken() : Promise.resolve(null)).then(function(t){
+        try { if (t) xhr.setRequestHeader('Authorization', 'Firebase ' + t); } catch(e){}
+        xhr.send(file);
+      });
     } catch(e) { reject(e); }
   });
 }
@@ -5893,7 +5935,12 @@ function _uploadProofToStorage(path, file, onProgress, onXhr) {
 }
 function _deleteProofStorage(spath) {
   if (!spath) return;
-  try { fetch('https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o/' + encodeURIComponent(spath), { method: 'DELETE' }).catch(function(){}); } catch(e){}
+  try {
+    (window._fbAuthToken ? window._fbAuthToken() : Promise.resolve(null)).then(function(t){
+      fetch('https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o/' + encodeURIComponent(spath),
+        { method: 'DELETE', headers: t ? { 'Authorization': 'Firebase ' + t } : {} }).catch(function(){});
+    });
+  } catch(e){}
 }
 // רינדור עמודי PDF לתמונות JPEG איכותיות ושמירתן כ-JSON ב-Storage — לפתיחה מהירה במסך הדפס.
 // הצבעים זהים למה שהדפדפן מציג ב-PDF (אותו מנוע רינדור), איכות 0.92. best-effort.
@@ -14368,10 +14415,11 @@ function importCustomersFromExcel(input) {
 }
 
 // ========== FIREBASE LISTENERS ==========
-function connectFirebase() {
+async function connectFirebase() {
   // בדיקת חיבור — fetch root עם shallow=true: מחזיר רק את שמות המפתחות (כמה בייטים),
   // במקום להוריד את כל מסד הנתונים (כולל קבצים כבדים) רק כדי לבדוק חיבור.
-  fetch('https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app/.json?shallow=true')
+  var _at = await (window._fbAuthToken ? window._fbAuthToken() : Promise.resolve(null));
+  fetch('https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app/.json?shallow=true' + (_at ? '&auth=' + _at : ''))
     .then(r => {
       if (r.ok) {
         _fbConnected = true;
@@ -16045,21 +16093,24 @@ async function _opDeleteProof(id, part) {
   var label = part ? (base + ' — ' + (((p.parts||{})[part]||{}).name || 'ריצה')) : base;
   if (!confirm('למחוק לצמיתות את "' + label + '"?\nהקובץ יימחק ולא ניתן יהיה לשחזר.')) return;
   var BUCKET = 'solan-printing.firebasestorage.app';
+  var _at = await (window._fbAuthToken ? window._fbAuthToken() : Promise.resolve(null));
+  var _authQ = _at ? ('?auth=' + _at) : '';
+  var _authH = _at ? { 'Authorization': 'Firebase ' + _at } : {};
   var delStorage = function(pth){
     if (!pth) return Promise.resolve();
-    return fetch('https://firebasestorage.googleapis.com/v0/b/' + BUCKET + '/o/' + encodeURIComponent(pth), { method: 'DELETE' }).catch(function(){});
+    return fetch('https://firebasestorage.googleapis.com/v0/b/' + BUCKET + '/o/' + encodeURIComponent(pth), { method: 'DELETE', headers: _authH }).catch(function(){});
   };
   try {
     if (part) {
       await delStorage(((p.parts||{})[part]||{}).filePath);
-      await fetch(_FBURL + '/customerProofs/' + id + '/parts/' + part + '.json', { method: 'DELETE' });
+      await fetch(_FBURL + '/customerProofs/' + id + '/parts/' + part + '.json' + _authQ, { method: 'DELETE' });
       if (all[id] && all[id].parts) delete all[id].parts[part];
     } else {
       var paths = [];
       if (p.filePath) paths.push(p.filePath);
       if (p.parts) Object.keys(p.parts).forEach(function(k){ if (p.parts[k] && p.parts[k].filePath) paths.push(p.parts[k].filePath); });
       for (var i = 0; i < paths.length; i++) await delStorage(paths[i]);
-      await fetch(_FBURL + '/customerProofs/' + id + '.json', { method: 'DELETE' });
+      await fetch(_FBURL + '/customerProofs/' + id + '.json' + _authQ, { method: 'DELETE' });
       delete all[id];
     }
   } catch(e) {}
@@ -17547,7 +17598,8 @@ function openImpositionTool(){
   function poll(){
     // במסך הדפסים — אין התראות/חלוניות; העבודה המאושרת מופיעה שם בשקט מרשימת הפרופרים
     if (window._isMachineView) return;
-    fetch(FB + '/customerProofs.json?t=' + Date.now(), { cache:'no-store' })
+    (window._fbAuthToken ? window._fbAuthToken() : Promise.resolve(null)).then(function(_at){
+    fetch(FB + '/customerProofs.json?t=' + Date.now() + (_at ? '&auth=' + _at : ''), { cache:'no-store' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(data){
         if (!data) return;
@@ -17572,6 +17624,7 @@ function openImpositionTool(){
         } catch(e){}
       })
       .catch(function(){});
+    });
   }
 
   setTimeout(poll, 4000);
