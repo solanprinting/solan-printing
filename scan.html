@@ -19,6 +19,7 @@
        background:#c9a84c;color:#1a1a4e;font-family:'Heebo',sans-serif;font-size:1rem;font-weight:900;cursor:pointer}
   .btn.alt{background:rgba(255,255,255,.14);color:#fff;font-weight:700}
   .err{color:#fca5a5;font-weight:700;margin-top:10px;line-height:1.6}
+  .wait{font-size:.92rem;line-height:1.8;color:rgba(255,255,255,.85)}
 </style>
 </head>
 <body>
@@ -30,9 +31,12 @@
 <script>
 // דף סריקת QR מכרטיס עבודה מודפס: ?c=<מזהה כרטיס> [&r=<ריצה>]
 // מאתר את הפרופר העדכני של הכרטיס ופותח אותו כחוברת מקופלת בדפדוף (בכלי הקיפול),
-// או ישירות (אם ידוע שהקובץ אינו גיליון פרוס). הפניה לפי מזהה — תמיד הפרופר העדכני.
+// או ישירות (אם ידוע שהקובץ אינו גיליון פרוס). ההפניה לפי מזהה — תמיד הפרופר העדכני.
+// אם עדיין אין קבצים: הדף ממתין ומתעדכן אוטומטית ברגע שמצורף פרופר (מעקב דרך
+// _rev/cards הזעיר — כמעט אפס תעבורה בזמן ההמתנה).
 var _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
 var _FB_APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+var TOKEN = null;
 
 function _tok(){
   var rt = null; try { rt = localStorage.getItem('solanFbAnonRT'); } catch(e){}
@@ -50,6 +54,16 @@ function _tok(){
       .then(function(j){ return { t:j.idToken, rt:j.refreshToken }; });
   }).then(function(a){ try { localStorage.setItem('solanFbAnonRT', a.rt); } catch(e){} return a.t; })
     .catch(function(){ return null; });
+}
+function fetchCards(){
+  return fetch(_FBURL + '/cards.json' + (TOKEN ? '?auth=' + TOKEN : '')).then(function(r){
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  });
+}
+function fetchCardsRev(){
+  return fetch(_FBURL + '/_rev/cards.json' + (TOKEN ? '?auth=' + TOKEN : ''))
+    .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
 }
 
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -92,18 +106,11 @@ var qs = new URLSearchParams(location.search);
 var cid = qs.get('c'), rk = qs.get('r');
 var sub = document.getElementById('sub'), body = document.getElementById('body');
 
-if (!cid) { sub.textContent = ''; body.innerHTML = '<div class="err">חסר מזהה כרטיס בקישור.</div>'; }
-else _tok().then(function(t){
-  return fetch(_FBURL + '/cards.json' + (t ? '?auth=' + t : '')).then(function(r){
-    if (!r.ok) throw new Error('http ' + r.status);
-    return r.json();
-  });
-}).then(function(v){
+function findCard(v){
   var cards = Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
-  var card = cards.find(function(x){ return x && String(x.id) === String(cid); });
-  if (!card) { sub.textContent = ''; body.innerHTML = '<div class="err">הכרטיס לא נמצא — ייתכן שהעבודה הושלמה ועברה לארכיון.</div>'; return; }
-  sub.textContent = card.name || '';
-  // אסוף את כל הפרופרים של הכרטיס
+  return cards.find(function(x){ return x && String(x.id) === String(cid); });
+}
+function collectProofs(card){
   var entries = [];
   if (card.runProofs) Object.keys(card.runProofs).sort().forEach(function(k){
     var rp = card.runProofs[k];
@@ -111,21 +118,55 @@ else _tok().then(function(t){
   });
   if (card.proofUrl) entries.push({ key:null, name:card.proofName||'פרופר', url:card.proofUrl, check:card.proofCheck||null });
   if (rk) entries = entries.filter(function(e){ return String(e.key) === String(rk); });
-  if (!entries.length) { body.innerHTML = '<div class="err">אין עדיין פרופר מצורף לעבודה זו.<br>לאחר שיצורף — סריקה חוזרת תציג אותו.</div>'; return; }
+  return entries;
+}
+function proceed(card, entries){
   if (entries.length === 1) {
     body.innerHTML = '<div class="spin"></div><div style="font-size:.85rem;color:rgba(255,255,255,.65)">פותח את החוברת…</div>';
     location.replace(_target(card, entries[0]));
     return;
   }
-  // כמה ריצות — בחירה
   body.innerHTML = '<div style="font-size:.9rem;margin-bottom:4px">לעבודה זו כמה פרופרים — בחר ריצה:</div>'
     + entries.map(function(e,i){
         return '<button class="btn' + (i>0?' alt':'') + '" data-i="' + i + '">📖 ' + esc(e.key||'פרופר') + ' — ' + esc(e.name) + '</button>';
       }).join('');
-  window._entries = entries; window._card = card;
   body.querySelectorAll('button').forEach(function(b){
-    b.onclick = function(){ location.href = _target(window._card, window._entries[parseInt(b.dataset.i,10)]); };
+    b.onclick = function(){ location.href = _target(card, entries[parseInt(b.dataset.i,10)]); };
   });
+}
+// אין עדיין קבצים: המתן והתעדכן אוטומטית. עוקבים אחרי _rev/cards הזעיר (כמה בייטים)
+// כל 15ש'; רק כשהוא משתנה מורידים את הכרטיסים מחדש. ברגע שמופיע פרופר — ממשיכים.
+function waitForFiles(){
+  body.innerHTML = '<div class="spin"></div>'
+    + '<div class="wait">⏳ עדיין לא צורפו קבצים לעבודה זו.<br>'
+    + 'ברגע שיצורף פרופר — החוברת תיפתח כאן אוטומטית.<br>'
+    + '<span style="font-size:.75rem;color:rgba(255,255,255,.55)">אפשר להשאיר את המסך פתוח או לסרוק שוב מאוחר יותר.</span></div>'
+    + '<button class="btn alt" id="chk-now">🔄 בדוק עכשיו</button>';
+  var lastRev, ticks = 0, iv;
+  function check(force){
+    fetchCardsRev().then(function(rv){
+      if (!force && lastRev !== undefined && rv === lastRev) return;   // אין שינוי — בלי הורדה
+      lastRev = rv;
+      fetchCards().then(function(v){
+        var c = findCard(v); if (!c) return;
+        var es = collectProofs(c);
+        if (es.length) { if (iv) clearInterval(iv); proceed(c, es); }
+      }).catch(function(){});
+    });
+  }
+  iv = setInterval(function(){ if (++ticks > 120) { clearInterval(iv); return; } check(false); }, 15000);   // עד 30 דק'
+  document.getElementById('chk-now').onclick = function(){ check(true); };
+  check(false);   // קיבוע נקודת פתיחה
+}
+
+if (!cid) { sub.textContent = ''; body.innerHTML = '<div class="err">חסר מזהה כרטיס בקישור.</div>'; }
+else _tok().then(function(t){ TOKEN = t; return fetchCards(); }).then(function(v){
+  var card = findCard(v);
+  if (!card) { sub.textContent = ''; body.innerHTML = '<div class="err">הכרטיס לא נמצא — ייתכן שהעבודה הושלמה ועברה לארכיון.</div>'; return; }
+  sub.textContent = card.name || '';
+  var entries = collectProofs(card);
+  if (!entries.length) { waitForFiles(); return; }
+  proceed(card, entries);
 }).catch(function(e){
   sub.textContent = '';
   body.innerHTML = '<div class="err">שגיאה בטעינה — בדוק חיבור לאינטרנט ונסה שוב.</div>';
