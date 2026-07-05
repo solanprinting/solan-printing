@@ -81,6 +81,31 @@
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+// ── הזדהות אנונימית מול Firebase (מנעול אבטחה) ──
+const _FB_APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+let _fbTok = null, _fbTokExp = 0, _fbTokP = null;
+async function _fbAuthToken(){
+  if (_fbTok && Date.now() < _fbTokExp - 120000) return _fbTok;
+  if (_fbTokP) return _fbTokP;
+  _fbTokP = (async function(){
+    try {
+      let j = null, rt = null; try { rt = localStorage.getItem('solanFbAnonRT'); } catch(e){}
+      if (rt) {
+        const r = await fetch('https://securetoken.googleapis.com/v1/token?key='+_FB_APIKEY, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'grant_type=refresh_token&refresh_token='+encodeURIComponent(rt) });
+        if (r.ok) { const d = await r.json(); j = { token:d.id_token, rt:d.refresh_token, exp:Date.now()+(parseInt(d.expires_in)||3600)*1000 }; }
+      }
+      if (!j) {
+        const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_FB_APIKEY, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({returnSecureToken:true}) });
+        if (r.ok) { const d = await r.json(); j = { token:d.idToken, rt:d.refreshToken, exp:Date.now()+(parseInt(d.expiresIn)||3600)*1000 }; }
+      }
+      if (j) { _fbTok = j.token; _fbTokExp = j.exp; try { localStorage.setItem('solanFbAnonRT', j.rt); } catch(e){} _fbTokP = null; return _fbTok; }
+    } catch(e){}
+    _fbTokP = null; return null;
+  })();
+  return _fbTokP;
+}
+async function _au(url){ const t = await _fbAuthToken(); return t ? url + (url.indexOf('?')>=0?'&':'?') + 'auth=' + t : url; }
+_fbAuthToken();
 const RENDER_H = 1100;
 
 const $ = id => document.getElementById(id);
@@ -100,7 +125,7 @@ let imgs = [], vIndex = 0;
 (async function init(){
   if (!proofId) return fail('לא נמצא מזהה בכתובת.');
   let rec;
-  try { rec = await (await fetch(`${_FBURL}/customerProofs/${proofId}.json`)).json(); }
+  try { rec = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json(); }
   catch(e){ return fail('שגיאה בטעינה.'); }
   if (!rec) return fail('העיתון לא נמצא או הוסר.');
   $('sub').textContent = [rec.customer, rec.title].filter(Boolean).join(' · ') || 'סולן הדפסות';
