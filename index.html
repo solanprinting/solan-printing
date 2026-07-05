@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783253790';
+window.APP_VERSION = '1783254806';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15249,10 +15249,24 @@ async function _fbPollAll() {
       var alv = await _pollGet('activityLog');
       if (alv !== null) {
         var _incAct = Array.isArray(alv) ? alv : (typeof alv === 'object' ? Object.values(alv) : []);
+        var _beforeIds = {}; (dashActivity||[]).forEach(function(a){ if(a && a.id!=null) _beforeIds[a.id]=1; });
         dashActivity = _actMergeById(_incAct, dashActivity);
         localStorage.setItem('solanDashActivity', JSON.stringify(dashActivity));
         if (typeof renderActivityFeed === 'function') renderActivityFeed();
         if (typeof _notifRenderBadge === 'function') _notifRenderBadge();
+        // פופ (toast) על פעילות חדשה שהגיעה ממכשיר/משתמש אחר — לא על טעינת היסטוריה ולא על פעולות שלי
+        try {
+          var _mine = (typeof _myActName==='function') ? _myActName() : null;
+          var _cut = Date.now() - 5*60*1000;
+          var _fresh = (dashActivity||[]).filter(function(a){ return a && a.id!=null && !_beforeIds[a.id] && a.t > _cut && (a.user||'') !== _mine; });
+          if (_fresh.length && !window._notifFirstPollDone) { /* דלג על הסבב הראשון אחרי טעינה */ }
+          else if (_fresh.length && typeof showToast==='function'){
+            _fresh.sort(function(x,y){ return (y.t||0)-(x.t||0); });
+            var _f0=_fresh[0];
+            showToast((_f0.icon||'🔔')+' '+(_f0.text||'')+(_f0.user?' — '+_f0.user:'')+(_fresh.length>1?'  (+'+(_fresh.length-1)+')':''));
+          }
+          window._notifFirstPollDone = true;
+        } catch(e){}
       }
     } catch(e){}
     // tombstones של מחיקת התראות (מנהל) — איחוד כדי שמחיקה תחול בכל המכשירים
@@ -15689,6 +15703,14 @@ function _notifDeleteEntry(id, ev){
   if (typeof _notifRenderBadge === 'function') _notifRenderBadge();
   var p = document.getElementById('notif-panel'); if (p) { p.remove(); _notifToggle(); }   // רענן פאנל פתוח
   showToast('🗑️ ההתראה נמחקה');
+}
+// שם המשתמש/מכונה הנוכחי כפי שנרשם ביומן — כדי לא "לפופ" התראה על הפעולות שלי עצמי.
+function _myActName(){
+  try {
+    if (typeof currentUser !== 'undefined' && currentUser) return currentUser.name || (typeof _userName==='function' ? _userName(currentUser.id) : currentUser.id);
+    if (typeof _machineViewMachine !== 'undefined' && _machineViewMachine) return 'דפס' + (typeof _machineViewOpName!=='undefined' && _machineViewOpName && _machineViewOpName!=='מפעיל' ? ' ' + _machineViewOpName : '');
+  } catch(e){}
+  return null;
 }
 function _logActivity(icon, text, cardId) {
   // עבודות של לקוח "גרפיק" — פעולה שקטה: לא נרשמת ביומן/התראות ולא נראית בשום מקום
@@ -16965,6 +16987,22 @@ function _operatorMarkDone(qid) {
     e.doneByName = _machineViewOpName;
   });
   try { _logActivity('🖨️', 'עבודה "' + ((_c0 && _c0.name)||'') + '" סומנה הודפסה (' + (_machineViewMachine||'') + ')', (_c0 && _c0.id)); } catch(e){}
+  // אם זו הריצה האחרונה — כל הריצות של העבודה הודפסו — רשום גם "הושלמה" (מופיע בהתראות)
+  try {
+    if (_c0) {
+      var _runsA = (_c0.runs && _c0.runs.length) ? _c0.runs : null, _allDone;
+      if (_runsA) {
+        var _anyM = _runsA.some(function(r){ return r && r.machine; });
+        _allDone = _anyM && _runsA.every(function(r, ri){
+          if (!r || !r.machine) return true;
+          return (machineQueue||[]).some(function(x){ return String(x.cardId)===String(_c0.id) && x.runIdx===ri && x.done; });
+        });
+      } else {
+        _allDone = (machineQueue||[]).some(function(x){ return String(x.cardId)===String(_c0.id) && x.done; });
+      }
+      if (_allDone) _logActivity('✅', 'עבודה "' + (_c0.name||'') + '" הושלמה', _c0.id);
+    }
+  } catch(e){}
 }
 
 function _opSpinStyle() {
@@ -18063,9 +18101,15 @@ function openImpositionTool(){
           <input class="fi" id="cc-slots" type="number" min="1" value="8" oninput="_ccSave();_ccCalc()" style="margin:0">
         </div>
       </div>
-      <div style="font-weight:800;color:var(--press);margin-bottom:6px;font-size:.9rem">סוגי פלייסמנט (יוצאים יחד על אותו גיליון)</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
+        <span style="font-weight:800;color:var(--press);font-size:.9rem">סוגי פלייסמנט (יוצאים יחד על אותו גיליון)</span>
+        <button onclick="_ccClear()" title="נקה והתחל חישוב חדש" style="font-size:.76rem;padding:4px 12px;border:1.5px solid #fecaca;border-radius:7px;background:#fef2f2;color:#b91c1c;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer;white-space:nowrap">🗑️ נקה</button>
+      </div>
       <div id="cc-types"></div>
-      <button onclick="_ccAddType()" style="margin-top:4px;font-size:.82rem;padding:6px 14px;border:1.5px dashed #a5b4fc;border-radius:8px;background:#f5f7ff;color:#4338ca;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">+ הוסף סוג</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+        <button onclick="_ccAddType()" style="font-size:.82rem;padding:6px 14px;border:1.5px dashed #a5b4fc;border-radius:8px;background:#f5f7ff;color:#4338ca;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">+ הוסף סוג</button>
+        <button id="cc-auto-btn" onclick="_ccAutoDistribute()" style="display:none;font-size:.82rem;padding:6px 14px;border:none;border-radius:8px;background:#4338ca;color:#fff;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">🎯 פזר אוטומטית</button>
+      </div>
       <div id="cc-result" style="margin-top:16px"></div>
     </div>
   </div>
@@ -18076,65 +18120,101 @@ function openImpositionTool(){
 // 'need'  = קרטונים רצויים → כמה גיליונות צריך (גוזר לפי הסוג הדורש הכי הרבה).
 // 'yield' = מספר גיליונות → כמה קרטונים מכל סוג ייצאו.
 var _ccMode = 'need';
-var _ccTypes = [ { name:'סוג 1', perSheet:6, cartons:20 }, { name:'סוג 2', perSheet:6, cartons:20 } ];
+// נתונים נפרדים לכל מצב — כך שמילוי "פיזור אופטימלי" לא ישפיע על "כמה גיליונות"/"כמה קרטונים".
+var _ccStore = {
+  need:    [ { name:'סוג 1', perSheet:6, cartons:20 }, { name:'סוג 2', perSheet:6, cartons:20 } ],
+  yield:   [ { name:'סוג 1', perSheet:6 }, { name:'סוג 2', perSheet:6 } ],
+  optimal: [ { name:'סוג 1', demand:60000 }, { name:'סוג 2', demand:40000 }, { name:'סוג 3', demand:20000 } ]
+};
+var _ccInputs = { perCarton:3000, sheets:'', slots:8 };
+function _ccT(){ return _ccStore[_ccMode]; }
+function _ccDefaultType(mode){
+  if(mode==='need')  return { name:'סוג 1', perSheet:6, cartons:20 };
+  if(mode==='yield') return { name:'סוג 1', perSheet:6 };
+  return { name:'סוג 1', demand:0 };
+}
 function _ccLoad(){
   try {
     var s = JSON.parse(localStorage.getItem('solanCartonCalc')||'null');
-    if (s && Array.isArray(s.types) && s.types.length) { _ccTypes = s.types; _ccMode = s.mode||'need'; }
+    if (s){
+      if (s.store && s.store.need && s.store.yield && s.store.optimal) _ccStore = s.store;
+      if (s.mode) _ccMode = s.mode;
+      if (s.inputs) _ccInputs = Object.assign({ perCarton:3000, sheets:'', slots:8 }, s.inputs);
+    }
   } catch(e){}
 }
+function _ccReadInputs(){
+  var pc=document.getElementById('cc-per-carton'); if(pc) _ccInputs.perCarton=pc.value;
+  var sh=document.getElementById('cc-sheets');    if(sh) _ccInputs.sheets=sh.value;
+  var sl=document.getElementById('cc-slots');     if(sl) _ccInputs.slots=sl.value;
+}
 function _ccSave(){
-  try {
-    var pc = document.getElementById('cc-per-carton'); var sh = document.getElementById('cc-sheets'); var slt = document.getElementById('cc-slots');
-    localStorage.setItem('solanCartonCalc', JSON.stringify({
-      types:_ccTypes, mode:_ccMode,
-      perCarton: pc?pc.value:3000, sheets: sh?sh.value:'', slots: slt?slt.value:8
-    }));
-  } catch(e){}
+  try { _ccReadInputs(); localStorage.setItem('solanCartonCalc', JSON.stringify({ store:_ccStore, mode:_ccMode, inputs:_ccInputs })); } catch(e){}
 }
 function openCartonCalc(){
   _ccLoad();
   var m = document.getElementById('cartonCalcModal'); if (!m) return;
   m.classList.add('open');
-  // שחזור ערכים שנשמרו
-  try {
-    var s = JSON.parse(localStorage.getItem('solanCartonCalc')||'null');
-    if (s){ if (s.perCarton) document.getElementById('cc-per-carton').value = s.perCarton; if (s.sheets) document.getElementById('cc-sheets').value = s.sheets; if (s.slots) document.getElementById('cc-slots').value = s.slots; }
-  } catch(e){}
+  var pc=document.getElementById('cc-per-carton'); if(pc && _ccInputs.perCarton) pc.value=_ccInputs.perCarton;
+  var sh=document.getElementById('cc-sheets');    if(sh) sh.value=_ccInputs.sheets||'';
+  var sl=document.getElementById('cc-slots');     if(sl && _ccInputs.slots) sl.value=_ccInputs.slots;
   _ccApplyMode(); _ccRenderTypes(); _ccCalc();
 }
 function closeCartonCalc(){ var m=document.getElementById('cartonCalcModal'); if(m) m.classList.remove('open'); }
 function _ccApplyMode(){
   var tN=document.getElementById('cc-tab-need'), tY=document.getElementById('cc-tab-yield'), tO=document.getElementById('cc-tab-optimal');
-  var sw=document.getElementById('cc-sheets-wrap'), sl=document.getElementById('cc-slots-wrap');
+  var sw=document.getElementById('cc-sheets-wrap'), sl=document.getElementById('cc-slots-wrap'), ab=document.getElementById('cc-auto-btn');
   function setTab(btn,active){ if(!btn)return; btn.style.background=active?'#4338ca':'#fff'; btn.style.color=active?'#fff':'#64748b'; btn.style.borderColor=active?'#4338ca':'#c7d2fe'; }
   setTab(tN,_ccMode==='need'); setTab(tY,_ccMode==='yield'); setTab(tO,_ccMode==='optimal');
   if (sw) sw.style.display = (_ccMode==='yield') ? 'flex' : 'none';
   if (sl) sl.style.display = (_ccMode==='optimal') ? 'flex' : 'none';
+  if (ab) ab.style.display = (_ccMode==='optimal') ? 'inline-block' : 'none';
 }
-function _ccSetMode(m){ _ccMode=m; _ccApplyMode(); _ccRenderTypes(); _ccSave(); _ccCalc(); }
-function _ccAddType(){ _ccTypes.push({ name:'סוג '+(_ccTypes.length+1), perSheet:6, cartons:20 }); _ccRenderTypes(); _ccSave(); _ccCalc(); }
-function _ccRemoveType(i){ _ccTypes.splice(i,1); _ccRenderTypes(); _ccSave(); _ccCalc(); }
-function _ccUpd(i,k,v){ if(!_ccTypes[i])return; _ccTypes[i][k]=(k==='name')?v:(k==='exact'?!!v:(parseFloat(v)||0)); _ccSave(); _ccCalc(); }
+function _ccSetMode(m){ _ccReadInputs(); _ccMode=m; _ccApplyMode(); _ccRenderTypes(); _ccSave(); _ccCalc(); }
+function _ccAddType(){ var d=_ccDefaultType(_ccMode); d.name='סוג '+(_ccT().length+1); _ccT().push(d); _ccRenderTypes(); _ccSave(); _ccCalc(); }
+function _ccRemoveType(i){ _ccT().splice(i,1); _ccRenderTypes(); _ccSave(); _ccCalc(); }
+function _ccClear(){ _ccStore[_ccMode]=[ _ccDefaultType(_ccMode) ]; var sh=document.getElementById('cc-sheets'); if(sh){ sh.value=''; _ccInputs.sheets=''; } _ccRenderTypes(); _ccSave(); _ccCalc(); }
+function _ccUpd(i,k,v){ var T=_ccT(); if(!T[i])return; T[i][k]=(k==='name')?v:(k==='exact'?!!v:(parseFloat(v)||0)); _ccSave(); _ccCalc(); }
+function _ccToggleExact(i){ var T=_ccT(); if(!T[i])return; T[i].exact=!T[i].exact; _ccRenderTypes(); _ccSave(); _ccCalc(); }
+// פיזור אוטומטי — ממלא את עמודת "בגיליון" בפתרון האופטימלי (מכבד "מדויק").
+function _ccAutoDistribute(){
+  var slots=parseInt((document.getElementById('cc-slots')||{}).value)||0;
+  var T=_ccT(), idxs=[], demands=[], exacts=[];
+  T.forEach(function(t,i){ var d=parseFloat(t.demand)||0; if(d>0){ idxs.push(i); demands.push(d); exacts.push(!!t.exact); } });
+  if(!demands.length){ showToast('הזן כמות דרושה לפחות לסוג אחד'); return; }
+  if(slots<demands.length){ showToast('מספר המשבצות קטן ממספר הסוגים'); return; }
+  var sol=_ccSolveOptimal(demands, exacts, slots);
+  if(!sol){ showToast('לא נמצא פתרון'); return; }
+  idxs.forEach(function(oi,j){ T[oi].perSheet=sol.n[j]; });
+  _ccRenderTypes(); _ccSave(); _ccCalc();
+}
 function _ccRenderTypes(){
   var host=document.getElementById('cc-types'); if(!host) return;
-  host.innerHTML = _ccTypes.map(function(t,i){
-    var cols = '<div style="flex:2;min-width:120px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">שם הסוג</label>'
-      +   '<input class="fi" style="margin:0" value="'+String(t.name||'').replace(/"/g,'&quot;')+'" oninput="_ccUpd('+i+',\'name\',this.value)"></div>';
+  host.innerHTML = _ccT().map(function(t,i){
+    var name='<div style="flex:2;min-width:110px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">שם הסוג</label>'
+      +'<input class="fi" style="margin:0" value="'+String(t.name||'').replace(/"/g,'&quot;')+'" oninput="_ccUpd('+i+',\'name\',this.value)"></div>';
+    var cols;
     if (_ccMode==='optimal') {
-      cols += '<div style="flex:1;min-width:100px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">כמות דרושה (יח\')</label>'
-        +   '<input class="fi" style="margin:0" type="number" min="0" value="'+(t.demand||'')+'" oninput="_ccUpd('+i+',\'demand\',this.value)"></div>'
-        + '<label title="חייב לצאת בדיוק הכמות הזו — בלי עודף" style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:#4338ca;font-weight:700;white-space:nowrap;padding-bottom:8px;cursor:pointer">'
-        +   '<input type="checkbox" '+(t.exact?'checked':'')+' onchange="_ccUpd('+i+',\'exact\',this.checked)" style="accent-color:#4338ca;width:15px;height:15px">מדויק</label>';
+      cols = name
+        +'<div style="flex:1;min-width:88px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">כמות דרושה</label>'
+        +'<input class="fi" style="margin:0" type="number" min="0" value="'+(t.demand||'')+'" oninput="_ccUpd('+i+',\'demand\',this.value)"></div>'
+        +'<div style="flex:1;min-width:70px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">בגיליון</label>'
+        +'<input class="fi" style="margin:0" type="number" min="0" value="'+(t.perSheet||'')+'" oninput="_ccUpd('+i+',\'perSheet\',this.value)"></div>'
+        +'<button onclick="_ccToggleExact('+i+')" title="חייב לצאת בדיוק הכמות — בלי עודף" style="align-self:flex-end;margin-bottom:1px;font-size:.74rem;padding:6px 10px;border-radius:7px;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer;white-space:nowrap;border:1.5px solid '+(t.exact?'#4338ca':'#cbd5e1')+';background:'+(t.exact?'#4338ca':'#fff')+';color:'+(t.exact?'#fff':'#64748b')+'">'+(t.exact?'✓ מדויק':'מדויק')+'</button>';
+    } else if (_ccMode==='need') {
+      cols = name
+        +'<div style="flex:1;min-width:82px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">יח\' בגיליון</label>'
+        +'<input class="fi" style="margin:0" type="number" min="0" value="'+(t.perSheet||'')+'" oninput="_ccUpd('+i+',\'perSheet\',this.value)"></div>'
+        +'<div style="flex:1;min-width:82px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">קרטונים רצויים</label>'
+        +'<input class="fi" style="margin:0" type="number" min="0" value="'+(t.cartons||'')+'" oninput="_ccUpd('+i+',\'cartons\',this.value)"></div>';
     } else {
-      cols += '<div style="flex:1;min-width:88px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">יח\' בגיליון</label>'
-        +   '<input class="fi" style="margin:0" type="number" min="0" value="'+(t.perSheet||'')+'" oninput="_ccUpd('+i+',\'perSheet\',this.value)"></div>';
-      if (_ccMode==='need') cols += '<div style="flex:1;min-width:88px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">קרטונים רצויים</label>'
-        +   '<input class="fi" style="margin:0" type="number" min="0" value="'+(t.cartons||'')+'" oninput="_ccUpd('+i+',\'cartons\',this.value)"></div>';
+      cols = name
+        +'<div style="flex:1;min-width:92px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">יח\' בגיליון</label>'
+        +'<input class="fi" style="margin:0" type="number" min="0" value="'+(t.perSheet||'')+'" oninput="_ccUpd('+i+',\'perSheet\',this.value)"></div>';
     }
     return '<div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:8px;flex-wrap:wrap">'
       + cols
-      + '<button onclick="_ccRemoveType('+i+')" title="הסר סוג" style="background:none;border:none;cursor:pointer;font-size:1.05rem;color:#ef4444;padding:0 4px 7px">🗑</button>'
+      + '<button onclick="_ccRemoveType('+i+')" title="הסר סוג" style="background:none;border:none;cursor:pointer;font-size:1.05rem;color:#ef4444;padding:0 2px 7px">🗑</button>'
       + '</div>';
   }).join('');
 }
@@ -18144,8 +18224,8 @@ function _ccCalc(){
   var perCarton=pcEl?(parseFloat(pcEl.value)||0):0;
   if(_ccMode!=='optimal' && perCarton<=0){ res.innerHTML='<div style="color:#b45309;font-size:.85rem">↖ הזן כמה יחידות יש בקרטון.</div>'; return; }
   var types = (_ccMode==='optimal')
-    ? _ccTypes.filter(function(t){ return (parseFloat(t.demand)||0)>0; })
-    : _ccTypes.filter(function(t){ return (parseFloat(t.perSheet)||0)>0; });
+    ? _ccT().filter(function(t){ return (parseFloat(t.demand)||0)>0; })
+    : _ccT().filter(function(t){ return (parseFloat(t.perSheet)||0)>0; });
   if(!types.length){ res.innerHTML='<div style="color:#b45309;font-size:.85rem">'+(_ccMode==='optimal'?'הזן כמות דרושה לפחות לסוג אחד.':'הזן לפחות סוג אחד עם יח\' בגיליון.')+'</div>'; return; }
   var fmt=function(n){ return Math.round(n).toLocaleString(); };
   var thStyle='padding:6px 8px;font-size:.72rem;color:#475569;border-bottom:2px solid #e2e8f0;text-align:center';
@@ -18191,36 +18271,43 @@ function _ccCalc(){
   } else if(_ccMode==='optimal'){
     var slEl=document.getElementById('cc-slots'); var slots=slEl?(parseInt(slEl.value)||0):0;
     if(slots<=0){ res.innerHTML='<div style="color:#b45309;font-size:.85rem">הזן כמה יחידות (משבצות) נכנסות בגיליון.</div>'; return; }
-    if(slots<types.length){ res.innerHTML='<div style="color:#b45309;font-size:.85rem">מספר המשבצות בגיליון ('+slots+') קטן ממספר הסוגים ('+types.length+') — הגדל את המשבצות או הסר סוג.</div>'; return; }
-    var demands=types.map(function(t){ return parseFloat(t.demand)||0; });
-    var exacts=types.map(function(t){ return !!t.exact; });
-    var sol=_ccSolveOptimal(demands, exacts, slots);
-    if(!sol){ res.innerHTML='<div style="color:#b45309">לא נמצא פתרון.</div>'; return; }
-    var emptySlots=slots-sol.used;
-    html+='<div style="background:#1a1a4e;color:#fff;border-radius:10px;padding:13px 16px;text-align:center;margin-bottom:12px">'
-      +'<div style="font-size:.78rem;opacity:.82">צריך להדפיס (פיזור אופטימלי)</div>'
-      +'<div style="font-size:1.85rem;font-weight:900;line-height:1.1">'+fmt(sol.R)+'</div>'
-      +'<div style="font-size:.82rem;opacity:.82">גיליונות · '+sol.used+' מתוך '+slots+' משבצות'+(emptySlots>0?' ('+emptySlots+' ריקות)':'')+'</div></div>';
-    html+='<table style="width:100%;border-collapse:collapse"><thead><tr>'
-      +'<th style="'+thStyle+';text-align:right">סוג</th><th style="'+thStyle+'">דרוש</th><th style="'+thStyle+'">בגיליון</th><th style="'+thStyle+'">ייוצר</th><th style="'+thStyle+'">עודף</th></tr></thead><tbody>';
-    types.forEach(function(t,idx){
-      var n=sol.n[idx]; var made=sol.R*n; var surplus=made-demands[idx];
-      var cartTxt=(perCarton>0)?' <span style="font-size:.66rem;color:#94a3b8">('+fmt(made/perCarton)+' קרט\')</span>':'';
-      var exBadge=t.exact?' <span style="font-size:.6rem;background:#ede9fe;color:#4338ca;border:1px solid #c7d2fe;border-radius:4px;padding:0 4px;font-weight:800">מדויק</span>':'';
-      html+='<tr><td style="'+tdStyle+';text-align:right;font-weight:700">'+_ccEsc(t.name||'')+exBadge+'</td>'
-        +'<td style="'+tdStyle+'">'+fmt(demands[idx])+'</td>'
-        +'<td style="'+tdStyle+';font-weight:800;color:#4338ca;font-size:1rem">'+n+' <span style="font-size:.62rem;color:#94a3b8">/ '+slots+'</span></td>'
-        +'<td style="'+tdStyle+';font-weight:700;color:#15803d">'+fmt(made)+cartTxt+'</td>'
-        +'<td style="'+tdStyle+';color:'+(surplus>0?'#b45309':'#15803d')+'">'+(surplus>0?('+'+fmt(surplus)):(t.exact?'✓':'0'))+'</td></tr>';
-    });
-    html+='</tbody></table>';
-    if(sol.exactViol>0) html+='<div style="font-size:.72rem;color:#b45309;margin-top:8px">⚠️ לא ניתן לצאת מדויק לכל סוג שסומן (הכמות אינה מתחלקת במשבצות) — הוצג הפתרון הקרוב ביותר.</div>';
-    html+='<div style="font-size:.72rem;color:#64748b;margin-top:8px;line-height:1.6">'
-      +'📐 סדר את הגיליון: '+types.map(function(t,idx){ return '<b>'+_ccEsc(t.name||'')+'</b> ×'+sol.n[idx]; }).join(' · ')+(emptySlots>0?' · '+emptySlots+' ריק':'')
-      +' (סה"כ '+slots+'). יודפסו '+fmt(sol.R*sol.used)+' יח\', עודף '+fmt(sol.totS)+' יח\'.</div>';
-    var _oLines=types.map(function(t,idx){ var made=sol.R*sol.n[idx]; return '• '+(t.name||'סוג')+' ×'+sol.n[idx]+' בגיליון = '+fmt(made)+' יח\''+(t.exact?' (מדויק)':(made>demands[idx]?' (עודף '+fmt(made-demands[idx])+')':'')); });
-    _buildable={ name:'פלייסמנטים', sheets:sol.R,
-      spec:'פיזור אופטימלי — '+slots+' יח\' בגיליון:\n'+_oLines.join('\n')+'\nסה"כ '+fmt(sol.R)+' גיליונות'+(emptySlots>0?' ('+emptySlots+' משבצות ריקות)':'')+'.' };
+    var noPS=types.filter(function(t){ return !((parseFloat(t.perSheet)||0)>0); });
+    if(noPS.length){
+      html+='<div style="color:#4338ca;font-size:.85rem;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:11px;line-height:1.6">לחץ <b>🎯 פזר אוטומטית</b> כדי לחשב כמה מכל סוג בגיליון (מכבד "מדויק"), או הזן ידנית בעמודת <b>בגיליון</b>.</div>';
+    } else {
+      var usedSlots=types.reduce(function(a,t){ return a+(parseFloat(t.perSheet)||0); },0);
+      if(usedSlots>slots){
+        html+='<div style="color:#b45309;font-size:.85rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px">סכום היחידות בגיליון ('+usedSlots+') גדול מהמשבצות ('+slots+'). הקטן ערכים או הגדל את מספר המשבצות.</div>';
+      } else {
+        var R=0; types.forEach(function(t){ var ps=parseFloat(t.perSheet)||0, d=parseFloat(t.demand)||0; var r=Math.ceil(d/ps); if(r>R)R=r; });
+        var emptySlots=slots-usedSlots, exactMiss=0, totOver=0;
+        html+='<div style="background:#1a1a4e;color:#fff;border-radius:10px;padding:13px 16px;text-align:center;margin-bottom:12px">'
+          +'<div style="font-size:.78rem;opacity:.82">צריך להדפיס</div>'
+          +'<div style="font-size:1.85rem;font-weight:900;line-height:1.1">'+fmt(R)+'</div>'
+          +'<div style="font-size:.82rem;opacity:.82">גיליונות · '+usedSlots+' מתוך '+slots+' משבצות'+(emptySlots>0?' ('+emptySlots+' ריקות)':'')+'</div></div>';
+        html+='<table style="width:100%;border-collapse:collapse"><thead><tr>'
+          +'<th style="'+thStyle+';text-align:right">סוג</th><th style="'+thStyle+'">דרוש</th><th style="'+thStyle+'">בגיליון</th><th style="'+thStyle+'">ייוצר</th><th style="'+thStyle+'">עודף</th></tr></thead><tbody>';
+        types.forEach(function(t){
+          var ps=parseFloat(t.perSheet)||0, d=parseFloat(t.demand)||0, made=R*ps, surplus=made-d;
+          totOver+=surplus; if(t.exact && surplus>0) exactMiss++;
+          var cartTxt=(perCarton>0)?' <span style="font-size:.66rem;color:#94a3b8">('+fmt(made/perCarton)+' קרט\')</span>':'';
+          var exBadge=t.exact?' <span style="font-size:.6rem;background:#ede9fe;color:#4338ca;border:1px solid #c7d2fe;border-radius:4px;padding:0 4px;font-weight:800">מדויק</span>':'';
+          html+='<tr><td style="'+tdStyle+';text-align:right;font-weight:700">'+_ccEsc(t.name||'')+exBadge+'</td>'
+            +'<td style="'+tdStyle+'">'+fmt(d)+'</td>'
+            +'<td style="'+tdStyle+';font-weight:800;color:#4338ca;font-size:1rem">'+ps+' <span style="font-size:.62rem;color:#94a3b8">/ '+slots+'</span></td>'
+            +'<td style="'+tdStyle+';font-weight:700;color:#15803d">'+fmt(made)+cartTxt+'</td>'
+            +'<td style="'+tdStyle+';color:'+(surplus>0?'#b45309':'#15803d')+'">'+(surplus>0?('+'+fmt(surplus)):(t.exact?'✓':'0'))+'</td></tr>';
+        });
+        html+='</tbody></table>';
+        if(exactMiss>0) html+='<div style="font-size:.72rem;color:#b45309;margin-top:8px">⚠️ סוג שסומן "מדויק" יוצא בעודף — שנה את הכמות בגיליון או לחץ "🎯 פזר אוטומטית".</div>';
+        html+='<div style="font-size:.72rem;color:#64748b;margin-top:8px;line-height:1.6">'
+          +'📐 סדר את הגיליון: '+types.map(function(t){ return '<b>'+_ccEsc(t.name||'')+'</b> ×'+(parseFloat(t.perSheet)||0); }).join(' · ')+(emptySlots>0?' · '+emptySlots+' ריק':'')
+          +' (סה"כ '+slots+'). יודפסו '+fmt(R*usedSlots)+' יח\', עודף '+fmt(totOver)+' יח\'.</div>';
+        var _oLines=types.map(function(t){ var ps=parseFloat(t.perSheet)||0, d=parseFloat(t.demand)||0, made=R*ps; return '• '+(t.name||'סוג')+' ×'+ps+' בגיליון = '+fmt(made)+' יח\''+(t.exact?' (מדויק)':(made>d?' (עודף '+fmt(made-d)+')':'')); });
+        _buildable={ name:'פלייסמנטים', sheets:R,
+          spec:'פיזור — '+slots+' יח\' בגיליון:\n'+_oLines.join('\n')+'\nסה"כ '+fmt(R)+' גיליונות'+(emptySlots>0?' ('+emptySlots+' משבצות ריקות)':'')+'.' };
+      }
+    }
   }
   if(_buildable){
     window._ccLast=_buildable;
