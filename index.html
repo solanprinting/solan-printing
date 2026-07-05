@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783246410';
+window.APP_VERSION = '1783247068';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15290,6 +15290,39 @@ async function _fbPollAll() {
       localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
       window._fbSnapshot.machineQueue = JSON.stringify(machineQueue);
       if (document.getElementById('queue-content') && document.getElementById('tab-queue') && document.getElementById('tab-queue').classList.contains('active')) renderMachineQueue();
+      // גזירת סטטוס כרטיסים מהתור: המפעיל כותב רק את machineQueue — צד המשרד גוזר מכאן.
+      // כשכל ריצות הכרטיס (למשל 4 צבעים + 8 צבעים) סומנו הודפסו → הכרטיס עובר ל"הושלם"
+      // ויוצא מהעבודות הזמינות / עבודות להיום. מסונכרן חזרה לענן במיזוג חסין-דריסה.
+      // הגנה: מסמנים "הושלם" רק כשכל ריצות-המכונה של הכרטיס סומנו הודפסו (לא מוקדם מדי).
+      if (!window._isMachineView && typeof _syncCardStatusFromQueue === 'function') {
+        var _stChanged = false, _seenC = {};
+        (machineQueue||[]).forEach(function(e){
+          if (!e || _seenC[String(e.cardId)]) return;
+          _seenC[String(e.cardId)] = true;
+          var _c = (cards||[]).find(function(x){ return String(x.id) === String(e.cardId); });
+          if (!_c || _c.status === 'trash') return;
+          var _runsArr = (_c.runs && _c.runs.length) ? _c.runs : null;
+          var _allDone;
+          if (_runsArr) {
+            var _anyMachineRun = _runsArr.some(function(r){ return r && r.machine; });
+            _allDone = _anyMachineRun && _runsArr.every(function(r, ri){
+              if (!r || !r.machine) return true;   // ריצה בלי מכונה — לא נדרשת בתור
+              return (machineQueue||[]).some(function(x){ return String(x.cardId)===String(_c.id) && x.runIdx===ri && x.done; });
+            });
+          } else {
+            _allDone = (machineQueue||[]).some(function(x){ return String(x.cardId)===String(_c.id) && x.done; });
+          }
+          // גוזרים סטטוס אם כל הריצות הודפסו (→ הושלם) או אם הכרטיס כבר "הושלם" (→ אפשר לבטל אם ריצה בוטלה)
+          if (_allDone || _c.status === 'done') { if (_syncCardStatusFromQueue(_c.id)) _stChanged = true; }
+        });
+        if (_stChanged) {
+          localStorage.setItem('solanCards', JSON.stringify(cards));
+          if (typeof _pushCardsMerged === 'function') _pushCardsMerged();
+          if (document.getElementById('view-saved') && document.getElementById('view-saved').style.display!=='none' && typeof renderCards==='function') renderCards();
+          if (document.getElementById('view-dashboard') && document.getElementById('view-dashboard').style.display!=='none' && typeof renderDashboard==='function') renderDashboard();
+          if (document.getElementById('view-week') && document.getElementById('view-week').style.display!=='none' && typeof renderWeek==='function') renderWeek();
+        }
+      }
     }
     // סידור מחלקות (קיפול/כריכייה)
     var dov = await _pollGet('deptOrder');
