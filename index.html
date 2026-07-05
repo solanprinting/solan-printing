@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783250806';
+window.APP_VERSION = '1783251405';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1191,6 +1191,7 @@ window._fbSnapshot = {};
     <button class="btn btn-outline-w" onclick="switchTab('papers')">📰 ניהול עיתונים</button>
     <button class="btn btn-outline-w" onclick="document.getElementById('newspapersModal').style.display='flex'">📥 לקוחות עיתונים</button>
     <button class="btn btn-outline-w" onclick="openImpositionTool()">✂️ קיפול לחוברת</button>
+    <button class="btn btn-outline-w" onclick="openCartonCalc()">📦 מחשבון קרטונים</button>
     <button class="btn btn-outline-w" id="notif-bell-btn" onclick="_notifToggle()" style="position:relative" title="התראות — מי עשה מה">
       🔔<span id="notif-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span>
     </button>
@@ -18033,6 +18034,145 @@ function openImpositionTool(){
   setTimeout(poll, 4000);
   setInterval(poll, 30000);
 })();
+</script>
+
+<!-- ===== CARTON / PLACEMAT CALCULATOR ===== -->
+<div class="modal-overlay" id="cartonCalcModal">
+  <div class="modal" style="max-width:660px">
+    <div class="modal-header">
+      <h3>📦 מחשבון קרטונים / פלייסמנטים</h3>
+      <button class="modal-close" onclick="closeCartonCalc()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button id="cc-tab-need"  onclick="_ccSetMode('need')"  class="cc-tab" style="flex:1;padding:9px;border-radius:9px;border:2px solid #c7d2fe;background:#eef2ff;color:#3730a3;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">כמה גיליונות צריך? (לפי קרטונים)</button>
+        <button id="cc-tab-yield" onclick="_ccSetMode('yield')" class="cc-tab" style="flex:1;padding:9px;border-radius:9px;border:2px solid #c7d2fe;background:#fff;color:#64748b;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">כמה קרטונים ייצאו? (לפי גיליונות)</button>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="flex:1;min-width:140px;display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:.74rem;color:#777">יחידות בקרטון</label>
+          <input class="fi" id="cc-per-carton" type="number" min="1" value="3000" oninput="_ccSave();_ccCalc()" style="margin:0">
+        </div>
+        <div id="cc-sheets-wrap" style="flex:1;min-width:140px;display:none;flex-direction:column;gap:3px">
+          <label style="font-size:.74rem;color:#777">מספר גיליונות בהדפסה</label>
+          <input class="fi" id="cc-sheets" type="number" min="0" placeholder="10000" oninput="_ccSave();_ccCalc()" style="margin:0">
+        </div>
+      </div>
+      <div style="font-weight:800;color:var(--press);margin-bottom:6px;font-size:.9rem">סוגי פלייסמנט (יוצאים יחד על אותו גיליון)</div>
+      <div id="cc-types"></div>
+      <button onclick="_ccAddType()" style="margin-top:4px;font-size:.82rem;padding:6px 14px;border:1.5px dashed #a5b4fc;border-radius:8px;background:#f5f7ff;color:#4338ca;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">+ הוסף סוג</button>
+      <div id="cc-result" style="margin-top:16px"></div>
+    </div>
+  </div>
+</div>
+<script>
+// ── מחשבון קרטונים/פלייסמנטים: גיליונות ↔ קרטונים ──────────────────────────
+// מודל: כל גיליון הדפסה מייצר perSheet יחידות מכל סוג (כולם יחד על אותו גיליון).
+// 'need'  = קרטונים רצויים → כמה גיליונות צריך (גוזר לפי הסוג הדורש הכי הרבה).
+// 'yield' = מספר גיליונות → כמה קרטונים מכל סוג ייצאו.
+var _ccMode = 'need';
+var _ccTypes = [ { name:'סוג 1', perSheet:6, cartons:20 }, { name:'סוג 2', perSheet:6, cartons:20 } ];
+function _ccLoad(){
+  try {
+    var s = JSON.parse(localStorage.getItem('solanCartonCalc')||'null');
+    if (s && Array.isArray(s.types) && s.types.length) { _ccTypes = s.types; _ccMode = s.mode||'need'; }
+  } catch(e){}
+}
+function _ccSave(){
+  try {
+    var pc = document.getElementById('cc-per-carton'); var sh = document.getElementById('cc-sheets');
+    localStorage.setItem('solanCartonCalc', JSON.stringify({
+      types:_ccTypes, mode:_ccMode,
+      perCarton: pc?pc.value:3000, sheets: sh?sh.value:''
+    }));
+  } catch(e){}
+}
+function openCartonCalc(){
+  _ccLoad();
+  var m = document.getElementById('cartonCalcModal'); if (!m) return;
+  m.classList.add('open');
+  // שחזור ערכים שנשמרו
+  try {
+    var s = JSON.parse(localStorage.getItem('solanCartonCalc')||'null');
+    if (s){ if (s.perCarton) document.getElementById('cc-per-carton').value = s.perCarton; if (s.sheets) document.getElementById('cc-sheets').value = s.sheets; }
+  } catch(e){}
+  _ccApplyMode(); _ccRenderTypes(); _ccCalc();
+}
+function closeCartonCalc(){ var m=document.getElementById('cartonCalcModal'); if(m) m.classList.remove('open'); }
+function _ccApplyMode(){
+  var tN=document.getElementById('cc-tab-need'), tY=document.getElementById('cc-tab-yield'), sw=document.getElementById('cc-sheets-wrap');
+  function setTab(btn,active){ if(!btn)return; btn.style.background=active?'#4338ca':'#fff'; btn.style.color=active?'#fff':'#64748b'; btn.style.borderColor=active?'#4338ca':'#c7d2fe'; }
+  setTab(tN,_ccMode==='need'); setTab(tY,_ccMode==='yield');
+  if (sw) sw.style.display = (_ccMode==='yield') ? 'flex' : 'none';
+}
+function _ccSetMode(m){ _ccMode=m; _ccApplyMode(); _ccRenderTypes(); _ccSave(); _ccCalc(); }
+function _ccAddType(){ _ccTypes.push({ name:'סוג '+(_ccTypes.length+1), perSheet:6, cartons:20 }); _ccRenderTypes(); _ccSave(); _ccCalc(); }
+function _ccRemoveType(i){ _ccTypes.splice(i,1); _ccRenderTypes(); _ccSave(); _ccCalc(); }
+function _ccUpd(i,k,v){ if(!_ccTypes[i])return; _ccTypes[i][k]=(k==='name')?v:(parseFloat(v)||0); _ccSave(); _ccCalc(); }
+function _ccRenderTypes(){
+  var host=document.getElementById('cc-types'); if(!host) return;
+  host.innerHTML = _ccTypes.map(function(t,i){
+    return '<div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:8px;flex-wrap:wrap">'
+      + '<div style="flex:2;min-width:120px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">שם הסוג</label>'
+      +   '<input class="fi" style="margin:0" value="'+String(t.name||'').replace(/"/g,'&quot;')+'" oninput="_ccUpd('+i+',\'name\',this.value)"></div>'
+      + '<div style="flex:1;min-width:88px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">יח\' בגיליון</label>'
+      +   '<input class="fi" style="margin:0" type="number" min="0" value="'+(t.perSheet||'')+'" oninput="_ccUpd('+i+',\'perSheet\',this.value)"></div>'
+      + (_ccMode==='need' ? '<div style="flex:1;min-width:88px;display:flex;flex-direction:column;gap:3px"><label style="font-size:.7rem;color:#777">קרטונים רצויים</label>'
+      +   '<input class="fi" style="margin:0" type="number" min="0" value="'+(t.cartons||'')+'" oninput="_ccUpd('+i+',\'cartons\',this.value)"></div>' : '')
+      + '<button onclick="_ccRemoveType('+i+')" title="הסר סוג" style="background:none;border:none;cursor:pointer;font-size:1.05rem;color:#ef4444;padding:0 4px 7px">🗑</button>'
+      + '</div>';
+  }).join('');
+}
+function _ccCalc(){
+  var res=document.getElementById('cc-result'); if(!res) return;
+  var pcEl=document.getElementById('cc-per-carton');
+  var perCarton=pcEl?(parseFloat(pcEl.value)||0):0;
+  if(perCarton<=0){ res.innerHTML='<div style="color:#b45309;font-size:.85rem">↖ הזן כמה יחידות יש בקרטון.</div>'; return; }
+  var types=_ccTypes.filter(function(t){ return (parseFloat(t.perSheet)||0)>0; });
+  if(!types.length){ res.innerHTML='<div style="color:#b45309;font-size:.85rem">הזן לפחות סוג אחד עם יח\' בגיליון.</div>'; return; }
+  var fmt=function(n){ return Math.round(n).toLocaleString(); };
+  var thStyle='padding:6px 8px;font-size:.72rem;color:#475569;border-bottom:2px solid #e2e8f0;text-align:center';
+  var tdStyle='padding:6px 8px;font-size:.82rem;border-bottom:1px solid #f1f5f9;text-align:center';
+  var html='';
+  if(_ccMode==='need'){
+    var maxSheets=0;
+    types.forEach(function(t){ var need=(t.cartons||0)*perCarton; t._sheets=t.perSheet>0?Math.ceil(need/t.perSheet):0; if(t._sheets>maxSheets)maxSheets=t._sheets; });
+    html+='<div style="background:#1a1a4e;color:#fff;border-radius:10px;padding:13px 16px;text-align:center;margin-bottom:12px">'
+      +'<div style="font-size:.78rem;opacity:.82">צריך להדפיס</div>'
+      +'<div style="font-size:1.85rem;font-weight:900;line-height:1.1">'+fmt(maxSheets)+'</div>'
+      +'<div style="font-size:.82rem;opacity:.82">גיליונות</div></div>';
+    html+='<table style="width:100%;border-collapse:collapse"><thead><tr>'
+      +'<th style="'+thStyle+';text-align:right">סוג</th><th style="'+thStyle+'">רצוי (קרטונים)</th><th style="'+thStyle+'">יח\' דרושות</th><th style="'+thStyle+'">ייצא בפועל</th><th style="'+thStyle+'">עודף</th></tr></thead><tbody>';
+    types.forEach(function(t){
+      var made=Math.floor(maxSheets*t.perSheet/perCarton);
+      var leftover=maxSheets*t.perSheet-made*perCarton;
+      var surplus=made-(t.cartons||0);
+      html+='<tr><td style="'+tdStyle+';text-align:right;font-weight:700">'+_ccEsc(t.name||'')+'</td>'
+        +'<td style="'+tdStyle+'">'+fmt(t.cartons||0)+'</td>'
+        +'<td style="'+tdStyle+'">'+fmt((t.cartons||0)*perCarton)+'</td>'
+        +'<td style="'+tdStyle+';font-weight:800;color:#15803d">'+fmt(made)+' קרטונים'+(leftover>0?'<span style="font-size:.68rem;color:#94a3b8"> +'+fmt(leftover)+' יח\'</span>':'')+'</td>'
+        +'<td style="'+tdStyle+';color:'+(surplus>0?'#b45309':'#94a3b8')+'">'+(surplus>0?('+'+fmt(surplus)):'0')+'</td></tr>';
+    });
+    html+='</tbody></table>';
+    if(types.length>1) html+='<div style="font-size:.72rem;color:#94a3b8;margin-top:8px">* כמות הגיליונות נגזרת מהסוג הדורש הכי הרבה; סוגים אחרים ייוצרו בעודף.</div>';
+  } else {
+    var shEl=document.getElementById('cc-sheets'); var sheets=shEl?(parseFloat(shEl.value)||0):0;
+    html+='<div style="background:#1a1a4e;color:#fff;border-radius:10px;padding:12px 16px;text-align:center;margin-bottom:12px;font-size:.9rem">מ-<b>'+fmt(sheets)+'</b> גיליונות ייצאו:</div>';
+    html+='<table style="width:100%;border-collapse:collapse"><thead><tr>'
+      +'<th style="'+thStyle+';text-align:right">סוג</th><th style="'+thStyle+'">יח\' בגיליון</th><th style="'+thStyle+'">סה\'\'כ יחידות</th><th style="'+thStyle+'">קרטונים</th><th style="'+thStyle+'">שארית</th></tr></thead><tbody>';
+    types.forEach(function(t){
+      var units=sheets*t.perSheet; var cartons=Math.floor(units/perCarton); var leftover=units-cartons*perCarton;
+      html+='<tr><td style="'+tdStyle+';text-align:right;font-weight:700">'+_ccEsc(t.name||'')+'</td>'
+        +'<td style="'+tdStyle+'">'+fmt(t.perSheet)+'</td>'
+        +'<td style="'+tdStyle+'">'+fmt(units)+'</td>'
+        +'<td style="'+tdStyle+';font-weight:800;color:#15803d;font-size:.95rem">'+fmt(cartons)+'</td>'
+        +'<td style="'+tdStyle+';color:#94a3b8">'+(leftover>0?fmt(leftover)+' יח\'':'—')+'</td></tr>';
+    });
+    html+='</tbody></table>';
+  }
+  res.innerHTML=html;
+}
+function _ccEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 </script>
 </body>
 </html>
