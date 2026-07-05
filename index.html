@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783244135';
+window.APP_VERSION = '1783245290';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6096,28 +6096,24 @@ function _proofNameLabel(name){
     perfector: s.indexOf('פרפקטור')>=0 || s.indexOf('perfector')>=0 || /\bperf\b/.test(s) || s.indexOf('a+b')>=0
   };
 }
-// קריאת מספרי-עמוד (folios) מהקובץ דרך שכבת הטקסט — מחזיר לכל עמוד את המספר שזוהה בשוליים.
-async function _proofReadFolios(pdf){
-  var folios = [];
-  for (var i=1;i<=pdf.numPages;i++){
-    try {
-      var page = await pdf.getPage(i);
-      var vp = page.getViewport({scale:1}); var H = vp.height;
-      var tc = await page.getTextContent();
-      var best = null, bestEdge = 1;
-      (tc.items||[]).forEach(function(it){
-        var s = (it.str||'').trim();
-        if (!/^\d{1,4}$/.test(s)) return;
-        var n = parseInt(s,10); if (n<1 || n>9999) return;
-        var ty = (it.transform && it.transform[5]) || 0;
-        var edge = Math.min(ty, H-ty) / (H||1);           // 0=בשוליים (מקום טיפוסי למספור), 0.5=מרכז
-        if (edge < bestEdge){ bestEdge = edge; best = n; }
-      });
-      folios.push(best);
-      page.cleanup && page.cleanup();
-    } catch(e){ folios.push(null); }
-  }
-  return folios;
+// קיפול הפרופר לחוברת בסדר קריאה (בכלי הקיפול) לבדיקת סדר העמודים — עובד גם על גיליון מבוסס-תמונה.
+// perfector/מתהפך נקבע לפי המכונה; היקף (32/16/8) ניתן לשינוי בכלי עצמו.
+function _foldCheckProof(cardId, runKey){
+  var c = (cards||[]).find(function(x){ return String(x.id)===String(cardId); });
+  if (!c) return;
+  var url = '', name = c.name || 'פרופר';
+  if (runKey && c.runProofs && c.runProofs[runKey] && c.runProofs[runKey].url){ url = c.runProofs[runKey].url; name = c.runProofs[runKey].name || name; }
+  else if (c.proofUrl){ url = c.proofUrl; name = c.proofName || name; }
+  else if (c.runProofs){ var k0 = Object.keys(c.runProofs).filter(function(k){ return c.runProofs[k] && c.runProofs[k].url; })[0];
+    if (k0){ url = c.runProofs[k0].url; name = c.runProofs[k0].name || name; runKey = k0; } }
+  if (!url){ showToast('⚠️ אין קובץ פרופר לקיפול (ייתכן שעדיין מעלה)'); return; }
+  var press = _proofPressOf(_proofMachineOf(c, runKey));
+  var type = press==='4' ? '16p' : '32';   // ברירת מחדל לפי המכונה — ניתן לשינוי בכלי
+  var f = document.getElementById('impositionFrame');
+  if (f) f.src = 'imposition-tool.html?v=6&auto=1&type=' + encodeURIComponent(type)
+    + '&proofUrl=' + encodeURIComponent(url) + '&name=' + encodeURIComponent(name);
+  var modal = document.getElementById('impositionModal');
+  if (modal) modal.style.display = 'flex';
 }
 async function _checkProofValidity(cardId, runKey, file, fileName){
   try {
@@ -6136,41 +6132,34 @@ async function _checkProofValidity(cardId, runKey, file, fileName){
     if (lab.four && lab.eight)     issues.push('שם הקובץ מציין גם 4 וגם 8 צבעים — סתירה.');
     if (lab.tumble && lab.perfector) issues.push('שם הקובץ מציין גם מתהפך וגם פרפקטור — סתירה.');
 
-    // 2) מספר עמודים + מבנה
-    var pageCount = 0, folios = null;
+    // 2) מספר עמודים + מידות + מבנה (הבדיקה לפי סדר-העמודים עצמה נעשית ע"י קיפול לחוברת — כפתור "📖 קפל ובדוק")
+    var pageCount = 0, dimMM = null, imposed = false;
     var isPdf = (file && (file.type||'').indexOf('pdf')!==-1) || /\.pdf$/i.test(fileName||'');
     if (isPdf && window.pdfjsLib && file){
       var buf = await file.arrayBuffer();
       var pdf = await pdfjsLib.getDocument({data:buf}).promise;
       pageCount = pdf.numPages;
-      folios = await _proofReadFolios(pdf);
+      try {
+        var p1 = await pdf.getPage(1);
+        var vp1 = p1.getViewport({scale:1});
+        var wmm = Math.round(vp1.width/72*25.4), hmm = Math.round(vp1.height/72*25.4);
+        dimMM = wmm + '×' + hmm;
+        // גיליון פרוס 70×100 (עם/בלי bleed) — בכל אוריינטציה
+        var lo = Math.min(wmm,hmm), hi = Math.max(wmm,hmm);
+        imposed = (Math.abs(lo-700) <= 80 && Math.abs(hi-1000) <= 80);
+      } catch(e){}
       pdf.cleanup && pdf.cleanup();
     }
     if (press==='8' && pageCount && pageCount % 2 !== 0)
       issues.push('פרפקטור (8 צבעים) צריך מספר עמודים זוגי — קדמי + אחורי. בקובץ יש ' + pageCount + '.');
-
-    // 3) קריאת מספרי עמודים ובדיקת רצף (best-effort)
-    if (folios){
-      var known = folios.filter(function(x){ return x!=null; });
-      if (known.length){
-        // כפילויות
-        var seen = {}, dups = [];
-        known.forEach(function(n){ if (seen[n]) { if (dups.indexOf(n)<0) dups.push(n); } seen[n]=1; });
-        if (dups.length) notes.push('זוהו מספרי עמוד כפולים: ' + dups.slice(0,6).join(', ') + '.');
-        // רצף עולה
-        var ordered = true, bi = -1;
-        for (var k=1;k<known.length;k++){ if (known[k] <= known[k-1]){ ordered=false; bi=k; break; } }
-        if (!ordered) notes.push('סדר מספרי העמודים אינו עולה ברצף (עמ\' ' + known[bi] + ' אחרי ' + known[bi-1] + ') — ייתכן שזה גיליון פרוס (תקין) או סדר שגוי. אימות מלא מול הטמפלט ממתין לדוגמה.');
-        // התאמה לטמפלט לפי מספר העמודים בחוברת
-        var maxF = Math.max.apply(null, known);
-        if (maxF % 4 === 0 && [8,16,32].indexOf(maxF) < 0)
-          notes.push('היקף החוברת ' + maxF + ' עמ\' דורש טמפלט קיפול שעדיין לא הוגדר (קיימים: 8/16/32).');
-      } else if (pageCount){
-        notes.push('לא ניתן לקרוא מספרי עמודים מהקובץ (ייתכן קובץ תמונה) — נבדקו מבנה ותווית בלבד.');
-      }
+    // זיהוי גיליון פרוס מול צפי המכונה
+    if (imposed){
+      notes.push('זוהה גיליון פרוס 70×100 (' + dimMM + ' מ"מ)' + (press==='8' ? ' — פרפקטור, ' + pageCount + ' עמ\' (קדמי+אחורי)' : press==='4' ? ' — מתהפך' : '') + '. לבדיקת סדר העמודים לחץ "📖 קפל ובדוק".');
+    } else if (press==='8' && dimMM){
+      issues.push('קובץ 8 צבעים אמור להיות גיליון פרוס 70×100, אך מידות הקובץ הן ' + dimMM + ' מ"מ — ודא שזה הגיליון הפרוס.');
     }
 
-    var result = { at: Date.now(), ok: issues.length===0, issues: issues, notes: notes, pages: pageCount, machine: machine, folios: folios };
+    var result = { at: Date.now(), ok: issues.length===0, issues: issues, notes: notes, pages: pageCount, machine: machine, dim: dimMM, imposed: imposed };
     var cc = (cards||[]).find(function(x){ return String(x.id)===String(cardId); });
     if (cc){
       if (runKey){ if (!cc.runProofs) cc.runProofs={}; if (cc.runProofs[runKey]) cc.runProofs[runKey].check = result; }
@@ -6207,9 +6196,7 @@ function _showProofCheck(cardId){
     if (!ch) return;
     if (ch.issues && ch.issues.length) parts.push('⚠️ בעיות'+prefix+':\n • ' + ch.issues.join('\n • '));
     if (ch.notes && ch.notes.length)  parts.push('ℹ️ הערות'+prefix+':\n • ' + ch.notes.join('\n • '));
-    var f = (ch.folios||[]).filter(function(x){return x!=null;});
-    if (f.length) parts.push('מספרי עמודים שזוהו'+prefix+': ' + f.join(', '));
-    if (ch.pages) parts.push('מספר עמודים בקובץ'+prefix+': ' + ch.pages + (ch.machine?(' · מכונה: '+ch.machine):''));
+    if (ch.pages) parts.push('מספר עמודים בקובץ'+prefix+': ' + ch.pages + (ch.dim?(' · מידות: '+ch.dim+' מ"מ'+(ch.imposed?' (גיליון פרוס)':'')):'') + (ch.machine?(' · מכונה: '+ch.machine):''));
   };
   add('', c.proofCheck);
   if (c.runProofs) Object.keys(c.runProofs).forEach(function(k){ add(' ('+k+')', c.runProofs[k] && c.runProofs[k].check); });
@@ -11736,6 +11723,13 @@ function _jobCardHtml(c) {
             var tip = _uploading ? 'הפרופר בהעלאה — המתן לאישור' : (cnt > 1 ? cnt+' פרופרים מצורפים' : escHtml(c.proofName||'פרופר מצורף'));
             var bg = _uploading ? '#d97706' : '#7c3aed';
             return '<span title="'+tip+'" style="background:'+bg+';color:white;padding:2px 9px;border-radius:20px;font-size:.74rem;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_viewProof('+c.id+')">'+lbl+'</span>';
+          })()}
+          ${(function(){
+            // כפתור "קפל ובדוק" — פותח את הפרופר בכלי הקיפול לבדיקת סדר העמודים בחוברת
+            var hasUrl = c.proofUrl || (c.runProofs && Object.keys(c.runProofs).some(function(k){ return c.runProofs[k] && c.runProofs[k].url; }));
+            if (!hasUrl) return '';
+            return '<span title="קפל את הגיליון הפרוס לחוברת ובדוק את סדר העמודים" onclick="event.stopPropagation();_foldCheckProof('+c.id+',null)" '
+              + 'style="background:#0369a1;color:#fff;padding:2px 8px;border-radius:20px;font-size:.72rem;font-weight:700;cursor:pointer">📖 קפל ובדוק</span>';
           })()}
           ${(function(){
             // תג אזהרת בדיקת-פרופר: אוסף בעיות מהפרופר הראשי ומפרופרי הריצות
