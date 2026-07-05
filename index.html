@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783232897';
+window.APP_VERSION = '1783234235';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3064,6 +3064,69 @@ function showToast(msg, duration) {
 }
 
 // ========== STORAGE ==========
+// ═══════════════════════════════════════════════════════════════════
+// מיזוג כרטיסים חסין-דריסה — הלב של הסנכרון היציב
+// ───────────────────────────────────────────────────────────────────
+// כל כרטיס נושא חותמת _upd (זמן השינוי האחרון). בסנכרון (דחיפה ומשיכה)
+// ממזגים לפי id: לכל כרטיס נשמרת הגרסה עם ה-_upd החדש ביותר. כרטיס שקיים
+// רק בשרת נשמר; כרטיס שקיים רק מקומית נשמר רק אם נוצר/שונה לאחרונה (חדש
+// שטרם נדחף) — אחרת הוא נחשב "נמחק במקום אחר" ולא מוחזר. מחיקות לצמיתות
+// עוברות דרך tombstones (deletedIds) שתמיד מסננים. כך מכשיר עם נתונים
+// ישנים לא יכול לדרוס: הוא לא יחזיר מחוקים ולא יהפוך "הושלם" ל"פעיל".
+function _cardUpd(c){ return (c && (c._upd || c.id)) || 0; }
+function _cardKeyJson(c){ var o={}; for (var k in c) if (k !== '_upd') o[k]=c[k]; return JSON.stringify(o); }
+function _seedCardSnap(){
+  window._cardJsonSnap = {};
+  (cards||[]).forEach(function(c){ if (c && c.id != null) window._cardJsonSnap[String(c.id)] = _cardKeyJson(c); });
+}
+// מסמן _upd=עכשיו לכל כרטיס שתוכנו השתנה מאז ההצמדה האחרונה (זיהוי אוטומטי
+// של כל שינוי, בלי צורך לגעת בכל מקום שמשנה כרטיס). קריאה ראשונה רק זורעת.
+function _stampChangedCards(){
+  if (!window._cardJsonSnap) { _seedCardSnap(); return; }
+  var now = Date.now();
+  (cards||[]).forEach(function(c){
+    if (!c || c.id == null) return;
+    var k = String(c.id), j = _cardKeyJson(c);
+    if (window._cardJsonSnap[k] !== j) { c._upd = now; window._cardJsonSnap[k] = j; }
+  });
+}
+function _mergeCardArrays(server, local){
+  var KEEP_LOCAL_MS = 12 * 3600 * 1000, now = Date.now(), byId = {};
+  (server||[]).forEach(function(c){ if (c && c.id != null) byId[String(c.id)] = c; });
+  (local||[]).forEach(function(c){
+    if (!c || c.id == null) return;
+    var k = String(c.id);
+    if (byId[k]) { if (_cardUpd(c) > _cardUpd(byId[k])) byId[k] = c; }        // החדש מנצח
+    else if (_cardUpd(c) > now - KEEP_LOCAL_MS) byId[k] = c;                   // מקומי חדש בלבד
+  });
+  return _filterDeleted('cards', Object.keys(byId).map(function(k){ return byId[k]; }));
+}
+// דחיפת כרטיסים ממוזגת (מתוזמנת/מקובצת) — מביאה שרת, ממזגת, ודוחפת.
+var _cardsPushTimer = null;
+function _pushCardsMerged(){
+  if (window._isMachineView || !window._fbGet || !window._fbPut) return;
+  if (_cardsPushTimer) return;
+  _cardsPushTimer = setTimeout(function(){ _cardsPushTimer = null; _doPushCardsMerged(); }, 350);
+}
+function _doPushCardsMerged(){
+  _stampChangedCards();
+  window._fbPendingPuts = window._fbPendingPuts || {};
+  window._fbPendingPuts.cards = (window._fbPendingPuts.cards || 0) + 1;
+  window._fbGet('cards').then(function(sv){
+    var server = Array.isArray(sv) ? sv : (sv && typeof sv==='object' ? Object.values(sv) : []);
+    cards = _mergeCardArrays(server, cards);
+    localStorage.setItem('solanCards', JSON.stringify(cards));
+    _seedCardSnap();
+    window._fbSnapshot.cards = JSON.stringify(cards);
+    return window._fbPut('cards', cards);
+  }).then(function(){
+    window._fbPendingPuts.cards = Math.max(0, (window._fbPendingPuts.cards||1) - 1);
+    if (typeof updateBadge === 'function') updateBadge();
+    var vs = document.getElementById('view-saved');
+    if (vs && vs.style.display !== 'none' && typeof renderCards === 'function') renderCards();
+  }).catch(function(){ window._fbPendingPuts.cards = Math.max(0, (window._fbPendingPuts.cards||1) - 1); });
+}
+
 function persist() {
   // Always write to localStorage (works offline too)
   localStorage.setItem('solanHistory',             JSON.stringify(historyDB));
@@ -3096,15 +3159,16 @@ function persist() {
   // ודחיפה משם תדרוס אוספים ניהוליים (כרטיסים, הזמנות...) עם נתון מקומי ישן.
   // מסך הדפסים דוחף את מה שמותר לו ישירות (machineQueue, printingState, cards ממוזג).
   if (_fbConnected && !window._isMachineView) {
+    // כרטיסים נדחפים בנפרד דרך מיזוג חסין-דריסה (לא במערך הכללי שנדרס)
+    _pushCardsMerged();
     var _paths = {
-      cards: cards, newspapers: newspapers, inventory: inventory,
+      newspapers: newspapers, inventory: inventory,
       inventoryPress: inventoryPress, inventoryDeductions: inventoryDeductions,
       inventoryHistory: inventoryHistory, invoiceLogs: invoiceLogs,
       quotes: _filterDeleted('quotes', quotes), customers: customers, orders: _filterDeleted('orders', orders),
       weeklyJobs: weeklyJobs, recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds,
       machineQueue: machineQueue, printFiles: printFiles
     };
-    _paths.cards = _filterDeleted('cards', cards);
     window._fbPendingPuts = window._fbPendingPuts || {};
     Object.keys(_paths).forEach(function(p) {
       var _json = JSON.stringify(_paths[p]);
@@ -9022,9 +9086,12 @@ function removeFromWorkList(cardId, machine, isWlistOnly) {
   var label = isWlistOnly ? 'למחוק עבודה זו לחלוטין?' : 'להסיר עבודה זו מרשימת המכונה? (הכרטיס יישמר)';
   if (!confirm(label)) return;
   if (isWlistOnly) {
-    // delete the card entirely
+    // delete the card entirely — חובה tombstone, אחרת מכשיר עם נתון ישן יחזיר אותו
+    var _c = (cards||[]).find(function(c){ return c.id === cardId; });
+    if (typeof _markDeleted === 'function') _markDeleted('cards', cardId);
     cards = cards.filter(function(c){ return c.id !== cardId; });
     persist();
+    if (typeof _logActivity === 'function') _logActivity('❌', 'עבודה "' + ((_c&&_c.name)||'') + '" נמחקה');
   } else {
     // הכרטיס נשאר קיים ועדיין "שייך" למכונה הזו (c.machine / run.machine) —
     // בלי רשימת חסימה, _syncWorkOrder היה מחזיר אותו אוטומטית ברינדור הבא
@@ -14640,14 +14707,13 @@ function _checkCustomerUploadAlerts(all){
 
 // האם המשתמש מקליד/עורך שדה כרגע — אם כן, אסור לדרוס את ה-DOM ולגנוב פוקוס
 function _isUserEditing() {
+  // רק כשמקלידים בפועל בשדה — לא רק בגלל שטופס פתוח. אחרת טאב שיושב על טופס
+  // "קופא" (לא מסנכרן) לשעות, ואז דחיפה משם מחזירה נתונים ישנים. המיזוג ממילא
+  // מגן, וה-poll לא מרנדר את הטופס הפתוח (רק view-saved/week/dashboard אם גלויים).
   var el = document.activeElement;
   if (!el) return false;
   var tag = (el.tagName||'').toLowerCase();
-  if (tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable) return true;
-  // טופס כרטיס פתוח (יצירה/עריכה) — אל תרענן אפילו אם הפוקוס לרגע מחוץ לשדה
-  var vn = document.getElementById('view-new');
-  if (vn && vn.style.display !== 'none') return true;
-  return false;
+  return (tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable);
 }
 
 async function _fbPollAll() {
@@ -14681,9 +14747,15 @@ async function _fbPollAll() {
         window._knownCardIds = {};
         _incCards.forEach(function(c){ if (c) window._knownCardIds[String(c.id)] = true; });
       } catch(e){}
-      cards = _incCards;
+      // מיזוג במקום דריסה: השרת כבסיס + שינויים מקומיים חדשים שטרם נדחפו.
+      // אם המיזוג הוסיף כרטיס מקומי שאינו בשרת — נדחוף חזרה כדי להתכנס.
+      var _mergedCards = _mergeCardArrays(_incCards, cards);
+      var _srvJson = JSON.stringify(_filterDeleted('cards', _incCards));
+      cards = _mergedCards;
       localStorage.setItem('solanCards', JSON.stringify(cards));
       window._fbSnapshot.cards = JSON.stringify(cards);
+      _seedCardSnap();
+      if (JSON.stringify(cards) !== _srvJson) _pushCardsMerged();   // יש שינוי מקומי → סנכרן לשרת
       updateBadge(); updateFBStatus(true); _fbConnected = true;
       if (document.getElementById('view-saved').style.display!=='none') renderCards();
       if (document.getElementById('view-week').style.display!=='none')  renderWeek();
@@ -16079,14 +16151,11 @@ function _opSetPrinting(machine, qid) {
 // נלקח מהמקומי. כך כרטיסים חדשים שנוצרו במקום אחר (בין רענון ל-20ש') לא נמחקים.
 function _opPushCardsMerged(changedId) {
   var loc = (cards||[]).find(function(c){ return c && String(c.id) === String(changedId); });
+  if (loc) loc._upd = Date.now();   // הכרטיס ששונה — חותמת טרייה כדי שהמיזוג יעדיף אותו
   return window._fbGet('cards').then(function(sv){
     var server = Array.isArray(sv) ? sv : (sv && typeof sv==='object' ? Object.values(sv) : []);
-    var byId = {};
-    server.forEach(function(c){ if (c) byId[String(c.id)] = c; });   // בסיס = השרת (הכי עדכני)
-    if (loc) byId[String(changedId)] = loc;                          // רק הכרטיס ששונה — מהמקומי
-    var merged = Object.keys(byId).map(function(k){ return byId[k]; });
-    if (typeof _filterDeleted === 'function') merged = _filterDeleted('cards', merged);
-    cards = merged;
+    // בסיס = השרת (הכי עדכני); רק הכרטיס ששונה מהמקומי (עם _upd חדש) מנצח
+    cards = _mergeCardArrays(server, loc ? [loc] : []);
     localStorage.setItem('solanCards', JSON.stringify(cards));
     if (window._fbPut) return window._fbPut('cards', cards);
   }).catch(function(){ /* אם ההבאה נכשלה — לא דוחפים כלל, כדי לא לדרוס */ });
@@ -16882,6 +16951,7 @@ function _operatorUnmarkDone(qid) {
 }
 
 // ========== INIT ==========
+_seedCardSnap();   // בסיס השוואה לזיהוי שינויים בכרטיסים (לפני כל פעולה)
 updateBadge();
 renderDashboard();
 renderWeek();
