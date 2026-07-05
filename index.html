@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783241559';
+window.APP_VERSION = '1783242728';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1133,6 +1133,22 @@ window._fbGet = async path => {
     return r.ok ? r.json() : null;
   } catch(e) { return null; }
 };
+// ── "שער גרסה" לצמצום תעבורת הורדה (Downloads) ───────────────────────
+// כל כתיבה מעדכנת חותמת-זמן זעירה תחת _rev/<collection>. ה-poll מושך רק את
+// _rev (כמה מאות בייטים) ומוריד collection שלם רק אם החותמת שלו השתנתה —
+// חוסך ~90% מהתעבורה כשכלום לא משתנה.
+window._lastRev   = window._lastRev   || {};   // ה-rev שאומץ לאחרונה לכל collection
+window._revSynced = window._revSynced || {};   // collection שכבר נמשך לפחות פעם אחת בסשן
+window._pollRev   = window._pollRev   || {};   // snapshot של _rev בסבב ה-poll הנוכחי
+window._fbBumpRev = function(coll, tok){
+  if (!coll || coll === '_rev' || coll === 'customerProofs') return; // customerProofs נקרא תמיד (נכתב גם מדפי הלקוח)
+  var doPut = function(t){
+    fetch(_FBURL + '/_rev/' + coll + '.json' + (t ? '?auth=' + t : ''), {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: String(Date.now())
+    }).catch(function(){});
+  };
+  if (tok) doPut(tok); else if (window._fbAuthToken) window._fbAuthToken().then(doPut); else doPut(null);
+};
 window._fbPut = async (path, data) => {
   try {
     var t = await window._fbAuthToken();
@@ -1141,6 +1157,7 @@ window._fbPut = async (path, data) => {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(data)
     });
+    try { if (String(path).indexOf('_rev') !== 0) window._fbBumpRev(String(path).split('/')[0], t); } catch(e){}
     return true;
   } catch(e) { return false; }
 };
@@ -14795,6 +14812,17 @@ function _isUserEditing() {
   return (tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable);
 }
 
+// מושך collection רק אם ה-rev שלו השתנה בשרת מאז הפעם האחרונה. אחרת מחזיר null
+// (וכל בלוקי ה-poll ממילא מדלגים על null → שומרים את הנתון המקומי) — זה החיסכון.
+async function _pollGet(coll){
+  var sr = window._pollRev ? window._pollRev[coll] : undefined;
+  if (window._revSynced[coll] && sr === window._lastRev[coll]) return null;   // ללא שינוי → דלג
+  var v = await window._fbGet(coll);
+  // סמן כמסונכרן אם קיבלנו נתון, או שהצומת ריק אך ה-rev מוגדר (ריק אמיתי, לא כשל רשת)
+  if (v !== null || sr !== undefined) { window._lastRev[coll] = sr; window._revSynced[coll] = true; }
+  return v;
+}
+
 async function _fbPollAll() {
   // אם הייתה כתיבה מקומית בשניות האחרונות (למשל מחיקת כרטיס) — דלג על הסבב הזה
   // כדי שלא נמשוך מהשרת נתון ישן (לפני שהכתיבה שלנו הגיעה) וננטרל את השינוי המקומי
@@ -14803,8 +14831,10 @@ async function _fbPollAll() {
   if (_isUserEditing()) return;
   try {
     var _pend = window._fbPendingPuts || {};
+    // שער-גרסה: מושכים פעם אחת את מפת ה-rev הזעירה; כל אוסף יורד רק אם ה-rev שלו השתנה
+    try { var _rv = await window._fbGet('_rev'); window._pollRev = (_rv && typeof _rv === 'object') ? _rv : {}; } catch(e){ window._pollRev = {}; }
     // כרטיסים
-    var v = await window._fbGet('cards');
+    var v = await _pollGet('cards');
     if (v !== null && !(_pend.cards > 0)) {
       var _incCards = _filterDeleted('cards', Array.isArray(v) ? v : Object.values(v));
       if (_incCards.length === 0 && cards.length > 0) {
@@ -14844,7 +14874,7 @@ async function _fbPollAll() {
       }
     }
     // הזמנות
-    var ov = await window._fbGet('orders');
+    var ov = await _pollGet('orders');
     if (ov !== null && !(_pend.orders > 0)) {
       var _incOrders = _filterDeleted('orders', Array.isArray(ov) ? ov : Object.values(ov));
       if (_incOrders.length === 0 && orders.length > 0) {
@@ -14857,7 +14887,7 @@ async function _fbPollAll() {
       }
     }
     // מלאי — לא דורסים אם יש PUT באוויר (זה מה שגרם לתעודות/הורדות מלאי "להתאפס")
-    var inv = await window._fbGet('inventory');
+    var inv = await _pollGet('inventory');
     if (inv !== null && !(_pend.inventory > 0)) {
       var _incInv = Array.isArray(inv) ? inv : Object.values(inv);
       if (_incInv.length === 0 && inventory.length > 0) {
@@ -14891,14 +14921,14 @@ async function _fbPollAll() {
     await _syncArr('inventoryHistory',    function(){ return inventoryHistory;    }, function(v){ inventoryHistory = v;    localStorage.setItem('solanInventoryHistory', JSON.stringify(v)); });
     await _syncArr('invoiceLogs',         function(){ return invoiceLogs;         }, function(v){ invoiceLogs = v;         localStorage.setItem('solanInvoiceLogs', JSON.stringify(v)); });
     // עיתונים
-    var nv = await window._fbGet('newspapers');
+    var nv = await _pollGet('newspapers');
     if (nv !== null && !(_pend.newspapers > 0)) {
       newspapers = Array.isArray(nv) ? nv : Object.values(nv);
       localStorage.setItem('solanNewspapers', JSON.stringify(newspapers));
       window._fbSnapshot.newspapers = JSON.stringify(newspapers);
     }
     // עבודות שבועיות
-    var wjv = await window._fbGet('weeklyJobs');
+    var wjv = await _pollGet('weeklyJobs');
     if (wjv !== null && !(_pend.weeklyJobs > 0)) {
       weeklyJobs = Array.isArray(wjv) ? wjv : Object.values(wjv);
       localStorage.setItem('solanWeeklyJobs', JSON.stringify(weeklyJobs));
@@ -14906,7 +14936,7 @@ async function _fbPollAll() {
       if (document.getElementById('view-week') && document.getElementById('view-week').style.display!=='none') renderWeek();
     }
     // עבודות קבועות
-    var rjv = await window._fbGet('recurringJobs');
+    var rjv = await _pollGet('recurringJobs');
     if (rjv !== null && !(_pend.recurringJobs > 0)) {
       recurringJobs = Array.isArray(rjv) ? rjv : Object.values(rjv);
       localStorage.setItem('solanRecurringJobs', JSON.stringify(recurringJobs));
@@ -14915,7 +14945,7 @@ async function _fbPollAll() {
     }
     if (typeof _autoCompleteWeeklyJobs === 'function') _autoCompleteWeeklyJobs();
     // קבצים להדפסה ("להכניס בחורים")
-    var pfv = await window._fbGet('printFiles');
+    var pfv = await _pollGet('printFiles');
     if (pfv !== null && !(_pend.printFiles > 0)) {
       printFiles = Array.isArray(pfv) ? pfv : Object.values(pfv);
       localStorage.setItem('solanPrintFiles', JSON.stringify(printFiles));
@@ -14923,7 +14953,7 @@ async function _fbPollAll() {
       if (document.getElementById('view-printfiles') && document.getElementById('view-printfiles').style.display!=='none' && typeof renderPrintFiles==='function') renderPrintFiles();
     }
     // הצעות מחיר
-    var qv = await window._fbGet('quotes');
+    var qv = await _pollGet('quotes');
     if (qv !== null && !(_pend.quotes > 0)) {
       var _incQuotes = _filterDeleted('quotes', Array.isArray(qv) ? qv : Object.values(qv));
       if (_incQuotes.length === 0 && quotes.length > 0) {
@@ -14935,7 +14965,7 @@ async function _fbPollAll() {
       }
     }
     // מזהים שנמחקו לצמיתות — מיזוג (איחוד) כדי שמחיקה מכל מכשיר תחול בכל המכשירים
-    var delv = await window._fbGet('deletedIds');
+    var delv = await _pollGet('deletedIds');
     if (delv !== null && typeof delv === 'object' && !(_pend.deletedIds > 0)) {
       var changed = false;
       Object.keys(delv).forEach(function(coll){
@@ -14954,21 +14984,21 @@ async function _fbPollAll() {
       }
     }
     // תעריפי תמחור עיתון/חוברת
-    var qpv = await window._fbGet('quotePricing');
+    var qpv = await _pollGet('quotePricing');
     if (qpv !== null && typeof qpv === 'object' && !(_pend.quotePricing > 0)) {
       quotePricing = qpv;
       localStorage.setItem('solanQuotePricing', JSON.stringify(quotePricing));
       window._fbSnapshot.quotePricing = JSON.stringify(quotePricing);
     }
     // זיכרון מחירי מסמכים (מחיר ל-1000) — מיזוג כדי שלא יאבד אף מחיר בין מכשירים
-    var dpv = await window._fbGet('documentPrices');
+    var dpv = await _pollGet('documentPrices');
     if (dpv !== null && typeof dpv === 'object' && !(_pend.documentPrices > 0)) {
       documentPrices = Object.assign({}, documentPrices, dpv); // מחירים מקומיים נשמרים, מחירי השרת מתווספים
       localStorage.setItem('solanDocumentPrices', JSON.stringify(documentPrices));
       window._fbSnapshot.documentPrices = JSON.stringify(documentPrices);
     }
     // לקוחות
-    var cv = await window._fbGet('customers');
+    var cv = await _pollGet('customers');
     if (cv !== null && !(_pend.customers > 0)) {
       customers = Array.isArray(cv) ? cv : Object.values(cv);
       localStorage.setItem('solanCustomers', JSON.stringify(customers));
@@ -14981,7 +15011,7 @@ async function _fbPollAll() {
     } catch(e){}
     // יומן פעילות משותף — מיזוג עם המקומי (מציג פעולות של כל המשתמשים)
     try {
-      var alv = await window._fbGet('activityLog');
+      var alv = await _pollGet('activityLog');
       if (alv !== null) {
         var _incAct = Array.isArray(alv) ? alv : (typeof alv === 'object' ? Object.values(alv) : []);
         dashActivity = _actMergeById(_incAct, dashActivity);
@@ -14991,7 +15021,7 @@ async function _fbPollAll() {
       }
     } catch(e){}
     // משתמשים
-    var uv = await window._fbGet('solanUsers');
+    var uv = await _pollGet('solanUsers');
     if (uv !== null) {
       var incoming = Array.isArray(uv) ? uv : Object.values(uv);
       // merge: keep local users not in Firebase (added offline), update existing
@@ -15040,7 +15070,7 @@ async function _fbPollAll() {
       _purgeCustomerCards();
     }
     // תור מכונות
-    var mqv = await window._fbGet('machineQueue');
+    var mqv = await _pollGet('machineQueue');
     if (mqv !== null && Array.isArray(mqv) && !(_pend.machineQueue > 0)) {
       machineQueue = mqv;
       localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
@@ -15048,7 +15078,7 @@ async function _fbPollAll() {
       if (document.getElementById('queue-content') && document.getElementById('tab-queue') && document.getElementById('tab-queue').classList.contains('active')) renderMachineQueue();
     }
     // סידור מחלקות (קיפול/כריכייה)
-    var dov = await window._fbGet('deptOrder');
+    var dov = await _pollGet('deptOrder');
     if (dov !== null && typeof dov === 'object' && !(_pend.deptOrder > 0)) {
       // מיזוג: שמר רק עבודות ידניות שזה עתה הוקלדו (פחות מ-2 דקות) ועדיין לא הספיקו להסתנכרן.
       // עבודות ידניות ישנות שאינן בנתון מהשרת = נמחקו במכשיר אחר → לא מחזירים אותן (מונע "עבודות פנטום" שחוזרות).
@@ -16100,19 +16130,26 @@ function _opLoadAndRender() {
   _opPollN++;
   // customerProofs משתנה לעיתים רחוקות — מורידים אותו רק כל ~מנה 3 (חיסכון ב-Outgoing Bandwidth)
   var fetchProofs = (_opPollN % 3 === 1);
-  Promise.all([
-    window._fbGet('machineQueue').catch(function(){ return null; }),
-    window._fbGet('cards').catch(function(){ return null; }),
-    fetchProofs ? window._fbGet('customerProofs').catch(function(){ return null; }) : Promise.resolve(undefined),
-    window._fbGet('printingState').catch(function(){ return null; })
-  ]).then(function(res) {
-    if (res[0] && Array.isArray(res[0])) machineQueue = res[0];
-    if (res[1] && Array.isArray(res[1])) cards = res[1];
-    if (res[2] !== undefined) window._opCustomerProofs = (res[2] && typeof res[2] === 'object') ? res[2] : {};
-    // מצב "בהדפסה" משותף — מעדכנים רק אם החיבור נראה תקין (machineQueue הגיע כמערך),
-    // כדי שבליפ רשת רגעי לא ינקה את הפאנל. צומת ריק => אף מכונה לא מדפיסה ({}).
-    if (Array.isArray(res[0])) window._opPrintingState = (res[3] && typeof res[3] === 'object') ? res[3] : {};
-    _renderOperatorScreen();
+  // שער-גרסה: cards כבד — מורידים אותו רק אם ה-rev שלו השתנה. machineQueue/printingState
+  // קטנים וקריטיים לתגובה מהירה → נמשכים תמיד.
+  window._fbGet('_rev').catch(function(){ return null; }).then(function(rev){
+    window._pollRev = (rev && typeof rev === 'object') ? rev : {};
+    var cardsRev = window._pollRev.cards;
+    var needCards = !window._revSynced.cards || cardsRev !== window._lastRev.cards;
+    return Promise.all([
+      window._fbGet('machineQueue').catch(function(){ return null; }),
+      needCards ? window._fbGet('cards').catch(function(){ return null; }) : Promise.resolve(undefined),
+      fetchProofs ? window._fbGet('customerProofs').catch(function(){ return null; }) : Promise.resolve(undefined),
+      window._fbGet('printingState').catch(function(){ return null; })
+    ]).then(function(res) {
+      if (res[0] && Array.isArray(res[0])) machineQueue = res[0];
+      if (res[1] !== undefined && res[1] && Array.isArray(res[1])) { cards = res[1]; window._lastRev.cards = cardsRev; window._revSynced.cards = true; }
+      if (res[2] !== undefined) window._opCustomerProofs = (res[2] && typeof res[2] === 'object') ? res[2] : {};
+      // מצב "בהדפסה" משותף — מעדכנים רק אם החיבור נראה תקין (machineQueue הגיע כמערך),
+      // כדי שבליפ רשת רגעי לא ינקה את הפאנל. צומת ריק => אף מכונה לא מדפיסה ({}).
+      if (Array.isArray(res[0])) window._opPrintingState = (res[3] && typeof res[3] === 'object') ? res[3] : {};
+      _renderOperatorScreen();
+    });
   });
 }
 
