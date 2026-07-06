@@ -68,6 +68,9 @@
       <div class="opt"><label>צד ראשון בקובץ:</label>
         <select id="firstside"><option value="0" selected>קדמי (עמ' 1)</option><option value="1">אחורי</option></select>
       </div>
+      <div class="opt"><label>היפוך מראה:</label>
+        <select id="mirror"><option value="0" selected>לא</option><option value="1">כן — פרופר הפוך (Wrong-reading)</option></select>
+      </div>
     </div>
     <div class="muted" id="fileinfo" style="margin-top:10px"></div>
     <button class="btn btn-go" id="go" disabled>📖 קפל לחוברת</button>
@@ -160,6 +163,19 @@ async function fold(arrayBuffer, opts){
     report.signatures++; report.pagesOut += tpl.N;
   }
   report.leftover = pages.length % per;
+  // היפוך מראה (פרופר "wrong-reading" / הפוך) — משקף כל עמוד אופקית סביב מרכזו
+  if (opts.mirror){
+    const mdoc = await PDFDocument.create();
+    const pgs = out.getPages();
+    for (let i=0;i<pgs.length;i++){
+      const e = await mdoc.embedPage(pgs[i]);
+      const w = pgs[i].getWidth(), h = pgs[i].getHeight();
+      const mp = mdoc.addPage([w, h]);
+      mp.drawPage(e, { x: w, y: 0, xScale: -1, yScale: 1 });   // שיקוף אופקי במקום
+    }
+    const bytes = await mdoc.save();
+    return { bytes, report };
+  }
   const bytes = await out.save();
   return { bytes, report };
 }
@@ -187,7 +203,7 @@ $('go').onclick = async () => {
     const buf = await _file.arrayBuffer();
     const type = $('sheet').value;
     $('log').textContent = 'מקפל לחוברת…';
-    const { bytes, report } = await fold(buf, { type: type, firstSide: parseInt($('firstside').value,10) });
+    const { bytes, report } = await fold(buf, { type: type, firstSide: parseInt($('firstside').value,10), mirror: $('mirror').value==='1' });
     var per = (type==='16p'||type==='8p') ? 1 : 2;
     let html = '';
     if (report.signatures === 0){
@@ -364,6 +380,7 @@ window.showFlipbook = showFlipbook;
     var url = qs.get('proofUrl'); if (!url) return;
     var type = qs.get('type'); if (type && TEMPLATES[type]) $('sheet').value = type;
     var fside = qs.get('firstside'); if (fside==='0'||fside==='1') $('firstside').value = fside;
+    var mir = qs.get('mirror'); if (mir==='0'||mir==='1') $('mirror').value = mir;
     var nm = qs.get('name') || 'פרופר.pdf';
     $('fileinfo').innerHTML = '⏳ טוען פרופר מהכרטיס…';
     fetch(url).then(function(r){ if(!r.ok) throw new Error('טעינה נכשלה ('+r.status+')'); return r.blob(); })
