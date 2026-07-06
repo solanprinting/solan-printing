@@ -264,15 +264,69 @@ async function _fbImg(i){
   while (f.cacheOrder.length > 12){ const old=f.cacheOrder.shift(); if(old!==i) delete f.cache[old]; }
   f.cache[i]=u; return u;
 }
+function _fbProgHtml(){
+  return '<div style="width:100%;max-width:420px;margin:auto;text-align:center;color:#1e3a5f">'
+    + '<div style="font-weight:800;margin-bottom:10px" id="fbProgLbl">📖 מכין את הדפדוף…</div>'
+    + '<div style="background:#e5e7eb;border-radius:999px;height:16px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.15)">'
+    + '<div id="fbProgBar" style="height:100%;width:6%;background:linear-gradient(90deg,#2d3561,#4f5da8);border-radius:999px;transition:width .18s ease"></div>'
+    + '</div>'
+    + '<div id="fbProgEta" style="font-size:.84rem;color:#64748b;margin-top:8px">מחשב…</div></div>';
+}
+function _fbImgTag(u){
+  return '<img src="'+u+'" style="height:62vh;max-height:880px;width:auto;max-width:48%;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.35);image-rendering:auto">';
+}
 async function _fbRender(){
   const f=_FB; if(!f) return;
+  const my = (f.renderSeq = (f.renderSeq||0) + 1);   // מזהה רינדור — למניעת דריסה כשמדפדפים מהר
   const s=_fbShowing();
   document.getElementById('fbLbl').textContent = 'עמוד ' + s.map(i=>i+1).join('–') + ' / ' + f.n;
   document.getElementById('fbPrev').disabled = f.idx<=0;
   document.getElementById('fbNext').disabled = s[s.length-1] >= f.n-1;
-  const sp=document.getElementById('fbSpread'); sp.innerHTML='<div class="muted">מרנדר…</div>';
-  const imgs=[]; for (const i of s) imgs.push(await _fbImg(i));
-  sp.innerHTML = imgs.map(u=>'<img src="'+u+'" style="height:62vh;max-height:880px;width:auto;max-width:48%;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.35);image-rendering:auto">').join('');
+  const sp=document.getElementById('fbSpread');
+  const toRender = s.filter(i=>!f.cache[i]);
+  let anim=null;
+  if (toRender.length){
+    sp.innerHTML = _fbProgHtml();
+    const est = Math.max(400, (f.avgMs||1400) * toRender.length);
+    const t0 = performance.now();
+    anim = setInterval(function(){
+      if (my !== f.renderSeq){ clearInterval(anim); return; }
+      const el = performance.now()-t0;
+      const pct = Math.min(96, 6 + el/est*90);
+      const bar=document.getElementById('fbProgBar'); if(bar) bar.style.width = pct.toFixed(0)+'%';
+      const eta=document.getElementById('fbProgEta');
+      if(eta){ const rem=Math.max(0,(est-el)/1000); eta.textContent = rem>0.25 ? ('זמן משוער: '+rem.toFixed(1)+' שנ׳') : 'כמעט מוכן…'; }
+    }, 90);
+  }
+  const imgs=[];
+  for (const i of s){
+    const wasCached = !!f.cache[i];
+    const t0=performance.now();
+    const u = await _fbImg(i);
+    if (!wasCached){ const dt=performance.now()-t0; f.avgMs = f.avgMs ? (f.avgMs*0.6 + dt*0.4) : dt; }
+    if (my !== f.renderSeq){ if(anim) clearInterval(anim); return; }  // המשתמש דפדף בינתיים — בטל
+    imgs.push(u);
+  }
+  if (anim){ clearInterval(anim); const bar=document.getElementById('fbProgBar'); if(bar) bar.style.width='100%'; }
+  if (my !== f.renderSeq) return;
+  sp.innerHTML = imgs.map(_fbImgTag).join('');
+  _fbPrefetch();   // הכן מראש את העמודים הסמוכים — דפדוף הבא יהיה מיידי
+}
+// רינדור-רקע של הכפולות הסמוכות (קדימה ואחורה) כדי שהדפדוף יהיה חלק
+async function _fbPrefetch(){
+  const f=_FB; if(!f || f._prefetching) return;
+  f._prefetching = true;
+  try{
+    const s=_fbShowing();
+    const first=s[0], last=s[s.length-1];
+    const want=[last+1, last+2, first-1, first-2];   // כפולה הבאה + הקודמת
+    for (const i of want){
+      if (i>=0 && i<f.n && !f.cache[i]){
+        try{ await _fbImg(i); }catch(e){}
+        if (!_FB) return;
+      }
+    }
+  } finally { f._prefetching = false; }
 }
 function _fbStep(d){
   const f=_FB; if(!f) return;
