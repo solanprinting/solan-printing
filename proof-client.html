@@ -308,84 +308,24 @@ async function addFiles(fileList) {
       if (doneN % 3 === 0) renderAll();    // עדכון הדרגתי
     }
     // בדיקת קבצים אוטומטית (פרי-פלייט) — לפני ניקוי ה-pdf
-    try { showOverlay('בודק את הקובץ…', true, 100); _preflight[d.fileId] = { name: d.name, warns: await preflightPdf(d.bytes, d.pdf, d.boxes) }; } catch (e) { console.warn('preflight failed', e); }
     d.pdf.cleanup && d.pdf.cleanup();
   }
   $('file').value = '';
   renderAll(); showOverlay('', false);
 }
-// ── בדיקת קבצים אוטומטית (פרי-פלייט מייעץ) — CMYK, שקיפות, טקסט קרוב לחיתוך, בליד ──
-const _preflight = {};
-function _rawPdf(bytes){
-  try { return new TextDecoder('latin1').decode(new Uint8Array(bytes).subarray(0, 6*1024*1024)); } catch(e){ return ''; }
-}
-async function preflightPdf(bytes, pdf, boxes){
-  const warns = [];
-  // A) בליד + גודל סופי (TrimBox מול MediaBox)
-  let anyTrim=false, lowBleed=0, nb=(boxes||[]).length;
-  (boxes||[]).forEach(b=>{
-    if (b && b.tb && b.tb.width) {
-      anyTrim=true;
-      if (b.mb && b.mb.width) {
-        const bx=((b.mb.width-b.tb.width)/2)*25.4/72, by=((b.mb.height-b.tb.height)/2)*25.4/72;
-        if (Math.min(bx,by) < 2.5) lowBleed++;
-      } else lowBleed++;
-    }
-  });
-  if (nb && !anyTrim) warns.push('לא הוגדר גודל סופי (TrimBox) בקובץ — יש לוודא גודל נטו + בליד של 3 מ"מ סביב.');
-  else if (lowBleed) warns.push('בליד חסר או קטן מ-3 מ"מ (' + lowBleed + ' עמ\') — יש להוסיף 3 מ"מ בליד סביב הגודל הסופי.');
-  // B) טקסט קרוב לחיתוך + C) RGB — סריקת עד 30 עמ'
-  const SAFE = 5*72/25.4;               // 5 מ"מ בנקודות
-  let nearTrim=0, rgb=false;
-  const N=Math.min(pdf.numPages, 30);
-  for (let i=1;i<=N;i++){
-    const page=await pdf.getPage(i);
-    const b=(boxes && boxes[i-1]) || null;
-    if (b && b.tb && b.tb.width){
-      const tb=b.tb;
-      try {
-        const tc=await page.getTextContent();
-        for (const it of tc.items){
-          if (!(it.str||'').trim()) continue;
-          const x=it.transform[4], y=it.transform[5];
-          if (x>tb.x && x<tb.x+tb.width && y>tb.y && y<tb.y+tb.height){
-            const d=Math.min(x-tb.x, tb.x+tb.width-x, y-tb.y, tb.y+tb.height-y);
-            if (d < SAFE){ nearTrim++; break; }
-          }
-        }
-      } catch(e){}
-    }
-    if (!rgb){
-      try {
-        const ol=await page.getOperatorList();
-        const OPS=pdfjsLib.OPS;
-        for (const fn of ol.fnArray){ if (fn===OPS.setFillRGBColor || fn===OPS.setStrokeRGBColor){ rgb=true; break; } }
-      } catch(e){}
-    }
-    page.cleanup && page.cleanup();
-  }
-  if (nearTrim) warns.push('טקסט/תוכן קרוב מדי לחיתוך (' + nearTrim + ' עמ\') — יש להשאיר מרחק של לפחות 5 מ"מ מהחיתוך.');
-  if (rgb)      warns.push('זוהו צבעי RGB — לדפוס נדרש CMYK (Fogra39). יש להמיר את הקובץ ל-CMYK.');
-  // D) שקיפות → צריך פלאטן (היוריסטי מבנה ה-PDF)
-  const raw=_rawPdf(bytes);
-  if (/\/Group\s*<<[^>]*\/Transparency/.test(raw) || /\/S\s*\/Transparency/.test(raw) || /\/BM\s*\/(Multiply|Screen|Overlay|Darken|Lighten|Difference|SoftLight|HardLight)/.test(raw))
-    warns.push('ייתכן שקיפויות/אפקטים בקובץ — מומלץ לשטח (flatten) את הקובץ לפני השליחה.');
-  return warns;
-}
+// ── הערות דרישות קבצים (סטטי, ללא בדיקת הקובץ) + הערת סטיית צבע מסך↔הדפסה ──
 function buildPreflight(){
   const box=document.getElementById('preflightBox'); if(!box) return;
-  const live=new Set(pages.map(p=>p.fileId));
-  const items=[];
-  Object.keys(_preflight).forEach(fid=>{
-    if(!live.has(fid)) return;
-    const w=_preflight[fid];
-    if(w && w.warns && w.warns.length) items.push(w);
-  });
-  if(!items.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
+  if(!pages.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
   box.classList.remove('hidden');
-  box.innerHTML='<b>🔎 בדיקת קבצים אוטומטית</b> <span style="font-size:.75rem;opacity:.75">(בדיקה ראשונית מומלצת — אינה חוסמת שליחה ואינה מחליפה בדיקת דפוס)</span>'
-    + items.map(it=>'<div style="margin-top:8px"><b>📄 '+esc(it.name||'קובץ')+'</b>'
-        + '<ul style="padding-inline-start:20px">'+it.warns.map(w=>'<li>'+esc(w)+'</li>').join('')+'</ul></div>').join('');
+  box.innerHTML='<b>📋 לתשומת לבכם — דרישות הקבצים לדפוס:</b>'
+    +'<ul style="padding-inline-start:20px;margin:6px 0 0">'
+    +'<li>צבעים ב-<b>CMYK</b> (פרופיל Fogra39) — לא RGB.</li>'
+    +'<li><b>בליד 3 מ"מ</b> סביב הגודל הסופי.</li>'
+    +'<li>טקסט ותוכן חשוב במרחק של <b>5 מ"מ לפחות</b> מהחיתוך.</li>'
+    +'<li>קובץ <b>משוטח (flatten)</b> — בלי שקיפויות פתוחות.</li>'
+    +'</ul>'
+    +'<div style="margin-top:9px;padding-top:8px;border-top:1px dashed #eab308;font-size:.82rem">🎨 <b>שימו לב:</b> ייתכן הבדל של <b>עד כ-10%</b> בגוון הצבע בין התצוגה במסך לבין ההדפסה בפועל. הצבעים במסך הם לכיוון ולהתרשמות בלבד.</div>';
 }
 
 // קריאת תיבות העמוד (MediaBox/TrimBox) מ-PDF המקורי
