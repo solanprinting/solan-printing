@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783328434';
+window.APP_VERSION = '1783329965';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1337,7 +1337,7 @@ window._fbSnapshot = {};
         <label>שם העבודה</label>
         <div class="ac-wrap">
           <input class="fi" type="text" id="f-name" placeholder="שם הפרויקט / לקוח" autocomplete="off"
-            oninput="acInput(this,'ac-name',acSugg('f-name',this.value))" onfocus="acInput(this,'ac-name',acSugg('f-name',this.value))" onblur="acDelay('ac-name')">
+            oninput="acInput(this,'ac-name',acSugg('f-name',this.value))" onfocus="acInput(this,'ac-name',acSugg('f-name',this.value))" onblur="acDelay('ac-name');setTimeout(_productMemoryCheck,260)">
           <div class="ac-list" id="ac-name"></div>
         </div>
       </div>
@@ -1394,6 +1394,7 @@ window._fbSnapshot = {};
             <label style="font-size:.78rem;font-weight:700;color:#7c5a00;display:block;margin-bottom:4px">מפרט פלייסמנטים</label>
             <textarea id="f-placement-details" class="fi" rows="2"
               placeholder="לדוגמא: 3 עידית · 2 שיבא גדול · 1 שיבא קטן"
+              onblur="setTimeout(_productMemoryCheck,100)"
               style="width:100%;resize:vertical;font-size:.88rem"></textarea>
           </div>
           <div id="printer-paper-picker" style="display:none;margin-top:6px;padding:10px 14px;background:#f0f4ff;border-radius:8px;border:1.5px solid #c0ccf0;display:none;flex-direction:column;gap:8px">
@@ -2558,6 +2559,7 @@ let recurringJobs = JSON.parse(localStorage.getItem('solanRecurringJobs') || '[]
 let machineQueue = JSON.parse(localStorage.getItem('solanMachineQueue') || '[]');
 let historyDB = JSON.parse(localStorage.getItem('solanHistory')   || '{}');
 let printLog  = JSON.parse(localStorage.getItem('solanPrintLog') || '[]');
+let productMemory = JSON.parse(localStorage.getItem('solanProductMemory') || '{}'); // זיכרון דרישות לפי מוצר/פלייסמנט (לתזכורות בבניית כרטיס)
 
 // ===================================================================
 // USER & PERMISSIONS SYSTEM
@@ -3301,6 +3303,7 @@ function persist() {
   localStorage.setItem('solanWeeklyJobs',          JSON.stringify(weeklyJobs));
   localStorage.setItem('solanRecurringJobs',       JSON.stringify(recurringJobs));
   localStorage.setItem('solanMachineQueue',        JSON.stringify(machineQueue));
+  localStorage.setItem('solanProductMemory',       JSON.stringify(productMemory));
   localStorage.setItem('solanUsers',               JSON.stringify(solanUsers));
   if (apiKey) localStorage.setItem('solanApiKey', apiKey);
   updateBadge();
@@ -3325,7 +3328,7 @@ function persist() {
       inventoryHistory: inventoryHistory, invoiceLogs: invoiceLogs,
       customers: customers,
       recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds,
-      machineQueue: machineQueue
+      machineQueue: machineQueue, productMemory: productMemory
     };
     window._fbPendingPuts = window._fbPendingPuts || {};
     Object.keys(_paths).forEach(function(p) {
@@ -5968,6 +5971,7 @@ function clearForm() {
   manualRuns=[];
   renderManualRuns();
   window._formProof = null;
+  window._pmDismissed = {};   // איפוס דחיות תזכורת-מוצר — כרטיס חדש מקבל תזכורות מחדש
   _updateProofFormStatus();
 }
 
@@ -6616,6 +6620,133 @@ function _viewProof(cardId) {
   _openProofByKey(cardId, null); // legacy single proof
 }
 
+// ===================================================================
+// זיכרון דרישות מוצר/פלייסמנט — תזכורת בבניית כרטיס
+// ===================================================================
+function _pmNorm(s){
+  return String(s||'')
+    .replace(/[֑-ׇ]/g,'')            // ניקוד
+    .replace(/["'׳״.\-–—|()]/g,' ')
+    .replace(/\s+/g,' ').trim().toLowerCase();
+}
+// חילוץ מונחי מוצר משם + מפרט פלייסמנטים
+function _pmTerms(name, placementDetails){
+  var terms = [];
+  function add(t){
+    t = String(t||'').replace(/[֑-ׇ]/g,'').trim();
+    t = t.replace(/^\s*\d+\s*[xX×*·]?\s*/,'').trim();            // הסר כמות מובילה ("3 עידית")
+    t = t.replace(/\s+(בגיליון|יח['׳]?|יחידות)\s*$/,'').trim();  // הסר יחידות בקצה
+    if (t.length >= 2 && !/^\d+$/.test(t)) terms.push(t);
+  }
+  String(placementDetails||'').split(/[·,;|\n]+/).forEach(add);
+  if (name) add(name);
+  var seen = {}, out = [];
+  terms.forEach(function(t){ var k=_pmNorm(t); if(k && !seen[k]){ seen[k]=1; out.push(t); } });
+  return out;
+}
+// למידה: שמור את דרישות הכרטיס תחת כל מונח מוצר
+function _productMemoryLearn(card){
+  if (!card) return;
+  var details = (card.placementDetails||'').trim();
+  var notes   = (card.notes||'').trim();
+  if (!details && !notes) return;             // אין דרישה משמעותית לזכור
+  var terms = _pmTerms(card.name, details);
+  if (!terms.length) return;
+  var now = Date.now(), changed = false;
+  terms.forEach(function(t){
+    var k = _pmNorm(t); if(!k) return;
+    productMemory[k] = {
+      term: t, cardName: card.name||'',
+      placementDetails: details, paper: card.paper||'', notes: notes,
+      machine: card.machine||'',
+      date: card.createdAt || new Date().toLocaleDateString('he-IL'),
+      updatedAt: now
+    };
+    changed = true;
+  });
+  if (!changed) return;
+  try { localStorage.setItem('solanProductMemory', JSON.stringify(productMemory)); } catch(e){}
+  if (_fbConnected && !window._isMachineView && window._fbPut) {
+    window._fbSnapshot = window._fbSnapshot || {};
+    window._fbSnapshot.productMemory = JSON.stringify(productMemory);
+    window._fbPut('productMemory', productMemory);
+  }
+}
+// "פיסות דרישה" זכורות (אריזה/כמויות/נייר וכו')
+// רק פיסות שנראות כדרישה קבועה (אריזה/גימור/כריכה) — לא כמויות "N מוצר" של הכרטיס הקודם
+var _PM_REQ_RE = /אריז|חביל|קרטון|כרוך|עטיפ|ספיר|למינ|כמות|כריכ|דבק|סיכ|ביג|פרפור|נומר|מספור|חיתוך|לחתוך|קיפול|לקפל/;
+function _pmReqSnippets(mem){
+  var out = [];
+  ((mem.placementDetails||'') + '\n' + (mem.notes||'')).split(/[·,;|\n]+/).forEach(function(ch){
+    ch = ch.trim(); if(!ch) return;
+    if (_PM_REQ_RE.test(ch)) out.push(ch);
+  });
+  var seen={}, o=[]; out.forEach(function(c){ var k=_pmNorm(c); if(k&&!seen[k]){seen[k]=1;o.push(c);} });
+  return o;
+}
+window._pmDismissed = window._pmDismissed || {};
+function _productMemoryCheck(){
+  try {
+    if (window._editingCardId) return;                 // בעריכת כרטיס קיים לא מציקים
+    if (document.getElementById('placement-check-modal')) return;
+    var nameEl = document.getElementById('f-name');
+    var pdEl   = document.getElementById('f-placement-details');
+    var notesEl= document.getElementById('f-notes');
+    var name = nameEl ? nameEl.value.trim() : '';
+    var pd   = pdEl ? pdEl.value.trim() : '';
+    if (!name && !pd) return;
+    var curBlob = _pmNorm(name + ' ' + pd + ' ' + (notesEl?notesEl.value:''));
+    var terms = _pmTerms(name, pd);
+    for (var i=0;i<terms.length;i++){
+      var k = _pmNorm(terms[i]);
+      if (window._pmDismissed[k]) continue;
+      var mem = productMemory[k];
+      if (!mem) continue;
+      var snippets = _pmReqSnippets(mem);
+      var missing = snippets.filter(function(sn){ return curBlob.indexOf(_pmNorm(sn)) < 0; });
+      if (missing.length) { _pmShowReminder(k, mem, missing); return; }  // אחד בכל פעם
+    }
+  } catch(e){}
+}
+function _pmShowReminder(k, mem, missing){
+  window._pmActive = { k:k, mem:mem, missing:missing };
+  var ex = document.getElementById('placement-check-modal'); if (ex) ex.remove();
+  var missHtml = missing.map(function(m){ return '<span style="display:inline-block;background:#fef3c7;border:1px solid #f0c040;border-radius:6px;padding:3px 9px;margin:2px;font-weight:800;color:#7c5a00">'+_esc(m)+'</span>'; }).join('');
+  var prevDetails = mem.placementDetails ? '<div style="margin-top:6px;font-size:.9rem;color:#333"><b>מפרט קודם:</b> '+_esc(mem.placementDetails)+'</div>' : '';
+  var prevNotes   = mem.notes ? '<div style="margin-top:4px;font-size:.9rem;color:#333"><b>הערות:</b> '+_esc(mem.notes)+'</div>' : '';
+  var html = '<div id="placement-check-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)this.remove()">'
+    + '<div style="background:#fff;border-radius:16px;max-width:440px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);font-family:Heebo,sans-serif;text-align:right" dir="rtl">'
+    + '<div style="font-size:1.15rem;font-weight:900;color:#7c5a00;margin-bottom:6px">🔔 תזכורת ממוצר קודם — "'+_esc(mem.term)+'"</div>'
+    + '<div style="font-size:.86rem;color:#666;margin-bottom:10px">בכרטיס "'+_esc(mem.cardName||mem.term)+'" ('+_esc(mem.date||'')+') היו דרישות שעדיין לא רשמת בכרטיס הנוכחי:</div>'
+    + '<div style="margin-bottom:8px">'+missHtml+'</div>'
+    + prevDetails + prevNotes
+    + '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-start">'
+    + '<button onclick="_pmApplyReminder()" style="padding:9px 16px;border:none;background:#f0c040;color:#4a3800;border-radius:8px;cursor:pointer;font-weight:800;font-family:Heebo,sans-serif">✓ הוסף למפרט</button>'
+    + '<button onclick="_pmDismissReminder()" style="padding:9px 16px;border:1.5px solid #e2e8f0;background:#fff;border-radius:8px;cursor:pointer;font-weight:700;font-family:Heebo,sans-serif">דלג</button>'
+    + '</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function _pmApplyReminder(){
+  var a = window._pmActive; if (!a) return;
+  var pdEl = document.getElementById('f-placement-details');
+  var wrap = document.getElementById('placement-details-wrap');
+  if (pdEl){
+    if (wrap) wrap.style.display = '';
+    var cur = pdEl.value.trim();
+    var add = a.missing.join(' · ');
+    pdEl.value = cur ? (cur + ' · ' + add) : add;
+  }
+  window._pmDismissed[a.k] = 1;
+  var m = document.getElementById('placement-check-modal'); if (m) m.remove();
+  window._pmActive = null;
+  showToast('✅ נוסף למפרט');
+}
+function _pmDismissReminder(){
+  var a = window._pmActive; if (a) window._pmDismissed[a.k] = 1;
+  var m = document.getElementById('placement-check-modal'); if (m) m.remove();
+  window._pmActive = null;
+}
+
 function saveCard() {
   // if editing an existing card — update it instead of creating new
   if (window._editingCardId) {
@@ -6650,6 +6781,7 @@ function saveCard() {
       });
       _saveWorkOrder();
       _autoQueueAssignedRuns(existing); // ריצות ששויכו למכונה — הכנס אוטומטית לתור המכונה
+      _productMemoryLearn(existing);    // עדכן זיכרון דרישות מוצר
       persist();
       _logActivity('✏️', 'עבודה "' + (existing.name||'') + '" נערכה', existing.id);
       renderCards();
@@ -6710,6 +6842,7 @@ function _saveCardNew() {
       cards.unshift(card);
       _stampWeekDone(card.name);   // חיווי ירוק קבוע ביומן — שורד גם מחיקת הכרטיס
       _autoQueueAssignedRuns(card);
+      _productMemoryLearn(card);
       persist();
       _logActivity('🆕', 'עבודה "'+card.name+'" נוצרה', card.id);
       showPrintModal(card);
@@ -6722,6 +6855,7 @@ function _saveCardNew() {
   cards.unshift(card);
   _stampWeekDone(card.name);   // חיווי ירוק קבוע ביומן — שורד גם מחיקת הכרטיס
   _autoQueueAssignedRuns(card);
+  _productMemoryLearn(card);
   persist();
   _logActivity('🆕', 'עבודה "'+card.name+'" נוצרה', card.id);
   showPrintModal(card);
@@ -15461,6 +15595,18 @@ async function _fbPollAll() {
       newspapers = Array.isArray(nv) ? nv : Object.values(nv);
       localStorage.setItem('solanNewspapers', JSON.stringify(newspapers));
       window._fbSnapshot.newspapers = JSON.stringify(newspapers);
+    }
+    // זיכרון דרישות מוצר — מיזוג לפי updatedAt (לא דריסה)
+    var pmv = await _pollGet('productMemory');
+    if (pmv !== null && typeof pmv === 'object' && !(_pend.productMemory > 0)) {
+      var _changed = false;
+      Object.keys(pmv).forEach(function(k){
+        var s = pmv[k]; if (!s) return;
+        var l = productMemory[k];
+        if (!l || (s.updatedAt||0) > (l.updatedAt||0)) { productMemory[k] = s; _changed = true; }
+      });
+      if (_changed) localStorage.setItem('solanProductMemory', JSON.stringify(productMemory));
+      window._fbSnapshot.productMemory = JSON.stringify(productMemory);
     }
     // עבודות שבועיות
     var wjv = await _pollGet('weeklyJobs');
