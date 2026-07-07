@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783430526';
+window.APP_VERSION = '1783431011';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3106,6 +3106,9 @@ var FLAT_PRODUCTS = [
 ];
 let quotePricing = JSON.parse(localStorage.getItem('solanQuotePricing') || 'null');
 if (!quotePricing) quotePricing = JSON.parse(JSON.stringify(DEFAULT_OFFSET_PRICING));
+// נדחוף מחירון ל-Firebase רק אחרי שנדע שהוא אמין — נמשך מהשרת או נשמר ידנית.
+// מונע מטאב עם ברירת-מחדל ריקה לדרוס מחירון תקין בשרת ("המחירים נמחקים אחרי זמן מה").
+window._quotePricingLoaded = false;
 // מזהים שנמחקו לצמיתות — מסונכרן ל-Firebase כדי שמחיקה לא "תחזור" ע"י מכשיר/טאב אחר
 let deletedIds = JSON.parse(localStorage.getItem('solanDeletedIds') || '{}');
 function _markDeleted(coll, id){
@@ -3411,6 +3414,9 @@ function persist() {
       // אותו, כדי לא לדרוס מלאי/הורדות תקינים בנתון מקומי ישן/ריק.
       if (window._fbSnapshot[p] === undefined &&
           (p==='inventory'||p==='inventoryDeductions'||p==='inventoryHistory'||p==='invoiceLogs'||p==='inventoryPress')) return;
+      // הגנת מחירון: אל תדחוף quotePricing עד שידוע שהוא אמין (נמשך מהשרת או נשמר ידנית),
+      // כדי שטאב עם ברירת-מחדל ריקה לא ידרוס את המחירון התקין בשרת.
+      if (p === 'quotePricing' && !window._quotePricingLoaded) return;
       window._fbSnapshot[p] = _json;
       // מסמנים "כתיבה בתהליך" כדי שה-poll (כל 15 שניות) לא ימשוך בטעות נתון ישן
       // מהשרת בזמן שהכתיבה הזו עדיין באוויר, וידרוס איתו את העדכון המקומי שלנו
@@ -14911,6 +14917,7 @@ function saveOffsetPricing(){
       return fr;
     })()
   };
+  window._quotePricingLoaded = true;   // שמירה ידנית = מחירון אמין → מותר לדחוף לשרת
   persist();
   closeOffsetPricing();
   if (document.getElementById('offset-calc-modal').classList.contains('open')) renderOffsetCalc();
@@ -16844,6 +16851,7 @@ async function _fbPollAll() {
     var qpv = await _pollGet('quotePricing');
     if (qpv !== null && typeof qpv === 'object' && !(_pend.quotePricing > 0)) {
       quotePricing = qpv;
+      window._quotePricingLoaded = true;   // מחירון אמין מהשרת — מותר לדחוף מכאן ואילך
       localStorage.setItem('solanQuotePricing', JSON.stringify(quotePricing));
       window._fbSnapshot.quotePricing = JSON.stringify(quotePricing);
     }
