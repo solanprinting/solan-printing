@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783425254';
+window.APP_VERSION = '1783426230';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2054,6 +2054,11 @@ window._fbSnapshot = {};
     <button class="btn btn-sm" onclick="document.getElementById('order-file-input').click()" style="background:#374151;color:white">📎 העלה קובץ</button>
     <input type="file" id="order-file-input" accept="image/*,application/pdf" style="display:none" onchange="handleOrderFile(this)">
   </div>
+  <div id="order-drop-zone" ondragover="_orderDragOver(event)" ondragenter="_orderDragOver(event)" ondragleave="_orderDragLeave(event)" ondrop="_orderDrop(event)"
+       onclick="document.getElementById('order-file-input').click()"
+       style="margin:8px 14px;padding:14px;border:2px dashed #c7d2fe;border-radius:10px;text-align:center;color:#4f46e5;font-size:.86rem;font-weight:700;background:#f8f9ff;cursor:pointer">
+    📥 גרור לכאן קובץ הזמנה (PDF / תמונה) — או לחץ להעלאה
+  </div>
   <div style="padding:6px 14px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid #f3f4f6">
     <button class="btn btn-sm" onclick="filterOrders('all')"     id="ord-f-all"     style="background:#e5e7eb;font-weight:700;outline:2px solid #1a1a4e">הכל</button>
     <button class="btn btn-sm" onclick="filterOrders('pending')" id="ord-f-pending" style="background:#fef3c7">ממתינות</button>
@@ -3896,7 +3901,15 @@ function convertOrderToCard(id) {
 function handleOrderFile(input) {
   var file = input.files && input.files[0];
   input.value = '';
+  _processOrderFile(file);
+}
+// גרירה/העלאה של קובץ הזמנה — ניתוח וחילוץ פרטים
+function _orderDragOver(e){ e.preventDefault(); e.stopPropagation(); var z=document.getElementById('order-drop-zone'); if(z){ z.style.background='#e0e7ff'; z.style.borderColor='#4f46e5'; } }
+function _orderDragLeave(e){ e.preventDefault(); e.stopPropagation(); var z=document.getElementById('order-drop-zone'); if(z){ z.style.background='#f8f9ff'; z.style.borderColor='#c7d2fe'; } }
+function _orderDrop(e){ e.preventDefault(); e.stopPropagation(); _orderDragLeave(e); var f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) _processOrderFile(f); }
+function _processOrderFile(file) {
   if (!file) return;
+  if (!(file.type === 'application/pdf' || /^image\//.test(file.type))) { showToast('⚠️ יש לגרור קובץ PDF או תמונה'); return; }
   showToast('🔍 מנתח קובץ הזמנה עם Claude...');
   var reader = new FileReader();
   reader.onload = function(e) {
@@ -15811,11 +15824,13 @@ function _csCardHook(card){
     if(!(currentUser && currentUser.isAdmin)) return;
     if(!card || !card.name) return;
     if(card.stockRefill && card.stockRefill.length) return;   // כרטיס שנוצר מהמלאי — כבר מקושר
-    var nm = _pmNorm(card.name);
-    // חפש בכל לקוחות המלאי (כולל כאלה שהוזנו ידנית) לפי התאמת שם
+    // חפש שם לקוח מלאי בכל מקום בכרטיס (שם, מפרט, הערות, לקוחות משולבים, גודל, נייר...)
+    var blob = _pmNorm([ card.name, card.placementDetails, card.notes, card.internalNotes, card.size, card.type, card.paper,
+      (card.combined||[]).map(function(x){ return (x.customer||'')+' '+(x.desc||''); }).join(' ') ].filter(Boolean).join(' '));
+    if(!blob) return;
     var cust = _csCustomerList().find(function(c){
       var cn = _pmNorm(c.name);
-      return cn && cn.length>=2 && (cn===nm || nm.indexOf(cn)>=0 || nm.split(' ')[0]===cn);
+      return cn && cn.length>=2 && ((' '+blob+' ').indexOf(' '+cn+' ')>=0 || blob.indexOf(cn)>=0);
     });
     if(!cust) return;
     var st = customerStock[cust.id];
