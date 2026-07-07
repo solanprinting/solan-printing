@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783429063';
+window.APP_VERSION = '1783430526';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3951,25 +3951,6 @@ function handleOrderFile(input) {
 function _orderDragOver(e){ e.preventDefault(); e.stopPropagation(); var z=document.getElementById('order-drop-zone'); if(z){ z.style.background='#e0e7ff'; z.style.borderColor='#4f46e5'; } }
 function _orderDragLeave(e){ e.preventDefault(); e.stopPropagation(); var z=document.getElementById('order-drop-zone'); if(z){ z.style.background='#f8f9ff'; z.style.borderColor='#c7d2fe'; } }
 function _orderDrop(e){ e.preventDefault(); e.stopPropagation(); _orderDragLeave(e); var f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) _processOrderFile(f); }
-// ArrayBuffer → base64 (בחלקים, לקבצים גדולים)
-function _orderAb2b64(buf){
-  var bytes = new Uint8Array(buf), bin = '', chunk = 0x8000;
-  for (var i = 0; i < bytes.length; i += chunk){ bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk)); }
-  return btoa(bin);
-}
-// חילוץ שכבת הטקסט של PDF בצד הלקוח (עד 5 עמודים) — מהיר, מדויק, ולא תלוי beta
-function _orderExtractPdfText(buf){
-  return pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise.then(function(pdf){
-    var pages = [], n = Math.min(pdf.numPages, 5), chain = Promise.resolve();
-    for (var i = 1; i <= n; i++){ (function(p){
-      chain = chain
-        .then(function(){ return pdf.getPage(p); })
-        .then(function(page){ return page.getTextContent(); })
-        .then(function(tc){ pages.push(tc.items.map(function(it){ return it.str; }).join(' ')); });
-    })(i); }
-    return chain.then(function(){ return pages.join('\n'); });
-  });
-}
 // פענוח תשובת Claude בפורמט שדות (עמיד לעברית, בלי JSON שנשבר על גרשיים כמו בע"מ)
 function _parseOrderTags(text){
   var map = { 'לקוח':'customer','תיאור':'desc','כמות':'qty','תאריך':'date','כתובת':'address','אזור':'area','הערות':'notes' };
@@ -4003,7 +3984,7 @@ function _orderSendToClaude(opts){
     + 'תאריך: <YYYY-MM-DD אם מופיע תאריך אספקה או הזמנה>\n'
     + 'כתובת: <כתובת אספקה אם קיימת>\n'
     + 'אזור: <אחד מ: מרכז / צפון / דרום / ירושלים / שפלה לפי הכתובת>\n'
-    + 'הערות: <פרטים חשובים נוספים — מידות, סוג נייר, צבעים, גימור>\n'
+    + 'הערות: <פרטים חשובים נוספים — מידות, סוג נייר, צבעים, גימור, וכן מספר אתר/סניף אם מופיע (למשל אצל עידית)>\n'
     + 'אם שדה אינו ידוע השאר אותו ריק אחרי הנקודתיים. אל תמציא נתונים שאינם במסמך.';
   var content = [];
   if (opts.pdfB64) content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:opts.pdfB64 } });
@@ -4056,22 +4037,14 @@ function _processOrderFile(file) {
   showToast('🔍 מנתח קובץ הזמנה עם Claude...');
   var reader = new FileReader();
   reader.onload = function(e) {
-    var buf = e.target.result;                       // ArrayBuffer
-    var b64 = _orderAb2b64(buf);
-    window._orderFilePreview = { dataUrl: 'data:' + file.type + ';base64,' + b64, type: file.type, name: file.name };  // תצוגה מקדימה
-    if (isPdf && window.pdfjsLib) {
-      // נסה קודם לחלץ את שכבת הטקסט — מדויק יותר, מהיר יותר, ולא נשבר על beta/סריקה
-      _orderExtractPdfText(buf).then(function(txt){
-        if (txt && txt.replace(/\s/g,'').length >= 25) _orderSendToClaude({ text: txt, file: file });   // PDF עם טקסט
-        else _orderSendToClaude({ pdfB64: b64, file: file });                                            // PDF סרוק — שלח כקובץ
-      }).catch(function(){ _orderSendToClaude({ pdfB64: b64, file: file }); });
-    } else if (isPdf) {
-      _orderSendToClaude({ pdfB64: b64, file: file });
-    } else {
-      _orderSendToClaude({ imgB64: b64, mime: file.type, file: file });
-    }
+    var b64 = e.target.result.split(',')[1];
+    window._orderFilePreview = { dataUrl: e.target.result, type: file.type, name: file.name };  // תצוגה מקדימה
+    // שולחים את הקובץ עצמו ל-Claude (מסמך/תמונה) — לא מחלצים טקסט בצד הלקוח:
+    // הזמנות עברית רבות סורקות/גופן שבור ושכבת הטקסט יוצאת ג'יבריש, בעוד ש-Claude קורא את המסמך עצמו נכון.
+    if (isPdf) _orderSendToClaude({ pdfB64: b64, file: file });
+    else       _orderSendToClaude({ imgB64: b64, mime: file.type, file: file });
   };
-  reader.readAsArrayBuffer(file);
+  reader.readAsDataURL(file);
 }
 
 // ── Firebase listener for orders ──────────────────────────────
