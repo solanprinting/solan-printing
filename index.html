@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783432984';
+window.APP_VERSION = '1783449295';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4008,6 +4008,66 @@ function _proxyFetch(bodyJson){
   }
   return attempt(0);
 }
+// ── עוזרי Firebase גולמיים לנתיב הענן (בלי מנגנון ה-rev) ──────────────
+function _fbPutRaw(path, data){
+  return window._fbAuthToken().then(function(t){
+    return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)
+    }).then(function(r){ return r.ok; });
+  }).catch(function(){ return false; });
+}
+function _fbGetRaw(path){
+  return window._fbAuthToken().then(function(t){
+    return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : '')).then(function(r){ return r.ok ? r.json() : null; });
+  }).catch(function(){ return null; });
+}
+function _fbDelRaw(path){
+  return window._fbAuthToken().then(function(t){
+    return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), { method:'DELETE' }).catch(function(){});
+  }).catch(function(){});
+}
+// נתיב ענן: כותב את הבקשה ל-aiRelay ב-Firebase, הפרוקסי המקומי קולט/מנתח/מחזיר תשובה.
+// עוקף לחלוטין את חסימת הדפדפן מול localhost.
+function _aiRelay(payload){
+  var id = 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+  return _fbPutRaw('aiRelay/' + id, { ts: Date.now(), status:'pending', req: payload }).then(function(ok){
+    if (!ok) throw new Error('שמירת הבקשה לענן נכשלה — בדוק חיבור אינטרנט');
+    try { showToast('☁️ מנתח דרך הענן — כמה שניות...', 5000); } catch(e){}
+    return new Promise(function(resolve, reject){
+      var tries = 0, max = 60;   // 60 × 1.5s = 90 שניות
+      var iv = setInterval(function(){
+        tries++;
+        _fbGetRaw('aiRelay/' + id + '/result').then(function(res){
+          if (res != null){
+            clearInterval(iv); _fbDelRaw('aiRelay/' + id);
+            if (res && res.error) reject(new Error('API ' + res.error));
+            else resolve(res);
+          } else if (tries >= max){
+            clearInterval(iv); _fbDelRaw('aiRelay/' + id);
+            reject(new Error('Failed to fetch — שרת הניתוח לא הגיב דרך הענן (ודא ש-start.bat פועל)'));
+          }
+        });
+      }, 1500);
+    });
+  });
+}
+// נקודת כניסה אחידה לכל בקשות ה-AI: מנסה ישיר לפרוקסי, ואם הדפדפן חוסם — דרך הענן.
+window._proxyDirectOk = null;   // null=לא נבדק, true=ישיר עובד, false=דרך הענן
+function _aiRequest(payload){
+  if (window._proxyDirectOk === false) return _aiRelay(payload);   // כבר ידוע שהישיר חסום בסשן הזה
+  return _proxyFetch(JSON.stringify(payload)).then(function(r){
+    if (!r.ok) return r.json().then(function(e){ throw new Error('API ' + r.status + ': ' + JSON.stringify(e)); });
+    window._proxyDirectOk = true;
+    return r.json();
+  }).catch(function(err){
+    var msg = (err && err.message) || '';
+    if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1) {
+      window._proxyDirectOk = false;
+      return _aiRelay(payload);      // חסימת רשת → מעבר לענן
+    }
+    throw err;                       // שגיאת API אמיתית → הצג אותה
+  });
+}
 function _orderSendToClaude(opts){
   var SYS = 'אתה עוזר של בית דפוס בישראל. חלץ את פרטי ההזמנה מהמסמך. החזר אך ורק שורות בפורמט הבא — שדה אחד בכל שורה, בלי טקסט נוסף ובלי הסברים:\n'
     + 'לקוח: <שם הלקוח או החברה שמזמינים בשבילו>\n'
@@ -4025,11 +4085,7 @@ function _orderSendToClaude(opts){
   if (opts.text) ask += '\n\nטקסט ההזמנה:\n' + opts.text;
   content.push({ type:'text', text:ask });
   var payload = { model:'claude-opus-4-8', max_tokens:1024, system:SYS, messages:[{ role:'user', content:content }] };
-  _proxyFetch(JSON.stringify(payload))
-  .then(function(r){
-    if (!r.ok) return r.json().then(function(errBody){ throw new Error('API ' + r.status + ': ' + JSON.stringify(errBody)); });
-    return r.json();
-  })
+  _aiRequest(payload)
   .then(function(data){
     if (data.type === 'error') throw new Error(data.error && data.error.message || 'API error');
     var text = '';
@@ -8568,9 +8624,9 @@ function extractDeliveryWithAI(dataUrl) {
     : [{ type:"image", source:{ type:"base64", media_type:mimeType, data:base64 } },
        { type:"text", text:"זוהי תעודת משלוח או חשבונית. חלץ JSON בלבד: {paperName,qty,date,docNum}" }];
 
-  return _proxyFetch(JSON.stringify({ model:"claude-sonnet-5", max_tokens:512,
-      messages:[{ role:"user", content:content }] })
-  ).then(function(r){ return r.json(); }).then(function(data) {
+  return _aiRequest({ model:"claude-sonnet-5", max_tokens:512,
+      messages:[{ role:"user", content:content }]
+  }).then(function(data) {
     try {
       var text = data.content[0].text;
       var match = text.match(/\{[\s\S]*?\}/);
@@ -17258,13 +17314,12 @@ window.sendAiMessage = async function(){
   document.getElementById('ai-chat-send').disabled = true;
   var typingEl = appendMsg('מחשב...', 'bot typing');
   try {
-    var r = await _proxyFetch(JSON.stringify({
+    var data = await _aiRequest({
         model:'claude-haiku-4-5',
         max_tokens:600,
         system: _aiSysPrompt,
         messages: _aiHistory
-      }));
-    var data = await r.json();
+      });
     var reply = data.content && data.content[0] && data.content[0].text
       ? data.content[0].text
       : 'שגיאה: לא התקבלה תשובה';
