@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783413225';
+window.APP_VERSION = '1783413926';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6869,7 +6869,7 @@ function _saveCardNew() {
       showPrintModal(card);
       clearForm();
       window._pendingDeduct = card;
-      setTimeout(function(){ _csCardHook(card); }, 700);   // הצע ניכוי ממלאי הלקוח אם השם תואם
+      setTimeout(function(){ _csCardHook(card); }, 700);   // הצע הוספת ייצור למלאי הלקוח אם השם תואם
     });
     return;
   }
@@ -6884,7 +6884,7 @@ function _saveCardNew() {
   clearForm();
   // שאל על מלאי לאחר סגירת מודל ההדפסה
   window._pendingDeduct = card;
-  setTimeout(function(){ _csCardHook(card); }, 700);   // הצע ניכוי ממלאי הלקוח אם השם תואם
+  setTimeout(function(){ _csCardHook(card); }, 700);   // הצע הוספת ייצור למלאי הלקוח אם השם תואם
 }
 
 // ========== PREVIEW ==========
@@ -15113,9 +15113,14 @@ function _csRender(){
       + '<div style="font-weight:700;color:var(--press);margin-bottom:8px;font-size:.85rem">'+(f.itemId?'עריכת פריט':'פריט סחורה חדש')+'</div>'
       + '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px">'
       + '<div><label style="font-size:.7rem;color:#777">שם הסחורה *</label><input class="fi" id="cs-f-name" value="'+_esc(f.name||'')+'" style="margin-top:3px"></div>'
-      + '<div><label style="font-size:.7rem;color:#777">יחידה</label><input class="fi" id="cs-f-unit" value="'+_esc(f.unit||'')+'" placeholder="יח\'/חבילות/גיליונות" style="margin-top:3px"></div>'
+      + '<div><label style="font-size:.7rem;color:#777">יחידה</label><input class="fi" id="cs-f-unit" value="'+_esc(f.unit||'')+'" placeholder="חבילות/קרטונים" style="margin-top:3px"></div>'
       + '<div><label style="font-size:.7rem;color:#777">כמות במלאי</label><input class="fi" id="cs-f-qty" type="number" step="any" value="'+(f.qty!=null?f.qty:'')+'" style="margin-top:3px"></div>'
       + '</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:8px">'
+      + '<div><label style="font-size:.7rem;color:#777">כמות באריזה (יח\')</label><input class="fi" id="cs-f-packsize" type="number" step="any" value="'+(f.packSize!=null?f.packSize:1000)+'" placeholder="1000" style="margin-top:3px"></div>'
+      + '<div><label style="font-size:.7rem;color:#777">סוג אריזה</label><input class="fi" id="cs-f-packaging" value="'+_esc(f.packaging||'')+'" placeholder="חבילות נייר / קרטונים / קרטונים + מדבקות" style="margin-top:3px"></div>'
+      + '</div>'
+      + '<div style="font-size:.7rem;color:#999;margin-top:5px">"כמות באריזה" = כמה יחידות בכל חבילה/קרטון — משמש להמרת כמות שהודפסה לחבילות במלאי.</div>'
       + '<div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end">'
       + '<button class="btn btn-clear" style="font-size:.8rem" onclick="window._csForm=null;_csRender()">ביטול</button>'
       + '<button class="btn btn-primary" style="font-size:.8rem" onclick="_csSaveItem(\''+custId+'\')">💾 שמור</button>'
@@ -15125,7 +15130,7 @@ function _csRender(){
     var low = (Number(it.qty)||0) <= 0;
     return '<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:#fff;border:1px solid var(--line);border-radius:8px;margin-bottom:6px">'
       + '<div style="flex:1"><div style="font-weight:700">'+_esc(it.name)+'</div>'
-      + (it.unit?'<div style="font-size:.74rem;color:#888">'+_esc(it.unit)+'</div>':'') + '</div>'
+      + '<div style="font-size:.74rem;color:#888">' + [ (it.unit?_esc(it.unit):''), 'אריזה: '+_csNum(it.packSize||1000)+' יח\'', (it.packaging?_esc(it.packaging):'') ].filter(Boolean).join(' · ') + '</div></div>'
       + '<div style="font-weight:800;font-size:1.05rem;color:'+(low?'#c0392b':'#166534')+';min-width:74px;text-align:center">'+_csNum(it.qty)+'</div>'
       + '<button class="btn" style="background:#16a34a;color:#fff;font-size:.74rem;padding:4px 8px" onclick="_csMove(\''+custId+'\',\''+it.id+'\',1)">+ כניסה</button>'
       + '<button class="btn" style="background:#dc2626;color:#fff;font-size:.74rem;padding:4px 8px" onclick="_csMove(\''+custId+'\',\''+it.id+'\',-1)">− יציאה</button>'
@@ -15140,10 +15145,10 @@ function _csRender(){
     + '<div style="margin-top:18px;font-weight:800;color:var(--press);font-size:.9rem">📋 תנועות אחרונות</div>'
     + _csLogHtml(st);
 }
-function _csAddItem(custId){ window._csForm = { custId:custId, itemId:null, name:'', unit:'', qty:'' }; _csRender(); }
+function _csAddItem(custId){ window._csForm = { custId:custId, itemId:null, name:'', unit:'חבילות', qty:'', packSize:1000, packaging:'' }; _csRender(); }
 function _csEditItem(custId,itemId){
   var it = _csGet(custId).items.find(function(x){ return x.id===itemId; }); if(!it) return;
-  window._csForm = { custId:custId, itemId:itemId, name:it.name, unit:it.unit||'', qty:it.qty };
+  window._csForm = { custId:custId, itemId:itemId, name:it.name, unit:it.unit||'', qty:it.qty, packSize:(it.packSize!=null?it.packSize:1000), packaging:it.packaging||'' };
   _csRender();
 }
 function _csSaveItem(custId){
@@ -15151,13 +15156,15 @@ function _csSaveItem(custId){
   if(!name){ showToast('⚠️ חסר שם סחורה'); return; }
   var unit = (document.getElementById('cs-f-unit').value||'').trim();
   var qty  = parseFloat((document.getElementById('cs-f-qty').value||'0').toString().replace(/,/g,'')); if(isNaN(qty)) qty = 0;
+  var packSize = parseFloat((document.getElementById('cs-f-packsize').value||'').toString().replace(/,/g,'')); if(isNaN(packSize)||packSize<=0) packSize = 1000;
+  var packaging = (document.getElementById('cs-f-packaging').value||'').trim();
   var st = _csGet(custId); var f = window._csForm;
   if(f && f.itemId){
     var it = st.items.find(function(x){ return x.id===f.itemId; });
-    if(it){ it.name=name; it.unit=unit; it.qty=qty; }
+    if(it){ it.name=name; it.unit=unit; it.qty=qty; it.packSize=packSize; it.packaging=packaging; }
   } else {
     var nid = _csUid('i');
-    st.items.push({ id:nid, name:name, unit:unit, qty:qty });
+    st.items.push({ id:nid, name:name, unit:unit, qty:qty, packSize:packSize, packaging:packaging });
     st.log.unshift({ id:_csUid('m'), ts:Date.now(), delta:qty, itemId:nid, itemName:name, qtyAfter:qty, note:'מלאי התחלתי', by: currentUser?currentUser.name:'' });
   }
   window._csForm = null; _csTouch(custId); persist();
@@ -15221,45 +15228,73 @@ function _csCardHook(card){
     if(!cust) return;
     var st = customerStock[cust.id];
     if(!st || !st.items || !st.items.length) return;   // מציעים רק אם ללקוח יש מלאי
-    _csDeductPrompt(cust, card);
+    _csCardAddPrompt(cust, card);
   }catch(e){}
 }
-function _csDeductPrompt(cust, card){
+// כרטיס עבודה = ייצור → הוספה למלאי. כמות שהודפסה ÷ כמות באריזה = חבילות שנוספות.
+function _csCardAddPrompt(cust, card){
   var st = _csGet(cust.id);
-  var ex = document.getElementById('csDeductModal'); if(ex) ex.remove();
+  var ex = document.getElementById('csAddModal'); if(ex) ex.remove();
+  var copies = parseInt(String(card.copies||'').replace(/[^\d]/g,''),10) || 0;
   var rows = st.items.map(function(it){
-    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0">'
-      + '<div style="flex:1"><b>'+_esc(it.name)+'</b> <span style="color:#888;font-size:.8rem">(במלאי: '+_csNum(it.qty)+(it.unit?' '+_esc(it.unit):'')+')</span></div>'
-      + '<input type="number" min="0" step="any" data-it="'+it.id+'" class="cs-ded-inp fi" style="width:96px" placeholder="יצא">'
-      + '</div>';
+    var ps = it.packSize || 1000;
+    return '<div style="padding:8px 0;border-bottom:1px solid #f2f2f2">'
+      + '<div style="font-weight:700;margin-bottom:4px">'+_esc(it.name)
+      + ' <span style="color:#888;font-size:.76rem">(אריזה: <input type="number" min="1" step="any" data-ps="'+it.id+'" value="'+ps+'" class="fi" style="width:74px" oninput="_csAddCalc()"> יח\')</span></div>'
+      + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+      + '<label style="font-size:.8rem;color:#555">הודפס (יח\'):</label>'
+      + '<input type="number" min="0" step="any" data-pr="'+it.id+'" class="cs-add-inp fi" style="width:130px" placeholder="0" oninput="_csAddCalc()">'
+      + '<span style="font-size:.82rem;color:#166534;font-weight:800" id="cs-add-pk-'+it.id+'">= 0 חבילות</span>'
+      + '</div></div>';
   }).join('');
-  var html = '<div id="csDeductModal" class="modal-overlay open" style="z-index:10001">'
-    + '<div class="modal-box" style="max-width:480px;width:94vw">'
-    + '<div class="modal-header"><span>📦 ניכוי מהמלאי — '+_esc(cust.name)+'</span><button class="modal-close" onclick="document.getElementById(\'csDeductModal\').remove()">✕</button></div>'
+  var html = '<div id="csAddModal" class="modal-overlay open" style="z-index:10001">'
+    + '<div class="modal-box" style="max-width:540px;width:94vw">'
+    + '<div class="modal-header"><span>📥 הוספת ייצור למלאי — '+_esc(cust.name)+'</span><button class="modal-close" onclick="document.getElementById(\'csAddModal\').remove()">✕</button></div>'
     + '<div style="padding:16px 20px">'
-    + '<div style="font-size:.82rem;color:#666;margin-bottom:10px">כרטיס "'+_esc(card.name)+'". הזן כמה יצא מכל פריט (השאר ריק למה שלא יצא):</div>'
+    + '<div style="font-size:.82rem;color:#666;margin-bottom:10px">כרטיס "'+_esc(card.name)+'". הזן כמה יחידות הודפסו מכל סוג — יתווסף למלאי לפי כמות באריזה (אפשר לשנות אריזה לעבודה חד-פעמית, למשל 500):</div>'
     + rows
     + '<div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">'
-    + '<button class="btn btn-clear" style="font-size:.82rem" onclick="document.getElementById(\'csDeductModal\').remove()">דלג</button>'
-    + '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csDeductApply(\''+cust.id+'\',\''+String(card.id)+'\')">✓ נכה מהמלאי</button>'
+    + '<button class="btn btn-clear" style="font-size:.82rem" onclick="document.getElementById(\'csAddModal\').remove()">דלג</button>'
+    + '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csCardAddApply(\''+cust.id+'\',\''+String(card.id)+'\')">✓ הוסף למלאי</button>'
     + '</div></div></div></div>';
   document.body.insertAdjacentHTML('beforeend', html);
+  if(copies>0){
+    var nm = _pmNorm(card.name+' '+(card.placementDetails||''));
+    var best = st.items.find(function(it){ var xn=_pmNorm(it.name); return xn && nm.indexOf(xn)>=0; }) || (st.items.length===1 ? st.items[0] : null);
+    if(best){ var inp=document.querySelector('#csAddModal .cs-add-inp[data-pr="'+best.id+'"]'); if(inp) inp.value = copies; }
+  }
+  _csAddCalc();
 }
-function _csDeductApply(custId, cardId){
+function _csAddCalc(){
+  document.querySelectorAll('#csAddModal .cs-add-inp').forEach(function(inp){
+    var id = inp.getAttribute('data-pr');
+    var pr = parseFloat((inp.value||'0').toString().replace(/,/g,''))||0;
+    var psEl = document.querySelector('#csAddModal [data-ps="'+id+'"]');
+    var ps = parseFloat(psEl && psEl.value)||1000; if(ps<=0) ps = 1000;
+    var pk = Math.round((pr/ps)*100)/100;
+    var out = document.getElementById('cs-add-pk-'+id); if(out) out.textContent = '= '+_csNum(pk)+' חבילות';
+  });
+}
+function _csCardAddApply(custId, cardId){
   var st = _csGet(custId); var any = false;
-  document.querySelectorAll('#csDeductModal .cs-ded-inp').forEach(function(inp){
-    var q = parseFloat((inp.value||'').toString().replace(/,/g,'')); if(!(q>0)) return;
-    var it = st.items.find(function(x){ return x.id===inp.getAttribute('data-it'); }); if(!it) return;
-    it.qty = (Number(it.qty)||0) - q; any = true;
-    st.log.unshift({ id:_csUid('m'), ts:Date.now(), delta:-q, itemId:it.id, itemName:it.name, qtyAfter:it.qty, note:'', cardId:cardId, by: currentUser?currentUser.name:'' });
+  document.querySelectorAll('#csAddModal .cs-add-inp').forEach(function(inp){
+    var id = inp.getAttribute('data-pr');
+    var pr = parseFloat((inp.value||'0').toString().replace(/,/g,'')); if(!(pr>0)) return;
+    var it = st.items.find(function(x){ return x.id===id; }); if(!it) return;
+    var psEl = document.querySelector('#csAddModal [data-ps="'+id+'"]');
+    var ps = parseFloat(psEl && psEl.value) || it.packSize || 1000; if(ps<=0) ps = 1000;
+    if(ps !== (it.packSize||1000)) it.packSize = ps;   // עדכן כמות באריזה בזיכרון אם שונתה
+    var pk = Math.round((pr/ps)*100)/100;
+    it.qty = (Number(it.qty)||0) + pk; any = true;
+    st.log.unshift({ id:_csUid('m'), ts:Date.now(), delta:pk, itemId:it.id, itemName:it.name, qtyAfter:it.qty, note:'הדפסה '+_csNum(pr)+' יח׳', cardId:cardId, by: currentUser?currentUser.name:'' });
   });
   if(any){
     if(st.log.length>300) st.log = st.log.slice(0,300);
     _csTouch(custId); persist();
-    _logActivity('📤', 'ניכוי ממלאי לקוח (כרטיס)', null);
-    showToast('✅ נוכה ממלאי הלקוח');
+    _logActivity('📥', 'הוספת ייצור למלאי לקוח (כרטיס)', null);
+    showToast('✅ נוסף למלאי הלקוח');
   }
-  var m = document.getElementById('csDeductModal'); if(m) m.remove();
+  var m = document.getElementById('csAddModal'); if(m) m.remove();
 }
 
 // ── בדיקת הזמנה מול מלאי: מעלים/מזינים הזמנה ורואים אם יש מספיק ומה חסר ──
