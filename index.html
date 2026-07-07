@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783432522';
+window.APP_VERSION = '1783432984';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3989,6 +3989,25 @@ function _parseOrderTags(text){
   }
   return out;
 }
+// קריאה לפרוקסי המקומי — עמידה בפני Local Network Access של כרום:
+// אתר HTTPS ציבורי שפונה ל-127.0.0.1 חייב לסמן targetAddressSpace, אחרת כרום
+// עלול לחסום בשקט ("Failed to fetch"). מנסים loopback → local → רגיל.
+function _proxyFetch(bodyJson){
+  var url = 'http://127.0.0.1:8766/v1/messages';
+  var variants = [ { targetAddressSpace: 'loopback' }, { targetAddressSpace: 'local' }, {} ];
+  function attempt(i){
+    if (i >= variants.length) return Promise.reject(new TypeError('Failed to fetch (כל הנסיונות נכשלו)'));
+    var opts = Object.assign({ method:'POST', headers:{ 'content-type':'application/json' }, body: bodyJson }, variants[i]);
+    var p;
+    try { p = fetch(url, opts); }
+    catch(e){ return attempt(i + 1); }               // ערך enum לא מוכר בדפדפן ישן → נסה וריאנט הבא
+    return p.catch(function(err){
+      try { console.warn('[solan] proxy fetch variant', i, 'failed:', err && (err.name + ': ' + err.message)); } catch(_){}
+      return attempt(i + 1);                          // חסימת רשת/LNA → נסה וריאנט הבא
+    });
+  }
+  return attempt(0);
+}
 function _orderSendToClaude(opts){
   var SYS = 'אתה עוזר של בית דפוס בישראל. חלץ את פרטי ההזמנה מהמסמך. החזר אך ורק שורות בפורמט הבא — שדה אחד בכל שורה, בלי טקסט נוסף ובלי הסברים:\n'
     + 'לקוח: <שם הלקוח או החברה שמזמינים בשבילו>\n'
@@ -4006,11 +4025,7 @@ function _orderSendToClaude(opts){
   if (opts.text) ask += '\n\nטקסט ההזמנה:\n' + opts.text;
   content.push({ type:'text', text:ask });
   var payload = { model:'claude-opus-4-8', max_tokens:1024, system:SYS, messages:[{ role:'user', content:content }] };
-  fetch('http://127.0.0.1:8766/v1/messages', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload)
-  })
+  _proxyFetch(JSON.stringify(payload))
   .then(function(r){
     if (!r.ok) return r.json().then(function(errBody){ throw new Error('API ' + r.status + ': ' + JSON.stringify(errBody)); });
     return r.json();
@@ -4034,13 +4049,16 @@ function _orderSendToClaude(opts){
     showToast('✅ פרטים חולצו בהצלחה!');
   })
   .catch(function(e){
-    var msg = e.message || '';
-    if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1) {
-      showToast('⚠️ שרת הניתוח לא פעיל — הפעל את start.bat ונסה שוב');
+    var msg = (e && (e.name ? e.name + ': ' : '') + (e.message || '')) || 'שגיאה לא ידועה';
+    try { console.error('[solan] order extraction failed:', e); } catch(_){}
+    var isNet = msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1;
+    if (isNet) {
+      showToast('⚠️ אין חיבור לשרת הניתוח — אם קפצה בקשת הרשאה ליד שורת הכתובת, אשר אותה ונסה שוב', 7000);
     } else {
-      showToast('⚠️ שגיאה בניתוח — ' + msg.slice(0,80));
+      showToast('⚠️ שגיאה בניתוח — ' + msg.slice(0,90), 7000);
     }
-    openNewOrderModal({ fileNote: '📎 ' + opts.file.name + ' (נותח ידנית)' });
+    // מציגים את סיבת הכשל בתוך חלון ההזמנה כדי שאפשר יהיה לאבחן בלי קונסול
+    openNewOrderModal({ fileNote: '📎 ' + opts.file.name + ' (נותח ידנית) · ⚠️ ' + (isNet ? 'אין חיבור לשרת הניתוח (127.0.0.1:8766)' : msg.slice(0,120)) + ' · גרסה ' + (window.APP_VERSION || '?') });
   });
 }
 function _processOrderFile(file) {
@@ -8550,12 +8568,9 @@ function extractDeliveryWithAI(dataUrl) {
     : [{ type:"image", source:{ type:"base64", media_type:mimeType, data:base64 } },
        { type:"text", text:"זוהי תעודת משלוח או חשבונית. חלץ JSON בלבד: {paperName,qty,date,docNum}" }];
 
-  return fetch("http://127.0.0.1:8766/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model:"claude-sonnet-5", max_tokens:512,
+  return _proxyFetch(JSON.stringify({ model:"claude-sonnet-5", max_tokens:512,
       messages:[{ role:"user", content:content }] })
-  }).then(function(r){ return r.json(); }).then(function(data) {
+  ).then(function(r){ return r.json(); }).then(function(data) {
     try {
       var text = data.content[0].text;
       var match = text.match(/\{[\s\S]*?\}/);
@@ -17243,16 +17258,12 @@ window.sendAiMessage = async function(){
   document.getElementById('ai-chat-send').disabled = true;
   var typingEl = appendMsg('מחשב...', 'bot typing');
   try {
-    var r = await fetch('http://127.0.0.1:8766/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
+    var r = await _proxyFetch(JSON.stringify({
         model:'claude-haiku-4-5',
         max_tokens:600,
         system: _aiSysPrompt,
         messages: _aiHistory
-      })
-    });
+      }));
     var data = await r.json();
     var reply = data.content && data.content[0] && data.content[0].text
       ? data.content[0].text
