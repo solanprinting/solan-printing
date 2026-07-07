@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783419997';
+window.APP_VERSION = '1783420412';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6823,12 +6823,42 @@ function saveCard() {
   // else — normal new card flow below
   _saveCardNew();
 }
+// חתימה של כרטיס לפי כל פרטיו המהותיים — לזיהוי כפילות מלאה (בלי id/סטטוס/תאריך יצירה)
+function _cardSignature(c){
+  if(!c) return '';
+  var n = function(v){ return (v==null?'':String(v)).trim(); };
+  var runs = (c.runs||[]).map(function(r){ return {
+    pages:n(r.pages), copies:n(r.copies), machine:n(r.machine), paper:n(r.paper),
+    color:n(r.color), folds:n(r.folds), size:n(r.size), ab:!!r.abEnabled, extra:n(r.manualExtra)
+  }; });
+  return JSON.stringify({
+    name:n(c.name), type:n(c.type), orderDate:n(c.orderDate), deliveryDate:n(c.deliveryDate),
+    copies:n(c.copies), pages:n(c.pages), pagesNote:n(c.pagesNote), color:n(c.color),
+    size:n(c.size), paper:n(c.paper), notes:n(c.notes), internalNotes:n(c.internalNotes),
+    placementDetails:n(c.placementDetails), machine:n(c.machine),
+    tumble:!!c.tumble, singleSheet:!!c.singleSheet, sheetsMode:!!c.sheetsMode, allPaper:!!c.allPaper,
+    perSheet:(parseInt(c.perSheet)||1), needsFolding:!!c.needsFolding, needsBinding:!!c.needsBinding,
+    runs: runs
+  });
+}
 function _saveCardNew() {
   const name=document.getElementById('f-name').value.trim();
   if (!name) { showToast('⚠️ חסר שם עבודה'); return; }
-  // התראה על כפילות שם — מונע שני כרטיסים באותו שם (שגורם לפרופר "להיעלם" בין עותקים)
-  var _dupCard = (cards||[]).find(function(x){ return x && x.name === name && x.status !== 'done' && x.status !== 'trash'; });
-  if (_dupCard && !confirm('⚠️ כבר קיימת עבודה פעילה בשם "' + name + '".\nלשמור עבודה נוספת עם אותו שם בכל זאת?')) return;
+  // כפילות מלאה — כרטיס פעיל זהה בכל פרטיו: התראה, וברירת מחדל לא ליצור עותק נוסף
+  var _newSig = _cardSignature(buildTempCard());
+  var _identCard = (cards||[]).find(function(x){ return x && x.status !== 'done' && x.status !== 'trash' && _cardSignature(x) === _newSig; });
+  if (_identCard) {
+    if (!confirm('⚠️ כבר קיים כרטיס עבודה זהה לחלוטין לעבודה הזו'
+      + (_identCard.createdAt ? ' (נוצר ' + _identCard.createdAt + ')' : '') + '.\n\n'
+      + 'לחצו "ביטול" כדי לא ליצור כפילות (מומלץ), או "אישור" כדי ליצור עותק נוסף בכל זאת.')) {
+      showToast('✅ לא נוצרה כפילות — הכרטיס הקיים נשמר');
+      return;
+    }
+  } else {
+    // התראה על כפילות שם — מונע שני כרטיסים באותו שם (שגורם לפרופר "להיעלם" בין עותקים)
+    var _dupCard = (cards||[]).find(function(x){ return x && x.name === name && x.status !== 'done' && x.status !== 'trash'; });
+    if (_dupCard && !confirm('⚠️ כבר קיימת עבודה פעילה בשם "' + name + '".\nלשמור עבודה נוספת עם אותו שם בכל זאת?')) return;
+  }
   if (!_confirmSheetsDeviation()) return;
   addHistory('f-name',  name);
   addHistory('f-type',  document.getElementById('f-type').value.trim());
