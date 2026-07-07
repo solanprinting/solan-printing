@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783450143';
+window.APP_VERSION = '1783450728';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1197,7 +1197,7 @@ window._fbSnapshot = {};
     <button class="btn btn-outline-w admin-only" onclick="openReports()">📊 דוחות</button>
     <button class="btn btn-outline-w admin-only" id="cs-stock-btn" onclick="openCustStock()" style="position:relative">📦 מלאי לקוחות<span id="cs-stock-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w" onclick="openOperatorView()">🏭 מסך דפסים</button>
-    <button class="btn btn-outline-w" onclick="openOrderChecklist()" title="צ'ק ליסט אספקת הזמנות" style="position:relative">✅ אספקה<span id="ocl-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#f59e0b;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
+    <button class="btn btn-outline-w admin-only" onclick="openOrderChecklist()" title="צ'ק ליסט אספקת הזמנות" style="position:relative">✅ אספקה<span id="ocl-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#f59e0b;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w" id="notif-bell-btn" onclick="_notifToggle()" style="position:relative" title="התראות — מי עשה מה">
       🔔<span id="notif-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span>
     </button>
@@ -3831,6 +3831,7 @@ function _oclUpdateBadge(){
 // התראה יומית בסביבות 15:00 — פותחת את הצ'ק ליסט (כשהאפליקציה פתוחה)
 function _orderChecklistDailyCheck(){
   try {
+    if (!(currentUser && currentUser.isAdmin)) return;   // צ'ק ליסט האספקה — רק למשתמש שלי (מנהל), לא לעובדים
     var now = new Date(), hh = now.getHours();
     _oclUpdateBadge();
     if (hh < 15 || hh >= 20) return;                       // חלון 15:00–20:00
@@ -16736,7 +16737,7 @@ function downloadUpdate() {
 function setupFBListeners() {
   if (window._fbPollInterval) clearInterval(window._fbPollInterval);
   _fbPollAll();
-  window._fbPollInterval = setInterval(_fbPollAll, 30 * 1000);
+  window._fbPollInterval = setInterval(_fbPollAll, 60 * 1000);   // 60ש' (היה 30) — חיסכון Downloads: אוסף גדול שמשתנה (cards 161KB) נמשך מחדש בכל סבב
 }
 
 // ── הבהוב חלון כשנוצר כרטיס חדש (למשתמשים פתוחים שהחלון שלהם ממוזער/לא בפוקוס) ──
@@ -18302,7 +18303,7 @@ function _initMachineViewMode() {
   // Fast poll every 10s for live updates
   setTimeout(function() {
     _opLoadAndRender();
-    window._opPollInterval = setInterval(_opLoadAndRender, 20000);  // 20ש' (היה 10) — מפחית Outgoing Bandwidth
+    window._opPollInterval = setInterval(_opLoadAndRender, 40000);  // 40ש' (היה 20/10) — מפחית Downloads (מסך דפסים מושך cards בכל שינוי)
   }, 1800);
   _opKeepAwake();   // מונע כיבוי מסך בחוסר פעילות (Wake Lock)
   return true;
@@ -19350,7 +19351,7 @@ setTimeout(function(){ try { _cleanupOldProofs(); } catch(e){} }, 5000);
 setInterval(function(){ try { _cleanupOldProofs(); } catch(e){} }, 60 * 60 * 1000);
 // מצב העלאות פרופרים משותף — נראה לכל המשתמשים ושורד ריענון מסך
 setTimeout(function(){ try { _pollProofUploads(); } catch(e){} }, 2500);
-setInterval(function(){ try { _pollProofUploads(); } catch(e){} }, 5000);
+setInterval(function(){ try { _pollProofUploads(); } catch(e){} }, 20000);   // 20ש' (היה 5) — פחות בקשות
 // אתחול לוגין — אם זה מסך מפעיל, מדלגים על לוגין
 (function(){
   if (_initMachineViewMode()) return;
