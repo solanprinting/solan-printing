@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783421912';
+window.APP_VERSION = '1783422577';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1704,10 +1704,37 @@ window._fbSnapshot = {};
         <label style="font-weight:700;font-size:.85rem;color:var(--press)">לקוח:</label>
         <select id="cs-customer" class="fi" style="max-width:300px" onchange="window._csForm=null;_csRender()"></select>
         <button class="btn btn-primary" onclick="_csAddCustomer()" style="font-size:.76rem">➕ לקוח חדש</button>
-        <button class="btn btn-outline" onclick="_csRenameCustomer()" style="font-size:.76rem">✏️ שם</button>
+        <button class="btn btn-outline" onclick="_csRenameCustomer()" style="font-size:.76rem">✏️ פרטי לקוח</button>
+        <button class="btn btn-outline" onclick="_csOpenShortages()" style="font-size:.76rem;border-color:#dc2626;color:#dc2626">📋 חוסרים</button>
         <button class="btn btn-outline" onclick="_csExportCsv()" style="font-size:.76rem">⬇️ CSV</button>
       </div>
       <div id="cs-body"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== CUSTOMER STOCK — CUSTOMER DETAILS MODAL ===== -->
+<div class="modal-overlay" id="csCustModal" style="z-index:10002">
+  <div class="modal-box" style="max-width:460px;width:94vw">
+    <div class="modal-header">
+      <span id="csc-title">לקוח חדש למלאי</span>
+      <button class="modal-close" onclick="document.getElementById('csCustModal').classList.remove('open')">✕</button>
+    </div>
+    <div style="padding:16px 20px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="grid-column:1/-1"><label style="font-size:.72rem;color:#777">שם הלקוח *</label><input class="fi" id="csc-name" style="margin-top:3px"></div>
+        <div><label style="font-size:.72rem;color:#777">טלפון</label><input class="fi" id="csc-phone" style="margin-top:3px"></div>
+        <div><label style="font-size:.72rem;color:#777">אימייל</label><input class="fi" id="csc-email" type="email" style="margin-top:3px"></div>
+        <div><label style="font-size:.72rem;color:#777">איש קשר</label><input class="fi" id="csc-contact" style="margin-top:3px"></div>
+        <div><label style="font-size:.72rem;color:#777">כתובת</label><input class="fi" id="csc-address" style="margin-top:3px"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:space-between">
+        <button class="btn btn-outline" id="csc-del" style="font-size:.8rem;border-color:#e0a0a0;color:#c0392b;display:none" onclick="_csCustDelete()">🗑️ מחק לקוח</button>
+        <div style="display:flex;gap:8px;margin-right:auto">
+          <button class="btn btn-clear" style="font-size:.8rem" onclick="document.getElementById('csCustModal').classList.remove('open')">ביטול</button>
+          <button class="btn btn-primary" style="font-size:.8rem" onclick="_csCustSave()">💾 שמור</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -15218,56 +15245,161 @@ function _csCustName(custId){
   var c = (customers||[]).find(function(x){ return String(x.id)===String(custId); });
   return c ? (c.name||'(לקוח)') : '(לקוח)';
 }
-// רשימת לקוחות לבחירה: לקוחות האפליקציה + לקוחות שהוזנו ידנית במלאי (dedup)
+// רשימת לקוחות המלאי — רק כאלה שהוזנו ידנית (יש להם name) או שכבר יש להם סחורה.
+// לא כוללת את כל רשימת הלקוחות של האפליקציה.
 function _csCustomerList(){
-  var map = {};
-  (customers||[]).forEach(function(c){ if(c && c.id!=null) map[String(c.id)] = { id:String(c.id), name:c.name||'', manual:false }; });
+  var out = [];
   Object.keys(customerStock||{}).forEach(function(id){
-    var st = customerStock[id];
-    if (!map[id]) map[id] = { id:id, name:(st && st.name) || '(לקוח מלאי)', manual:true };
-    else if (st && st.name) map[id].name = st.name;
+    var st = customerStock[id]; if(!st || st._deleted) return;
+    if (st.name || (st.items && st.items.length)) out.push({ id:id, name: st.name || _csCustName(id), manual:true });
   });
-  return Object.keys(map).map(function(k){ return map[k]; })
-    .sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','he'); });
+  return out.sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','he'); });
 }
 function _csFillCustomerSelect(selectedId){
   var sel = document.getElementById('cs-customer'); if(!sel) return;
   var list = _csCustomerList();
   sel.innerHTML = '<option value="">— בחר לקוח —</option>' + list.map(function(c){
-    return '<option value="'+_esc(c.id)+'">'+_esc(c.name)+(c.manual?'  ★':'')+'</option>';
+    return '<option value="'+_esc(c.id)+'">'+_esc(c.name)+'</option>';
   }).join('');
   if(selectedId!=null && sel.querySelector('option[value="'+String(selectedId).replace(/"/g,'&quot;')+'"]')) sel.value = String(selectedId);
 }
-function _csAddCustomer(){
+// ── טופס פרטי לקוח מלאי (שם + טלפון + מייל + איש קשר + כתובת) ──
+function _csAddCustomer(){ _csCustEdit(null); }
+function _csRenameCustomer(){
+  var sel = document.getElementById('cs-customer'); var id = sel ? sel.value : '';
+  if(!id){ showToast('בחר לקוח קודם'); return; }
+  _csCustEdit(id);
+}
+function _csCustEdit(id){
   if(!_csGuard()) return;
-  var name = prompt('שם הלקוח החדש (למלאי):',''); if(name===null) return;
-  name = name.trim(); if(!name){ showToast('⚠️ חסר שם'); return; }
-  var id = _csUid('cust');
-  var st = _csGet(id); st.name = name; _csTouch(id);
-  persist();
+  window._csCustEditId = id || null;
+  var st = id ? _csGet(id) : null;
+  var g = function(k){ return st ? (st[k]||'') : ''; };
+  document.getElementById('csc-name').value    = g('name');
+  document.getElementById('csc-phone').value   = g('phone');
+  document.getElementById('csc-email').value   = g('email');
+  document.getElementById('csc-contact').value = g('contact');
+  document.getElementById('csc-address').value = g('address');
+  document.getElementById('csc-title').textContent = id ? 'עריכת פרטי לקוח' : 'לקוח חדש למלאי';
+  document.getElementById('csc-del').style.display = id ? '' : 'none';
+  document.getElementById('csCustModal').classList.add('open');
+  setTimeout(function(){ var e=document.getElementById('csc-name'); if(e) e.focus(); }, 60);
+}
+function _csCustSave(){
+  var name = (document.getElementById('csc-name').value||'').trim();
+  if(!name){ showToast('⚠️ חסר שם לקוח'); return; }
+  var id = window._csCustEditId || _csUid('cust');
+  var st = _csGet(id);
+  st.name    = name;
+  st.phone   = (document.getElementById('csc-phone').value||'').trim();
+  st.email   = (document.getElementById('csc-email').value||'').trim();
+  st.contact = (document.getElementById('csc-contact').value||'').trim();
+  st.address = (document.getElementById('csc-address').value||'').trim();
+  st._deleted = false;
+  _csTouch(id); persist();
+  document.getElementById('csCustModal').classList.remove('open');
   _csFillCustomerSelect(id);
   window._csForm = null; _csRender();
-  showToast('✅ לקוח נוסף למלאי');
+  showToast('✅ פרטי הלקוח נשמרו');
 }
-function _csRenameCustomer(){
-  if(!_csGuard()) return;
-  var sel = document.getElementById('cs-customer'); var custId = sel ? sel.value : '';
-  if(!custId){ showToast('בחר לקוח קודם'); return; }
-  var cur = _csCustName(custId);
-  var name = prompt('שם הלקוח:', cur==='(לקוח)'?'':cur); if(name===null) return;
-  name = name.trim(); if(!name){ showToast('⚠️ חסר שם'); return; }
-  var st = _csGet(custId); st.name = name; _csTouch(custId);
+function _csCustDelete(){
+  var id = window._csCustEditId; if(!id) return;
+  var st = customerStock[id];
+  var n = (st && st.items) ? st.items.length : 0;
+  if(!confirm(n ? ('ללקוח יש '+n+' פריטי סחורה. למחוק את הלקוח וכל המלאי שלו?') : 'למחוק את הלקוח מהמלאי?')) return;
+  // מחיקה עם tombstone (מסתנכרן בין מכשירים) — נשמר עם updatedAt חדש
+  customerStock[id] = { items:[], log:[], name: (st&&st.name)||'', _deleted:true, updatedAt: Date.now() };
   persist();
-  _csFillCustomerSelect(custId);
-  _csRender();
-  showToast('✅ השם עודכן');
+  document.getElementById('csCustModal').classList.remove('open');
+  var sel = document.getElementById('cs-customer'); if(sel) sel.value = '';
+  _csFillCustomerSelect('');
+  window._csForm = null; _csRender();
+  showToast('🗑️ הלקוח נמחק מהמלאי');
+}
+// ── דוח חוסרים לכל הלקוחות + הדפסה + הכנת כרטיס ──
+function _csShortReportFor(custId){
+  var st = _csGet(custId); var out = [];
+  (st.items||[]).forEach(function(it){
+    if(_csItemLow(it)){
+      var shortPacks = Math.max(0, (Number(it.minQty)||0) - (Number(it.qty)||0));
+      out.push({ item:it, shortPacks:shortPacks, produceUnits: shortPacks * (Number(it.packSize)||1000) });
+    }
+  });
+  return out;
+}
+function _csShortReportAll(){
+  return _csCustomerList().map(function(c){
+    return { custId:c.id, name:c.name, rows:_csShortReportFor(c.id) };
+  }).filter(function(x){ return x.rows.length; });
+}
+function _csOpenShortages(){
+  if(!_csGuard()) return;
+  var data = _csShortReportAll();
+  var ex = document.getElementById('csShortModal'); if(ex) ex.remove();
+  var body;
+  if(!data.length){
+    body = '<div style="padding:30px;text-align:center;color:#166534;font-weight:700">✅ אין חוסרים באף לקוח.</div>';
+  } else {
+    body = data.map(function(d){
+      var rows = d.rows.map(function(r){
+        return '<tr style="border-bottom:1px solid #f0f0f0">'
+          + '<td style="padding:5px 8px;font-weight:700">'+_esc(r.item.name)+'</td>'
+          + '<td style="padding:5px 8px;text-align:center">'+_csNum(r.item.qty)+'</td>'
+          + '<td style="padding:5px 8px;text-align:center">'+_csNum(r.item.minQty)+'</td>'
+          + '<td style="padding:5px 8px;text-align:center;color:#dc2626;font-weight:800">'+_csNum(r.shortPacks)+'</td>'
+          + '<td style="padding:5px 8px;text-align:center;font-weight:700">'+_csNum(r.produceUnits)+' יח\'</td></tr>';
+      }).join('');
+      return '<div style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">'
+        + '<div style="background:#f5f6ff;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">'
+        + '<b style="color:var(--press)">'+_esc(d.name)+'</b>'
+        + '<button class="btn btn-outline no-print" style="font-size:.74rem" onclick="_csCardFromShortages(\''+d.custId+'\')">➕ הכן כרטיס</button></div>'
+        + '<table style="width:100%;border-collapse:collapse;font-size:.83rem"><thead><tr style="color:#666">'
+        + '<th style="padding:5px 8px;text-align:right">מוצר</th><th style="padding:5px 8px">במלאי</th><th style="padding:5px 8px">סף</th><th style="padding:5px 8px">חסר (חבילות)</th><th style="padding:5px 8px">להפיק</th></tr></thead>'
+        + '<tbody>'+rows+'</tbody></table></div>';
+    }).join('');
+  }
+  var html = '<div id="csShortModal" class="modal-overlay open" style="z-index:10001">'
+    + '<div class="modal-box" style="max-width:640px;width:95vw">'
+    + '<div class="modal-header"><span>📋 חוסרים — כל הלקוחות</span><button class="modal-close no-print" onclick="document.getElementById(\'csShortModal\').remove()">✕</button></div>'
+    + '<div style="padding:16px 20px;overflow-y:auto;max-height:78vh" id="cs-short-print">'
+    + '<div style="font-weight:800;color:var(--press);margin-bottom:12px">רשימת חוסרים לפי לקוח</div>' + body + '</div>'
+    + '<div style="padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px" class="no-print">'
+    + (data.length ? '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csPrintShortages()">🖨️ הדפס</button>' : '')
+    + '<button class="btn btn-clear" style="font-size:.82rem" onclick="document.getElementById(\'csShortModal\').remove()">סגור</button>'
+    + '</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function _csPrintShortages(){
+  var node = document.getElementById('cs-short-print'); if(!node) return;
+  var w = window.open('','_blank','width=720,height=800'); if(!w) return;
+  w.document.write('<html dir="rtl"><head><meta charset="utf-8"><title>חוסרים — מלאי לקוחות</title>'
+    + '<style>body{font-family:sans-serif;margin:24px;color:#111}table{width:100%;border-collapse:collapse;font-size:14px;margin-bottom:14px}th,td{border:1px solid #ddd;padding:5px 8px}th{background:#f3f4f6}h2{color:#2d3561}.no-print{display:none!important}</style></head><body>'
+    + '<h2>📋 רשימת חוסרים — מלאי לקוחות · '+new Date().toLocaleDateString('he-IL')+'</h2>'
+    + node.innerHTML + '</body></html>');
+  w.document.close(); setTimeout(function(){ try{ w.print(); }catch(e){} }, 300);
+}
+function _csCardFromShortages(custId){
+  var rep = _csShortReportFor(custId);
+  if(!rep.length){ showToast('אין חוסרים ללקוח זה'); return; }
+  if(typeof switchTab==='function') switchTab('new');
+  if(typeof clearForm==='function') clearForm();
+  var nm = _csCustName(custId);
+  var fn = document.getElementById('f-name'); if(fn) fn.value = nm;
+  var pd = rep.map(function(r){ return r.item.name + ' — ' + _csNum(r.produceUnits) + ' יח\' (' + _csNum(r.shortPacks) + ' חב\')'; }).join(' · ');
+  var pdEl = document.getElementById('f-placement-details');
+  if(pdEl){ pdEl.value = pd; var w=document.getElementById('placement-details-wrap'); if(w) w.style.display=''; }
+  var totUnits = rep.reduce(function(s,r){ return s + r.produceUnits; }, 0);
+  var cp = document.getElementById('f-copies'); if(cp && rep.length===1) cp.value = rep[0].produceUnits;
+  var sm = document.getElementById('csShortModal'); if(sm) sm.remove();
+  document.getElementById('custStockModal').classList.remove('open');
+  showToast('📋 כרטיס הוכן לפי החוסרים — השלם נייר/מכונה והדפס');
 }
 // ── התראות מלאי נמוך ──
 function _csItemLow(it){ var mn=Number(it.minQty)||0; return mn>0 && (Number(it.qty)||0) <= mn; }
 function _csLowStockItems(){
   var out=[];
   Object.keys(customerStock||{}).forEach(function(cid){
-    var st=customerStock[cid]; if(!st||!st.items) return;
+    var st=customerStock[cid]; if(!st||st._deleted||!st.items) return;
     var cn=_csCustName(cid);
     st.items.forEach(function(it){ if(_csItemLow(it)) out.push({ custId:cid, custName:cn, item:it }); });
   });
@@ -15393,7 +15525,12 @@ function _csRender(){
   }).join('') : '<div style="color:#aaa;padding:14px 0">אין פריטי סחורה ללקוח זה עדיין.</div>';
   var custLow = st.items.filter(_csItemLow);
   var custLowBanner = custLow.length ? '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 12px;margin-bottom:10px;color:#b91c1c;font-weight:700;font-size:.84rem">⚠️ '+custLow.length+' פריטים מתחת לסף: '+custLow.map(function(x){return _esc(x.name);}).join(', ')+'</div>' : '';
-  host.innerHTML = custLowBanner +
+  // פרטי הלקוח (אם מולאו)
+  var _det = [ (st.phone?'📞 '+_esc(st.phone):''), (st.email?'✉️ '+_esc(st.email):''), (st.contact?'👤 '+_esc(st.contact):''), (st.address?'📍 '+_esc(st.address):'') ].filter(Boolean).join(' · ');
+  var custInfoBar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:#f8f9ff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px;margin-bottom:10px">'
+    + '<div style="font-size:.82rem;color:#555">' + (_det || '<span style="color:#aaa">לא מולאו פרטי לקוח</span>') + '</div>'
+    + '<button class="btn btn-outline" style="font-size:.72rem" onclick="_csCustEdit(\''+custId+'\')">✏️ פרטים</button></div>';
+  host.innerHTML = custInfoBar + custLowBanner +
       '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn btn-primary" style="font-size:.8rem" onclick="_csAddItem(\''+custId+'\')">+ פריט סחורה חדש</button>'
     + '<button class="btn btn-outline" style="font-size:.8rem;border-color:#c2410c;color:#c2410c" onclick="_csOrderOpen(\''+custId+'\')">📥 בדיקת הזמנה מול מלאי</button></div>'
     + formHtml + itemsHtml
