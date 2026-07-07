@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783422577';
+window.APP_VERSION = '1783422901';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15534,6 +15534,7 @@ function _csRender(){
       '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn btn-primary" style="font-size:.8rem" onclick="_csAddItem(\''+custId+'\')">+ פריט סחורה חדש</button>'
     + '<button class="btn btn-outline" style="font-size:.8rem;border-color:#c2410c;color:#c2410c" onclick="_csOrderOpen(\''+custId+'\')">📥 בדיקת הזמנה מול מלאי</button></div>'
     + formHtml + itemsHtml
+    + _csPendingHtml(custId, st)
     + '<div style="margin-top:18px;font-weight:800;color:var(--press);font-size:.9rem">📋 תנועות אחרונות</div>'
     + _csLogHtml(st);
 }
@@ -15806,28 +15807,59 @@ function _csOrderCheck(custId){
     + '<th style="padding:6px 8px;text-align:right">פריט</th><th style="padding:6px 8px">בהזמנה</th><th style="padding:6px 8px">במלאי</th><th style="padding:6px 8px">מצב</th></tr></thead><tbody>'
     + rowsHtml + '</tbody></table>'
     + '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">'
-    + '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csOrderDeduct(\''+custId+'\')">📤 נכה את ההזמנה מהמלאי</button>'
+    + '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csOrderSavePending(\''+custId+'\')">📋 שמור הזמנה (תנוכה בעת שליחה)</button>'
     + '</div>';
 }
-function _csOrderDeduct(custId){
+// שמירת ההזמנה כ"ממתינה לשליחה" — המלאי לא יורד עדיין; ינוכה רק כשמסמנים "הושלמה ונשלחה".
+function _csOrderSavePending(custId){
   var o = window._csOrder; if(!o || o.custId!==custId || !o.lines) return;
-  var deductable = o.lines.filter(function(r){ return r.it && r.need>0; });
-  if(!deductable.length){ showToast('אין פריטים תואמים לניכוי'); return; }
-  var anyShort = deductable.some(function(r){ return r.short>0; });
-  var msg = anyShort ? 'חלק מהפריטים חסרים במלאי — לנכות בכל זאת (המלאי יֵרד למינוס)?' : 'לנכות את כל ההזמנה ממלאי הלקוח?';
-  if(!confirm(msg)) return;
+  var lines = o.lines.filter(function(r){ return r.it && r.need>0; })
+    .map(function(r){ return { itemId:r.it.id, itemName:r.it.name, qty:r.need }; });
+  if(!lines.length){ showToast('אין פריטים תואמים לשמירה'); return; }
   var st = _csGet(custId);
-  deductable.forEach(function(r){
-    var it = st.items.find(function(x){ return x.id===r.it.id; }); if(!it) return;
-    it.qty = (Number(it.qty)||0) - r.need;
-    st.log.unshift({ id:_csUid('m'), ts:Date.now(), delta:-r.need, itemId:it.id, itemName:it.name, qtyAfter:it.qty, note:'הזמנה', by: currentUser?currentUser.name:'' });
+  st.pendingOrders = st.pendingOrders || [];
+  st.pendingOrders.unshift({ id:_csUid('po'), at:Date.now(), lines:lines, by: currentUser?currentUser.name:'' });
+  _csTouch(custId); persist();
+  _logActivity('📝', 'הזמנת לקוח נשמרה (ממתינה לשליחה)', null);
+  showToast('✅ ההזמנה נשמרה — תנוכה מהמלאי כשתסמן "הושלמה ונשלחה"');
+  var m = document.getElementById('csOrderModal'); if(m) m.remove();
+  _csRender();
+}
+function _csPendingHtml(custId, st){
+  var po = (st.pendingOrders||[]);
+  if(!po.length) return '';
+  return '<div style="margin-top:16px;font-weight:800;color:#b45309;font-size:.9rem">📦 הזמנות ממתינות לשליחה ('+po.length+')</div>'
+    + po.map(function(o){
+        var items = (o.lines||[]).map(function(l){ return _esc(l.itemName)+' × '+_csNum(l.qty); }).join(' · ');
+        var d = new Date(o.at); var dt = d.toLocaleDateString('he-IL')+' '+d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
+        return '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;margin-top:6px">'
+          + '<div style="flex:1"><div style="font-weight:700;font-size:.85rem">'+items+'</div><div style="font-size:.72rem;color:#92400e">'+dt+(o.by?' · '+_esc(o.by):'')+'</div></div>'
+          + '<button class="btn" style="background:#16a34a;color:#fff;font-size:.74rem;padding:5px 9px" onclick="_csMarkOrderSent(\''+custId+'\',\''+o.id+'\')">✅ הושלמה ונשלחה</button>'
+          + '<button class="btn" style="background:none;border:1px solid #e0a0a0;color:#c0392b;font-size:.74rem;padding:5px 9px" onclick="_csCancelPending(\''+custId+'\',\''+o.id+'\')" title="בטל">🗑️</button>'
+          + '</div>';
+      }).join('');
+}
+function _csMarkOrderSent(custId, orderId){
+  var st = _csGet(custId);
+  var po = (st.pendingOrders||[]).find(function(x){ return x.id===orderId; }); if(!po) return;
+  if(!confirm('לסמן את ההזמנה כהושלמה ונשלחה? המלאי ינוכה עכשיו.')) return;
+  (po.lines||[]).forEach(function(l){
+    var it = st.items.find(function(x){ return x.id===l.itemId; }); if(!it) return;
+    it.qty = (Number(it.qty)||0) - l.qty;
+    st.log.unshift({ id:_csUid('m'), ts:Date.now(), delta:-l.qty, itemId:it.id, itemName:it.name, qtyAfter:it.qty, note:'הזמנה נשלחה', by: currentUser?currentUser.name:'' });
   });
   if(st.log.length>300) st.log = st.log.slice(0,300);
+  st.pendingOrders = (st.pendingOrders||[]).filter(function(x){ return x.id!==orderId; });
   _csTouch(custId); persist();
-  _logActivity('📤', 'ניכוי הזמנה ממלאי לקוח', null);
-  showToast('✅ ההזמנה נוכתה מהמלאי');
-  _csLowStockCheck();
-  var m = document.getElementById('csOrderModal'); if(m) m.remove();
+  _logActivity('📤', 'הזמנת לקוח נשלחה — נוכתה מהמלאי', null);
+  showToast('✅ ההזמנה נשלחה ונוכתה מהמלאי');
+  _csRender(); _csLowStockCheck();
+}
+function _csCancelPending(custId, orderId){
+  var st = _csGet(custId);
+  if(!confirm('לבטל את ההזמנה הממתינה? (המלאי לא ישתנה)')) return;
+  st.pendingOrders = (st.pendingOrders||[]).filter(function(x){ return x.id!==orderId; });
+  _csTouch(custId); persist();
   _csRender();
 }
 
