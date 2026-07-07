@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783426230';
+window.APP_VERSION = '1783427051';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3791,7 +3791,10 @@ function openNewOrderModal(prefill) {
   var fp = document.getElementById('ord-file-preview');
   if (prefill && prefill.fileNote) { fp.textContent = prefill.fileNote; fp.style.display = ''; }
   else { fp.style.display = 'none'; }
+  if (!prefill) window._orderFilePreview = null;   // הזמנה חדשה ריקה — בלי תמונה
+  _orderRenderThumb();
   document.getElementById('order-modal').style.display = 'flex';
+  if (prefill && (prefill.customer||prefill.desc)) showToast('✅ הפרטים הושלמו אוטומטית — בדוק ותקן אם צריך');
   document.getElementById('ord-customer').focus();
 }
 
@@ -3808,6 +3811,7 @@ function editOrder(id) {
   document.getElementById('ord-area').value      = o.area         || '';
   document.getElementById('ord-address').value   = o.address      || '';
   document.getElementById('ord-file-preview').style.display = 'none';
+  window._orderFilePreview = null; _orderRenderThumb();
   clearSiteField();
   var wrapper = document.getElementById('site-field-wrapper');
   if (wrapper) wrapper.style.display = (o.customer && o.customer.indexOf('עידית') !== -1) ? '' : 'none';
@@ -3817,6 +3821,46 @@ function editOrder(id) {
 function closeOrderModal() {
   document.getElementById('order-modal').style.display = 'none';
   _editingOrderId = null;
+  window._orderFilePreview = null;
+  var t = document.getElementById('ord-file-thumb'); if (t) { t.style.display='none'; t.innerHTML=''; }
+}
+// ── תצוגה ממוזערת של קובץ ההזמנה בחלון + הגדלה ──
+function _orderRenderThumb(){
+  var host = document.getElementById('ord-file-thumb'); if(!host) return;
+  var p = window._orderFilePreview;
+  if(!p || !p.dataUrl){ host.style.display='none'; host.innerHTML=''; return; }
+  host.style.display='';
+  var cap = '<div style="font-size:.72rem;color:#6b7280;margin-bottom:4px">📎 '+escHtml(p.name||'קובץ ההזמנה')+' — לחץ להגדלה</div>';
+  if(/^image\//.test(p.type)){
+    host.innerHTML = cap + '<img src="'+p.dataUrl+'" onclick="_orderZoom()" style="max-height:170px;max-width:100%;border:1px solid #e5e7eb;border-radius:8px;cursor:zoom-in;box-shadow:0 1px 5px rgba(0,0,0,.12)">';
+  } else if(p.type==='application/pdf'){
+    host.innerHTML = cap + '<canvas id="ord-thumb-canvas" onclick="_orderZoom()" style="max-height:170px;max-width:100%;border:1px solid #e5e7eb;border-radius:8px;cursor:zoom-in;box-shadow:0 1px 5px rgba(0,0,0,.12)"></canvas>';
+    _orderRenderPdf(p.dataUrl, 'ord-thumb-canvas', 0.6);
+  } else { host.style.display='none'; host.innerHTML=''; }
+}
+function _orderRenderPdf(dataUrl, canvasId, scale){
+  try{
+    if(!window.pdfjsLib) return;
+    var b = atob((dataUrl.split(',')[1])||''); var arr = new Uint8Array(b.length);
+    for(var i=0;i<b.length;i++) arr[i]=b.charCodeAt(i);
+    pdfjsLib.getDocument({data:arr}).promise.then(function(pdf){ return pdf.getPage(1); }).then(function(page){
+      var cv = document.getElementById(canvasId); if(!cv) return;
+      var vp = page.getViewport({scale:scale||0.6});
+      cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+      page.render({canvasContext:cv.getContext('2d'), viewport:vp});
+    }).catch(function(){});
+  }catch(e){}
+}
+function _orderZoom(){
+  var p = window._orderFilePreview; if(!p || !p.dataUrl) return;
+  var ex = document.getElementById('ord-zoom'); if(ex) ex.remove();
+  var inner = /^image\//.test(p.type)
+    ? '<img src="'+p.dataUrl+'" style="max-width:96vw;max-height:92vh;border-radius:8px;background:#fff">'
+    : '<canvas id="ord-zoom-canvas" style="max-width:96vw;max-height:92vh;background:#fff;border-radius:8px"></canvas>';
+  var html = '<div id="ord-zoom" style="position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:12000;display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out" onclick="this.remove()">'
+    + inner + '<button onclick="event.stopPropagation();document.getElementById(\'ord-zoom\').remove()" style="position:fixed;top:14px;left:14px;background:#fff;border:none;border-radius:50%;width:42px;height:42px;font-size:1.4rem;cursor:pointer">✕</button></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  if(p.type==='application/pdf') _orderRenderPdf(p.dataUrl, 'ord-zoom-canvas', 1.7);
 }
 
 function saveOrder() {
@@ -3915,6 +3959,7 @@ function _processOrderFile(file) {
   reader.onload = function(e) {
     var b64 = e.target.result.split(',')[1];
     var isPdf = file.type === 'application/pdf';
+    window._orderFilePreview = { dataUrl: e.target.result, type: file.type, name: file.name };   // לתצוגה ממוזערת בחלון ההזמנה
     var payload = {
       model: 'claude-sonnet-5',
       max_tokens: 1024,
@@ -19079,6 +19124,7 @@ setInterval(function(){ try { _pollProofUploads(); } catch(e){} }, 5000);
       <button onclick="closeOrderModal()" style="background:none;border:none;font-size:1.4rem;cursor:pointer">✕</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:10px">
+      <div id="ord-file-thumb" style="display:none;text-align:center"></div>
       <div id="site-field-wrapper" style="position:relative;display:none">
         <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:3px">מספר אתר (עידית) <span style="font-weight:400;color:#6b7280">— אופציונלי</span></label>
         <div style="display:flex;gap:6px">
