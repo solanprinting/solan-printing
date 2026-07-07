@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783427051';
+window.APP_VERSION = '1783427751';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6390,6 +6390,25 @@ function _proofNameLabel(name){
     ab:        /a\s*\+\s*b/.test(s) || s.indexOf('a+b')>=0 || s.indexOf('a + b')>=0 || /א\s*\+\s*ב/.test(s)   // A+B / א+ב = דו-צדדי (קדמי+אחורי). ניטרלי למכונה: תקין גם ב-4 צבעים (היפוך ידני) וגם ב-8 (פרפקטור)
   };
 }
+// שם קובץ הפרופר (מנוקה מסיומת) — להצגה מתחת לשם העבודה בכרטיס המודפס בלבד
+function _cardProofDisplayName(c){
+  if(!c) return '';
+  var strip = function(n){ return String(n||'').replace(/\.(pdf|png|jpe?g|gif|webp|tiff?)$/i,'').trim(); };
+  if(c.proofName) return strip(c.proofName);
+  if(c.runProofs){
+    var u = [];
+    Object.keys(c.runProofs).forEach(function(k){ var p=c.runProofs[k]; var nm=strip(p&&p.name); if(nm && u.indexOf(nm)<0) u.push(nm); });
+    if(u.length) return u.join(' · ');
+  }
+  return '';
+}
+// ערך שדה "שם העבודה" בכרטיס המודפס: שם העבודה + שם הפרופר בשורה נפרדת מתחתיו (בלי המילה "פרופר")
+function _nameWithProof(c){
+  var html = escHtml(c && c.name || '');
+  var pn = _cardProofDisplayName(c);
+  if(pn) html += '<div style="font-size:1rem;color:#444;font-weight:600;margin-top:4px">'+escHtml(pn)+'</div>';
+  return html;
+}
 // קיפול הפרופר לחוברת בסדר קריאה (בכלי הקיפול) לבדיקת סדר העמודים — עובד גם על גיליון מבוסס-תמונה.
 // perfector/מתהפך נקבע לפי המכונה; היקף (32/16/8) ניתן לשינוי בכלי עצמו.
 function _foldCheckProof(cardId, runKey){
@@ -7333,7 +7352,7 @@ function buildPrintCard(c) {
     </div>`;
 
   const fieldsTop = [
-    ['שם העבודה', c.name||''],
+    ['שם העבודה', _nameWithProof(c)],
     ['סוג עבודה', c.type||''],
     ['תאריך הזמנה', c.orderDate||''],
     [_sheetsLabel, _sheetsVal],
@@ -7427,7 +7446,7 @@ function buildPrintCard(c) {
 // ── הדפסה עם ריצות ריקות למילוי ידני ──────────────────────────────────────
 function buildPrintCardBlankRuns(c) {
   const fields = [
-    ['שם העבודה', c.name||''],
+    ['שם העבודה', _nameWithProof(c)],
     ['סוג עבודה', c.type||''],
     ['תאריך הזמנה', c.orderDate||''],
     ['מועד אספקה', `<strong>${c.deliveryDate||'לא הוגדר'}</strong>`],
