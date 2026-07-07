@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783428348';
+window.APP_VERSION = '1783429063';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3951,76 +3951,127 @@ function handleOrderFile(input) {
 function _orderDragOver(e){ e.preventDefault(); e.stopPropagation(); var z=document.getElementById('order-drop-zone'); if(z){ z.style.background='#e0e7ff'; z.style.borderColor='#4f46e5'; } }
 function _orderDragLeave(e){ e.preventDefault(); e.stopPropagation(); var z=document.getElementById('order-drop-zone'); if(z){ z.style.background='#f8f9ff'; z.style.borderColor='#c7d2fe'; } }
 function _orderDrop(e){ e.preventDefault(); e.stopPropagation(); _orderDragLeave(e); var f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) _processOrderFile(f); }
+// ArrayBuffer → base64 (בחלקים, לקבצים גדולים)
+function _orderAb2b64(buf){
+  var bytes = new Uint8Array(buf), bin = '', chunk = 0x8000;
+  for (var i = 0; i < bytes.length; i += chunk){ bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk)); }
+  return btoa(bin);
+}
+// חילוץ שכבת הטקסט של PDF בצד הלקוח (עד 5 עמודים) — מהיר, מדויק, ולא תלוי beta
+function _orderExtractPdfText(buf){
+  return pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise.then(function(pdf){
+    var pages = [], n = Math.min(pdf.numPages, 5), chain = Promise.resolve();
+    for (var i = 1; i <= n; i++){ (function(p){
+      chain = chain
+        .then(function(){ return pdf.getPage(p); })
+        .then(function(page){ return page.getTextContent(); })
+        .then(function(tc){ pages.push(tc.items.map(function(it){ return it.str; }).join(' ')); });
+    })(i); }
+    return chain.then(function(){ return pages.join('\n'); });
+  });
+}
+// פענוח תשובת Claude בפורמט שדות (עמיד לעברית, בלי JSON שנשבר על גרשיים כמו בע"מ)
+function _parseOrderTags(text){
+  var map = { 'לקוח':'customer','תיאור':'desc','כמות':'qty','תאריך':'date','כתובת':'address','אזור':'area','הערות':'notes' };
+  var out = { customer:'', desc:'', qty:'', date:'', address:'', area:'', notes:'' }, found = false;
+  (text || '').split(/\r?\n/).forEach(function(line){
+    var m = line.match(/^\s*[*\-•\s]*([֐-׿ ]+?)\s*[:：]\s*(.*)$/);
+    if (!m) return;
+    var key = map[m[1].trim()];
+    if (!key) return;
+    var val = (m[2] || '').trim();
+    if (val === '-' || val === '—' || /^(ריק|לא\s*(ידוע|צוין|נמצא|רלוונטי))$/.test(val)) val = '';
+    if (key === 'qty'){ out.qty = ((val.match(/\d[\d,]*/) || [''])[0]).replace(/,/g,''); }
+    else out[key] = val;
+    if (val) found = true;
+  });
+  // גיבוי: אם המודל בכל זאת החזיר JSON
+  if (!found){
+    var jm = (text || '').match(/\{[\s\S]*\}/);
+    if (jm){ try {
+      var j = JSON.parse(jm[0]);
+      ['customer','desc','qty','date','address','area','notes'].forEach(function(k){ if (j[k] != null) out[k] = String(j[k]); });
+    } catch(e){} }
+  }
+  return out;
+}
+function _orderSendToClaude(opts){
+  var SYS = 'אתה עוזר של בית דפוס בישראל. חלץ את פרטי ההזמנה מהמסמך. החזר אך ורק שורות בפורמט הבא — שדה אחד בכל שורה, בלי טקסט נוסף ובלי הסברים:\n'
+    + 'לקוח: <שם הלקוח או החברה שמזמינים בשבילו>\n'
+    + 'תיאור: <סוג העבודה / המוצר שמזמינים>\n'
+    + 'כמות: <מספר בלבד>\n'
+    + 'תאריך: <YYYY-MM-DD אם מופיע תאריך אספקה או הזמנה>\n'
+    + 'כתובת: <כתובת אספקה אם קיימת>\n'
+    + 'אזור: <אחד מ: מרכז / צפון / דרום / ירושלים / שפלה לפי הכתובת>\n'
+    + 'הערות: <פרטים חשובים נוספים — מידות, סוג נייר, צבעים, גימור>\n'
+    + 'אם שדה אינו ידוע השאר אותו ריק אחרי הנקודתיים. אל תמציא נתונים שאינם במסמך.';
+  var content = [];
+  if (opts.pdfB64) content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:opts.pdfB64 } });
+  if (opts.imgB64) content.push({ type:'image',    source:{ type:'base64', media_type:opts.mime,        data:opts.imgB64 } });
+  var ask = 'חלץ את פרטי ההזמנה והחזר בפורמט השדות בלבד.';
+  if (opts.text) ask += '\n\nטקסט ההזמנה:\n' + opts.text;
+  content.push({ type:'text', text:ask });
+  var payload = { model:'claude-opus-4-8', max_tokens:1024, system:SYS, messages:[{ role:'user', content:content }] };
+  fetch('http://localhost:8766/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(function(r){
+    if (!r.ok) return r.json().then(function(errBody){ throw new Error('API ' + r.status + ': ' + JSON.stringify(errBody)); });
+    return r.json();
+  })
+  .then(function(data){
+    if (data.type === 'error') throw new Error(data.error && data.error.message || 'API error');
+    var text = '';
+    (data.content || []).forEach(function(b){ if (b && b.type === 'text') text += b.text; });
+    if (!text.trim()) throw new Error('תשובה ריקה מ-Claude');
+    var ex = _parseOrderTags(text);
+    openNewOrderModal({
+      customer: ex.customer || '',
+      desc:     ex.desc     || '',
+      qty:      ex.qty      || '',
+      date:     ex.date     || '',
+      notes:    ex.notes    || '',
+      area:     ex.area     || '',
+      address:  ex.address  || '',
+      fileNote: '📎 קובץ נותח: ' + opts.file.name
+    });
+    showToast('✅ פרטים חולצו בהצלחה!');
+  })
+  .catch(function(e){
+    var msg = e.message || '';
+    if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1) {
+      showToast('⚠️ שרת הניתוח לא פעיל — הפעל את start.bat ונסה שוב');
+    } else {
+      showToast('⚠️ שגיאה בניתוח — ' + msg.slice(0,80));
+    }
+    openNewOrderModal({ fileNote: '📎 ' + opts.file.name + ' (נותח ידנית)' });
+  });
+}
 function _processOrderFile(file) {
   if (!file) return;
   if (!(file.type === 'application/pdf' || /^image\//.test(file.type))) { showToast('⚠️ יש לגרור קובץ PDF או תמונה'); return; }
+  var isPdf = file.type === 'application/pdf';
   showToast('🔍 מנתח קובץ הזמנה עם Claude...');
   var reader = new FileReader();
   reader.onload = function(e) {
-    var b64 = e.target.result.split(',')[1];
-    var isPdf = file.type === 'application/pdf';
-    window._orderFilePreview = { dataUrl: e.target.result, type: file.type, name: file.name };   // לתצוגה ממוזערת בחלון ההזמנה
-    var payload = {
-      model: 'claude-sonnet-5',
-      max_tokens: 1024,
-      system: 'אתה עוזר של בית דפוס. חלץ פרטי הזמנה מהמסמך. החזר JSON בלבד: {"customer":"","desc":"","qty":"","date":"","notes":"","address":"","area":""}. date בפורמט YYYY-MM-DD אם קיים. area אחד מ: מרכז/צפון/דרום/ירושלים/שפלה — לפי הכתובת אם ניתן.',
-      messages: [{role:'user', content:[
-        isPdf
-          ? {type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}}
-          : {type:'image',source:{type:'base64',media_type:file.type,data:b64}},
-        {type:'text',text:'חלץ פרטי הזמנה מהמסמך והחזר JSON בלבד.'}
-      ]}]
-    };
-    if (isPdf) payload['betas'] = ['pdfs-2024-09-25'];
-    fetch('http://localhost:8766/v1/messages', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-    .then(function(r){
-      if (!r.ok) {
-        return r.json().then(function(errBody) {
-          throw new Error('API ' + r.status + ': ' + JSON.stringify(errBody));
-        });
-      }
-      return r.json();
-    })
-    .then(function(data) {
-      if (data.type === 'error') throw new Error(data.error && data.error.message || 'API error');
-      var text = data.content && data.content[0] && data.content[0].text || '';
-      if (!text) throw new Error('תשובה ריקה מ-Claude');
-      text = text.trim();
-      if (text.startsWith('```')) {
-        text = text.split('\n').slice(1).join('\n');
-        text = text.slice(0, text.lastIndexOf('```'));
-      }
-      // מצא JSON בתוך הטקסט אם לא כולו JSON
-      var m = text.match(/\{[\s\S]*\}/);
-      if (m) text = m[0];
-      var extracted = JSON.parse(text.trim());
-      openNewOrderModal({
-        customer: extracted.customer || '',
-        desc:     extracted.desc     || '',
-        qty:      String(extracted.qty || ''),
-        date:     extracted.date     || '',
-        notes:    extracted.notes    || '',
-        area:     extracted.area     || '',
-        address:  extracted.address  || '',
-        fileNote: '📎 קובץ נותח: ' + file.name
-      });
-      showToast('✅ פרטים חולצו בהצלחה!');
-    })
-    .catch(function(e) {
-      var msg = e.message || '';
-      if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1) {
-        showToast('⚠️ הפרוקסי לא פעיל — הפעל start.bat ונסה שוב');
-      } else {
-        showToast('⚠️ שגיאה בניתוח — ' + msg.slice(0,60));
-      }
-      openNewOrderModal({ fileNote: '📎 ' + file.name + ' (נותח ידנית)' });
-    });
+    var buf = e.target.result;                       // ArrayBuffer
+    var b64 = _orderAb2b64(buf);
+    window._orderFilePreview = { dataUrl: 'data:' + file.type + ';base64,' + b64, type: file.type, name: file.name };  // תצוגה מקדימה
+    if (isPdf && window.pdfjsLib) {
+      // נסה קודם לחלץ את שכבת הטקסט — מדויק יותר, מהיר יותר, ולא נשבר על beta/סריקה
+      _orderExtractPdfText(buf).then(function(txt){
+        if (txt && txt.replace(/\s/g,'').length >= 25) _orderSendToClaude({ text: txt, file: file });   // PDF עם טקסט
+        else _orderSendToClaude({ pdfB64: b64, file: file });                                            // PDF סרוק — שלח כקובץ
+      }).catch(function(){ _orderSendToClaude({ pdfB64: b64, file: file }); });
+    } else if (isPdf) {
+      _orderSendToClaude({ pdfB64: b64, file: file });
+    } else {
+      _orderSendToClaude({ imgB64: b64, mime: file.type, file: file });
+    }
   };
-  reader.readAsDataURL(file);
+  reader.readAsArrayBuffer(file);
 }
 
 // ── Firebase listener for orders ──────────────────────────────
