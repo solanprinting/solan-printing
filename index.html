@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783423725';
+window.APP_VERSION = '1783425254';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1518,16 +1518,6 @@ window._fbSnapshot = {};
       </div>
 
       <div class="field full">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;color:var(--press)">
-          <input type="checkbox" id="f-combined-toggle" style="width:17px;height:17px;cursor:pointer" onchange="toggleCombined()"> 🧩 כרטיס משולב — כמה לקוחות באותה הדפסה
-        </label>
-        <div id="combined-wrap" style="display:none;margin-top:8px">
-          <div id="combined-list" style="display:flex;flex-direction:column;gap:8px"></div>
-          <button type="button" onclick="addCombinedRow()" style="margin-top:8px;padding:7px 14px;background:#eff6ff;border:1.5px dashed #93c5fd;border-radius:7px;color:#0369a1;font-family:'Heebo',sans-serif;font-weight:700;font-size:.84rem;cursor:pointer;text-align:right">+ הוסף לקוח</button>
-        </div>
-      </div>
-
-      <div class="field full">
         <label style="display:flex;align-items:center;gap:5px">📄 פרופר / פריסת העיתון <span style="font-weight:400;font-size:.78rem;color:#6b7280">(PDF או תמונה — יוצג להדפסים)</span></label>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <input type="file" id="f-proof-input" accept="application/pdf,image/*" style="display:none" onchange="_onProofPicked(this)">
@@ -1716,6 +1706,7 @@ window._fbSnapshot = {};
         <button class="btn btn-primary" onclick="_csAddCustomer()" style="font-size:.76rem">➕ לקוח חדש</button>
         <button class="btn btn-outline" onclick="_csRenameCustomer()" style="font-size:.76rem">✏️ פרטי לקוח</button>
         <button class="btn btn-outline" onclick="_csOpenShortages()" style="font-size:.76rem;border-color:#dc2626;color:#dc2626">📋 חוסרים</button>
+        <button class="btn btn-primary" onclick="_csOpenPrepCard()" style="font-size:.76rem;background:#0369a1;border-color:#0369a1">🖨️ הכן כרטיס הדפסה</button>
         <button class="btn btn-outline" onclick="_csExportCsv()" style="font-size:.76rem">⬇️ CSV</button>
       </div>
       <div id="cs-body"></div>
@@ -11104,6 +11095,7 @@ function markJobPrinted(cardId) {
   c.status = 'done';
   c.printedAt = new Date().toISOString();
   c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+  if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);   // עדכן מלאי לקוחות מהכרטיס שהודפס
   persist();
   renderMachineQueue();
   renderCards();
@@ -11166,6 +11158,7 @@ function markRunDone(cardId, runIdx, machine) {
   if (allDone) {
     c.status = 'done';
     c.printedAt = new Date().toISOString();
+    if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);   // עדכן מלאי לקוחות מהכרטיס שהודפס
     persist(); renderMachineQueue(); renderCards();
     _logActivity('✅', 'עבודה "'+(c.name||'')+'" הושלמה', c.id);
     showToast('✅ כל הריצות הסתיימו — עבודה הועברה להושלם');
@@ -11344,6 +11337,7 @@ function _syncCardStatusFromQueue(cardId) {
       c.status = 'done';
       c.printedAt = c.printedAt || new Date().toISOString();
       c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+      if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);   // עדכן מלאי לקוחות מהכרטיס שהודפס
       changed = true;
     }
   } else if (c.status === 'done') {
@@ -15497,6 +15491,103 @@ function _csCardFromShortages(custId){
   document.getElementById('custStockModal').classList.remove('open');
   showToast('📋 כרטיס הוכן לפי החוסרים — השלם נייר/מכונה והדפס');
 }
+// ── הכנת כרטיס הדפסה משולב ממלאי לקוחות ──
+// בוחרים לקוחות ופריטים, כמה להכניס להדפסה (מוצע לפי החוסר) + מידה; נוצר כרטיס משולב
+// עם קישור stockRefill — והמלאי יתעדכן רק כשההדפסה תושלם.
+function _csOpenPrepCard(){
+  if(!_csGuard()) return;
+  var custs = _csCustomerList();
+  var ex = document.getElementById('csPrepModal'); if(ex) ex.remove();
+  var blocks = custs.map(function(c){
+    var st = _csGet(c.id);
+    if(!st.items || !st.items.length) return '';
+    var rows = st.items.map(function(it){
+      var low = _csItemLow(it);
+      var short = Math.max(0, (Number(it.minQty)||0) - (Number(it.qty)||0));
+      var suggest = short * (Number(it.packSize)||1000);
+      return '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;flex-wrap:wrap">'
+        + '<input type="checkbox" class="cs-prep-chk" data-cust="'+_esc(c.id)+'" data-cn="'+_esc(c.name)+'" data-item="'+_esc(it.id)+'" data-name="'+_esc(it.name)+'" '+(low&&suggest>0?'checked':'')+'>'
+        + '<span style="flex:1;min-width:120px;font-size:.84rem">'+_esc(it.name)+(low?' <span style="color:#dc2626;font-size:.72rem;font-weight:800">חסר '+_csNum(short)+' חב\'</span>':'')+'</span>'
+        + '<input type="number" class="cs-prep-qty fi" data-item="'+_esc(it.id)+'" placeholder="כמות (יח\')" value="'+(suggest||'')+'" style="width:110px;margin:0;font-size:.8rem;text-align:center">'
+        + '<input type="text" class="cs-prep-size fi" data-item="'+_esc(it.id)+'" placeholder="מידה" style="width:90px;margin:0;font-size:.8rem">'
+        + '</div>';
+    }).join('');
+    return '<div style="border:1px solid #e5e7eb;border-radius:8px;margin-bottom:10px;padding:8px 10px">'
+      + '<b style="color:var(--press);font-size:.88rem">'+_esc(c.name)+'</b>' + rows + '</div>';
+  }).join('');
+  if(!blocks.trim()) blocks = '<div style="padding:20px;text-align:center;color:#aaa">אין פריטי סחורה. הוסף פריטים ללקוחות קודם.</div>';
+  var html = '<div id="csPrepModal" class="modal-overlay open" style="z-index:10001">'
+    + '<div class="modal-box" style="max-width:620px;width:95vw">'
+    + '<div class="modal-header"><span>🖨️ הכנת כרטיס הדפסה — מלאי לקוחות</span><button class="modal-close" onclick="document.getElementById(\'csPrepModal\').remove()">✕</button></div>'
+    + '<div style="padding:16px 20px;overflow-y:auto;max-height:74vh">'
+    + '<div style="font-size:.82rem;color:#666;margin-bottom:10px">סמן מה ולכמה להכניס להדפסה (הכמות המוצעת = מה שחסר להשלמת המלאי). המלאי יתעדכן רק כשההדפסה תושלם.</div>'
+    + blocks + '</div>'
+    + '<div style="padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px">'
+    + '<button class="btn btn-clear" style="font-size:.82rem" onclick="document.getElementById(\'csPrepModal\').remove()">ביטול</button>'
+    + '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csPrepCreateCard()">✅ צור כרטיס משולב</button>'
+    + '</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function _csPrepCreateCard(){
+  var chosen = [];
+  document.querySelectorAll('#csPrepModal .cs-prep-chk:checked').forEach(function(chk){
+    var itemId = chk.getAttribute('data-item');
+    var qEl = document.querySelector('#csPrepModal .cs-prep-qty[data-item="'+itemId+'"]');
+    var sEl = document.querySelector('#csPrepModal .cs-prep-size[data-item="'+itemId+'"]');
+    var units = parseFloat(((qEl&&qEl.value)||'').toString().replace(/,/g,'')) || 0;
+    if(units <= 0) return;
+    chosen.push({ custId:chk.getAttribute('data-cust'), custName:chk.getAttribute('data-cn'),
+                  itemId:itemId, itemName:chk.getAttribute('data-name'),
+                  units:units, size:((sEl&&sEl.value)||'').trim() });
+  });
+  if(!chosen.length){ showToast('⚠️ סמן לפחות פריט אחד עם כמות'); return; }
+  var card = {
+    id: Date.now(),
+    name: 'הדפסה משולבת — מלאי לקוחות',
+    type:'', orderDate:'', deliveryDate:'', copies:'', color:'', size:'', paper:'',
+    notes:'', internalNotes:'', placementDetails:'', machine:'',
+    status:'pending', createdAt:new Date().toLocaleDateString('he-IL'),
+    createdBy: currentUser?currentUser.id:'admin', runs:[],
+    combined: chosen.map(function(x){ return { customer:x.custName, desc:x.itemName, qty:String(x.units), size:x.size||'', paper:'', notes:'' }; }),
+    stockRefill: chosen.map(function(x){ return { custId:x.custId, itemId:x.itemId, itemName:x.itemName, units:x.units }; }),
+    stockConfirmed: true
+  };
+  cards.unshift(card);
+  persist();
+  _logActivity('🆕', 'כרטיס משולב ממלאי לקוחות נוצר ('+chosen.length+' פריטים)', card.id);
+  var pm = document.getElementById('csPrepModal'); if(pm) pm.remove();
+  document.getElementById('custStockModal').classList.remove('open');
+  showToast('✅ כרטיס משולב נוצר — פתח להשלמת גודל/מכונה/פרופר');
+  setTimeout(function(){ if(typeof editCard==='function') editCard(card.id); }, 250);
+}
+// מתעדכן בסיום הדפסה: מוסיף למלאי הלקוחות את מה שהודפס (יח' → חבילות לפי אריזה), פעם אחת.
+function _csApplyRefillOnDone(card){
+  try{
+    if(window._isMachineView) return;                 // רק בצד המשרד
+    if(!card || !card.stockRefill || !card.stockRefill.length) return;
+    if(card.stockConfirmed === false || card.stockApplied) return;
+    var any = false;
+    card.stockRefill.forEach(function(rf){
+      var st = _csGet(rf.custId); var it = (st.items||[]).find(function(x){ return x.id===rf.itemId; });
+      if(!it) return;
+      var ps = Number(it.packSize)||1000;
+      var packs = Math.round(((Number(rf.units)||0)/ps)*100)/100;
+      if(packs<=0) return;
+      it.qty = (Number(it.qty)||0) + packs;
+      st.log.unshift({ id:_csUid('m'), ts:Date.now(), delta:packs, itemId:it.id, itemName:it.name, qtyAfter:it.qty, note:'הודפס מכרטיס', cardId:String(card.id), by: currentUser?currentUser.name:'' });
+      if(st.log.length>300) st.log = st.log.slice(0,300);
+      _csTouch(rf.custId); any = true;
+    });
+    card.stockApplied = true;
+    if(any){
+      try { localStorage.setItem('solanCustomerStock', JSON.stringify(customerStock)); } catch(e){}
+      if(typeof persist==='function') persist();   // שמור וסנכרן את המלאי (חלק מנתיבי ההשלמה לא קוראים persist)
+      showToast('✅ מלאי הלקוחות התעדכן מהכרטיס "'+(card.name||'')+'"');
+      if(typeof _logActivity==='function') _logActivity('📥', 'מלאי לקוחות התעדכן מכרטיס שהודפס', card.id);
+      if(typeof _csLowStockCheck==='function') _csLowStockCheck({silent:true});
+    }
+  }catch(e){}
+}
 // ── התראות מלאי נמוך ──
 function _csItemLow(it){ var mn=Number(it.minQty)||0; return mn>0 && (Number(it.qty)||0) <= mn; }
 function _csLowStockItems(){
@@ -15719,6 +15810,7 @@ function _csCardHook(card){
   try{
     if(!(currentUser && currentUser.isAdmin)) return;
     if(!card || !card.name) return;
+    if(card.stockRefill && card.stockRefill.length) return;   // כרטיס שנוצר מהמלאי — כבר מקושר
     var nm = _pmNorm(card.name);
     // חפש בכל לקוחות המלאי (כולל כאלה שהוזנו ידנית) לפי התאמת שם
     var cust = _csCustomerList().find(function(c){
@@ -15749,13 +15841,13 @@ function _csCardAddPrompt(cust, card){
   }).join('');
   var html = '<div id="csAddModal" class="modal-overlay open" style="z-index:10001">'
     + '<div class="modal-box" style="max-width:540px;width:94vw">'
-    + '<div class="modal-header"><span>📥 הוספת ייצור למלאי — '+_esc(cust.name)+'</span><button class="modal-close" onclick="document.getElementById(\'csAddModal\').remove()">✕</button></div>'
+    + '<div class="modal-header"><span>📦 קישור למלאי לקוח — '+_esc(cust.name)+'</span><button class="modal-close" onclick="document.getElementById(\'csAddModal\').remove()">✕</button></div>'
     + '<div style="padding:16px 20px">'
-    + '<div style="font-size:.82rem;color:#666;margin-bottom:10px">כרטיס "'+_esc(card.name)+'". הזן כמה יחידות הודפסו מכל סוג — יתווסף למלאי לפי כמות באריזה (אפשר לשנות אריזה לעבודה חד-פעמית, למשל 500):</div>'
+    + '<div style="font-size:.82rem;color:#666;margin-bottom:10px">כרטיס "'+_esc(card.name)+'" מכיל מוצר של הלקוח. הזן כמה יחידות יודפסו מכל סוג — <b>המלאי יתעדכן רק כשההדפסה תושלם</b> (אפשר לשנות אריזה, למשל 500):</div>'
     + rows
     + '<div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">'
     + '<button class="btn btn-clear" style="font-size:.82rem" onclick="document.getElementById(\'csAddModal\').remove()">דלג</button>'
-    + '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csCardAddApply(\''+cust.id+'\',\''+String(card.id)+'\')">✓ הוסף למלאי</button>'
+    + '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csCardAddApply(\''+cust.id+'\',\''+String(card.id)+'\')">🔗 קשר למלאי (יתעדכן בסיום ההדפסה)</button>'
     + '</div></div></div></div>';
   document.body.insertAdjacentHTML('beforeend', html);
   if(copies>0){
@@ -15776,7 +15868,7 @@ function _csAddCalc(){
   });
 }
 function _csCardAddApply(custId, cardId){
-  var st = _csGet(custId); var any = false;
+  var st = _csGet(custId); var refill = [];
   document.querySelectorAll('#csAddModal .cs-add-inp').forEach(function(inp){
     var id = inp.getAttribute('data-pr');
     var pr = parseFloat((inp.value||'0').toString().replace(/,/g,'')); if(!(pr>0)) return;
@@ -15784,18 +15876,20 @@ function _csCardAddApply(custId, cardId){
     var psEl = document.querySelector('#csAddModal [data-ps="'+id+'"]');
     var ps = parseFloat(psEl && psEl.value) || it.packSize || 1000; if(ps<=0) ps = 1000;
     if(ps !== (it.packSize||1000)) it.packSize = ps;   // עדכן כמות באריזה בזיכרון אם שונתה
-    var pk = Math.round((pr/ps)*100)/100;
-    it.qty = (Number(it.qty)||0) + pk; any = true;
-    st.log.unshift({ id:_csUid('m'), ts:Date.now(), delta:pk, itemId:it.id, itemName:it.name, qtyAfter:it.qty, note:'הדפסה '+_csNum(pr)+' יח׳', cardId:cardId, by: currentUser?currentUser.name:'' });
+    refill.push({ custId:custId, itemId:it.id, itemName:it.name, units:pr });
   });
-  if(any){
-    if(st.log.length>300) st.log = st.log.slice(0,300);
-    _csTouch(custId); persist();
-    _logActivity('📥', 'הוספת ייצור למלאי לקוח (כרטיס)', null);
-    showToast('✅ נוסף למלאי הלקוח');
-    _csLowStockCheck({silent:true});
-  }
   var m = document.getElementById('csAddModal'); if(m) m.remove();
+  if(!refill.length) return;
+  // קישור בלבד — המלאי יתעדכן כשההדפסה תושלם (לא עכשיו)
+  var card = (cards||[]).find(function(x){ return String(x.id)===String(cardId); });
+  if(card){
+    card.stockRefill = (card.stockRefill||[]).concat(refill);
+    card.stockConfirmed = true;
+    card.stockApplied = false;
+    _csTouch(custId); persist();
+    _logActivity('🔗', 'כרטיס קושר למלאי לקוח — יתעדכן בסיום ההדפסה', card.id);
+    showToast('✅ יתווסף למלאי הלקוח כשההדפסה תושלם');
+  }
 }
 
 // ── בדיקת הזמנה מול מלאי: מעלים/מזינים הזמנה ורואים אם יש מספיק ומה חסר ──
@@ -17805,6 +17899,7 @@ function _autoCompleteWeeklyJobs() {
     if (!c || c.status === 'done') return;
     c.status = 'done';
     c.printedAt = c.printedAt || new Date().toISOString();
+    if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);
     persist();
     if (typeof _logActivity === 'function') _logActivity('✅', 'עבודה שבועית "'+(c.name||'')+'" סווגה אוטומטית כהושלמה');
     if (document.getElementById('view-saved') && document.getElementById('view-saved').style.display!=='none' && typeof renderCards==='function') renderCards();
