@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783449295';
+window.APP_VERSION = '1783449748';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3801,6 +3801,8 @@ function openNewOrderModal(prefill) {
   document.getElementById('ord-notes').value     = (prefill && prefill.notes)     || '';
   document.getElementById('ord-area').value      = (prefill && prefill.area)      || '';
   document.getElementById('ord-address').value   = (prefill && prefill.address)   || '';
+  var _sn = document.getElementById('ord-site-num');
+  if (_sn && prefill && prefill.siteNum) _sn.value = prefill.siteNum;
   var fp = document.getElementById('ord-file-preview');
   if (prefill && prefill.fileNote) { fp.textContent = prefill.fileNote; fp.style.display = ''; }
   else { fp.style.display = 'none'; }
@@ -3966,8 +3968,8 @@ function _orderDragLeave(e){ e.preventDefault(); e.stopPropagation(); var z=docu
 function _orderDrop(e){ e.preventDefault(); e.stopPropagation(); _orderDragLeave(e); var f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) _processOrderFile(f); }
 // פענוח תשובת Claude בפורמט שדות (עמיד לעברית, בלי JSON שנשבר על גרשיים כמו בע"מ)
 function _parseOrderTags(text){
-  var map = { 'לקוח':'customer','תיאור':'desc','כמות':'qty','תאריך':'date','כתובת':'address','אזור':'area','הערות':'notes' };
-  var out = { customer:'', desc:'', qty:'', date:'', address:'', area:'', notes:'' }, found = false;
+  var map = { 'לקוח':'customer','תיאור':'desc','כמות':'qty','תאריך':'date','כתובת':'address','מספר אתר':'siteNum','אזור':'area','הערות':'notes' };
+  var out = { customer:'', desc:'', qty:'', date:'', address:'', siteNum:'', area:'', notes:'' }, found = false;
   (text || '').split(/\r?\n/).forEach(function(line){
     var m = line.match(/^\s*[*\-•\s]*([֐-׿ ]+?)\s*[:：]\s*(.*)$/);
     if (!m) return;
@@ -3988,6 +3990,20 @@ function _parseOrderTags(text){
     } catch(e){} }
   }
   return out;
+}
+// מאתר אתר עידית לפי מספר שחולץ מההזמנה (מקביל ל-find_idit_site בבוט)
+function _iditFindSite(raw){
+  var want = String(raw || '').replace(/[^\d]/g, '');
+  if (!want || typeof IDIT_SITES === 'undefined' || !IDIT_SITES.length) return null;
+  for (var i = 0; i < IDIT_SITES.length; i++){                       // התאמה מדויקת על מקטע ספרות (61 / 46100)
+    var parts = String(IDIT_SITES[i].num || '').split(/[^\d]+/).filter(Boolean);
+    if (parts.indexOf(want) !== -1) return IDIT_SITES[i];
+  }
+  for (var j = 0; j < IDIT_SITES.length; j++){                       // התאמה למספר בתחילת השדה
+    var m = String(IDIT_SITES[j].num || '').match(/^\s*(\d+)/);
+    if (m && m[1] === want) return IDIT_SITES[j];
+  }
+  return null;
 }
 // קריאה לפרוקסי המקומי — עמידה בפני Local Network Access של כרום:
 // אתר HTTPS ציבורי שפונה ל-127.0.0.1 חייב לסמן targetAddressSpace, אחרת כרום
@@ -4075,8 +4091,9 @@ function _orderSendToClaude(opts){
     + 'כמות: <מספר בלבד>\n'
     + 'תאריך: <YYYY-MM-DD אם מופיע תאריך אספקה או הזמנה>\n'
     + 'כתובת: <כתובת אספקה אם קיימת>\n'
+    + 'מספר אתר: <לעידית — מספר האתר/הסניף אם מופיע, מספר בלבד (למשל 61); אחרת ריק>\n'
     + 'אזור: <אחד מ: מרכז / צפון / דרום / ירושלים / שפלה לפי הכתובת>\n'
-    + 'הערות: <פרטים חשובים נוספים — מידות, סוג נייר, צבעים, גימור, וכן מספר אתר/סניף אם מופיע (למשל אצל עידית)>\n'
+    + 'הערות: <פרטים חשובים נוספים — מידות, סוג נייר, צבעים, גימור>\n'
     + 'אם שדה אינו ידוע השאר אותו ריק אחרי הנקודתיים. אל תמציא נתונים שאינם במסמך.';
   var content = [];
   if (opts.pdfB64) content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:opts.pdfB64 } });
@@ -4092,16 +4109,23 @@ function _orderSendToClaude(opts){
     (data.content || []).forEach(function(b){ if (b && b.type === 'text') text += b.text; });
     if (!text.trim()) throw new Error('תשובה ריקה מ-Claude');
     var ex = _parseOrderTags(text);
-    openNewOrderModal({
-      customer: ex.customer || '',
-      desc:     ex.desc     || '',
-      qty:      ex.qty      || '',
-      date:     ex.date     || '',
-      notes:    ex.notes    || '',
-      area:     ex.area     || '',
-      address:  ex.address  || '',
-      fileNote: '📎 קובץ נותח: ' + opts.file.name
-    });
+    var prefill = {
+      customer: ex.customer || '', desc: ex.desc || '', qty: ex.qty || '',
+      date: ex.date || '', notes: ex.notes || '', area: ex.area || '',
+      address: ex.address || '', fileNote: '📎 קובץ נותח: ' + opts.file.name
+    };
+    // אם זוהה מספר אתר (עידית) — הכתובת נלקחת מרשימת האתרים, לא מכתובת החיוב שבמסמך
+    if (ex.siteNum){
+      var site = _iditFindSite(ex.siteNum);
+      if (site){
+        prefill.siteNum = site.num + ' · ' + site.name;
+        prefill.address = site.address || site.name;
+        if (site.notes) prefill.notes = (prefill.notes ? prefill.notes + ' | ' : '') + site.notes;
+      } else {
+        prefill.siteNum = ex.siteNum;
+      }
+    }
+    openNewOrderModal(prefill);
     showToast('✅ פרטים חולצו בהצלחה!');
   })
   .catch(function(e){
