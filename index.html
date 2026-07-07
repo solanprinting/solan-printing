@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783422901';
+window.APP_VERSION = '1783423725';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1515,6 +1515,16 @@ window._fbSnapshot = {};
         <label style="color:#b45309;display:flex;align-items:center;gap:5px">🔒 הערות פנימיות <span style="font-weight:400;font-size:.78rem;color:#92400e">(לא מודפסות בכרטיס)</span></label>
         <textarea class="fi" id="f-internal-notes" placeholder="הערות למכין הכרטיס בלבד..." rows="2"
           style="border-color:#f59e0b;background:#fffbeb"></textarea>
+      </div>
+
+      <div class="field full">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;color:var(--press)">
+          <input type="checkbox" id="f-combined-toggle" style="width:17px;height:17px;cursor:pointer" onchange="toggleCombined()"> 🧩 כרטיס משולב — כמה לקוחות באותה הדפסה
+        </label>
+        <div id="combined-wrap" style="display:none;margin-top:8px">
+          <div id="combined-list" style="display:flex;flex-direction:column;gap:8px"></div>
+          <button type="button" onclick="addCombinedRow()" style="margin-top:8px;padding:7px 14px;background:#eff6ff;border:1.5px dashed #93c5fd;border-radius:7px;color:#0369a1;font-family:'Heebo',sans-serif;font-weight:700;font-size:.84rem;cursor:pointer;text-align:right">+ הוסף לקוח</button>
+        </div>
       </div>
 
       <div class="field full">
@@ -4736,6 +4746,8 @@ function moveCurrentRun(i, dir) {
 
 // ========== MANUAL RUNS ==========
 let manualRuns = [];
+// כרטיס משולב — כמה לקוחות באותה הדפסה, כל אחד עם פרטים משלו
+let combinedRows = [];
 
 function addManualRun() {
   const id = Date.now();
@@ -4755,6 +4767,58 @@ function moveManualRun(i, dir) {
   if (j < 0 || j >= manualRuns.length) return;
   var tmp = manualRuns[i]; manualRuns[i] = manualRuns[j]; manualRuns[j] = tmp;
   renderManualRuns();
+}
+
+// ===== כרטיס משולב — כמה לקוחות באותה הדפסה =====
+function toggleCombined(){
+  var on = document.getElementById('f-combined-toggle').checked;
+  var wrap = document.getElementById('combined-wrap');
+  if (wrap) wrap.style.display = on ? '' : 'none';
+  if (on && !combinedRows.length) addCombinedRow();
+}
+function addCombinedRow(){
+  combinedRows.push({ id: Date.now()+'_'+Math.random().toString(36).slice(2,6), customer:'', desc:'', qty:'', size:'', paper:'', notes:'' });
+  renderCombinedRows();
+}
+function removeCombinedRow(id){
+  combinedRows = combinedRows.filter(function(r){ return r.id!==id; });
+  renderCombinedRows();
+}
+function _combinedSet(id, field, val){
+  var r = combinedRows.find(function(x){ return x.id===id; });
+  if (r) r[field] = val;
+}
+function renderCombinedRows(){
+  var list = document.getElementById('combined-list'); if(!list) return;
+  // רשימת לקוחות להשלמה אוטומטית (מלאי לקוחות + לקוחות אפליקציה)
+  var custNames = {};
+  (customers||[]).forEach(function(c){ if(c&&c.name) custNames[c.name]=1; });
+  try { (typeof _csCustomerList==='function'?_csCustomerList():[]).forEach(function(c){ if(c&&c.name) custNames[c.name]=1; }); } catch(e){}
+  var dlOpts = Object.keys(custNames).map(function(n){ return '<option value="'+escHtml(n)+'">'; }).join('');
+  list.innerHTML = '<datalist id="combined-cust-dl">'+dlOpts+'</datalist>' + combinedRows.map(function(r,i){
+    var inp = function(field,ph,extra){ return '<input class="fi" value="'+escHtml(r[field]||'')+'" placeholder="'+ph+'" oninput="_combinedSet(\''+r.id+'\',\''+field+'\',this.value)" style="margin:0;font-size:.82rem'+(extra||'')+'">'; };
+    return '<div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:8px;padding:10px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+      +   '<b style="font-size:.82rem;color:#0369a1">לקוח '+(i+1)+'</b>'
+      +   '<button type="button" onclick="removeCombinedRow(\''+r.id+'\')" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:1rem">✕</button>'
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:6px;margin-bottom:6px">'
+      +   '<input class="fi" list="combined-cust-dl" value="'+escHtml(r.customer||'')+'" placeholder="שם לקוח" oninput="_combinedSet(\''+r.id+'\',\'customer\',this.value)" style="margin:0;font-size:.82rem">'
+      +   inp('qty','כמות',';text-align:center')
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">'
+      +   inp('size','גודל')
+      +   inp('paper','נייר/סוג')
+      + '</div>'
+      +   inp('desc','פירוט/מוצר (פלייסמנט, מספר צבעים...)')
+      + '<div style="margin-top:6px">'+inp('notes','הערות להדפסה ללקוח זה')+'</div>'
+      + '</div>';
+  }).join('');
+}
+function _combinedClean(){
+  return combinedRows
+    .filter(function(r){ return (r.customer||r.desc||r.qty||r.size||r.paper||r.notes||'').toString().trim(); })
+    .map(function(r){ return { customer:(r.customer||'').trim(), desc:(r.desc||'').trim(), qty:(r.qty||'').toString().trim(), size:(r.size||'').trim(), paper:(r.paper||'').trim(), notes:(r.notes||'').trim() }; });
 }
 // גודל גיליון שלם (מס' עמודים) לפי שדה הגודל — זהה ללוגיקה ב-calcRuns
 function _fullSheetForSize(size) {
@@ -5970,6 +6034,12 @@ function editCard(id) {
   // checkboxes
   if (document.getElementById('f-needs-folding')) document.getElementById('f-needs-folding').checked = !!c.needsFolding;
   if (document.getElementById('f-needs-binding')) document.getElementById('f-needs-binding').checked = !!c.needsBinding;
+  // כרטיס משולב — טען לקוחות
+  combinedRows = (c.combined||[]).map(function(x){ return { id: Date.now()+'_'+Math.random().toString(36).slice(2,6), customer:x.customer||'', desc:x.desc||'', qty:x.qty||'', size:x.size||'', paper:x.paper||'', notes:x.notes||'' }; });
+  var _ctog = document.getElementById('f-combined-toggle'), _cwrp = document.getElementById('combined-wrap');
+  if (_ctog) _ctog.checked = combinedRows.length > 0;
+  if (_cwrp) _cwrp.style.display = combinedRows.length ? '' : 'none';
+  renderCombinedRows();
   // sheets mode
   var _smcEdit = document.getElementById('f-sheets-mode');
   var _sclEdit = document.getElementById('f-copies-label');
@@ -6033,6 +6103,10 @@ function clearForm() {
   currentRuns=[];
   manualRuns=[];
   renderManualRuns();
+  combinedRows=[];
+  var _ctog=document.getElementById('f-combined-toggle'); if(_ctog) _ctog.checked=false;
+  var _cwrp=document.getElementById('combined-wrap'); if(_cwrp) _cwrp.style.display='none';
+  renderCombinedRows();
   window._formProof = null;
   window._pmDismissed = {};   // איפוס דחיות תזכורת-מוצר — כרטיס חדש מקבל תזכורות מחדש
   _updateProofFormStatus();
@@ -6873,7 +6947,8 @@ function _cardSignature(c){
     placementDetails:n(c.placementDetails), machine:n(c.machine),
     tumble:!!c.tumble, singleSheet:!!c.singleSheet, sheetsMode:!!c.sheetsMode, allPaper:!!c.allPaper,
     perSheet:(parseInt(c.perSheet)||1), needsFolding:!!c.needsFolding, needsBinding:!!c.needsBinding,
-    runs: runs
+    runs: runs,
+    combined: (c.combined||[]).map(function(x){ return { customer:n(x.customer), desc:n(x.desc), qty:n(x.qty), size:n(x.size), paper:n(x.paper), notes:n(x.notes) }; })
   });
 }
 function _saveCardNew() {
@@ -6922,6 +6997,7 @@ function _saveCardNew() {
     perSheet:     parseInt((document.getElementById('f-per-sheet')||{value:'1'}).value)||1,
     needsFolding: document.getElementById('f-needs-folding')?document.getElementById('f-needs-folding').checked:false,
     needsBinding: document.getElementById('f-needs-binding')?document.getElementById('f-needs-binding').checked:false,
+    combined:     _combinedClean(),
     status:       'pending',
     createdAt:    new Date().toLocaleDateString('he-IL'),
     createdBy:    currentUser?currentUser.id:'admin',
@@ -6985,6 +7061,7 @@ function buildTempCard() {
     perSheet:     parseInt((document.getElementById('f-per-sheet')||{value:'1'}).value)||1,
     needsFolding: document.getElementById('f-needs-folding')?document.getElementById('f-needs-folding').checked:false,
     needsBinding: document.getElementById('f-needs-binding')?document.getElementById('f-needs-binding').checked:false,
+    combined:     _combinedClean(),
     createdAt:    new Date().toLocaleDateString('he-IL'),
     runs:         getEffectiveRuns()
   };
@@ -7228,6 +7305,30 @@ function buildPrintCard(c) {
       <div style="font-size:1.18rem;font-weight:800;color:#111;white-space:pre-wrap;flex:1">${c.placementDetails}</div>
     </div>` : '';
 
+  // כרטיס משולב — טבלת לקוחות עם פרטים שונים להדפסה
+  const _comb = (c.combined||[]).filter(function(x){ return x && (x.customer||x.desc||x.qty||x.size||x.paper||x.notes); });
+  const combinedSection = _comb.length ? `
+    <div style="margin:0 32px 0;font-size:1.05rem;font-weight:900;color:#0369a1;padding:10px 0 4px;border-top:2px solid #0369a1">🧩 כרטיס משולב — ${_comb.length} לקוחות</div>
+    <div style="padding:0 32px 12px">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="border-bottom:2px solid #111">
+          <th style="padding:5px 8px;text-align:right;font-size:.9rem;font-weight:800">לקוח</th>
+          <th style="padding:5px 8px;text-align:right;font-size:.9rem;font-weight:800">פירוט</th>
+          <th style="padding:5px 8px;text-align:center;font-size:.9rem;font-weight:800">כמות</th>
+          <th style="padding:5px 8px;text-align:center;font-size:.9rem;font-weight:800">גודל</th>
+          <th style="padding:5px 8px;text-align:center;font-size:.9rem;font-weight:800">נייר</th>
+          <th style="padding:5px 8px;text-align:right;font-size:.9rem;font-weight:800">הערות</th>
+        </tr></thead>
+        <tbody>${_comb.map(function(x){ return '<tr style="border-bottom:1px solid #bbb">'
+          + '<td style="padding:6px 8px;font-weight:800;font-size:1.02rem">'+escHtml(x.customer||'')+'</td>'
+          + '<td style="padding:6px 8px;font-size:.98rem">'+escHtml(x.desc||'')+'</td>'
+          + '<td style="padding:6px 8px;text-align:center;font-weight:800;font-size:1.02rem">'+escHtml(x.qty||'')+'</td>'
+          + '<td style="padding:6px 8px;text-align:center;font-size:.95rem">'+escHtml(x.size||'')+'</td>'
+          + '<td style="padding:6px 8px;text-align:center;font-size:.95rem">'+escHtml(x.paper||'')+'</td>'
+          + '<td style="padding:6px 8px;font-size:.9rem;color:#333">'+escHtml(x.notes||'')+'</td></tr>'; }).join('')}</tbody>
+      </table>
+    </div>` : '';
+
   const hasRuns = c.runs && c.runs.length && !(c.size && c.size.includes('פלייסמנטים'));
   const runsSection = hasRuns ? `
     <div style="margin:0 32px 0;font-size:.95rem;font-weight:800;color:#444;padding:8px 0 2px;border-top:1.5px solid #e0e0e0">פירוט ריצות הדפסה</div>
@@ -7261,6 +7362,8 @@ function buildPrintCard(c) {
     <div style="padding:6px 32px 0">${fieldsTop}</div>
     <!-- ריצות (בין מס' עמודים לגודל סופי) -->
     ${runsSection}
+    <!-- כרטיס משולב — לקוחות -->
+    ${combinedSection}
     <!-- שדות תחתונים (גודל סופי ומטה) -->
     <div style="padding:0 32px 4px">${fieldsBottom}${placementRow}</div>
     <!-- הערות -->
