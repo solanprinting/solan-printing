@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783413926';
+window.APP_VERSION = '1783419272';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1085,6 +1085,7 @@ textarea.fi{resize:none;min-height:52px;}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 </script>
@@ -1194,7 +1195,7 @@ window._fbSnapshot = {};
     <button class="btn btn-outline-w" onclick="openImpositionTool()">✂️ קיפול לחוברת</button>
     <button class="btn btn-outline-w" onclick="openCartonCalc()">🧮 מחשבון</button>
     <button class="btn btn-outline-w admin-only" onclick="openReports()">📊 דוחות</button>
-    <button class="btn btn-outline-w admin-only" onclick="openCustStock()">📦 מלאי לקוחות</button>
+    <button class="btn btn-outline-w admin-only" id="cs-stock-btn" onclick="openCustStock()" style="position:relative">📦 מלאי לקוחות<span id="cs-stock-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w" onclick="openOperatorView()">🏭 מסך דפסים</button>
     <button class="btn btn-outline-w" id="notif-bell-btn" onclick="_notifToggle()" style="position:relative" title="התראות — מי עשה מה">
       🔔<span id="notif-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span>
@@ -2825,6 +2826,10 @@ function applyPermissionsToUI() {
   // כפתור הוסף עובד בכותרת — רק מנהל
   var adminControls = document.querySelectorAll('.admin-only');
   adminControls.forEach(function(el){ el.style.display = isAdmin ? '' : 'none'; });
+  // בדיקת מלאי לקוחות נמוך — תג על הכפתור (בטעינה, שקט; התראות חדשות יופיעו בפולינג)
+  if (isAdmin) setTimeout(function(){ try{ _csLowStockCheck({silent:true}); }catch(e){} }, 2500);
+  // תג התראות בכותרת — לרנדר בטעינה (הפולינג מדלג כשיומן השרת ריק, אז התג לא היה מופיע)
+  try{ if (typeof _notifRenderBadge === 'function') _notifRenderBadge(); }catch(e){}
 
   // אם נכנסו לאפליקציה דרך לחיצה על התראת פוש (?openCard=ID ב-URL) —
   // פותחים את הכרטיס הרלוונטי פעם אחת בלבד, רק אחרי שהלוגין/הרשאות טופלו.
@@ -6998,7 +7003,7 @@ function _paperTagPrint(paper){
 // כתובת הקובץ — כך שגם אם הפרופר הוחלף אחרי ההדפסה, הסריקה תמיד תראה את העדכני.
 function _cardQrBox(cardId){
   try {
-    if (typeof qrcode !== 'function' || cardId == null || cardId === 'preview') return '';
+    if (typeof qrcode !== 'function' || cardId == null) return '';
     var url = 'https://solanprinting.github.io/solan-printing/scan.html?c=' + encodeURIComponent(cardId);
     var q = qrcode(0, 'M'); q.addData(url); q.make();
     var svg = q.createSvgTag({ cellSize: 2, margin: 0, scalable: true });
@@ -12364,6 +12369,13 @@ function renderCards() {
     _updateCompletedCardsSection([]);
     return;
   }
+  // סדר: חדש למעלה — לפי זמן יצירה (id=Date.now() בכרטיס חדש), נופל ל-createdAt
+  var _cardCreatedMs = function(c){
+    if (typeof c.id === 'number') return c.id;
+    var n = parseInt(c.id,10); if(!isNaN(n) && String(n)===String(c.id)) return n;
+    var d = Date.parse(c.createdAt); return isNaN(d)?0:d;
+  };
+  activeCards = activeCards.slice().sort(function(a,b){ return _cardCreatedMs(b) - _cardCreatedMs(a); });
   el.innerHTML = filterBanner + (activeCards.length
     ? activeCards.map(_jobCardHtml).join('')
     : '<div style="text-align:center;padding:40px 20px;color:#9ca3af"><div style="font-size:2.4rem;margin-bottom:10px">🎉</div><div style="font-size:1rem;font-weight:700;color:#374151">אין עבודות פעילות כרגע</div></div>');
@@ -15090,6 +15102,80 @@ function _csGet(custId){
 function _csTouch(custId){ _csGet(custId).updatedAt = Date.now(); }
 function _csNum(n){ n = Number(n)||0; return n.toLocaleString('he-IL'); }
 function _csUid(p){ return (p||'x') + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+// ── התראות מלאי נמוך ──
+function _csItemLow(it){ var mn=Number(it.minQty)||0; return mn>0 && (Number(it.qty)||0) <= mn; }
+function _csLowStockItems(){
+  var out=[];
+  Object.keys(customerStock||{}).forEach(function(cid){
+    var st=customerStock[cid]; if(!st||!st.items) return;
+    var cust=(customers||[]).find(function(c){ return c.id===cid; });
+    st.items.forEach(function(it){ if(_csItemLow(it)) out.push({ custId:cid, custName:cust?cust.name:'(לקוח)', item:it }); });
+  });
+  return out;
+}
+function _csLowStockCheck(opts){
+  opts = opts || {};
+  if(!(currentUser && currentUser.isAdmin)) return;
+  var low = _csLowStockItems();
+  var badge = document.getElementById('cs-stock-badge');
+  if(badge){ badge.textContent = low.length || ''; badge.style.display = low.length ? '' : 'none'; }
+  try{
+    var seen = JSON.parse(localStorage.getItem('solanCsLowSeen')||'{}');
+    var fresh = [], now = Date.now(), lowKeys = {};
+    low.forEach(function(l){ var k=l.custId+'|'+l.item.id; lowKeys[k]=1; if(!(k in seen)) fresh.push(l); });
+    low.forEach(function(l){ seen[l.custId+'|'+l.item.id] = now; });
+    Object.keys(seen).forEach(function(k){ if(!lowKeys[k]) delete seen[k]; });  // התאושש → יתריע שוב בפעם הבאה
+    localStorage.setItem('solanCsLowSeen', JSON.stringify(seen));
+    if(fresh.length && !opts.silent){
+      var names = fresh.slice(0,3).map(function(l){ return l.item.name+' ('+l.custName+')'; }).join(', ');
+      showToast('⚠️ מלאי לקוח נמוך: '+names+(fresh.length>3?' +'+(fresh.length-3):''));
+      if(window._logActivity) _logActivity('⚠️', 'מלאי לקוח נמוך: '+names, null);
+    }
+  }catch(e){}
+}
+function _csLowOverviewHtml(){
+  var low = _csLowStockItems();
+  if(!low.length) return '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#166534;font-weight:700;font-size:.85rem">✅ אין פריטים מתחת לסף המינימום.</div>';
+  return '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 12px;margin-bottom:12px">'
+    + '<div style="font-weight:800;color:#b91c1c;margin-bottom:6px;font-size:.88rem">⚠️ מלאי נמוך ('+low.length+'):</div>'
+    + low.map(function(l){
+        return '<div style="font-size:.82rem;color:#7f1d1d;padding:2px 0;cursor:pointer" onclick="var s=document.getElementById(\'cs-customer\');if(s){s.value=\''+l.custId+'\';window._csForm=null;_csRender();}">• <b>'+_esc(l.item.name)+'</b> — '+_esc(l.custName)+' · נותר '+_csNum(l.item.qty)+' (סף '+_csNum(l.item.minQty)+')</div>';
+      }).join('')
+    + '</div>';
+}
+// ── תווית ברקוד להדפסה (JsBarcode) ──
+function _csBarcodeLabel(custId, itemId){
+  var st=_csGet(custId); var it=st.items.find(function(x){return x.id===itemId;}); if(!it||!it.barcode) return;
+  var cust=(customers||[]).find(function(c){return c.id===custId;});
+  var ex=document.getElementById('csBarcodeModal'); if(ex) ex.remove();
+  var html='<div id="csBarcodeModal" class="modal-overlay open" style="z-index:10002">'
+    + '<div class="modal-box" style="max-width:420px;width:92vw">'
+    + '<div class="modal-header"><span>🏷️ תווית ברקוד</span><button class="modal-close" onclick="document.getElementById(\'csBarcodeModal\').remove()">✕</button></div>'
+    + '<div style="padding:18px 20px;text-align:center" id="cs-bc-label">'
+    + '<div style="font-weight:800;font-size:1rem">'+_esc(it.name)+'</div>'
+    + '<div style="font-size:.8rem;color:#666;margin-bottom:10px">'+_esc((cust&&cust.name)||'')+'</div>'
+    + '<svg id="cs-bc-svg" style="width:100%;max-width:300px"></svg>'
+    + '</div>'
+    + '<div style="padding:0 20px 18px;display:flex;gap:8px;justify-content:center">'
+    + '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csBarcodePrint()">🖨️ הדפס תווית</button>'
+    + '</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  _csRenderBarcode('cs-bc-svg', it.barcode);
+}
+function _csRenderBarcode(svgId, value){
+  try{
+    if(typeof JsBarcode === 'function'){ JsBarcode('#'+svgId, String(value), { format:'CODE128', displayValue:true, fontSize:16, height:70, margin:6 }); return true; }
+  }catch(e){}
+  // נפילה: אין ספרייה — הצג את המספר בלבד
+  var el=document.getElementById(svgId); if(el){ el.outerHTML='<div id="'+svgId+'" style="font-family:monospace;font-size:1.4rem;letter-spacing:2px;padding:10px;border:1px dashed #ccc">'+_esc(String(value))+'</div>'; }
+  return false;
+}
+function _csBarcodePrint(){
+  var node=document.getElementById('cs-bc-label'); if(!node) return;
+  var w=window.open('','_blank','width=400,height=300'); if(!w) return;
+  w.document.write('<html dir="rtl"><head><meta charset="utf-8"><title>תווית</title></head><body style="font-family:sans-serif;text-align:center;margin:20px">'+node.innerHTML+'</body></html>');
+  w.document.close(); setTimeout(function(){ try{ w.print(); }catch(e){} }, 300);
+}
 function openCustStock(){
   if(!_csGuard()) return;
   window._csForm = null;
@@ -15100,11 +15186,12 @@ function openCustStock(){
   if(cur) sel.value = cur;
   document.getElementById('custStockModal').classList.add('open');
   _csRender();
+  _csLowStockCheck({silent:true});
 }
 function _csRender(){
   var host = document.getElementById('cs-body'); if(!host) return;
   var sel = document.getElementById('cs-customer'); var custId = sel ? sel.value : '';
-  if(!custId){ host.innerHTML = '<div style="text-align:center;color:#aaa;padding:34px 0">בחר לקוח כדי לראות ולנהל את מלאי הסחורה שלו.</div>'; return; }
+  if(!custId){ host.innerHTML = _csLowOverviewHtml() + '<div style="text-align:center;color:#aaa;padding:24px 0">בחר לקוח כדי לראות ולנהל את מלאי הסחורה שלו.</div>'; return; }
   var st = _csGet(custId);
   var formHtml = '';
   if(window._csForm && window._csForm.custId === custId){
@@ -15116,9 +15203,14 @@ function _csRender(){
       + '<div><label style="font-size:.7rem;color:#777">יחידה</label><input class="fi" id="cs-f-unit" value="'+_esc(f.unit||'')+'" placeholder="חבילות/קרטונים" style="margin-top:3px"></div>'
       + '<div><label style="font-size:.7rem;color:#777">כמות במלאי</label><input class="fi" id="cs-f-qty" type="number" step="any" value="'+(f.qty!=null?f.qty:'')+'" style="margin-top:3px"></div>'
       + '</div>'
-      + '<div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:8px">'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:8px;margin-top:8px">'
       + '<div><label style="font-size:.7rem;color:#777">כמות באריזה (יח\')</label><input class="fi" id="cs-f-packsize" type="number" step="any" value="'+(f.packSize!=null?f.packSize:1000)+'" placeholder="1000" style="margin-top:3px"></div>'
+      + '<div><label style="font-size:.7rem;color:#777">סף מינימום (התראה)</label><input class="fi" id="cs-f-minqty" type="number" step="any" value="'+(f.minQty!=null?f.minQty:'')+'" placeholder="0 = ללא" style="margin-top:3px"></div>'
       + '<div><label style="font-size:.7rem;color:#777">סוג אריזה</label><input class="fi" id="cs-f-packaging" value="'+_esc(f.packaging||'')+'" placeholder="חבילות נייר / קרטונים / קרטונים + מדבקות" style="margin-top:3px"></div>'
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:2fr auto;gap:8px;margin-top:8px;align-items:end">'
+      + '<div><label style="font-size:.7rem;color:#777">ברקוד</label><input class="fi" id="cs-f-barcode" value="'+_esc(f.barcode||'')+'" placeholder="מק״ט / ברקוד (אותיות/ספרות)" style="margin-top:3px"></div>'
+      + '<button type="button" class="btn btn-outline" style="font-size:.76rem" onclick="var e=document.getElementById(\'cs-f-barcode\'); if(!(e.value||\'\').trim()) e.value=_csGenBarcode();">🎲 צור ברקוד</button>'
       + '</div>'
       + '<div style="font-size:.7rem;color:#999;margin-top:5px">"כמות באריזה" = כמה יחידות בכל חבילה/קרטון — משמש להמרת כמות שהודפסה לחבילות במלאי.</div>'
       + '<div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end">'
@@ -15127,28 +15219,34 @@ function _csRender(){
       + '</div></div>';
   }
   var itemsHtml = st.items.length ? st.items.map(function(it){
-    var low = (Number(it.qty)||0) <= 0;
-    return '<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:#fff;border:1px solid var(--line);border-radius:8px;margin-bottom:6px">'
-      + '<div style="flex:1"><div style="font-weight:700">'+_esc(it.name)+'</div>'
-      + '<div style="font-size:.74rem;color:#888">' + [ (it.unit?_esc(it.unit):''), 'אריזה: '+_csNum(it.packSize||1000)+' יח\'', (it.packaging?_esc(it.packaging):'') ].filter(Boolean).join(' · ') + '</div></div>'
+    var mn = Number(it.minQty)||0;
+    var low = mn>0 ? (Number(it.qty)||0) <= mn : (Number(it.qty)||0) <= 0;
+    var sub = [ (it.unit?_esc(it.unit):''), 'אריזה: '+_csNum(it.packSize||1000)+' יח\'', (it.packaging?_esc(it.packaging):''), (mn>0?'סף: '+_csNum(mn):''), (it.barcode?'🏷️ '+_esc(it.barcode):'') ].filter(Boolean).join(' · ');
+    return '<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:'+(low?'#fef2f2':'#fff')+';border:1px solid '+(low?'#fca5a5':'var(--line)')+';border-right:4px solid '+(low?'#dc2626':'transparent')+';border-radius:8px;margin-bottom:6px">'
+      + '<div style="flex:1"><div style="font-weight:700">'+_esc(it.name)+ (low?' <span style="color:#dc2626;font-size:.72rem;font-weight:800">⚠️ מלאי נמוך</span>':'') +'</div>'
+      + '<div style="font-size:.74rem;color:#888">' + sub + '</div></div>'
       + '<div style="font-weight:800;font-size:1.05rem;color:'+(low?'#c0392b':'#166534')+';min-width:74px;text-align:center">'+_csNum(it.qty)+'</div>'
       + '<button class="btn" style="background:#16a34a;color:#fff;font-size:.74rem;padding:4px 8px" onclick="_csMove(\''+custId+'\',\''+it.id+'\',1)">+ כניסה</button>'
       + '<button class="btn" style="background:#dc2626;color:#fff;font-size:.74rem;padding:4px 8px" onclick="_csMove(\''+custId+'\',\''+it.id+'\',-1)">− יציאה</button>'
+      + (it.barcode?'<button class="btn" style="background:none;border:1px solid #cbd5e1;font-size:.74rem;padding:4px 8px" onclick="_csBarcodeLabel(\''+custId+'\',\''+it.id+'\')" title="תווית ברקוד">🏷️</button>':'')
       + '<button class="btn" style="background:none;border:1px solid #c8d0f0;font-size:.74rem;padding:4px 8px" onclick="_csEditItem(\''+custId+'\',\''+it.id+'\')">✏️</button>'
       + '<button class="btn" style="background:none;border:1px solid #e0a0a0;color:#c0392b;font-size:.74rem;padding:4px 8px" onclick="_csDeleteItem(\''+custId+'\',\''+it.id+'\')">🗑</button>'
       + '</div>';
   }).join('') : '<div style="color:#aaa;padding:14px 0">אין פריטי סחורה ללקוח זה עדיין.</div>';
-  host.innerHTML =
+  var custLow = st.items.filter(_csItemLow);
+  var custLowBanner = custLow.length ? '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 12px;margin-bottom:10px;color:#b91c1c;font-weight:700;font-size:.84rem">⚠️ '+custLow.length+' פריטים מתחת לסף: '+custLow.map(function(x){return _esc(x.name);}).join(', ')+'</div>' : '';
+  host.innerHTML = custLowBanner +
       '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn btn-primary" style="font-size:.8rem" onclick="_csAddItem(\''+custId+'\')">+ פריט סחורה חדש</button>'
     + '<button class="btn btn-outline" style="font-size:.8rem;border-color:#c2410c;color:#c2410c" onclick="_csOrderOpen(\''+custId+'\')">📥 בדיקת הזמנה מול מלאי</button></div>'
     + formHtml + itemsHtml
     + '<div style="margin-top:18px;font-weight:800;color:var(--press);font-size:.9rem">📋 תנועות אחרונות</div>'
     + _csLogHtml(st);
 }
-function _csAddItem(custId){ window._csForm = { custId:custId, itemId:null, name:'', unit:'חבילות', qty:'', packSize:1000, packaging:'' }; _csRender(); }
+function _csGenBarcode(){ return String(Date.now()).slice(-9) + String(Math.floor(Math.random()*900)+100); }
+function _csAddItem(custId){ window._csForm = { custId:custId, itemId:null, name:'', unit:'חבילות', qty:'', packSize:1000, packaging:'', minQty:'', barcode:'' }; _csRender(); }
 function _csEditItem(custId,itemId){
   var it = _csGet(custId).items.find(function(x){ return x.id===itemId; }); if(!it) return;
-  window._csForm = { custId:custId, itemId:itemId, name:it.name, unit:it.unit||'', qty:it.qty, packSize:(it.packSize!=null?it.packSize:1000), packaging:it.packaging||'' };
+  window._csForm = { custId:custId, itemId:itemId, name:it.name, unit:it.unit||'', qty:it.qty, packSize:(it.packSize!=null?it.packSize:1000), packaging:it.packaging||'', minQty:(it.minQty!=null?it.minQty:''), barcode:it.barcode||'' };
   _csRender();
 }
 function _csSaveItem(custId){
@@ -15158,18 +15256,20 @@ function _csSaveItem(custId){
   var qty  = parseFloat((document.getElementById('cs-f-qty').value||'0').toString().replace(/,/g,'')); if(isNaN(qty)) qty = 0;
   var packSize = parseFloat((document.getElementById('cs-f-packsize').value||'').toString().replace(/,/g,'')); if(isNaN(packSize)||packSize<=0) packSize = 1000;
   var packaging = (document.getElementById('cs-f-packaging').value||'').trim();
+  var minQty = parseFloat((document.getElementById('cs-f-minqty').value||'').toString().replace(/,/g,'')); if(isNaN(minQty)||minQty<0) minQty = 0;
+  var barcode = (document.getElementById('cs-f-barcode').value||'').trim();
   var st = _csGet(custId); var f = window._csForm;
   if(f && f.itemId){
     var it = st.items.find(function(x){ return x.id===f.itemId; });
-    if(it){ it.name=name; it.unit=unit; it.qty=qty; it.packSize=packSize; it.packaging=packaging; }
+    if(it){ it.name=name; it.unit=unit; it.qty=qty; it.packSize=packSize; it.packaging=packaging; it.minQty=minQty; it.barcode=barcode; }
   } else {
     var nid = _csUid('i');
-    st.items.push({ id:nid, name:name, unit:unit, qty:qty, packSize:packSize, packaging:packaging });
+    st.items.push({ id:nid, name:name, unit:unit, qty:qty, packSize:packSize, packaging:packaging, minQty:minQty, barcode:barcode });
     st.log.unshift({ id:_csUid('m'), ts:Date.now(), delta:qty, itemId:nid, itemName:name, qtyAfter:qty, note:'מלאי התחלתי', by: currentUser?currentUser.name:'' });
   }
   window._csForm = null; _csTouch(custId); persist();
   _logActivity('📦', 'מלאי לקוח עודכן: '+name, null);
-  _csRender();
+  _csRender(); _csLowStockCheck({silent:true});
 }
 function _csMove(custId,itemId,sign){
   var st = _csGet(custId); var it = st.items.find(function(x){ return x.id===itemId; }); if(!it) return;
@@ -15183,7 +15283,7 @@ function _csMove(custId,itemId,sign){
   if(st.log.length>300) st.log = st.log.slice(0,300);
   _csTouch(custId); persist();
   _logActivity(sign>0?'📥':'📤', 'מלאי לקוח: '+(sign>0?'כניסה':'יציאה')+' '+_csNum(q)+' '+it.name, null);
-  _csRender();
+  _csRender(); _csLowStockCheck();
 }
 function _csDeleteItem(custId,itemId){
   var st = _csGet(custId); var it = st.items.find(function(x){ return x.id===itemId; }); if(!it) return;
@@ -15293,6 +15393,7 @@ function _csCardAddApply(custId, cardId){
     _csTouch(custId); persist();
     _logActivity('📥', 'הוספת ייצור למלאי לקוח (כרטיס)', null);
     showToast('✅ נוסף למלאי הלקוח');
+    _csLowStockCheck({silent:true});
   }
   var m = document.getElementById('csAddModal'); if(m) m.remove();
 }
@@ -15428,6 +15529,7 @@ function _csOrderDeduct(custId){
   _csTouch(custId); persist();
   _logActivity('📤', 'ניכוי הזמנה ממלאי לקוח', null);
   showToast('✅ ההזמנה נוכתה מהמלאי');
+  _csLowStockCheck();
   var m = document.getElementById('csOrderModal'); if(m) m.remove();
   _csRender();
 }
@@ -15999,6 +16101,7 @@ async function _fbPollAll() {
       if (_csChanged) {
         localStorage.setItem('solanCustomerStock', JSON.stringify(customerStock));
         if (document.getElementById('custStockModal') && document.getElementById('custStockModal').classList.contains('open')) _csRender();
+        if (typeof _csLowStockCheck === 'function') _csLowStockCheck();
       }
       window._fbSnapshot.customerStock = JSON.stringify(customerStock);
     }
@@ -16557,7 +16660,7 @@ function _actMergeById(a, b) {
     byId[k] = e;
   });
   return Object.keys(byId).map(function(k){ return byId[k]; })
-    .sort(function(x,y){ return (y.t||0) - (x.t||0); }).slice(0, 100);
+    .sort(function(x,y){ return (y.t||0) - (x.t||0); }).slice(0, 300);
 }
 // מחיקת רשומת פעילות (מנהלים בלבד) — מוסיפה tombstone, מסירה מהיומן, ומסנכרנת לכל המכשירים.
 function _notifDeleteEntry(id, ev){
@@ -17189,7 +17292,8 @@ function _notifRenderBadge(){
 }
 function _notifRenderPanel(p){
   var _isAdmin = currentUser && currentUser.isAdmin;
-  var rows = (dashActivity||[]).slice(0, 50).map(function(a){
+  var _total = (dashActivity||[]).length;
+  var rows = (dashActivity||[]).slice(0, 200).map(function(a){
     var d = new Date(a.t);
     var when = d.toLocaleDateString('he-IL', { day:'2-digit', month:'2-digit' }) + ' · ' + d.toLocaleTimeString('he-IL', { hour:'2-digit', minute:'2-digit' });
     var _aid = a.id || (a.t + '_' + (a.text||''));
@@ -17207,11 +17311,11 @@ function _notifRenderPanel(p){
       +   '<div style="font-size:.72rem;color:#6b7280;margin-top:2px">' + (a.user ? '👤 ' + escHtml(a.user) + ' · ' : '') + when + '</div>'
       + '</div>' + delBtn + '</div>';
   }).join('');
-  p.innerHTML = '<div style="background:var(--press);color:#fff;padding:11px 16px;display:flex;justify-content:space-between;align-items:center">'
-    + '<span style="font-weight:900;font-size:.95rem">🔔 התראות — פעילות משתמשים</span>'
+  p.innerHTML = '<div style="background:var(--press);color:#fff;padding:11px 16px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">'
+    + '<span style="font-weight:900;font-size:.95rem">🔔 התראות — פעילות (' + _total + ')</span>'
     + '<button onclick="document.getElementById(\'notif-panel\').remove()" style="background:none;border:none;color:#fff;font-size:1.15rem;cursor:pointer;line-height:1">×</button>'
     + '</div>'
-    + '<div style="max-height:min(60vh, 480px);overflow-y:auto">' + (rows || '<div style="padding:26px;text-align:center;color:#9ca3af;font-size:.88rem">אין פעילות עדיין</div>') + '</div>';
+    + '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch">' + (rows || '<div style="padding:26px;text-align:center;color:#9ca3af;font-size:.88rem">אין פעילות עדיין</div>') + '</div>';
 }
 function _notifToggle(){
   var ex = document.getElementById('notif-panel');
@@ -17221,7 +17325,16 @@ function _notifToggle(){
   _notifRenderBadge();
   var p = document.createElement('div');
   p.id = 'notif-panel';
-  p.style.cssText = 'position:fixed;top:calc(var(--hdr-h,60px) + 6px);left:10px;z-index:100003;width:min(360px, calc(100vw - 20px));'
+  // מיקום מתחת לפעמון עצמו, מיושר לקצה שלו, ותחום לגובה החלון (עם גלילה פנימית)
+  var bell = document.getElementById('notif-bell-btn');
+  var r = bell ? bell.getBoundingClientRect() : null;
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var pw = Math.min(380, vw - 20);
+  var top = r ? (r.bottom + 6) : 66;
+  var left = r ? Math.min(Math.max(10, r.right - pw), vw - pw - 10) : (vw - pw - 10);
+  var maxH = Math.max(220, vh - top - 12);
+  p.style.cssText = 'position:fixed;top:' + top + 'px;left:' + left + 'px;z-index:100003;width:' + pw + 'px;'
+    + 'max-height:' + maxH + 'px;display:flex;flex-direction:column;'
     + 'background:#fff;border:1.5px solid #d1d5db;border-radius:14px;box-shadow:0 14px 44px rgba(0,0,0,.28);direction:rtl;overflow:hidden;font-family:Heebo,sans-serif';
   _notifRenderPanel(p);
   document.body.appendChild(p);
