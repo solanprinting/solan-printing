@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783419272';
+window.APP_VERSION = '1783419997';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1703,6 +1703,8 @@ window._fbSnapshot = {};
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
         <label style="font-weight:700;font-size:.85rem;color:var(--press)">לקוח:</label>
         <select id="cs-customer" class="fi" style="max-width:300px" onchange="window._csForm=null;_csRender()"></select>
+        <button class="btn btn-primary" onclick="_csAddCustomer()" style="font-size:.76rem">➕ לקוח חדש</button>
+        <button class="btn btn-outline" onclick="_csRenameCustomer()" style="font-size:.76rem">✏️ שם</button>
         <button class="btn btn-outline" onclick="_csExportCsv()" style="font-size:.76rem">⬇️ CSV</button>
       </div>
       <div id="cs-body"></div>
@@ -15102,14 +15104,65 @@ function _csGet(custId){
 function _csTouch(custId){ _csGet(custId).updatedAt = Date.now(); }
 function _csNum(n){ n = Number(n)||0; return n.toLocaleString('he-IL'); }
 function _csUid(p){ return (p||'x') + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+// שם לקוח לתצוגה — מעדיף שם שהוזן ידנית במלאי, אחרת מרשימת הלקוחות של האפליקציה
+function _csCustName(custId){
+  var st = customerStock[custId];
+  if (st && st.name) return st.name;
+  var c = (customers||[]).find(function(x){ return String(x.id)===String(custId); });
+  return c ? (c.name||'(לקוח)') : '(לקוח)';
+}
+// רשימת לקוחות לבחירה: לקוחות האפליקציה + לקוחות שהוזנו ידנית במלאי (dedup)
+function _csCustomerList(){
+  var map = {};
+  (customers||[]).forEach(function(c){ if(c && c.id!=null) map[String(c.id)] = { id:String(c.id), name:c.name||'', manual:false }; });
+  Object.keys(customerStock||{}).forEach(function(id){
+    var st = customerStock[id];
+    if (!map[id]) map[id] = { id:id, name:(st && st.name) || '(לקוח מלאי)', manual:true };
+    else if (st && st.name) map[id].name = st.name;
+  });
+  return Object.keys(map).map(function(k){ return map[k]; })
+    .sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','he'); });
+}
+function _csFillCustomerSelect(selectedId){
+  var sel = document.getElementById('cs-customer'); if(!sel) return;
+  var list = _csCustomerList();
+  sel.innerHTML = '<option value="">— בחר לקוח —</option>' + list.map(function(c){
+    return '<option value="'+_esc(c.id)+'">'+_esc(c.name)+(c.manual?'  ★':'')+'</option>';
+  }).join('');
+  if(selectedId!=null && sel.querySelector('option[value="'+String(selectedId).replace(/"/g,'&quot;')+'"]')) sel.value = String(selectedId);
+}
+function _csAddCustomer(){
+  if(!_csGuard()) return;
+  var name = prompt('שם הלקוח החדש (למלאי):',''); if(name===null) return;
+  name = name.trim(); if(!name){ showToast('⚠️ חסר שם'); return; }
+  var id = _csUid('cust');
+  var st = _csGet(id); st.name = name; _csTouch(id);
+  persist();
+  _csFillCustomerSelect(id);
+  window._csForm = null; _csRender();
+  showToast('✅ לקוח נוסף למלאי');
+}
+function _csRenameCustomer(){
+  if(!_csGuard()) return;
+  var sel = document.getElementById('cs-customer'); var custId = sel ? sel.value : '';
+  if(!custId){ showToast('בחר לקוח קודם'); return; }
+  var cur = _csCustName(custId);
+  var name = prompt('שם הלקוח:', cur==='(לקוח)'?'':cur); if(name===null) return;
+  name = name.trim(); if(!name){ showToast('⚠️ חסר שם'); return; }
+  var st = _csGet(custId); st.name = name; _csTouch(custId);
+  persist();
+  _csFillCustomerSelect(custId);
+  _csRender();
+  showToast('✅ השם עודכן');
+}
 // ── התראות מלאי נמוך ──
 function _csItemLow(it){ var mn=Number(it.minQty)||0; return mn>0 && (Number(it.qty)||0) <= mn; }
 function _csLowStockItems(){
   var out=[];
   Object.keys(customerStock||{}).forEach(function(cid){
     var st=customerStock[cid]; if(!st||!st.items) return;
-    var cust=(customers||[]).find(function(c){ return c.id===cid; });
-    st.items.forEach(function(it){ if(_csItemLow(it)) out.push({ custId:cid, custName:cust?cust.name:'(לקוח)', item:it }); });
+    var cn=_csCustName(cid);
+    st.items.forEach(function(it){ if(_csItemLow(it)) out.push({ custId:cid, custName:cn, item:it }); });
   });
   return out;
 }
@@ -15146,7 +15199,7 @@ function _csLowOverviewHtml(){
 // ── תווית ברקוד להדפסה (JsBarcode) ──
 function _csBarcodeLabel(custId, itemId){
   var st=_csGet(custId); var it=st.items.find(function(x){return x.id===itemId;}); if(!it||!it.barcode) return;
-  var cust=(customers||[]).find(function(c){return c.id===custId;});
+  var cust={ name:_csCustName(custId) };
   var ex=document.getElementById('csBarcodeModal'); if(ex) ex.remove();
   var html='<div id="csBarcodeModal" class="modal-overlay open" style="z-index:10002">'
     + '<div class="modal-box" style="max-width:420px;width:92vw">'
@@ -15181,9 +15234,7 @@ function openCustStock(){
   window._csForm = null;
   var sel = document.getElementById('cs-customer'); if(!sel) return;
   var cur = sel.value;
-  var sorted = customers.slice().sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','he'); });
-  sel.innerHTML = '<option value="">— בחר לקוח —</option>' + sorted.map(function(c){ return '<option value="'+c.id+'">'+_esc(c.name)+'</option>'; }).join('');
-  if(cur) sel.value = cur;
+  _csFillCustomerSelect(cur);
   document.getElementById('custStockModal').classList.add('open');
   _csRender();
   _csLowStockCheck({silent:true});
@@ -15305,7 +15356,7 @@ function _csLogHtml(st){
 function _csExportCsv(){
   var sel = document.getElementById('cs-customer'); var custId = sel ? sel.value : '';
   if(!custId){ showToast('בחר לקוח'); return; }
-  var cust = customers.find(function(c){ return c.id===custId; }); var st = _csGet(custId);
+  var cust = { name:_csCustName(custId) }; var st = _csGet(custId);
   var rows = [['פריט','יחידה','כמות במלאי']];
   st.items.forEach(function(it){ rows.push([it.name, it.unit||'', it.qty]); });
   rows.push([]); rows.push(['תנועות']); rows.push(['תאריך','שינוי','פריט','יתרה','הערה','משתמש']);
@@ -15321,7 +15372,8 @@ function _csCardHook(card){
     if(!(currentUser && currentUser.isAdmin)) return;
     if(!card || !card.name) return;
     var nm = _pmNorm(card.name);
-    var cust = customers.find(function(c){
+    // חפש בכל לקוחות המלאי (כולל כאלה שהוזנו ידנית) לפי התאמת שם
+    var cust = _csCustomerList().find(function(c){
       var cn = _pmNorm(c.name);
       return cn && cn.length>=2 && (cn===nm || nm.indexOf(cn)>=0 || nm.split(' ')[0]===cn);
     });
@@ -15401,7 +15453,8 @@ function _csCardAddApply(custId, cardId){
 // ── בדיקת הזמנה מול מלאי: מעלים/מזינים הזמנה ורואים אם יש מספיק ומה חסר ──
 function _csOrderOpen(custId){
   if(!_csGuard()) return;
-  var cust = customers.find(function(c){ return c.id===custId; }); if(!cust) return;
+  if(!custId){ showToast('בחר לקוח קודם'); return; }
+  var cust = { name:_csCustName(custId) };
   var ex = document.getElementById('csOrderModal'); if(ex) ex.remove();
   var html = '<div id="csOrderModal" class="modal-overlay open" style="z-index:10001">'
     + '<div class="modal-box" style="max-width:640px;width:95vw">'
