@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783449748';
+window.APP_VERSION = '1783450143';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1197,6 +1197,7 @@ window._fbSnapshot = {};
     <button class="btn btn-outline-w admin-only" onclick="openReports()">📊 דוחות</button>
     <button class="btn btn-outline-w admin-only" id="cs-stock-btn" onclick="openCustStock()" style="position:relative">📦 מלאי לקוחות<span id="cs-stock-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w" onclick="openOperatorView()">🏭 מסך דפסים</button>
+    <button class="btn btn-outline-w" onclick="openOrderChecklist()" title="צ'ק ליסט אספקת הזמנות" style="position:relative">✅ אספקה<span id="ocl-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#f59e0b;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w" id="notif-bell-btn" onclick="_notifToggle()" style="position:relative" title="התראות — מי עשה מה">
       🔔<span id="notif-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span>
     </button>
@@ -2032,6 +2033,17 @@ window._fbSnapshot = {};
       <button class="btn btn-clear" onclick="closeFlatProd()">✓ סיום — הצג הצעה</button>
       <button class="btn btn-primary" onclick="flatAddToQuote()">➕ הוסף להצעה</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== צ'ק ליסט אספקת הזמנות ===== -->
+<div class="modal-overlay" id="orderChecklistModal" style="z-index:270">
+  <div class="modal-box" style="max-width:620px;width:96vw;max-height:88vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <span>✅ צ'ק ליסט אספקת הזמנות</span>
+      <button class="modal-close" onclick="closeOrderChecklist()">✕</button>
+    </div>
+    <div id="order-checklist-body" style="padding:14px 18px;overflow:auto"></div>
   </div>
 </div>
 
@@ -3768,6 +3780,73 @@ function renderOrders() {
   });
   list.innerHTML = html;
 }
+
+// ===== צ'ק ליסט אספקת הזמנות (סוף יום) =====
+function _oclPending(){ return orders.filter(function(o){ return o && !o._deleted && o.status !== 'done_hidden' && !o.supplied; }); }
+function openOrderChecklist(){
+  var m = document.getElementById('orderChecklistModal'); if (!m) return;
+  m.classList.add('open');
+  renderOrderChecklist();
+}
+function closeOrderChecklist(){ var m=document.getElementById('orderChecklistModal'); if(m) m.classList.remove('open'); }
+function _oclRow(o, done){
+  var site = o.siteNum ? (' · 🏢 ' + o.siteNum) : (o.address ? (' · 📍 ' + o.address) : '');
+  var dt = o.deliveryDate ? (' · אספקה ' + o.deliveryDate) : (o.date ? (' · ' + o.date) : '');
+  return '<label style="display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border:1px solid ' + (done?'#d1fae5':'#e5e7eb') + ';border-radius:9px;margin-bottom:7px;background:' + (done?'#f0fdf4':'white') + ';cursor:pointer">' +
+    '<input type="checkbox" ' + (done?'checked':'') + ' onchange="_orderSetSupplied(\'' + o.id + '\', this.checked)" style="margin-top:2px;width:19px;height:19px;flex:none;cursor:pointer">' +
+    '<span style="flex:1;min-width:0' + (done?';opacity:.6;text-decoration:line-through':'') + '">' +
+      '<b style="font-size:.95rem">' + (o.customer||'—') + '</b>' +
+      '<span style="color:#374151;font-size:.86rem"> — ' + (o.desc||'') + '</span>' +
+      '<div style="color:#6b7280;font-size:.8rem;margin-top:2px">' + (o.qty?('כמות '+o.qty):'') + dt + site + '</div>' +
+    '</span></label>';
+}
+function renderOrderChecklist(){
+  var body = document.getElementById('order-checklist-body'); if (!body) return;
+  var active = _oclPending();
+  var supplied = orders.filter(function(o){ return o && !o._deleted && o.supplied; });
+  active.sort(function(a,b){ var da=a.deliveryDate||a.date||'9999', db=b.deliveryDate||b.date||'9999'; return da<db?-1:da>db?1:0; });
+  supplied.sort(function(a,b){ return (b.suppliedAt||'') < (a.suppliedAt||'') ? -1 : 1; });
+  var html = '<div style="font-size:.82rem;color:#6b7280;margin-bottom:10px">' + new Date().toLocaleDateString('he-IL') + ' · סמן אילו הזמנות סופקו. <b>' + active.length + '</b> ממתינות לאספקה.</div>';
+  if (!active.length) html += '<div style="text-align:center;padding:26px;color:#10b981;font-weight:700">🎉 כל ההזמנות סופקו!</div>';
+  else html += active.map(function(o){ return _oclRow(o, false); }).join('');
+  if (supplied.length) html += '<details style="margin-top:14px"><summary style="cursor:pointer;color:#6b7280;font-size:.85rem;font-weight:600">✅ סופקו (' + supplied.length + ') — לחץ להצגה/ביטול</summary><div style="margin-top:8px">' + supplied.slice(0,60).map(function(o){ return _oclRow(o, true); }).join('') + '</div></details>';
+  body.innerHTML = html;
+  _oclUpdateBadge();
+}
+function _orderSetSupplied(id, val){
+  var o = orders.find(function(x){ return x.id === id; }); if (!o) return;
+  o.supplied = !!val;
+  o.suppliedAt = val ? new Date().toISOString() : null;
+  if ('_upd' in o) o._upd = Date.now();
+  persist();
+  renderOrderChecklist();
+  if (typeof renderOrders === 'function') renderOrders();
+  try { if (typeof logActivity === 'function') logActivity(val ? '📦 אספקה' : '↩️ ביטול אספקה', (o.customer||'') + ' · ' + (o.desc||'').slice(0,30)); } catch(e){}
+}
+function _oclUpdateBadge(){
+  var b = document.getElementById('ocl-badge'); if (!b) return;
+  var n = _oclPending().length;
+  if (n > 0){ b.textContent = n; b.style.display = ''; } else b.style.display = 'none';
+}
+// התראה יומית בסביבות 15:00 — פותחת את הצ'ק ליסט (כשהאפליקציה פתוחה)
+function _orderChecklistDailyCheck(){
+  try {
+    var now = new Date(), hh = now.getHours();
+    _oclUpdateBadge();
+    if (hh < 15 || hh >= 20) return;                       // חלון 15:00–20:00
+    var today = now.toISOString().slice(0,10);
+    if (localStorage.getItem('solanChecklistShownDate') === today) return;
+    var pending = _oclPending();
+    if (!pending.length) return;
+    localStorage.setItem('solanChecklistShownDate', today);
+    try { if (window.Notification && Notification.permission === 'granted')
+      new Notification('📋 צ\'ק ליסט הזמנות', { body: 'סוף יום — ' + pending.length + ' הזמנות לסימון אספקה', icon:'icon-192.png' }); } catch(e){}
+    showToast('📋 סוף יום — ' + pending.length + ' הזמנות ממתינות לסימון אספקה', 6000);
+    openOrderChecklist();
+  } catch(e){}
+}
+setInterval(_orderChecklistDailyCheck, 60000);
+setTimeout(_orderChecklistDailyCheck, 9000);   // בדיקה קצרה אחרי טעינה/סנכרון
 
 function filterOrders(f) {
   _ordersFilter = f;
