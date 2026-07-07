@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783420412';
+window.APP_VERSION = '1783421912';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1891,6 +1891,11 @@ window._fbSnapshot = {};
           <span style="font-weight:900;color:var(--press)">מחיר ללקוח (לפני מע"מ)</span>
           <b style="font-size:1.2rem;color:var(--press)" id="oc_grand">₪0</b>
         </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px;padding-top:9px;border-top:1px dashed #93c5fd">
+          <span style="font-weight:800;color:#0369a1">כל 1000 נוסף</span>
+          <b style="font-size:1.05rem;color:#0369a1" id="oc_perK">₪0</b>
+        </div>
+        <div style="font-size:.68rem;color:#94a3b8;margin-top:2px">ללא לוחות וללא האלף הראשון · כולל נייר, הדפסה רצה, קיפול וכריכה · יופיע בהצעה כשורה נפרדת</div>
       </div>
     </div>
     <div style="padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">
@@ -1970,14 +1975,15 @@ window._fbSnapshot = {};
         <select class="fi" id="fp_type" onchange="renderFlatProd()" style="margin:0"></select></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
         <div style="display:flex;flex-direction:column;gap:3px"><label style="font-size:.72rem;color:#777">כמות</label>
-          <input class="fi" id="fp_qty" type="number" min="0" step="1" oninput="renderFlatProd()" style="margin:0"></div>
+          <input class="fi" id="fp_qty" type="number" min="0" step="1" oninput="renderFlatProd()" style="margin:0">
+          <select class="fi" id="fp_qty_tier" onchange="renderFlatProd()" style="margin:0;display:none"></select></div>
         <div id="fp_fold_wrap" style="display:none;align-self:end">
           <label style="font-size:.85rem;display:inline-flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="fp_fold" onchange="renderFlatProd()"> כולל קיפול</label>
         </div>
       </div>
       <div style="background:#f6f1ff;border:1px solid #7c3aed;border-radius:10px;padding:14px 16px;margin-top:14px">
-        <div style="display:flex;justify-content:space-between;font-size:.86rem;margin-bottom:6px"><span style="color:#555">בסיס (<span id="fp_units">0</span> × 1000)</span><b id="fp_base">₪0</b></div>
+        <div style="display:flex;justify-content:space-between;font-size:.86rem;margin-bottom:6px"><span style="color:#555" id="fp_baselbl">בסיס (<span id="fp_units">0</span> × 1000)</span><b id="fp_base">₪0</b></div>
         <div id="fp_foldline" style="display:none;justify-content:space-between;font-size:.86rem;margin-bottom:6px"><span style="color:#555">תוספת קיפול</span><b id="fp_foldcost">₪0</b></div>
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:.86rem;margin-bottom:6px">
           <span style="color:#555;display:flex;align-items:center;gap:6px">תוספת רווח
@@ -3055,11 +3061,13 @@ var FLYER_CATALOG_QTYS = ['5,000','10,000','20,000','30,000','40,000'];
 var FLYER_CATALOG_NOTE = 'נייר 135 גרם מט · לא כולל מע"מ · לבדוק הובלה וגרפיקה לפני מתן הצעה';
 
 // מוצרים שטוחים בהצעת מחיר — תמחור פשוט לפי מחיר ל-1000 (+ תוספת קיפול לפלאיירים)
+// tiered=true → תמחור לפי כמויות קבועות (FLAT_TIERS) עם מחיר לכל כמות; אחרת מחיר ל-1000
+var FLAT_TIERS = [5000, 10000, 20000, 30000];
 var FLAT_PRODUCTS = [
   { id:'placement30x40', label:'פלייסמנט 30×40', fold:false },
   { id:'placement25x35', label:'פלייסמנט 25×35', fold:false },
-  { id:'flyerA4',        label:'פלאייר/עלון A4', fold:true  },
-  { id:'flyerA3',        label:'פלאייר/עלון A3', fold:true  },
+  { id:'flyerA4',        label:'פלאייר/עלון A4', fold:true, tiered:true },
+  { id:'flyerA3',        label:'פלאייר/עלון A3', fold:true, tiered:true },
   { id:'posterFull',     label:'פוסטר גיליון',    fold:false },
   { id:'posterHalf',     label:'פוסטר חצי גיליון', fold:false }
 ];
@@ -14354,7 +14362,20 @@ function computeOffsetQuote(){
   var markupVal = subtotal * markupPct / 100;
   var grand     = subtotal + markupVal + shipping; // הובלה מתווספת אחרי הרווח
 
+  // ── "כל 1000 נוסף": נייר + הדפסה רצה + קיפול + כריכה — בלי לוחות ובלי האלף הראשון ──
+  var perKPaper = 0, perKPrint = 0, perKFold = 0;
+  runs.forEach(function(r){
+    var addSheets = r._isTurn ? 500 : 1000;   // 1000 עותקים נוספים → כמה גיליונות מודפסים בריצה
+    perKPaper += addSheets * (sw * sh * gram / 10000000) * tonPrice / 1000;
+    perKPrint += (pr.printRunningK||0);                                  // הדפסה רצה ל-1000 לכל ריצה
+    perKFold  += (((pr.foldRates||{})[String(r._foldCount||0)])||0);     // קיפול ל-1000 לפי מס' קיפולים
+  });
+  var perKBind = bindRate;                                               // כריכה ל-1000 לפי מס' תחנות
+  var perKSub  = perKPaper + perKPrint + perKFold + perKBind;
+  var perK1000 = perKSub * (1 + markupPct/100);                          // באותו אחוז רווח כמו ההצעה
+
   return { ok:true, info:info, paper:paper, runs:runs, pages:pages, copies:copies, colors:colors,
+    perKPaper:perKPaper, perKPrint:perKPrint, perKFold:perKFold, perKBind:perKBind, perKSub:perKSub, perK1000:perK1000,
     netSheets:netSheets, waste:waste, totalSheets:totalSheets, weightKg:weightKg, gram:gram, tonPrice:tonPrice,
     paperCost:paperCost, plates:plates, platesCost:platesCost, printCost:printCost,
     foldCost:foldCost, bindCost:bindCost, stations:stations,
@@ -14412,7 +14433,7 @@ function renderOffsetCalc(){
     document.getElementById('oc_runsTable').innerHTML = '<div style="color:#aaa;font-size:.82rem">מלא גודל, עמודים וכמות כדי לחשב…</div>';
     ['oc_netSheets','oc_waste','oc_totalSheets','oc_platesCount','oc_stations'].forEach(function(id){ set(id,'0'); });
     set('oc_weight','0 ק"ג');
-    ['oc_paperCost','oc_platesCost','oc_printCost','oc_foldCost','oc_bindCost','oc_subtotal','oc_markupVal','oc_grand'].forEach(function(id){ set(id,'₪0'); });
+    ['oc_paperCost','oc_platesCost','oc_printCost','oc_foldCost','oc_bindCost','oc_subtotal','oc_markupVal','oc_grand','oc_perK'].forEach(function(id){ set(id,'₪0'); });
     var sl = document.getElementById('oc_shipLine'); if (sl) sl.style.display = 'none';
     return;
   }
@@ -14449,6 +14470,7 @@ function renderOffsetCalc(){
   if (q.shipInc && q.shipping > 0) { shipLine.style.display = 'flex'; set('oc_shipVal', _ocILS(q.shipping)); }
   else shipLine.style.display = 'none';
   set('oc_grand', _ocILS(q.grand));
+  set('oc_perK', _ocILS(q.perK1000));
 }
 
 // ניסיון לחלץ גרמז' משם הנייר (לדוגמה "כרומו 80 גרם" → 80), בטווח 40–400
@@ -14498,6 +14520,7 @@ function offsetAddToQuote(){
     ? ('המחיר כולל הובלה' + (q.shipping > 0 ? ' (₪' + q.shipping.toLocaleString('he-IL') + ')' : ''))
     : 'המחיר אינו כולל הובלה';
   desc += ' · ' + shipStatement;
+  if (q.perK1000 > 0) desc += ' · כל 1,000 נוסף: ' + _ocILS(Math.round(q.perK1000*100)/100);
   if (q.notes) desc += ' — ' + q.notes;
   // הצהרת הובלה גם בהערות המסמך (מקום בולט בהצעת המחיר ללקוח) — הצהרה אחת בלבד
   var notesEl = document.getElementById('q-notes');
@@ -14513,7 +14536,8 @@ function offsetAddToQuote(){
       totalSheets: q.totalSheets, waste: q.waste, weightKg: Math.round(q.weightKg*10)/10,
       plates: q.plates, stations: q.stations,
       costs: { paper: q.paperCost, plates: q.platesCost, print: q.printCost, fold: q.foldCost, bind: q.bindCost },
-      subtotal: q.subtotal, markupPct: q.markupPct, shipInc: q.shipInc, shipping: q.shipping, notes: q.notes, grand: q.grand
+      subtotal: q.subtotal, markupPct: q.markupPct, shipInc: q.shipInc, shipping: q.shipping, notes: q.notes, grand: q.grand,
+      perK1000: Math.round(q.perK1000*100)/100
     }
   };
   if (_quoteItems.length === 1 && !_quoteItems[0].desc && !_quoteItems[0].price) _quoteItems = [];
@@ -14552,6 +14576,22 @@ function renderPricingFlat(){
   var rates = (quotePricing && quotePricing.flatRates) || {};
   wrap.innerHTML = FLAT_PRODUCTS.map(function(fp){
     var r = rates[fp.id] || {};
+    if (fp.tiered) {
+      // מחיר לכל כמות קבועה (5,000 / 10,000 / 20,000 / 30,000) + קיפול לכל כמות
+      var tiers = r.tiers || {}, foldTiers = r.foldTiers || {};
+      var cols = FLAT_TIERS.map(function(t){
+        return '<div style="display:flex;flex-direction:column;gap:2px"><label style="font-size:.66rem;color:#999">' + t.toLocaleString('he-IL') + '</label>' +
+          '<input class="fi" id="psft_' + fp.id + '_' + t + '" type="number" min="0" style="margin:0;font-size:.8rem;text-align:center" value="' + (tiers[t]||0) + '"></div>';
+      }).join('');
+      var foldCols = fp.fold ? ('<div style="font-size:.68rem;color:#999;margin-top:6px">תוספת קיפול לכל כמות:</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:2px">' +
+        FLAT_TIERS.map(function(t){ return '<input class="fi" id="psft_' + fp.id + '_' + t + '_fold" type="number" min="0" placeholder="קיפול ' + (t/1000) + 'K" style="margin:0;font-size:.78rem;text-align:center" value="' + (foldTiers[t]||0) + '">'; }).join('') +
+        '</div>') : '';
+      return '<div style="border:1px solid #eee;border-radius:8px;padding:8px 10px;margin-bottom:8px">' +
+        '<div style="font-size:.82rem;font-weight:700;margin-bottom:4px">' + fp.label + ' <span style="font-size:.66rem;color:#999;font-weight:400">— מחיר לכל כמות</span></div>' +
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">' + cols + '</div>' + foldCols +
+      '</div>';
+    }
     var foldInput = fp.fold
       ? '<div style="display:flex;flex-direction:column;gap:2px"><label style="font-size:.68rem;color:#999">קיפול ל-1000</label>' +
         '<input class="fi" id="psf_' + fp.id + '_fold" type="number" min="0" style="margin:0;font-size:.82rem;text-align:center" value="' + (r.foldPer1000||0) + '"></div>'
@@ -14610,8 +14650,18 @@ function saveOffsetPricing(){
     flatRates: (function(){
       var fr = {};
       FLAT_PRODUCTS.forEach(function(fp){
-        fr[fp.id] = { per1000: _psVal('psf_' + fp.id) };
-        if (fp.fold) fr[fp.id].foldPer1000 = _psVal('psf_' + fp.id + '_fold');
+        if (fp.tiered) {
+          var tiers = {}, foldTiers = {};
+          FLAT_TIERS.forEach(function(t){
+            tiers[t] = _psVal('psft_' + fp.id + '_' + t);
+            if (fp.fold) foldTiers[t] = _psVal('psft_' + fp.id + '_' + t + '_fold');
+          });
+          fr[fp.id] = { tiers: tiers };
+          if (fp.fold) fr[fp.id].foldTiers = foldTiers;
+        } else {
+          fr[fp.id] = { per1000: _psVal('psf_' + fp.id) };
+          if (fp.fold) fr[fp.id].foldPer1000 = _psVal('psf_' + fp.id + '_fold');
+        }
       });
       return fr;
     })()
@@ -14640,21 +14690,44 @@ function computeFlat(){
   var pr = quotePricing || DEFAULT_OFFSET_PRICING;
   var id = document.getElementById('fp_type').value;
   var prod = _flatById(id);
-  var qty = parseInt(document.getElementById('fp_qty').value)||0;
   var fold = document.getElementById('fp_fold').checked;
   var markupPct = parseFloat(document.getElementById('fp_markup').value)||0;
   var rate = ((pr.flatRates||{})[id]) || {};
-  var units = Math.ceil(qty/1000);
-  var base = units * (rate.per1000||0);
-  var foldCost = (prod && prod.fold && fold) ? units * (rate.foldPer1000||0) : 0;
+  var tiered = !!(prod && prod.tiered);
+  var qty, units, base, foldCost;
+  if (tiered) {
+    qty = parseInt(document.getElementById('fp_qty_tier').value)||0;
+    units = Math.ceil(qty/1000);
+    base = (rate.tiers||{})[qty] || 0;
+    foldCost = (prod.fold && fold) ? ((rate.foldTiers||{})[qty]||0) : 0;
+  } else {
+    qty = parseInt(document.getElementById('fp_qty').value)||0;
+    units = Math.ceil(qty/1000);
+    base = units * (rate.per1000||0);
+    foldCost = (prod && prod.fold && fold) ? units * (rate.foldPer1000||0) : 0;
+  }
   var subtotal = base + foldCost;
   var markupVal = subtotal * markupPct / 100;
   var grand = subtotal + markupVal;
-  return { prod:prod, qty:qty, fold:fold, units:units, base:base, foldCost:foldCost,
+  return { prod:prod, qty:qty, fold:fold, units:units, base:base, foldCost:foldCost, tiered:tiered,
            subtotal:subtotal, markupPct:markupPct, markupVal:markupVal, grand:grand };
 }
 
 function renderFlatProd(){
+  // החלפת פקד הכמות: תפריט כמויות קבועות לפלאיירים, שדה חופשי לשאר
+  var id = document.getElementById('fp_type').value;
+  var prod = _flatById(id);
+  var tiered = !!(prod && prod.tiered);
+  var qtyInput = document.getElementById('fp_qty');
+  var qtySel = document.getElementById('fp_qty_tier');
+  if (qtyInput) qtyInput.style.display = tiered ? 'none' : '';
+  if (qtySel) {
+    qtySel.style.display = tiered ? '' : 'none';
+    if (tiered && qtySel.getAttribute('data-prod') !== id) {
+      qtySel.innerHTML = FLAT_TIERS.map(function(t){ return '<option value="' + t + '">' + t.toLocaleString('he-IL') + '</option>'; }).join('');
+      qtySel.setAttribute('data-prod', id);
+    }
+  }
   var f = computeFlat();
   var foldWrap = document.getElementById('fp_fold_wrap');
   var foldLine = document.getElementById('fp_foldline');
@@ -14662,7 +14735,11 @@ function renderFlatProd(){
   foldWrap.style.display = showFold ? '' : 'none';
   foldLine.style.display = (showFold && f.fold) ? 'flex' : 'none';
   var set = function(id,v){ document.getElementById(id).textContent = v; };
-  set('fp_units', f.units);
+  var baseLbl = document.getElementById('fp_baselbl');
+  if (baseLbl) baseLbl.innerHTML = f.tiered
+    ? ('בסיס (' + (f.qty ? f.qty.toLocaleString('he-IL') : 0) + ' יח\')')
+    : ('בסיס (<span id="fp_units">' + f.units + '</span> × 1000)');
+  if (!f.tiered) set('fp_units', f.units);
   set('fp_base', _ocILS(f.base));
   set('fp_foldcost', _ocILS(f.foldCost));
   set('fp_markupval', _ocILS(f.markupVal));
