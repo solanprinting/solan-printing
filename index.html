@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783431011';
+window.APP_VERSION = '1783431769';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1999,6 +1999,12 @@ window._fbSnapshot = {};
       </span>
     </div>
     <div style="padding:18px 20px">
+      <div id="fp-flyer-quick" style="margin-bottom:14px">
+        <div style="font-size:.72rem;color:#7c3aed;font-weight:700;margin-bottom:6px">⚡ מחירון פלאיירים — לחיצה על מחיר מוסיפה להצעה</div>
+        <div id="fp-flyer-quicklist"></div>
+        <div style="border-top:1px dashed var(--line);margin:12px 0 8px"></div>
+        <div style="font-size:.72rem;color:#999">או תמחור מלא לפי כמות מותאמת / קיפול:</div>
+      </div>
       <div style="display:flex;flex-direction:column;gap:3px"><label style="font-size:.72rem;color:#777">סוג מוצר</label>
         <select class="fi" id="fp_type" onchange="renderFlatProd()" style="margin:0"></select></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
@@ -14921,6 +14927,7 @@ function saveOffsetPricing(){
   persist();
   closeOffsetPricing();
   if (document.getElementById('offset-calc-modal').classList.contains('open')) renderOffsetCalc();
+  if (document.getElementById('flat-prod-modal').classList.contains('open')) _renderFlyerQuickList();
   showToast('✅ התעריפים נשמרו');
 }
 
@@ -14934,9 +14941,47 @@ function openFlatProd(){
   document.getElementById('fp_fold').checked = false;
   document.getElementById('fp_markup').value = 0;
   document.getElementById('flat-prod-modal').classList.add('open');
+  _renderFlyerQuickList();
   renderFlatProd();
 }
 function closeFlatProd(){ document.getElementById('flat-prod-modal').classList.remove('open'); }
+
+// רשימת פלאיירים מהירה — כל מוצר פלאייר עם 4 כמויות/מחירים; לחיצה מוסיפה ישירות להצעה
+function _renderFlyerQuickList(){
+  var box = document.getElementById('fp-flyer-quicklist');
+  if (!box) return;
+  var pr = quotePricing || DEFAULT_OFFSET_PRICING;
+  var html = FLAT_PRODUCTS.filter(function(fp){ return fp.tiered; }).map(function(fp){
+    var tiers = (((pr.flatRates||{})[fp.id])||{}).tiers || {};
+    var btns = FLAT_TIERS.map(function(t){
+      var p = tiers[t] || 0, has = p > 0;
+      return '<button type="button" ' + (has ? '' : 'disabled ') +
+        'onclick="_flyerQuickAdd(\'' + fp.id + '\',' + t + ')" ' +
+        'style="flex:1;min-width:0;padding:7px 4px;border:1px solid ' + (has?'#7c3aed':'#e2e2e2') +
+        ';border-radius:7px;background:' + (has?'#faf7ff':'#f4f4f4') + ';cursor:' + (has?'pointer':'default') +
+        ';font-family:Heebo;display:flex;flex-direction:column;gap:1px;line-height:1.15">' +
+        '<span style="font-size:.66rem;color:#888">' + t.toLocaleString('he-IL') + '</span>' +
+        '<b style="font-size:.82rem;color:' + (has?'#6d28d9':'#bbb') + '">' + (has?_ocILS(p):'—') + '</b></button>';
+    }).join('');
+    return '<div style="margin-bottom:8px"><div style="font-size:.78rem;font-weight:700;color:#444;margin-bottom:4px">' +
+      fp.label + '</div><div style="display:flex;gap:6px">' + btns + '</div></div>';
+  }).join('');
+  box.innerHTML = html || '<div style="color:#999;font-size:.8rem">אין מוצרי פלאייר במחירון</div>';
+}
+function _flyerQuickAdd(prodId, tier){
+  var pr = quotePricing || DEFAULT_OFFSET_PRICING;
+  var prod = _flatById(prodId);
+  var price = (((pr.flatRates||{})[prodId]||{}).tiers||{})[tier] || 0;
+  if (!prod || price <= 0){ showToast('אין מחיר לכמות ' + tier.toLocaleString('he-IL') + ' — הגדר במחירון'); return; }
+  var desc = prod.label + ' — ' + tier.toLocaleString('he-IL') + ' יח\'';
+  var item = { desc: desc, qty: 1, price: Math.round(price*100)/100,
+    flat: { product: prodId, qty: tier, fold: false, base: price, foldCost: 0, markupPct: 0, grand: price } };
+  if (_quoteItems.length === 1 && !_quoteItems[0].desc && !_quoteItems[0].price) _quoteItems = [];
+  _quoteItems.push(item);
+  renderQuoteItems();
+  calcQuoteTotals();
+  showToast('✅ ' + desc + ' נוסף להצעה');
+}
 
 function computeFlat(){
   var pr = quotePricing || DEFAULT_OFFSET_PRICING;
