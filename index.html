@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783427751';
+window.APP_VERSION = '1783428348';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6390,17 +6390,37 @@ function _proofNameLabel(name){
     ab:        /a\s*\+\s*b/.test(s) || s.indexOf('a+b')>=0 || s.indexOf('a + b')>=0 || /א\s*\+\s*ב/.test(s)   // A+B / א+ב = דו-צדדי (קדמי+אחורי). ניטרלי למכונה: תקין גם ב-4 צבעים (היפוך ידני) וגם ב-8 (פרפקטור)
   };
 }
-// שם קובץ הפרופר (מנוקה מסיומת) — להצגה מתחת לשם העבודה בכרטיס המודפס בלבד
+// מנקה שם קובץ פרופר מ-COLOR (8 color / 8 צבע) ומ-R של הריצה (R-2), + סיומת אינדקס וכפילות
+function _stripRunColor(name){
+  var s = String(name||'');
+  s = s.replace(/[_]+/g, ' ');                           // קו תחתון → רווח (כדי ש-"color_1" ייחשב שתי מילים)
+  s = s.replace(/[\s-]*\b[rR][-\s]?\d+\b/g, ' ');        // R-2 / R 2 / R2
+  s = s.replace(/\b\d+\s*colors?\b/gi, ' ');             // 8 color / 4 colors
+  s = s.replace(/\d+\s*צבע(?:ים|ות)?/g, ' ');            // 8 צבע / 8 צבעים
+  s = s.replace(/\s+\d+\s*$/, '');                       // אינדקס עותק בסוף (למשל "_1" שהפך ל-" 1")
+  s = s.replace(/\s{2,}/g, ' ').replace(/^[\s·-]+|[\s·-]+$/g, '').trim();
+  // כפילות שם ("X X") — משאיר פעם אחת
+  var p = s.split(' ');
+  if (p.length >= 2 && p.length % 2 === 0) {
+    var h = p.length / 2;
+    if (p.slice(0, h).join(' ') === p.slice(h).join(' ')) s = p.slice(0, h).join(' ');
+  }
+  return s.trim();
+}
+// שם קובץ הפרופר (מנוקה מסיומת) — להצגה מתחת לשם העבודה בכרטיס המודפס בלבד.
+// עבודה עם יותר מריצה אחת → מנקים גם COLOR ואת ה-R של הריצה, ומציגים רק את שם העבודה.
 function _cardProofDisplayName(c){
   if(!c) return '';
-  var strip = function(n){ return String(n||'').replace(/\.(pdf|png|jpe?g|gif|webp|tiff?)$/i,'').trim(); };
-  if(c.proofName) return strip(c.proofName);
-  if(c.runProofs){
-    var u = [];
-    Object.keys(c.runProofs).forEach(function(k){ var p=c.runProofs[k]; var nm=strip(p&&p.name); if(nm && u.indexOf(nm)<0) u.push(nm); });
-    if(u.length) return u.join(' · ');
-  }
-  return '';
+  var stripExt = function(n){ return String(n||'').replace(/\.(pdf|png|jpe?g|gif|webp|tiff?)$/i,'').trim(); };
+  var multi = (c.runs && c.runs.length > 1) || (c.runProofs && Object.keys(c.runProofs).length > 1);
+  var names = [];
+  if(c.proofName) names.push(stripExt(c.proofName));
+  if(c.runProofs){ Object.keys(c.runProofs).forEach(function(k){ var p=c.runProofs[k]; if(p&&p.name) names.push(stripExt(p.name)); }); }
+  if(!names.length) return '';
+  if(multi) names = names.map(_stripRunColor);
+  var u = [];
+  names.forEach(function(n){ n=(n||'').trim(); if(n && u.indexOf(n)<0) u.push(n); });
+  return u.join(' · ');
 }
 // ערך שדה "שם העבודה" בכרטיס המודפס: שם העבודה + שם הפרופר בשורה נפרדת מתחתיו (בלי המילה "פרופר")
 function _nameWithProof(c){
