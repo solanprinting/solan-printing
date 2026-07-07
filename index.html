@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783412876';
+window.APP_VERSION = '1783413225';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -15134,7 +15134,8 @@ function _csRender(){
       + '</div>';
   }).join('') : '<div style="color:#aaa;padding:14px 0">אין פריטי סחורה ללקוח זה עדיין.</div>';
   host.innerHTML =
-      '<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-primary" style="font-size:.8rem" onclick="_csAddItem(\''+custId+'\')">+ פריט סחורה חדש</button></div>'
+      '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn btn-primary" style="font-size:.8rem" onclick="_csAddItem(\''+custId+'\')">+ פריט סחורה חדש</button>'
+    + '<button class="btn btn-outline" style="font-size:.8rem;border-color:#c2410c;color:#c2410c" onclick="_csOrderOpen(\''+custId+'\')">📥 בדיקת הזמנה מול מלאי</button></div>'
     + formHtml + itemsHtml
     + '<div style="margin-top:18px;font-weight:800;color:var(--press);font-size:.9rem">📋 תנועות אחרונות</div>'
     + _csLogHtml(st);
@@ -15259,6 +15260,141 @@ function _csDeductApply(custId, cardId){
     showToast('✅ נוכה ממלאי הלקוח');
   }
   var m = document.getElementById('csDeductModal'); if(m) m.remove();
+}
+
+// ── בדיקת הזמנה מול מלאי: מעלים/מזינים הזמנה ורואים אם יש מספיק ומה חסר ──
+function _csOrderOpen(custId){
+  if(!_csGuard()) return;
+  var cust = customers.find(function(c){ return c.id===custId; }); if(!cust) return;
+  var ex = document.getElementById('csOrderModal'); if(ex) ex.remove();
+  var html = '<div id="csOrderModal" class="modal-overlay open" style="z-index:10001">'
+    + '<div class="modal-box" style="max-width:640px;width:95vw">'
+    + '<div class="modal-header"><span>📥 בדיקת הזמנה מול מלאי — '+_esc(cust.name)+'</span><button class="modal-close" onclick="document.getElementById(\'csOrderModal\').remove()">✕</button></div>'
+    + '<div style="padding:16px 20px;overflow-y:auto;max-height:80vh">'
+    + '<div style="font-size:.82rem;color:#666;margin-bottom:8px">הזן את שורות ההזמנה (פריט וכמות בכל שורה), או העלה קובץ אקסל/CSV. דוגמה:<br><span style="color:#999">פלפלת 500 · עידית, 300 · שיבא גדול 120</span></div>'
+    + '<textarea id="cs-order-txt" class="fi" rows="6" style="width:100%;resize:vertical;font-size:.9rem" placeholder="פלפלת 500&#10;עידית 300&#10;שיבא גדול 120"></textarea>'
+    + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">'
+    + '<label class="btn btn-tpl" style="font-size:.8rem;cursor:pointer">📂 העלה אקסל/CSV<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="_csOrderUpload(this,\''+custId+'\')"></label>'
+    + '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csOrderCheck(\''+custId+'\')">🔎 בדוק מלאי</button>'
+    + '</div>'
+    + '<div id="cs-order-result" style="margin-top:14px"></div>'
+    + '</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  var ta = document.getElementById('cs-order-txt'); if(ta) ta.focus();
+}
+function _csOrderUpload(input, custId){
+  var file = input.files[0]; if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      var rows = [];
+      if(/\.csv$/i.test(file.name)){
+        var text = new TextDecoder('utf-8').decode(e.target.result);
+        rows = text.split(/\r?\n/).map(function(r){ return r.split(',').map(function(c){ return c.trim().replace(/^"|"$/g,''); }); });
+      } else {
+        var wb = XLSX.read(e.target.result, { type:'array' });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:'' });
+      }
+      rows = rows.filter(function(r){ return r && r.some(function(c){ return String(c||'').trim()!==''; }); });
+      if(!rows.length){ showToast('⚠️ לא נמצאו נתונים'); return; }
+      // זהה שורת כותרת
+      var first = (rows[0]||[]).map(function(c){ return String(c||'').toLowerCase(); });
+      if(first.some(function(c){ return /שם|פריט|מוצר|name|item|כמות|qty|quantity/.test(c); })) rows = rows.slice(1);
+      // עמודות: שם = ראשונה שאינה מספר; כמות = תא מספרי בשורה
+      var lines = rows.map(function(r){
+        var name='', qty=null;
+        for(var i=0;i<r.length;i++){
+          var v = String(r[i]==null?'':r[i]).trim(); if(!v) continue;
+          var num = parseFloat(v.replace(/,/g,''));
+          if(qty===null && /^\d[\d,.\s]*$/.test(v) && !isNaN(num)) qty = num;
+          else if(!name) name = v;
+        }
+        return name ? (name + ' ' + (qty!=null?qty:'')) : '';
+      }).filter(Boolean);
+      document.getElementById('cs-order-txt').value = lines.join('\n');
+      _csOrderCheck(custId);
+    }catch(err){ showToast('⚠️ שגיאה בקריאת הקובץ'); }
+  };
+  reader.readAsArrayBuffer(file);
+  input.value = '';
+}
+function _csParseOrderText(text){
+  return String(text||'').split(/\r?\n/).map(function(ln){
+    ln = ln.trim(); if(!ln) return null;
+    // הכמות = המספר האחרון בשורה; השם = השאר
+    var m = ln.match(/^(.*?)[\s,;:·|]*?(\d[\d,.]*)\s*[^\d]*$/);
+    if(!m){ return { name: ln.replace(/[\s,;:·|]+$/,''), qty: null }; }
+    var name = m[1].replace(/[\s,;:·|]+$/,'').trim();
+    var qty = parseFloat(m[2].replace(/,/g,''));
+    if(!name){ name = ln; }
+    return { name: name, qty: isNaN(qty)?null:qty };
+  }).filter(Boolean);
+}
+function _csMatchItem(st, name){
+  var nn = _pmNorm(name); if(!nn) return null;
+  var it = st.items.find(function(x){ return _pmNorm(x.name)===nn; });
+  if(it) return it;
+  return st.items.find(function(x){ var xn=_pmNorm(x.name); return xn && (xn.indexOf(nn)>=0 || nn.indexOf(xn)>=0); }) || null;
+}
+function _csOrderCheck(custId){
+  var st = _csGet(custId);
+  var lines = _csParseOrderText((document.getElementById('cs-order-txt')||{value:''}).value);
+  var host = document.getElementById('cs-order-result'); if(!host) return;
+  if(!lines.length){ host.innerHTML = '<div style="color:#aaa;padding:10px 0">אין שורות הזמנה.</div>'; window._csOrder=null; return; }
+  var resolved = lines.map(function(l){
+    var it = _csMatchItem(st, l.name);
+    var inStock = it ? (Number(it.qty)||0) : null;
+    var need = (l.qty!=null) ? l.qty : null;
+    var short = (it && need!=null) ? Math.max(0, need - inStock) : null;
+    return { name:l.name, need:need, it:it, inStock:inStock, short:short };
+  });
+  window._csOrder = { custId:custId, lines:resolved };
+  var anyShort = resolved.some(function(r){ return r.it && r.need!=null && r.short>0; });
+  var anyUnmatched = resolved.some(function(r){ return !r.it; });
+  var rowsHtml = resolved.map(function(r){
+    var status, color;
+    if(!r.it){ status = '⚠️ לא נמצא במלאי'; color='#b45309'; }
+    else if(r.need==null){ status = 'ℹ️ ללא כמות'; color='#666'; }
+    else if(r.short>0){ status = '❌ חסר '+_csNum(r.short) + (r.it.unit?' '+_esc(r.it.unit):''); color='#dc2626'; }
+    else { status = '✅ מספיק'; color='#16a34a'; }
+    return '<tr style="border-bottom:1px solid #f0f0f0">'
+      + '<td style="padding:6px 8px;font-weight:700">'+_esc(r.name)+'</td>'
+      + '<td style="padding:6px 8px;text-align:center">'+(r.need!=null?_csNum(r.need):'—')+'</td>'
+      + '<td style="padding:6px 8px;text-align:center">'+(r.inStock!=null?_csNum(r.inStock):'—')+'</td>'
+      + '<td style="padding:6px 8px;text-align:center;font-weight:800;color:'+color+'">'+status+'</td></tr>';
+  }).join('');
+  var summary = anyShort
+    ? '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:700;color:#b91c1c">❌ חסר מלאי לחלק מהפריטים — ראה פירוט למטה.</div>'
+    : (anyUnmatched
+      ? '<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:700;color:#92400e">⚠️ יש פריטים שלא נמצאו במלאי הלקוח — בדוק שמות.</div>'
+      : '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:700;color:#166534">✅ יש מספיק מלאי לכל ההזמנה.</div>');
+  host.innerHTML = summary
+    + '<table style="width:100%;border-collapse:collapse;font-size:.85rem"><thead><tr style="background:#f5f6ff;color:var(--press)">'
+    + '<th style="padding:6px 8px;text-align:right">פריט</th><th style="padding:6px 8px">בהזמנה</th><th style="padding:6px 8px">במלאי</th><th style="padding:6px 8px">מצב</th></tr></thead><tbody>'
+    + rowsHtml + '</tbody></table>'
+    + '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">'
+    + '<button class="btn btn-primary" style="font-size:.82rem" onclick="_csOrderDeduct(\''+custId+'\')">📤 נכה את ההזמנה מהמלאי</button>'
+    + '</div>';
+}
+function _csOrderDeduct(custId){
+  var o = window._csOrder; if(!o || o.custId!==custId || !o.lines) return;
+  var deductable = o.lines.filter(function(r){ return r.it && r.need>0; });
+  if(!deductable.length){ showToast('אין פריטים תואמים לניכוי'); return; }
+  var anyShort = deductable.some(function(r){ return r.short>0; });
+  var msg = anyShort ? 'חלק מהפריטים חסרים במלאי — לנכות בכל זאת (המלאי יֵרד למינוס)?' : 'לנכות את כל ההזמנה ממלאי הלקוח?';
+  if(!confirm(msg)) return;
+  var st = _csGet(custId);
+  deductable.forEach(function(r){
+    var it = st.items.find(function(x){ return x.id===r.it.id; }); if(!it) return;
+    it.qty = (Number(it.qty)||0) - r.need;
+    st.log.unshift({ id:_csUid('m'), ts:Date.now(), delta:-r.need, itemId:it.id, itemName:it.name, qtyAfter:it.qty, note:'הזמנה', by: currentUser?currentUser.name:'' });
+  });
+  if(st.log.length>300) st.log = st.log.slice(0,300);
+  _csTouch(custId); persist();
+  _logActivity('📤', 'ניכוי הזמנה ממלאי לקוח', null);
+  showToast('✅ ההזמנה נוכתה מהמלאי');
+  var m = document.getElementById('csOrderModal'); if(m) m.remove();
+  _csRender();
 }
 
 function importCustomersFromExcel(input) {
