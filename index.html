@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783491574';
+window.APP_VERSION = '1783491828';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4157,17 +4157,37 @@ function _orderDrop(e){ e.preventDefault(); e.stopPropagation(); _orderDragLeave
 function _parseOrderTags(text){
   var map = { 'לקוח':'customer','תיאור':'desc','כמות':'qty','תאריך':'date','כתובת':'address','מספר אתר':'siteNum','אזור':'area','הערות':'notes' };
   var out = { customer:'', desc:'', qty:'', date:'', address:'', siteNum:'', area:'', notes:'' }, found = false;
+  var items = [];
   (text || '').split(/\r?\n/).forEach(function(line){
     var m = line.match(/^\s*[*\-•\s]*([֐-׿ ]+?)\s*[:：]\s*(.*)$/);
     if (!m) return;
-    var key = map[m[1].trim()];
-    if (!key) return;
+    var tag = m[1].trim();
     var val = (m[2] || '').trim();
     if (val === '-' || val === '—' || /^(ריק|לא\s*(ידוע|צוין|נמצא|רלוונטי))$/.test(val)) val = '';
+    if (tag === 'פריט'){                                   // פריט חוזר: "<תיאור> | <כמות>"
+      if (val){
+        var parts = val.split('|');
+        var d = (parts[0] || '').trim();
+        var q = ((parts.slice(1).join('|').match(/\d[\d,]*/) || [''])[0]).replace(/,/g,'');
+        if (d || q){ items.push({ desc:d, qty:q }); found = true; }
+      }
+      return;
+    }
+    var key = map[tag];
+    if (!key) return;
     if (key === 'qty'){ out.qty = ((val.match(/\d[\d,]*/) || [''])[0]).replace(/,/g,''); }
     else out[key] = val;
     if (val) found = true;
   });
+  // בונה תיאור/כמות מרשימת הפריטים (תומך בכמה פריטים בהזמנה)
+  if (items.length === 1){
+    if (!out.desc) out.desc = items[0].desc;
+    if (!out.qty)  out.qty  = items[0].qty;
+  } else if (items.length > 1){
+    out.items = items;
+    out.desc = items.map(function(it){ return '• ' + it.desc + (it.qty ? (' — ' + it.qty + ' יח\'') : ''); }).join('\n');
+    out.qty = '';                                          // כמה פריטים — הכמות מופיעה בכל שורה
+  }
   // גיבוי: אם המודל בכל זאת החזיר JSON
   if (!found){
     var jm = (text || '').match(/\{[\s\S]*\}/);
@@ -4274,8 +4294,8 @@ function _aiRequest(payload){
 function _orderSendToClaude(opts){
   var SYS = 'אתה עוזר של בית דפוס בישראל. חלץ את פרטי ההזמנה מהמסמך. החזר אך ורק שורות בפורמט הבא — שדה אחד בכל שורה, בלי טקסט נוסף ובלי הסברים:\n'
     + 'לקוח: <שם הלקוח או החברה שמזמינים בשבילו>\n'
-    + 'תיאור: <סוג העבודה / המוצר שמזמינים>\n'
-    + 'כמות: <מספר בלבד>\n'
+    + 'פריט: <תיאור המוצר/העבודה> | <כמות במספר>\n'
+    + '(אם יש כמה פריטים שונים באותה הזמנה — כתוב שורת "פריט:" נפרדת לכל פריט)\n'
     + 'תאריך: <YYYY-MM-DD אם מופיע תאריך אספקה או הזמנה>\n'
     + 'כתובת: <כתובת אספקה אם קיימת>\n'
     + 'מספר אתר: <לעידית — מספר האתר/הסניף אם מופיע, מספר בלבד (למשל 61); אחרת ריק>\n'
