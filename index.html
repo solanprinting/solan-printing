@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783500374';
+window.APP_VERSION = '1783530777';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3830,21 +3830,50 @@ function renderOrderChecklist(){
   var supplied = orders.filter(function(o){ return o && !o._deleted && o.supplied && !o.clerkSent; });
   active.sort(function(a,b){ var da=a.deliveryDate||a.date||'9999', db=b.deliveryDate||b.date||'9999'; return da<db?-1:da>db?1:0; });
   supplied.sort(function(a,b){ return (b.suppliedAt||'') < (a.suppliedAt||'') ? -1 : 1; });
-  var html = '<div style="font-size:.82rem;color:#6b7280;margin-bottom:10px">' + new Date().toLocaleDateString('he-IL') + ' · סמן אילו הזמנות סופקו. <b>' + active.length + '</b> ממתינות לאספקה.</div>';
-  if (!active.length) html += '<div style="text-align:center;padding:26px;color:#10b981;font-weight:700">🎉 כל ההזמנות סופקו!</div>';
+  var html = '<div style="font-size:.82rem;color:#6b7280;margin-bottom:10px">' + new Date().toLocaleDateString('he-IL') + ' · סמן ✓ כשהזמנה <b>מוכנה ליציאה</b> ועדכן כמה חבילות. <b>' + active.length + '</b> בהכנה.</div>';
+  if (!active.length) html += '<div style="text-align:center;padding:22px;color:#10b981;font-weight:700">🎉 אין הזמנות בהכנה</div>';
   else html += active.map(function(o){ return _oclRow(o, false); }).join('');
   if (supplied.length){
-    html += '<button onclick="openClerkList()" style="margin-top:14px;width:100%;padding:10px;border:none;border-radius:9px;background:#1a1a4e;color:#fff;font-weight:700;font-size:.9rem;cursor:pointer">📤 הכן רשימה לפקיד (' + supplied.length + ' סופקו)</button>';
-    html += '<details style="margin-top:12px"><summary style="cursor:pointer;color:#6b7280;font-size:.85rem;font-weight:600">✅ סופקו (' + supplied.length + ') — לחץ להצגה/ביטול</summary><div style="margin-top:8px">' + supplied.slice(0,60).map(function(o){ return _oclRow(o, true); }).join('') + '</div></details>';
+    html += '<div style="margin-top:16px;font-weight:800;color:#b45309;font-size:.92rem">📦 מוכנות וממתינות ליציאה (' + supplied.length + ')</div>';
+    html += '<div style="font-size:.74rem;color:#777;margin:2px 0 8px">כשהנהג לוקח — לחץ "✅ הנהג לקח" וההזמנה עוברת להיסטוריה</div>';
+    html += supplied.slice(0,80).map(function(o){ return _oclReadyRow(o); }).join('');
+    html += '<button onclick="openClerkList()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:9px;background:#1a1a4e;color:#fff;font-weight:700;font-size:.9rem;cursor:pointer">📤 שלח רשימה לפקיד (' + supplied.length + ')</button>';
   }
   body.innerHTML = html;
   _oclUpdateBadge();
+}
+// שורה בקטע "מוכנות וממתינות ליציאה" — עם כפתור "הנהג לקח" (השלמה) וביטול-מוכן
+function _oclReadyRow(o){
+  var site = o.siteNum ? (' · 🏢 ' + o.siteNum) : (o.address ? (' · 📍 ' + o.address) : '');
+  var pkg = o.suppliedPackages != null ? (' · 📦 ' + o.suppliedPackages + ' חבילות') : '';
+  var d1 = (o.desc||'').split('\n')[0] + ((o.desc||'').indexOf('\n') > -1 ? ' …' : '');
+  return '<div style="display:flex;gap:7px;align-items:center;padding:9px 10px;border:1px solid #fde68a;border-radius:9px;margin-bottom:7px;background:#fffbeb">' +
+    '<span style="flex:1;min-width:0">' +
+      '<b style="font-size:.94rem">' + (o.customer||'—') + '</b>' +
+      '<span style="color:#374151;font-size:.85rem"> — ' + d1 + '</span>' +
+      '<div style="color:#6b7280;font-size:.79rem;margin-top:2px">' + (o.qty?('כמות '+o.qty):'') + pkg + site + '</div>' +
+    '</span>' +
+    '<button onclick="_orderMarkCompleted(\'' + o.id + '\')" style="flex:none;padding:7px 9px;border:none;border-radius:7px;background:#065f46;color:#fff;font-weight:700;font-size:.78rem;cursor:pointer;white-space:nowrap">✅ הנהג לקח</button>' +
+    '<button onclick="_orderSetSupplied(\'' + o.id + '\', false)" title="בטל — חזרה להכנה" style="flex:none;padding:7px 8px;border:1px solid #d1d5db;border-radius:7px;background:#fff;cursor:pointer;font-size:.85rem">↩</button>' +
+  '</div>';
+}
+// הנהג לקח — ההזמנה הושלמה, עוברת להיסטוריה ונעלמת מהצ'ק ליסט
+function _orderMarkCompleted(id){
+  var o = orders.find(function(x){ return x.id === id; }); if (!o) return;
+  o.clerkSent = true; o.completedAt = new Date().toISOString(); o.status = 'done';
+  if ('_upd' in o) o._upd = Date.now();
+  persist();
+  showToast('✅ ' + (o.customer||'') + ' — הושלמה ועברה להיסטוריה');
+  renderOrderChecklist();
+  try { if (document.getElementById('clerkListModal').classList.contains('open')) renderClerkList(); } catch(e){}
+  if (typeof renderOrders === 'function') renderOrders();
+  try { if (typeof logActivity === 'function') logActivity('✅ הזמנה הושלמה (יצאה)', (o.customer||'') + ' · ' + (o.desc||'').split('\n')[0].slice(0,30)); } catch(e){}
 }
 function _orderSetSupplied(id, val){
   var o = orders.find(function(x){ return x.id === id; }); if (!o) return;
   if (val){
     var def = (o.suppliedPackages != null ? o.suppliedPackages : (o.qty || ''));
-    var ans = prompt('כמה חבילות יצאו?\n' + (o.customer||'') + ' · ' + (o.desc||''), def);
+    var ans = prompt('ההזמנה מוכנה ליציאה — כמה חבילות?\n' + (o.customer||'') + ' · ' + (o.desc||''), def);
     if (ans === null){ renderOrderChecklist(); return; }   // ביטול — לא מסמנים
     var n = parseInt(String(ans).replace(/[^\d]/g,''), 10);
     o.suppliedPackages = isNaN(n) ? null : n;
@@ -3930,32 +3959,16 @@ function _clerkSetPkg(id, v){
 }
 function _clerkCopy(){
   var t = _clerkText();
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function(){ showToast('📋 הרשימה הועתקה'); _clerkAfterSend(); }).catch(function(){ _clerkCopyFallback(); _clerkAfterSend(); });
-  else { _clerkCopyFallback(); _clerkAfterSend(); }
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function(){ showToast('📋 הרשימה הועתקה'); }).catch(function(){ _clerkCopyFallback(); });
+  else { _clerkCopyFallback(); }
 }
 function _clerkCopyFallback(){ var ta=document.getElementById('clerk-preview'); if(!ta) return; ta.removeAttribute('readonly'); ta.select(); try{ document.execCommand('copy'); showToast('📋 הרשימה הועתקה'); }catch(e){ showToast('בחר והעתק ידנית'); } ta.setAttribute('readonly','readonly'); }
 function _clerkPrint(){
   var w = window.open('', '_blank'); if(!w){ showToast('אפשר חלונות קופצים כדי להדפיס'); return; }
   w.document.write('<html><head><meta charset="utf-8"><title>רשימת אספקה</title></head><body style="direction:rtl"><pre style="font-family:Heebo,Arial;font-size:15px;padding:18px;white-space:pre-wrap">' + _clerkText().replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}) + '</pre></body></html>');
   w.document.close(); w.focus(); setTimeout(function(){ try{ w.print(); }catch(e){} }, 200);
-  _clerkAfterSend();
 }
-function _clerkWhatsapp(){ window.open('https://wa.me/?text=' + encodeURIComponent(_clerkText()), '_blank'); _clerkAfterSend(); }
-// אחרי שליחה: לסמן את העבודות שנבחרו כ"נשלחו לפקיד" ולנקות אותן מהרשימה (הרשימה תהיה ריקה)
-function _clerkSentIds(){ var sel=window._clerkSel||{}; return orders.filter(function(o){ return o && !o._deleted && o.supplied && !o.clerkSent && sel[o.id] !== false; }); }
-function _clerkAfterSend(){
-  var rows = _clerkSentIds();
-  if (!rows.length) return;
-  if (!confirm('הרשימה נשלחה. לסמן ' + rows.length + ' עבודות כנשלחו ולנקות אותן מהרשימה?')) return;
-  var now = new Date().toISOString();
-  rows.forEach(function(o){ o.clerkSent = true; o.clerkSentAt = now; o.status = 'done'; if ('_upd' in o) o._upd = Date.now(); });
-  persist();
-  showToast('✅ ' + rows.length + ' עבודות נשלחו לפקיד ונוקו מהרשימה');
-  renderClerkList();
-  if (typeof renderOrderChecklist === 'function') renderOrderChecklist();
-  if (typeof renderOrders === 'function') renderOrders();
-  if (!_clerkSentIds().length && orders.filter(function(o){return o&&!o._deleted&&o.supplied&&!o.clerkSent;}).length===0) closeClerkList();
-}
+function _clerkWhatsapp(){ window.open('https://wa.me/?text=' + encodeURIComponent(_clerkText()), '_blank'); }
 
 function filterOrders(f) {
   _ordersFilter = f;
