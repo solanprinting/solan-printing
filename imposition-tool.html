@@ -63,6 +63,8 @@
           <option value="16p">16 עמ' — מתהפך (4 צבעים)</option>
           <option value="8perf">8 עמ' — פרפקטור (8 צבעים)</option>
           <option value="8p">8 עמ' — מתהפך (4 צבעים)</option>
+          <option value="4perf">4 עמ' — פרפקטור (8 צבעים)</option>
+          <option value="4p">4 עמ' — מתהפך (4 צבעים)</option>
         </select>
       </div>
       <div class="opt"><label>צד ראשון בקובץ:</label>
@@ -113,7 +115,13 @@ const TEMPLATES = {
               grids:[ [[1,4,1,4],[8,5,8,5],[5,8,5,8],[4,1,4,1]],
                       [[3,2,3,2],[6,7,6,7],[7,6,7,6],[2,3,2,3]] ] },
   '8p':     { N:8,  sides:1, rot:[90,-90,90,-90],
-              grids:[ [[1,4,3,2],[8,5,6,7],[5,8,7,6],[4,1,2,3]] ] }
+              grids:[ [[1,4,3,2],[8,5,6,7],[5,8,7,6],[4,1,2,3]] ] },
+  // 4 עמ' — חולצו מ-4p Perf.pdf / 4p kipul.pdf (2026-07-08); אומת ששיטת החילוץ משחזרת 1:1 את 32/16/8
+  '4perf':  { N:4,  sides:2, rot:[90,90,-90,-90],
+              grids:[ [[1,1,2,2],[4,4,3,3],[3,3,4,4],[2,2,1,1]],
+                      [[1,1,2,2],[4,4,3,3],[3,3,4,4],[2,2,1,1]] ] },
+  '4p':     { N:4,  sides:1, rot:[90,90,-90,-90],
+              grids:[ [[1,1,2,2],[4,4,3,3],[3,3,4,4],[2,2,1,1]] ] }
 };
 // בונה מפה: מספר עמוד → {side,col,row} (מופע ראשון)
 function _buildMap(tpl){
@@ -153,10 +161,12 @@ async function fold(arrayBuffer, opts){
   const pages = src.getPages();
   const out = await PDFDocument.create();
   const per = tpl.sides;   // עמודי-קובץ לחתימה (1=מתהפך, 2=פרפקטור)
-  const report = { sheets: pages.length, signatures: 0, pagesOut: 0, leftover: 0, sizeWarn: null };
+  const report = { sheets: pages.length, signatures: 0, pagesOut: 0, leftover: 0, sizeWarn: null, rotWarn: false };
   if (pages.length){
     const w = pages[0].getWidth()/MM, h = pages[0].getHeight()/MM;
     if (Math.abs(w-1000) > 60 || Math.abs(h-700) > 60) report.sizeWarn = Math.round(w)+'×'+Math.round(h)+' מ"מ';
+    // קובץ ששמור עם דגל סיבוב (Rotate 90/270) — ההטמעה מתעלמת מהדגל והקיפול יצא שגוי
+    try { const ra = pages[0].getRotation && pages[0].getRotation().angle; if (ra && ra % 360 !== 0) report.rotWarn = ra; } catch(e){}
   }
   for (let s = 0; s + per <= pages.length; s += per){
     await foldSignature(out, pages.slice(s, s+per), tpl, map, firstSideIsFront);
@@ -212,6 +222,7 @@ $('go').onclick = async () => {
         + ' ודא שבחרת את סוג הפריסה הנכון.</div>';
     } else {
       if (report.sizeWarn) html += '<div class="warn">⚠️ גודל הגיליון בקובץ הוא '+report.sizeWarn+' — התבניות מותאמות ל-70×100. אם התוצאה לא מדויקת, ייתכן שנבחר סוג פריסה לא נכון.</div>';
+      if (report.rotWarn) html += '<div class="warn">⚠️ הקובץ שמור עם סיבוב עמוד ('+report.rotWarn+'°) — ייתכן שהקיפול יצא שגוי. אם העמודים לא במקום, סובב/שמור מחדש את הקובץ ללא דגל סיבוב ונסה שוב.</div>';
       if (report.leftover) html += '<div class="warn">⚠️ נשארו '+report.leftover+' עמ\' בקובץ שלא הושלמה להם חתימה — דולגו.</div>';
       const blob = new Blob([bytes], { type:'application/pdf' });
       const url = URL.createObjectURL(blob);
