@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783450728';
+window.APP_VERSION = '1783490010';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2047,6 +2047,27 @@ window._fbSnapshot = {};
   </div>
 </div>
 
+<!-- ===== רשימה לפקיד — כמה יוצר מכל עבודה ===== -->
+<div class="modal-overlay" id="clerkListModal" style="z-index:280">
+  <div class="modal-box" style="max-width:640px;width:96vw;max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <span>📤 רשימה לפקיד — כמה יוצר מכל עבודה</span>
+      <button class="modal-close" onclick="closeClerkList()">✕</button>
+    </div>
+    <div style="padding:12px 16px;overflow:auto;flex:1">
+      <div id="clerk-list-items"></div>
+      <div style="font-size:.72rem;color:#777;margin:12px 0 4px">תצוגה מקדימה של הרשימה שתישלח:</div>
+      <textarea id="clerk-preview" readonly style="width:100%;height:130px;border:1px solid #d1d5db;border-radius:8px;padding:10px;font-family:Heebo;font-size:.9rem;direction:rtl;box-sizing:border-box;resize:vertical"></textarea>
+    </div>
+    <div style="padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="btn btn-clear" onclick="closeClerkList()">סגור</button>
+      <button class="btn btn-primary" onclick="_clerkCopy()">📋 העתק</button>
+      <button class="btn btn-primary" onclick="_clerkPrint()">🖨️ הדפס</button>
+      <button class="btn btn-primary" style="background:#25d366;border-color:#25d366" onclick="_clerkWhatsapp()">💬 וואטסאפ</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== QUOTE PRINT MODAL ===== -->
 <div class="modal-overlay" id="quote-print-modal">
   <div class="modal-box" style="max-width:800px;width:96vw;padding:0">
@@ -3792,12 +3813,13 @@ function closeOrderChecklist(){ var m=document.getElementById('orderChecklistMod
 function _oclRow(o, done){
   var site = o.siteNum ? (' · 🏢 ' + o.siteNum) : (o.address ? (' · 📍 ' + o.address) : '');
   var dt = o.deliveryDate ? (' · אספקה ' + o.deliveryDate) : (o.date ? (' · ' + o.date) : '');
+  var pkg = (done && o.suppliedPackages != null) ? ('<b style="color:#059669"> · 📦 ' + o.suppliedPackages + ' חבילות</b>') : '';
   return '<label style="display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border:1px solid ' + (done?'#d1fae5':'#e5e7eb') + ';border-radius:9px;margin-bottom:7px;background:' + (done?'#f0fdf4':'white') + ';cursor:pointer">' +
     '<input type="checkbox" ' + (done?'checked':'') + ' onchange="_orderSetSupplied(\'' + o.id + '\', this.checked)" style="margin-top:2px;width:19px;height:19px;flex:none;cursor:pointer">' +
-    '<span style="flex:1;min-width:0' + (done?';opacity:.6;text-decoration:line-through':'') + '">' +
-      '<b style="font-size:.95rem">' + (o.customer||'—') + '</b>' +
-      '<span style="color:#374151;font-size:.86rem"> — ' + (o.desc||'') + '</span>' +
-      '<div style="color:#6b7280;font-size:.8rem;margin-top:2px">' + (o.qty?('כמות '+o.qty):'') + dt + site + '</div>' +
+    '<span style="flex:1;min-width:0' + (done?';opacity:.7':'') + '">' +
+      '<b style="font-size:.95rem' + (done?';text-decoration:line-through':'') + '">' + (o.customer||'—') + '</b>' +
+      '<span style="color:#374151;font-size:.86rem' + (done?';text-decoration:line-through':'') + '"> — ' + (o.desc||'') + '</span>' +
+      '<div style="color:#6b7280;font-size:.8rem;margin-top:2px">' + (o.qty?('כמות '+o.qty):'') + dt + site + pkg + '</div>' +
     '</span></label>';
 }
 function renderOrderChecklist(){
@@ -3809,12 +3831,24 @@ function renderOrderChecklist(){
   var html = '<div style="font-size:.82rem;color:#6b7280;margin-bottom:10px">' + new Date().toLocaleDateString('he-IL') + ' · סמן אילו הזמנות סופקו. <b>' + active.length + '</b> ממתינות לאספקה.</div>';
   if (!active.length) html += '<div style="text-align:center;padding:26px;color:#10b981;font-weight:700">🎉 כל ההזמנות סופקו!</div>';
   else html += active.map(function(o){ return _oclRow(o, false); }).join('');
-  if (supplied.length) html += '<details style="margin-top:14px"><summary style="cursor:pointer;color:#6b7280;font-size:.85rem;font-weight:600">✅ סופקו (' + supplied.length + ') — לחץ להצגה/ביטול</summary><div style="margin-top:8px">' + supplied.slice(0,60).map(function(o){ return _oclRow(o, true); }).join('') + '</div></details>';
+  if (supplied.length){
+    html += '<button onclick="openClerkList()" style="margin-top:14px;width:100%;padding:10px;border:none;border-radius:9px;background:#1a1a4e;color:#fff;font-weight:700;font-size:.9rem;cursor:pointer">📤 הכן רשימה לפקיד (' + supplied.length + ' סופקו)</button>';
+    html += '<details style="margin-top:12px"><summary style="cursor:pointer;color:#6b7280;font-size:.85rem;font-weight:600">✅ סופקו (' + supplied.length + ') — לחץ להצגה/ביטול</summary><div style="margin-top:8px">' + supplied.slice(0,60).map(function(o){ return _oclRow(o, true); }).join('') + '</div></details>';
+  }
   body.innerHTML = html;
   _oclUpdateBadge();
 }
 function _orderSetSupplied(id, val){
   var o = orders.find(function(x){ return x.id === id; }); if (!o) return;
+  if (val){
+    var def = (o.suppliedPackages != null ? o.suppliedPackages : (o.qty || ''));
+    var ans = prompt('כמה חבילות יצאו?\n' + (o.customer||'') + ' · ' + (o.desc||''), def);
+    if (ans === null){ renderOrderChecklist(); return; }   // ביטול — לא מסמנים
+    var n = parseInt(String(ans).replace(/[^\d]/g,''), 10);
+    o.suppliedPackages = isNaN(n) ? null : n;
+  } else {
+    o.suppliedPackages = null;
+  }
   o.supplied = !!val;
   o.suppliedAt = val ? new Date().toISOString() : null;
   if ('_upd' in o) o._upd = Date.now();
@@ -3848,6 +3882,62 @@ function _orderChecklistDailyCheck(){
 }
 setInterval(_orderChecklistDailyCheck, 60000);
 setTimeout(_orderChecklistDailyCheck, 9000);   // בדיקה קצרה אחרי טעינה/סנכרון
+
+// ===== רשימה לפקיד — כמה יוצר מכל עבודה =====
+function openClerkList(){
+  window._clerkSel = {};                        // ברירת מחדל: כל העבודות שסופקו מסומנות
+  var m = document.getElementById('clerkListModal'); if (!m) return;
+  m.classList.add('open');
+  renderClerkList();
+}
+function closeClerkList(){ var m=document.getElementById('clerkListModal'); if(m) m.classList.remove('open'); }
+function _clerkText(){
+  var sel = window._clerkSel || {};
+  var rows = orders.filter(function(o){ return o && !o._deleted && o.supplied && sel[o.id] !== false; });
+  rows.sort(function(a,b){ return String(a.customer||'').localeCompare(String(b.customer||''), 'he'); });
+  var lines = rows.map(function(o, i){
+    return (i+1) + '. ' + (o.customer||'—') + ' — ' + (o.desc||'') + ' — ' + (o.suppliedPackages!=null?o.suppliedPackages:'?') + ' חבילות';
+  });
+  return 'רשימת אספקה · ' + new Date().toLocaleDateString('he-IL') + '\n' + (lines.join('\n') || '(לא נבחרו עבודות)') + '\n\nסה"כ ' + rows.length + ' עבודות';
+}
+function renderClerkList(){
+  var box = document.getElementById('clerk-list-items'); if (!box) return;
+  var supplied = orders.filter(function(o){ return o && !o._deleted && o.supplied; });
+  supplied.sort(function(a,b){ return (b.suppliedAt||'') < (a.suppliedAt||'') ? -1 : 1; });
+  if (!window._clerkSel) window._clerkSel = {};
+  if (!supplied.length){ box.innerHTML = '<div style="color:#999;padding:14px">אין עבודות מסומנות כסופקו</div>'; var pv0=document.getElementById('clerk-preview'); if(pv0) pv0.value=''; return; }
+  box.innerHTML = '<div style="font-size:.74rem;color:#777;margin-bottom:6px">בחר אילו עבודות לכלול ברשימה, וודא כמות החבילות:</div>' + supplied.map(function(o){
+    var checked = window._clerkSel[o.id] !== false;
+    return '<div style="display:flex;gap:9px;align-items:center;padding:8px 4px;border-bottom:1px solid #f0f0f0">' +
+      '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="_clerkToggle(\'' + o.id + '\', this.checked)" style="width:18px;height:18px;flex:none;cursor:pointer">' +
+      '<span style="flex:1;min-width:0"><b>' + (o.customer||'—') + '</b> <span style="color:#555;font-size:.85rem">' + (o.desc||'') + '</span></span>' +
+      '<input type="number" min="0" value="' + (o.suppliedPackages!=null?o.suppliedPackages:'') + '" onchange="_clerkSetPkg(\'' + o.id + '\', this.value)" style="width:66px;padding:4px 6px;border:1px solid #ccc;border-radius:6px;text-align:center;font-family:Heebo" placeholder="חב\'">' +
+      '<span style="font-size:.78rem;color:#777">חבילות</span>' +
+    '</div>';
+  }).join('');
+  var pv=document.getElementById('clerk-preview'); if(pv) pv.value = _clerkText();
+}
+function _clerkToggle(id, on){ window._clerkSel[id] = on; var pv=document.getElementById('clerk-preview'); if(pv) pv.value=_clerkText(); }
+function _clerkSetPkg(id, v){
+  var o = orders.find(function(x){ return x.id === id; }); if(!o) return;
+  var n = parseInt(String(v).replace(/[^\d]/g,''), 10);
+  o.suppliedPackages = isNaN(n) ? null : n;
+  if ('_upd' in o) o._upd = Date.now();
+  persist();
+  var pv=document.getElementById('clerk-preview'); if(pv) pv.value=_clerkText();
+}
+function _clerkCopy(){
+  var t = _clerkText();
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function(){ showToast('📋 הרשימה הועתקה'); }).catch(function(){ _clerkCopyFallback(); });
+  else _clerkCopyFallback();
+}
+function _clerkCopyFallback(){ var ta=document.getElementById('clerk-preview'); if(!ta) return; ta.removeAttribute('readonly'); ta.select(); try{ document.execCommand('copy'); showToast('📋 הרשימה הועתקה'); }catch(e){ showToast('בחר והעתק ידנית'); } ta.setAttribute('readonly','readonly'); }
+function _clerkPrint(){
+  var w = window.open('', '_blank'); if(!w){ showToast('אפשר חלונות קופצים כדי להדפיס'); return; }
+  w.document.write('<html><head><meta charset="utf-8"><title>רשימת אספקה</title></head><body style="direction:rtl"><pre style="font-family:Heebo,Arial;font-size:15px;padding:18px;white-space:pre-wrap">' + _clerkText().replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}) + '</pre></body></html>');
+  w.document.close(); w.focus(); setTimeout(function(){ try{ w.print(); }catch(e){} }, 200);
+}
+function _clerkWhatsapp(){ window.open('https://wa.me/?text=' + encodeURIComponent(_clerkText()), '_blank'); }
 
 function filterOrders(f) {
   _ordersFilter = f;
