@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783490350';
+window.APP_VERSION = '1783491574';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2572,6 +2572,7 @@ window._fbSnapshot = {};
 </div>
 
 <div class="toast" id="toast"></div>
+<div id="idle-pause-banner" onclick="_resumePolling()" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9998;background:#1a1a4e;color:#fff;padding:12px 16px;text-align:center;font-weight:700;cursor:pointer;box-shadow:0 -2px 12px rgba(0,0,0,.3)">⏸️ העדכונים הושהו עקב חוסר פעילות — לחץ כאן לחידוש</div>
 <div id="undo-toast"></div>
 
 <div id="update-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;
@@ -11254,10 +11255,18 @@ function renderWorkList() {
     var mins = Math.floor(elapsedMs / 60000);
     var secs = Math.floor((elapsedMs % 60000) / 1000);
     var elapsed = (mins > 0 ? mins + 'ד\' ' : '') + secs + 'ש\'';
+    // מד זמן משוער לסיום — רק בחלון המשתמשים, לא במסך הדפסים
+    var estMin = (!window._isMachineView && typeof _entryEstMinutes === 'function') ? _entryEstMinutes(e) : 0;
+    var etaHtml = '';
+    if (estMin > 0) {
+      var remain0 = Math.max(0, Math.round(estMin - elapsedMs/60000));
+      etaHtml = '<span style="font-size:.68rem;background:rgba(16,185,129,.95);border-radius:4px;padding:1px 6px;font-weight:800;white-space:nowrap" id="wl-eta-' + e.qid + '" data-start="' + (p.startAt||0) + '" data-est="' + estMin + '">⏳ נותרו ~' + _fmtMins(remain0) + '</span>';
+    }
     nowItems.push('<div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.18);border-radius:7px;padding:4px 10px">'
       + '<span style="font-size:.7rem;font-weight:700;opacity:.8">' + escHtml(machine) + '</span>'
       + '<span style="font-size:.8rem;font-weight:900">' + escHtml(name) + '</span>'
       + '<span style="font-size:.68rem;background:rgba(0,0,0,.2);border-radius:4px;padding:1px 6px" id="wl-timer-' + e.qid + '" data-start="' + (p.startAt||0) + '">' + elapsed + '</span>'
+      + etaHtml
       + '</div>');
   });
   if (nowItems.length) {
@@ -11276,6 +11285,18 @@ function renderWorkList() {
           var m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000);
           el.textContent = (m > 0 ? m + 'ד\' ' : '') + s + 'ש\'';
         }, 1000);
+      });
+      // מד זמן שנותר — מתעדכן כל 15ש'
+      document.querySelectorAll('[id^="wl-eta-"]').forEach(function(el) {
+        var start = parseInt(el.dataset.start || '0', 10), est = parseFloat(el.dataset.est || '0');
+        if (!start || !est) return;
+        var upd = function() {
+          if (!document.body.contains(el)) return false;
+          var remain = est - (Date.now() - start) / 60000;
+          el.textContent = remain <= 0.5 ? '✓ אמור להסתיים' : ('⏳ נותרו ~' + _fmtMins(Math.round(remain)));
+          return true;
+        };
+        var id2 = setInterval(function(){ if (!upd()) clearInterval(id2); }, 15000);
       });
     }, 0);
   }
@@ -16843,8 +16864,36 @@ function downloadUpdate() {
 function setupFBListeners() {
   if (window._fbPollInterval) clearInterval(window._fbPollInterval);
   _fbPollAll();
-  window._fbPollInterval = setInterval(_fbPollAll, 60 * 1000);   // 60ש' (היה 30) — חיסכון Downloads: אוסף גדול שמשתנה (cards 161KB) נמשך מחדש בכל סבב
+  window._fbPollInterval = setInterval(_fbPollAll, 30 * 1000);   // 30ש' — ריענון מהיר; החיסכון מגיע מהשהיית פולינג של משתמש לא-פעיל (ראה _pausePolling)
 }
+
+// ── השהיית פולינג למשתמש לא-פעיל (~שעתיים) — חוסך Downloads מטאבים שנשארו פתוחים ──
+// מסך הדפסים (_isMachineView) לעולם לא מושהה. כל פעילות מחדשת את הטיימר/החיבור.
+window._lastActivity = Date.now();
+window._pollPaused = false;
+function _pausePolling(){
+  if (window._isMachineView || window._pollPaused) return;   // מסך דפסים לא מתנתק
+  window._pollPaused = true;
+  if (window._fbPollInterval) { clearInterval(window._fbPollInterval); window._fbPollInterval = null; }
+  var b = document.getElementById('idle-pause-banner'); if (b) b.style.display = 'flex';
+}
+function _resumePolling(){
+  window._lastActivity = Date.now();
+  if (!window._pollPaused) return;
+  window._pollPaused = false;
+  var b = document.getElementById('idle-pause-banner'); if (b) b.style.display = 'none';
+  try { if (typeof _fbPollAll === 'function') _fbPollAll(); } catch(e){}
+  if (!window._fbPollInterval) window._fbPollInterval = setInterval(_fbPollAll, 30 * 1000);
+  try { showToast('🔄 החיבור חודש'); } catch(e){}
+}
+(function(){
+  var mark = function(){ if (window._pollPaused) _resumePolling(); else window._lastActivity = Date.now(); };
+  ['mousedown','keydown','touchstart','scroll','click'].forEach(function(ev){ document.addEventListener(ev, mark, {passive:true}); });
+  setInterval(function(){
+    if (window._isMachineView || window._pollPaused) return;
+    if (Date.now() - (window._lastActivity || Date.now()) > 2 * 60 * 60 * 1000) _pausePolling();   // שעתיים
+  }, 60000);
+})();
 
 // ── הבהוב חלון כשנוצר כרטיס חדש (למשתמשים פתוחים שהחלון שלהם ממוזער/לא בפוקוס) ──
 var _flashTimer = null, _flashOrigTitle = null;
@@ -18409,7 +18458,7 @@ function _initMachineViewMode() {
   // Fast poll every 10s for live updates
   setTimeout(function() {
     _opLoadAndRender();
-    window._opPollInterval = setInterval(_opLoadAndRender, 40000);  // 40ש' (היה 20/10) — מפחית Downloads (מסך דפסים מושך cards בכל שינוי)
+    window._opPollInterval = setInterval(_opLoadAndRender, 20000);  // 20ש' — מסך דפסים צריך ריענון מהיר; לעולם לא מושהה (אין ניתוק אי-פעילות)
   }, 1800);
   _opKeepAwake();   // מונע כיבוי מסך בחוסר פעילות (Wake Lock)
   return true;
