@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783532655';
+window.APP_VERSION = '1783534172';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21040,9 +21040,32 @@ var PI_METHODS = [
   { id:'regular',    label:'רגיל (צד/צד)' },
   { id:'work_turn',  label:'מתהפך לרוחב (Work & Turn)' },
   { id:'work_tumble',label:'מתהפך לגובה (Work & Tumble)' },
-  { id:'perfecting', label:'פרפקטור (Perfecting)' }
+  { id:'perfecting', label:'פרפקטור (Perfecting)' },
+  { id:'ab',         label:'A+B (קדמי+אחורי בנפרד)' }
 ];
-var PI_TEMPLATES = ['32','16p','16perf','8p','8perf'];
+// משפחת תבנית לפי שיטה: דו-צדדי (קדמי+אחורי) או חד-צדדי (מתהפך — פלטה אחת)
+function pi_familyFor(method){ return (method === 'work_turn' || method === 'work_tumble') ? 'p' : 'perf'; }
+var PI_TPL = {
+  perf: { 32:'32', 16:'16perf', 8:'8perf', 4:'4perf' },   // דו-צדדי
+  p:    { 16:'16p', 8:'8p', 4:'4p' }                       // חד-צדדי (אין 32 מתהפך)
+};
+function pi_tplLabel(t){
+  return { '32':'32 עמ\' פרפקטור', '16perf':'16 עמ\' פרפקטור', '16p':'16 עמ\' מתהפך',
+           '8perf':'8 עמ\' פרפקטור', '8p':'8 עמ\' מתהפך', '4perf':'4 עמ\' פרפקטור', '4p':'4 עמ\' מתהפך' }[t] || t;
+}
+// חלוקת עמודים לקונטרסים לפי המשפחה (חמדנית; בגרנולריות 4 תמיד מתפרקת נקי)
+function pi_splitPages(count, family){
+  var sizes = family === 'p' ? [16,8,4] : [32,16,8,4];
+  var padded = Math.ceil(count / 4) * 4;
+  var rest = padded, out = [];
+  while (rest > 0){
+    var n = null;
+    for (var i = 0; i < sizes.length; i++){ if (sizes[i] <= rest){ n = sizes[i]; break; } }
+    if (!n) break;
+    out.push(n); rest -= n;
+  }
+  return { sigs: out, padded: padded, blanks: padded - count };
+}
 
 function pi_save(){
   try {
@@ -21077,8 +21100,9 @@ async function pi_poll(pollGet, proofs){
   if (pv !== null && typeof pv === 'object') pi_mergeKeyed(window._pi.profiles, pv);
   pi_save();
   pi_badge();
+  // רינדור מחדש רק בתצוגת הרשימה — לא באמצע עבודה בבונה (שלא לאפס בחירה/גלילה)
   var m = document.getElementById('piModal');
-  if (m && m.classList.contains('open')) pi_render();
+  if (m && m.classList.contains('open') && window._pi.view !== 'builder') pi_render();
 }
 
 /* ── שכבת מתאם — הגישה היחידה לנתוני שאר האפליקציה ─────────────── */
@@ -21142,13 +21166,35 @@ function pi_open(){
   if (!window.PI_ENABLED) return;
   if (!pi_isAdmin()){ showToast('⛔ תכנון דפוס — למנהל בלבד'); return; }
   pi_ensureModal();
+  window._pi.view = 'list';
   document.getElementById('piModal').classList.add('open');
   pi_render();
   pi_seedProfiles().then(pi_render);
+  pi_loadTemplates();   // טעינה מוקדמת של התבניות (iframe נסתר) — שהבונה ייפתח מיידית
   // אם מטמון הפרופרים עוד לא נטען מה-poll — משיכה חד-פעמית
   if (!window._pi.proofs && window._fbGet) window._fbGet('customerProofs').then(function(v){
     if (v && typeof v === 'object'){ window._pi.proofs = v; pi_render(); pi_badge(); }
   });
+}
+// מקור אמת יחיד לתבניות: קריאת TEMPLATES מכלי הקיפול דרך iframe נסתר (same-origin)
+function pi_loadTemplates(cb){
+  if (window._pi.templates){ if (cb) cb(); return; }
+  var f = document.getElementById('pi-tpl-frame');
+  if (!f){
+    f = document.createElement('iframe');
+    f.id = 'pi-tpl-frame'; f.style.display = 'none';
+    f.src = 'imposition-tool.html?v=' + (window.APP_VERSION || '1');
+    document.body.appendChild(f);
+  }
+  var tries = 0;
+  (function check(){
+    try {
+      var t = f.contentWindow && f.contentWindow.TEMPLATES;
+      if (t && t['32']){ window._pi.templates = t; if (cb) cb(); return; }
+    } catch(e){}
+    if (++tries < 40) setTimeout(check, 250);
+    else if (cb) cb();   // כישלון — הבונה יציג הודעת טעינה עם נסיון חוזר
+  })();
 }
 function pi_close(){ var m = document.getElementById('piModal'); if (m) m.classList.remove('open'); }
 function pi_badge(){
@@ -21159,7 +21205,12 @@ function pi_badge(){
 }
 function pi_fmtDate(ms){ return ms ? new Date(ms).toLocaleDateString('he-IL') + ' ' + new Date(ms).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}) : '—'; }
 function pi_render(){
+  if (window._pi.view === 'builder') pi_renderBuilder();
+  else pi_renderList();
+}
+function pi_renderList(){
   var body = document.getElementById('pi-body'); if (!body) return;
+  var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '760px';
   var list = pi_getApprovedProofs();
   var html = '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin-bottom:8px">📥 עבודות מאושרות לתכנון (' + list.length + ')</div>';
   if (!list.length){
@@ -21172,6 +21223,21 @@ function pi_render(){
           (u.spreads ? ' · ' + u.spreads + ' כפולות' : '') + ' · אושר: ' + pi_fmtDate(u.approvedAt) + '</div></span>' +
         (u.fileUrl ? '<a href="' + u.fileUrl + '" target="_blank" style="flex:none;font-size:.78rem;color:#2563eb;text-decoration:none;border:1px solid #dbeafe;border-radius:7px;padding:6px 9px">📄 קובץ</a>' : '') +
         '<button onclick="pi_plan(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" style="flex:none;padding:7px 12px;border:none;border-radius:7px;background:#6d28d9;color:#fff;font-weight:700;font-size:.8rem;cursor:pointer">תכנן ←</button>' +
+      '</div>';
+    }).join('');
+  }
+  // טיוטות אימפוזיציה
+  var drafts = Object.keys(window._pi.imps).map(function(k){ return window._pi.imps[k]; })
+    .filter(function(d){ return d && !d._deleted && d.status === 'draft'; })
+    .sort(function(a,b){ return (b.updatedAt||0) - (a.updatedAt||0); });
+  if (drafts.length){
+    html += '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin:18px 0 8px">📝 טיוטות אימפוזיציה (' + drafts.length + ')</div>';
+    html += drafts.map(function(d){
+      return '<div style="display:flex;gap:8px;align-items:center;border:1px solid #fde68a;border-radius:9px;padding:9px 12px;margin-bottom:7px;background:#fffbeb">' +
+        '<span style="flex:1;min-width:0"><b style="font-size:.9rem">' + escHtml(d.name||d.id) + '</b>' +
+          '<div style="color:#6b7280;font-size:.76rem;margin-top:2px">' + escHtml(d.machine||'') + ' · ' + (d.signatures||[]).length + ' קונטרסים · עודכן ' + pi_fmtDate(d.updatedAt) + '</div></span>' +
+        '<button onclick="pi_openDraft(\'' + d.id + '\')" style="flex:none;padding:7px 12px;border:none;border-radius:7px;background:#b45309;color:#fff;font-weight:700;font-size:.8rem;cursor:pointer">המשך עריכה</button>' +
+        '<button onclick="pi_delDraft(\'' + d.id + '\')" title="מחק טיוטה" style="flex:none;padding:7px 9px;border:1px solid #fca5a5;border-radius:7px;background:#fff;color:#b91c1c;cursor:pointer;font-size:.8rem">🗑</button>' +
       '</div>';
     }).join('');
   }
@@ -21196,7 +21262,7 @@ function pi_render(){
       '<div style="margin-top:6px">' + mChk + '</div>' +
     '</div>';
   }).join('');
-  html += '<div style="font-size:.72rem;color:#9ca3af;margin-top:12px">שלב 1 מתוך 4 — בונה האימפוזיציה (בחירת שיטה, קונטרסים והחלפת עמודים) ייבנה בשלב הבא.</div>';
+  html += '<div style="font-size:.72rem;color:#9ca3af;margin-top:12px">שלב 2 מתוך 4 — בונה אימפוזיציה עם טיוטות פעיל. הבא: אישור אימפוזיציה + Job Ticket.</div>';
   body.innerHTML = html;
 }
 function pi_profField(id, field, val){
@@ -21211,9 +21277,202 @@ function pi_profMethod(id, method, on){
   if (on) p.allowedMethods.push(method);
   pi_put('machineProfiles', id, p);
 }
-// שלב הבא: בונה האימפוזיציה — כרגע מציג הודעה בלבד (כדי שהזרימה תהיה גלויה וכנה)
+/* ── בונה האימפוזיציה (שלב 2): מכונה→פרופיל→שיטה→קונטרסים→החלפת עמודים→טיוטה ── */
 function pi_plan(proofId, partId){
-  showToast('🛠️ בונה האימפוזיציה — נבנה בשלב הבא של המודול');
+  // טיוטה קיימת לאותה עבודה? — נמשיך אותה (רענון דף לא מאבד כלום)
+  var ex = Object.keys(window._pi.imps).map(function(k){ return window._pi.imps[k]; }).find(function(d){
+    return d && !d._deleted && d.status === 'draft' &&
+      (d.jobs||[]).some(function(j){ return j.proofId === proofId && (j.partId||'') === (partId||''); });
+  });
+  if (ex){ pi_openDraft(ex.id); return; }
+  var unit = pi_getApprovedProofs().find(function(u){ return u.proofId === proofId && (u.partId||'') === (partId||''); });
+  if (!unit){ showToast('⚠️ העבודה לא נמצאה — רענן ונסה שוב'); return; }
+  window._pi.cur = pi_newDraft(unit);
+  window._pi.dirty = true;   // טיוטה חדשה — עוד לא נשמרה
+  window._pi.sel = null;
+  window._pi.view = 'builder';
+  pi_loadTemplates(pi_render);
+  pi_render();
+}
+function pi_openDraft(id){
+  var d = window._pi.imps[id]; if (!d || d._deleted) return;
+  window._pi.cur = JSON.parse(JSON.stringify(d));   // עותק עבודה — נשמר רק ב"שמור טיוטה"
+  window._pi.dirty = false;
+  window._pi.sel = null;
+  window._pi.view = 'builder';
+  pi_ensureModal();
+  document.getElementById('piModal').classList.add('open');
+  pi_loadTemplates(pi_render);
+  pi_render();
+}
+function pi_delDraft(id){
+  var d = window._pi.imps[id]; if (!d) return;
+  if (!confirm('למחוק את הטיוטה "' + (d.name||id) + '"? העבודה תחזור לרשימת המאושרות.')) return;
+  pi_put('impositions', id, Object.assign({}, d, { _deleted:true }));
+  pi_render(); pi_badge();
+}
+function pi_profilesFor(machine){
+  return Object.keys(window._pi.profiles).map(function(k){ return window._pi.profiles[k]; })
+    .filter(function(p){ return p && !p._deleted && (!machine || p.machine === machine); });
+}
+function pi_newDraft(unit){
+  var profs = pi_profilesFor(null);
+  var prof = profs.find(function(p){ return p.id === 'heidel8'; }) || profs[0] || null;
+  var method = prof && (prof.allowedMethods||[])[0] || 'perfecting';
+  var d = {
+    id: 'imp_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    createdAt: Date.now(), updatedAt: Date.now(), status: 'draft',
+    name: unit.title,
+    jobs: [{ proofId: unit.proofId, partId: unit.partId || '', customer: unit.customer || '', name: unit.title, pages: unit.pages || 0, fileUrl: unit.fileUrl || '' }],
+    machine: prof ? prof.machine : pi_getMachines()[0], profileId: prof ? prof.id : '',
+    method: method, pagesIn: unit.pages || 32
+  };
+  pi_buildSignatures(d);
+  return d;
+}
+// חלוקה לקונטרסים + מפת עמודים (pageMap[מקומי-1] = עמוד גלובלי; null = ריק)
+function pi_buildSignatures(d){
+  var family = pi_familyFor(d.method);
+  var sp = pi_splitPages(d.pagesIn, family);
+  d.family = family; d.pages = sp.padded; d.blanks = sp.blanks;
+  d.signatures = [];
+  var start = 1;
+  sp.sigs.forEach(function(n, i){
+    var pm = [];
+    for (var p = start; p < start + n; p++) pm.push(p <= d.pagesIn ? p : null);
+    d.signatures.push({ idx: i + 1, template: PI_TPL[family][n], n: n, start: start, pageMap: pm });
+    start += n;
+  });
+}
+function pi_setMachine(v){
+  var cur = window._pi.cur; if (!cur) return;
+  if (cur._edited && !confirm('שינוי מכונה יבנה את הקונטרסים מחדש והחלפות העמודים יאופסו. להמשיך?')){ pi_render(); return; }
+  cur.machine = v;
+  var profs = pi_profilesFor(v);
+  cur.profileId = profs.length ? profs[0].id : '';
+  var allowed = profs.length ? (profs[0].allowedMethods||[]) : [];
+  if (allowed.length && allowed.indexOf(cur.method) === -1) cur.method = allowed[0];
+  cur._edited = false; pi_buildSignatures(cur);
+  window._pi.dirty = true; window._pi.sel = null; pi_render();
+}
+function pi_setProfile(v){
+  var cur = window._pi.cur; if (!cur) return;
+  cur.profileId = v;
+  var p = window._pi.profiles[v];
+  var allowed = p ? (p.allowedMethods||[]) : [];
+  if (allowed.length && allowed.indexOf(cur.method) === -1){
+    if (cur._edited && !confirm('הפרופיל לא תומך בשיטה הנוכחית — הקונטרסים ייבנו מחדש. להמשיך?')){ pi_render(); return; }
+    cur.method = allowed[0]; cur._edited = false; pi_buildSignatures(cur);
+  }
+  window._pi.dirty = true; pi_render();
+}
+function pi_setMethod(v){
+  var cur = window._pi.cur; if (!cur) return;
+  if (cur._edited && !confirm('שינוי שיטה יבנה את הקונטרסים מחדש והחלפות העמודים יאופסו. להמשיך?')){ pi_render(); return; }
+  cur.method = v; cur._edited = false; pi_buildSignatures(cur);
+  window._pi.dirty = true; window._pi.sel = null; pi_render();
+}
+function pi_setPages(v){
+  var cur = window._pi.cur; if (!cur) return;
+  var n = parseInt(v, 10); if (!n || n < 1 || n > 2000){ pi_render(); return; }
+  if (cur._edited && !confirm('שינוי מספר העמודים יבנה את הקונטרסים מחדש והחלפות העמודים יאופסו. להמשיך?')){ pi_render(); return; }
+  cur.pagesIn = n; cur._edited = false; pi_buildSignatures(cur);
+  window._pi.dirty = true; window._pi.sel = null; pi_render();
+}
+// החלפת עמודים: לחיצה ראשונה בוחרת, שנייה מחליפה (גם בין קונטרסים)
+function pi_cellClick(sigIdx, local){
+  var cur = window._pi.cur; if (!cur) return;
+  var sel = window._pi.sel;
+  if (!sel){ window._pi.sel = { sig: sigIdx, local: local }; pi_render(); return; }
+  if (sel.sig === sigIdx && sel.local === local){ window._pi.sel = null; pi_render(); return; }
+  var A = cur.signatures[sel.sig], B = cur.signatures[sigIdx];
+  var va = A.pageMap[sel.local - 1], vb = B.pageMap[local - 1];
+  A.pageMap[sel.local - 1] = vb; B.pageMap[local - 1] = va;
+  cur._edited = true; window._pi.dirty = true; window._pi.sel = null;
+  showToast('↔ הוחלפו: עמ\' ' + (va == null ? 'ריק' : va) + ' ↔ עמ\' ' + (vb == null ? 'ריק' : vb));
+  pi_render();
+}
+function pi_saveDraft(){
+  var cur = window._pi.cur; if (!cur) return;
+  cur.updatedAt = Date.now();
+  pi_put('impositions', cur.id, JSON.parse(JSON.stringify(cur)));
+  window._pi.dirty = false;
+  showToast('💾 הטיוטה נשמרה');
+  pi_render(); pi_badge();
+}
+function pi_backToList(){
+  if (window._pi.dirty && !confirm('יש שינויים שלא נשמרו — לצאת בלי לשמור?')) return;
+  window._pi.view = 'list'; window._pi.sel = null;
+  pi_render(); pi_badge();
+}
+function pi_renderBuilder(){
+  var body = document.getElementById('pi-body'); if (!body) return;
+  var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1020px';
+  var cur = window._pi.cur;
+  if (!cur){ window._pi.view = 'list'; pi_renderList(); return; }
+  var T = window._pi.templates;
+  if (!T){
+    body.innerHTML = '<div style="text-align:center;padding:34px;color:#6b7280">⏳ טוען תבניות פריסה... <button onclick="pi_loadTemplates(pi_render)" style="margin-right:8px;padding:5px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo">נסה שוב</button></div>';
+    return;
+  }
+  var prof = window._pi.profiles[cur.profileId];
+  var profs = pi_profilesFor(cur.machine);
+  var allowed = prof ? (prof.allowedMethods||[]) : PI_METHODS.map(function(m){ return m.id; });
+  var html =
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">' +
+      '<button onclick="pi_backToList()" style="padding:7px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700">→ חזרה</button>' +
+      '<b style="font-size:.95rem;flex:1;min-width:0">' + escHtml(cur.name||'') + '</b>' +
+      (window._pi.dirty ? '<span style="font-size:.74rem;color:#b45309;font-weight:800">● לא נשמר</span>' : '<span style="font-size:.74rem;color:#059669;font-weight:700">✓ שמור</span>') +
+      '<button onclick="pi_saveDraft()" style="padding:8px 16px;border:none;border-radius:8px;background:#6d28d9;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">💾 שמור טיוטה</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:#faf7ff;border:1px solid #ede9fe;border-radius:10px;padding:10px 12px;margin-bottom:12px">' +
+      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">מכונה' +
+        '<select onchange="pi_setMachine(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+          pi_getMachines().map(function(m){ return '<option value="' + escHtml(m) + '"' + (m===cur.machine?' selected':'') + '>' + escHtml(m) + '</option>'; }).join('') +
+        '</select></label>' +
+      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">פרופיל' +
+        '<select onchange="pi_setProfile(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+          profs.map(function(p){ return '<option value="' + p.id + '"' + (p.id===cur.profileId?' selected':'') + '>' + escHtml(p.name||p.id) + '</option>'; }).join('') +
+        '</select></label>' +
+      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שיטת הדפסה' +
+        '<select onchange="pi_setMethod(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+          PI_METHODS.filter(function(m){ return !allowed.length || allowed.indexOf(m.id) !== -1; })
+            .map(function(m){ return '<option value="' + m.id + '"' + (m.id===cur.method?' selected':'') + '>' + m.label + '</option>'; }).join('') +
+        '</select></label>' +
+      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">עמודים' +
+        '<input type="number" min="1" value="' + cur.pagesIn + '" onchange="pi_setPages(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
+      (prof ? '<span style="font-size:.72rem;color:#6b7280;margin-right:auto">גיליון ' + (prof.sheetW||100) + '×' + (prof.sheetH||70) + ' ס"מ · ' + (prof.colors||'') + ' צבעים</span>' : '') +
+    '</div>';
+  if (cur.blanks) html += '<div style="font-size:.78rem;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:7px 10px;margin-bottom:10px">⚠️ ' + cur.pagesIn + ' עמ\' אינם מתחלקים נקי — נוספו ' + cur.blanks + ' עמודים ריקים בסוף.</div>';
+  html += '<div style="font-size:.74rem;color:#6b7280;margin-bottom:10px">💡 להחלפת עמודים: לחץ על עמוד אחד ואז על עמוד שני (אפשר גם בין קונטרסים). הבחירה מודגשת בזהב.</div>';
+  var sel = window._pi.sel;
+  cur.signatures.forEach(function(sig, si){
+    var tpl = T[sig.template];
+    html += '<div style="border:1px solid #e5e7eb;border-radius:11px;margin-bottom:14px;overflow:hidden">' +
+      '<div style="background:#ede9fe;padding:8px 12px;font-weight:800;font-size:.86rem;color:#4c1d95">קונטרס ' + sig.idx +
+        ' — ' + pi_tplLabel(sig.template) + ' · עמ\' ' + sig.start + '–' + (sig.start + sig.n - 1) + '</div>';
+    if (!tpl){ html += '<div style="padding:12px;color:#b91c1c">תבנית ' + sig.template + ' לא נמצאה</div></div>'; return; }
+    tpl.grids.forEach(function(grid, sideIdx){
+      var sideLabel = tpl.sides === 2 ? (sideIdx === 0 ? 'צד קדמי' : 'צד אחורי') : 'פלטה אחת — מתהפך (שני הצדדים מאותה פלטה)';
+      html += '<div style="padding:10px 12px">' +
+        '<div style="font-size:.74rem;font-weight:700;color:#6b7280;margin-bottom:6px">' + sideLabel + '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
+      grid.forEach(function(rowArr){
+        rowArr.forEach(function(local){
+          var g = sig.pageMap[local - 1];
+          var isSel = sel && sel.sig === si && sel.local === local;
+          var blank = (g == null);
+          html += '<div onclick="pi_cellClick(' + si + ',' + local + ')" style="aspect-ratio:240/165;display:flex;align-items:center;justify-content:center;' +
+            'border:' + (isSel ? '2.5px solid #c9a84c' : (blank ? '1.5px dashed #d1d5db' : '1.5px solid #cbd5e1')) + ';border-radius:7px;cursor:pointer;' +
+            'background:' + (isSel ? '#fffbeb' : (blank ? '#f8fafc' : '#fff')) + ';font-weight:800;font-size:1.02rem;color:' + (blank ? '#c0c4cc' : '#1a1a4e') + ';user-select:none">' +
+            (blank ? 'ריק' : g) + '</div>';
+        });
+      });
+      html += '</div></div>';
+    });
+    html += '</div>';
+  });
+  body.innerHTML = html;
 }
 try { setTimeout(pi_badge, 4000); } catch(e){}
 /* ══ PI:END ══════════════════════════════════════════════════════ */
