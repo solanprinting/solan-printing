@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783490010';
+window.APP_VERSION = '1783490350';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3825,7 +3825,7 @@ function _oclRow(o, done){
 function renderOrderChecklist(){
   var body = document.getElementById('order-checklist-body'); if (!body) return;
   var active = _oclPending();
-  var supplied = orders.filter(function(o){ return o && !o._deleted && o.supplied; });
+  var supplied = orders.filter(function(o){ return o && !o._deleted && o.supplied && !o.clerkSent; });
   active.sort(function(a,b){ var da=a.deliveryDate||a.date||'9999', db=b.deliveryDate||b.date||'9999'; return da<db?-1:da>db?1:0; });
   supplied.sort(function(a,b){ return (b.suppliedAt||'') < (a.suppliedAt||'') ? -1 : 1; });
   var html = '<div style="font-size:.82rem;color:#6b7280;margin-bottom:10px">' + new Date().toLocaleDateString('he-IL') + ' · סמן אילו הזמנות סופקו. <b>' + active.length + '</b> ממתינות לאספקה.</div>';
@@ -3893,7 +3893,7 @@ function openClerkList(){
 function closeClerkList(){ var m=document.getElementById('clerkListModal'); if(m) m.classList.remove('open'); }
 function _clerkText(){
   var sel = window._clerkSel || {};
-  var rows = orders.filter(function(o){ return o && !o._deleted && o.supplied && sel[o.id] !== false; });
+  var rows = orders.filter(function(o){ return o && !o._deleted && o.supplied && !o.clerkSent && sel[o.id] !== false; });
   rows.sort(function(a,b){ return String(a.customer||'').localeCompare(String(b.customer||''), 'he'); });
   var lines = rows.map(function(o, i){
     return (i+1) + '. ' + (o.customer||'—') + ' — ' + (o.desc||'') + ' — ' + (o.suppliedPackages!=null?o.suppliedPackages:'?') + ' חבילות';
@@ -3902,7 +3902,7 @@ function _clerkText(){
 }
 function renderClerkList(){
   var box = document.getElementById('clerk-list-items'); if (!box) return;
-  var supplied = orders.filter(function(o){ return o && !o._deleted && o.supplied; });
+  var supplied = orders.filter(function(o){ return o && !o._deleted && o.supplied && !o.clerkSent; });
   supplied.sort(function(a,b){ return (b.suppliedAt||'') < (a.suppliedAt||'') ? -1 : 1; });
   if (!window._clerkSel) window._clerkSel = {};
   if (!supplied.length){ box.innerHTML = '<div style="color:#999;padding:14px">אין עבודות מסומנות כסופקו</div>'; var pv0=document.getElementById('clerk-preview'); if(pv0) pv0.value=''; return; }
@@ -3928,16 +3928,32 @@ function _clerkSetPkg(id, v){
 }
 function _clerkCopy(){
   var t = _clerkText();
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function(){ showToast('📋 הרשימה הועתקה'); }).catch(function(){ _clerkCopyFallback(); });
-  else _clerkCopyFallback();
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function(){ showToast('📋 הרשימה הועתקה'); _clerkAfterSend(); }).catch(function(){ _clerkCopyFallback(); _clerkAfterSend(); });
+  else { _clerkCopyFallback(); _clerkAfterSend(); }
 }
 function _clerkCopyFallback(){ var ta=document.getElementById('clerk-preview'); if(!ta) return; ta.removeAttribute('readonly'); ta.select(); try{ document.execCommand('copy'); showToast('📋 הרשימה הועתקה'); }catch(e){ showToast('בחר והעתק ידנית'); } ta.setAttribute('readonly','readonly'); }
 function _clerkPrint(){
   var w = window.open('', '_blank'); if(!w){ showToast('אפשר חלונות קופצים כדי להדפיס'); return; }
   w.document.write('<html><head><meta charset="utf-8"><title>רשימת אספקה</title></head><body style="direction:rtl"><pre style="font-family:Heebo,Arial;font-size:15px;padding:18px;white-space:pre-wrap">' + _clerkText().replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}) + '</pre></body></html>');
   w.document.close(); w.focus(); setTimeout(function(){ try{ w.print(); }catch(e){} }, 200);
+  _clerkAfterSend();
 }
-function _clerkWhatsapp(){ window.open('https://wa.me/?text=' + encodeURIComponent(_clerkText()), '_blank'); }
+function _clerkWhatsapp(){ window.open('https://wa.me/?text=' + encodeURIComponent(_clerkText()), '_blank'); _clerkAfterSend(); }
+// אחרי שליחה: לסמן את העבודות שנבחרו כ"נשלחו לפקיד" ולנקות אותן מהרשימה (הרשימה תהיה ריקה)
+function _clerkSentIds(){ var sel=window._clerkSel||{}; return orders.filter(function(o){ return o && !o._deleted && o.supplied && !o.clerkSent && sel[o.id] !== false; }); }
+function _clerkAfterSend(){
+  var rows = _clerkSentIds();
+  if (!rows.length) return;
+  if (!confirm('הרשימה נשלחה. לסמן ' + rows.length + ' עבודות כנשלחו ולנקות אותן מהרשימה?')) return;
+  var now = new Date().toISOString();
+  rows.forEach(function(o){ o.clerkSent = true; o.clerkSentAt = now; o.status = 'done'; if ('_upd' in o) o._upd = Date.now(); });
+  persist();
+  showToast('✅ ' + rows.length + ' עבודות נשלחו לפקיד ונוקו מהרשימה');
+  renderClerkList();
+  if (typeof renderOrderChecklist === 'function') renderOrderChecklist();
+  if (typeof renderOrders === 'function') renderOrders();
+  if (!_clerkSentIds().length && orders.filter(function(o){return o&&!o._deleted&&o.supplied&&!o.clerkSent;}).length===0) closeClerkList();
+}
 
 function filterOrders(f) {
   _ordersFilter = f;
