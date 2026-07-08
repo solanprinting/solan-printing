@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783530777';
+window.APP_VERSION = '1783532079';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1197,6 +1197,7 @@ window._fbSnapshot = {};
     <button class="btn btn-outline-w" onclick="openCartonCalc()">🧮 מחשבון</button>
     <button class="btn btn-outline-w admin-only" onclick="openReports()">📊 דוחות</button>
     <button class="btn btn-outline-w admin-only" id="cs-stock-btn" onclick="openCustStock()" style="position:relative">📦 מלאי לקוחות<span id="cs-stock-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
+    <button class="btn btn-outline-w admin-only" id="pi-btn" onclick="pi_open()" title="תכנון דפוס — אימפוזיציה" style="position:relative">🖨️ תכנון דפוס<span id="pi-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#8b5cf6;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w" onclick="openOperatorView()">🏭 מסך דפסים</button>
     <button class="btn btn-outline-w admin-only" onclick="openOrderChecklist()" title="צ'ק ליסט אספקת הזמנות" style="position:relative">✅ אספקה<span id="ocl-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#f59e0b;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w" id="notif-bell-btn" onclick="_notifToggle()" style="position:relative" title="התראות — מי עשה מה">
@@ -9018,7 +9019,8 @@ function closeDeliveryModal() {
 // ═══════════════════════════════════════════════════════
 const _BACKUP_KEYS = ['solanCards','solanNewspapers','solanFlyers','solanWeeklyJobs','solanInventory',
   'solanInventoryHistory','solanInventoryDeductions','solanOrders','solanQuotes','solanDeliveryNotes',
-  'solanUsers','solanManualRuns','solanWeekClearedAt','solanWeekClearedItems','solanWeekCardMarked'];
+  'solanUsers','solanManualRuns','solanWeekClearedAt','solanWeekClearedItems','solanWeekCardMarked',
+  'solanImpositions','solanMachineProfiles'];   // מודול תכנון דפוס (PI)
 
 function _collectBackupData() {
   const data = {};
@@ -17295,6 +17297,8 @@ async function _fbPollAll() {
     try {
       var cpv2 = await window._fbGet('customerProofs');
       if (cpv2 && typeof cpv2 === 'object') _checkCustomerUploadAlerts(cpv2);
+      // מודול תכנון דפוס (PI) — hook יחיד; המודול מנהל את עצמו ולא נוגע בשום דבר אחר כאן
+      try { if (window.PI_ENABLED && typeof pi_poll === 'function') await pi_poll(_pollGet, cpv2); } catch(e){}
     } catch(e){}
     // יומן פעילות משותף — מיזוג עם המקומי (מציג פעולות של כל המשתמשים)
     try {
@@ -21013,6 +21017,206 @@ function _ccSolveOptimal(demands, exacts, slots){
   }
   return best;
 }
+</script>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   PI:BEGIN — Prepress Imposition Module (מודול תכנון דפוס)
+   מודול עצמאי: כל הפונקציות בקידומת pi_, נתונים באוספים משלו בלבד
+   (impositions, machineProfiles — כתיבה פר-מסמך, בלי דריסת אוסף שלם).
+   נקודות המגע היחידות בקוד הקיים: כפתור בכותרת, שורת hook אחת ב-poll,
+   ושני מפתחות ב-_BACKUP_KEYS. כיבוי מלא: PI_ENABLED = false.
+   תוכנית מלאה: תכנון-מודול-אימפוזיציה.md
+   ══════════════════════════════════════════════════════════════════ */
+window.PI_ENABLED = true;
+
+window._pi = {
+  imps:     JSON.parse(localStorage.getItem('solanImpositions')    || '{}'),   // impId → מסמך אימפוזיציה
+  profiles: JSON.parse(localStorage.getItem('solanMachineProfiles')|| '{}'),   // profId → פרופיל מכונה
+  proofs:   null                                                               // מטמון customerProofs מה-poll
+};
+
+var PI_METHODS = [
+  { id:'regular',    label:'רגיל (צד/צד)' },
+  { id:'work_turn',  label:'מתהפך לרוחב (Work & Turn)' },
+  { id:'work_tumble',label:'מתהפך לגובה (Work & Tumble)' },
+  { id:'perfecting', label:'פרפקטור (Perfecting)' }
+];
+var PI_TEMPLATES = ['32','16p','16perf','8p','8perf'];
+
+function pi_save(){
+  try {
+    localStorage.setItem('solanImpositions',     JSON.stringify(window._pi.imps));
+    localStorage.setItem('solanMachineProfiles', JSON.stringify(window._pi.profiles));
+  } catch(e){}
+}
+// מיזוג ממופתח: החדש לפי _upd מנצח; מחיקות (tombstone _deleted) נשמרות
+function pi_mergeKeyed(cur, inc){
+  var changed = false;
+  Object.keys(inc || {}).forEach(function(k){
+    var i = inc[k]; if (!i || typeof i !== 'object') return;
+    var c = cur[k];
+    if (!c || (i._upd || 0) > (c._upd || 0)){ cur[k] = i; changed = true; }
+  });
+  return changed;
+}
+// כתיבה פר-מסמך — לעולם לא דורסים אוסף שלם (בטוח מול טאבים "קפואים")
+function pi_put(coll, id, doc){
+  doc._upd = Date.now();
+  var store = coll === 'impositions' ? window._pi.imps : window._pi.profiles;
+  store[id] = doc;
+  pi_save();
+  if (window._fbPut) window._fbPut(coll + '/' + id, doc);   // מעדכן גם _rev/<coll> אוטומטית
+}
+// ה-hook היחיד מה-poll הראשי: מקבל את _pollGet (שער-גרסה) + מטמון customerProofs
+async function pi_poll(pollGet, proofs){
+  if (proofs && typeof proofs === 'object') window._pi.proofs = proofs;
+  var iv = await pollGet('impositions');
+  if (iv !== null && typeof iv === 'object') pi_mergeKeyed(window._pi.imps, iv);
+  var pv = await pollGet('machineProfiles');
+  if (pv !== null && typeof pv === 'object') pi_mergeKeyed(window._pi.profiles, pv);
+  pi_save();
+  pi_badge();
+  var m = document.getElementById('piModal');
+  if (m && m.classList.contains('open')) pi_render();
+}
+
+/* ── שכבת מתאם — הגישה היחידה לנתוני שאר האפליקציה ─────────────── */
+// יחידות מאושרות לתכנון: full מאושר או ריצה (part) מאושרת, שלא שובצו באף אימפוזיציה
+function pi_getApprovedProofs(){
+  var out = [], proofs = window._pi.proofs || {};
+  var used = {};   // proofId::partId שכבר שובצו
+  Object.keys(window._pi.imps).forEach(function(k){
+    var imp = window._pi.imps[k];
+    if (!imp || imp._deleted || imp.status === 'archived') return;
+    (imp.jobs || []).forEach(function(j){ used[(j.proofId||'') + '::' + (j.partId||'')] = 1; });
+  });
+  Object.keys(proofs).forEach(function(pid){
+    var p = proofs[pid]; if (!p || typeof p !== 'object') return;
+    var title = p.title || p.customer || p.name || pid;
+    if (p.mode === 'full' && p.status === 'approved'){
+      if (!used[pid + '::'])
+        out.push({ proofId:pid, partId:'', title:title, customer:p.customer||'', pages:p.pageCount||0, spreads:p.spreadCount||0, approvedAt:p.approvedAt||0, fileUrl:p.fileUrl||'' });
+    } else if (p.parts && typeof p.parts === 'object'){
+      Object.keys(p.parts).forEach(function(k){
+        var pt = p.parts[k]; if (!pt || pt.status !== 'approved') return;
+        if (!used[pid + '::' + k])
+          out.push({ proofId:pid, partId:k, title:title + ' — ' + (pt.name||('ריצה ' + k)), customer:p.customer||'', pages:pt.pageCount||0, spreads:pt.spreadCount||0, approvedAt:pt.approvedAt||0, fileUrl:pt.fileUrl||'' });
+      });
+    }
+  });
+  out.sort(function(a,b){ return (b.approvedAt||0) - (a.approvedAt||0); });
+  return out;
+}
+function pi_getMachines(){ return (typeof WORKLIST_MACHINES !== 'undefined') ? WORKLIST_MACHINES.slice() : ['מכונה 4 צבעים','מכונה 8 צבעים']; }
+function pi_isAdmin(){ return !!(typeof currentUser !== 'undefined' && currentUser && currentUser.isAdmin); }
+
+/* ── זריעת פרופילי מכונה (פעם אחת, רק אם ריק גם בשרת) ───────────── */
+async function pi_seedProfiles(){
+  if (Object.keys(window._pi.profiles).length) return;
+  try {
+    var sv = window._fbGet ? await window._fbGet('machineProfiles') : null;
+    if (sv && typeof sv === 'object' && Object.keys(sv).length){ pi_mergeKeyed(window._pi.profiles, sv); pi_save(); return; }
+  } catch(e){}
+  // ברירות מחדל לפי כללי המכונות הקיימים: 4 צבעים = מתהפך ; 8 צבעים = פרפקטור
+  pi_put('machineProfiles', 'roland4', { id:'roland4', name:'Roland — 4 צבעים', machine:'מכונה 4 צבעים',
+    sheetW:100, sheetH:70, colors:4, perfecting:false, allowedMethods:['regular','work_turn','work_tumble'], defaultTemplate:'32' });
+  pi_put('machineProfiles', 'heidel8', { id:'heidel8', name:'Heidelberg — 8 צבעים', machine:'מכונה 8 צבעים',
+    sheetW:100, sheetH:70, colors:8, perfecting:true, allowedMethods:['regular','perfecting'], defaultTemplate:'32' });
+}
+
+/* ── UI ─────────────────────────────────────────────────────────── */
+function pi_ensureModal(){
+  if (document.getElementById('piModal')) return;
+  var d = document.createElement('div');
+  d.className = 'modal-overlay'; d.id = 'piModal'; d.style.zIndex = 265;
+  d.innerHTML =
+    '<div class="modal-box" style="max-width:760px;width:96vw;max-height:90vh;display:flex;flex-direction:column">' +
+      '<div class="modal-header"><span>🖨️ תכנון דפוס — אימפוזיציה</span>' +
+        '<button class="modal-close" onclick="pi_close()">✕</button></div>' +
+      '<div id="pi-body" style="padding:14px 18px;overflow:auto"></div>' +
+    '</div>';
+  document.body.appendChild(d);
+}
+function pi_open(){
+  if (!window.PI_ENABLED) return;
+  if (!pi_isAdmin()){ showToast('⛔ תכנון דפוס — למנהל בלבד'); return; }
+  pi_ensureModal();
+  document.getElementById('piModal').classList.add('open');
+  pi_render();
+  pi_seedProfiles().then(pi_render);
+  // אם מטמון הפרופרים עוד לא נטען מה-poll — משיכה חד-פעמית
+  if (!window._pi.proofs && window._fbGet) window._fbGet('customerProofs').then(function(v){
+    if (v && typeof v === 'object'){ window._pi.proofs = v; pi_render(); pi_badge(); }
+  });
+}
+function pi_close(){ var m = document.getElementById('piModal'); if (m) m.classList.remove('open'); }
+function pi_badge(){
+  var b = document.getElementById('pi-badge'); if (!b) return;
+  var n = 0;
+  try { n = pi_getApprovedProofs().length; } catch(e){}
+  if (n > 0){ b.textContent = n; b.style.display = ''; } else b.style.display = 'none';
+}
+function pi_fmtDate(ms){ return ms ? new Date(ms).toLocaleDateString('he-IL') + ' ' + new Date(ms).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}) : '—'; }
+function pi_render(){
+  var body = document.getElementById('pi-body'); if (!body) return;
+  var list = pi_getApprovedProofs();
+  var html = '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin-bottom:8px">📥 עבודות מאושרות לתכנון (' + list.length + ')</div>';
+  if (!list.length){
+    html += '<div style="color:#9ca3af;font-size:.85rem;padding:14px;border:1px dashed #e5e7eb;border-radius:9px;text-align:center">אין עבודות ממתינות — עבודה תופיע כאן כשהלקוח ילחץ "אשר ושלח לדפוס"</div>';
+  } else {
+    html += list.map(function(u){
+      return '<div style="display:flex;gap:8px;align-items:center;border:1px solid #e5e7eb;border-radius:9px;padding:9px 12px;margin-bottom:7px;background:#fff">' +
+        '<span style="flex:1;min-width:0"><b style="font-size:.92rem">' + escHtml(u.title) + '</b>' +
+          '<div style="color:#6b7280;font-size:.78rem;margin-top:2px">' + (u.pages ? u.pages + ' עמ\'' : '') +
+          (u.spreads ? ' · ' + u.spreads + ' כפולות' : '') + ' · אושר: ' + pi_fmtDate(u.approvedAt) + '</div></span>' +
+        (u.fileUrl ? '<a href="' + u.fileUrl + '" target="_blank" style="flex:none;font-size:.78rem;color:#2563eb;text-decoration:none;border:1px solid #dbeafe;border-radius:7px;padding:6px 9px">📄 קובץ</a>' : '') +
+        '<button onclick="pi_plan(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" style="flex:none;padding:7px 12px;border:none;border-radius:7px;background:#6d28d9;color:#fff;font-weight:700;font-size:.8rem;cursor:pointer">תכנן ←</button>' +
+      '</div>';
+    }).join('');
+  }
+  // פרופילי מכונה
+  var profs = Object.keys(window._pi.profiles).map(function(k){ return window._pi.profiles[k]; }).filter(function(p){ return p && !p._deleted; });
+  html += '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin:18px 0 8px">⚙️ פרופילי מכונה (' + profs.length + ')</div>';
+  html += profs.map(function(p){
+    var mChk = PI_METHODS.map(function(m){
+      var on = (p.allowedMethods||[]).indexOf(m.id) !== -1;
+      return '<label style="display:inline-flex;align-items:center;gap:4px;font-size:.76rem;margin-left:10px;cursor:pointer">' +
+        '<input type="checkbox" ' + (on?'checked':'') + ' onchange="pi_profMethod(\'' + p.id + '\',\'' + m.id + '\',this.checked)">' + m.label + '</label>';
+    }).join('');
+    return '<div style="border:1px solid #ede9fe;border-radius:9px;padding:10px 12px;margin-bottom:8px;background:#faf7ff">' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        '<b style="font-size:.9rem">' + escHtml(p.name||p.id) + '</b>' +
+        '<span style="font-size:.76rem;color:#6b7280">' + escHtml(p.machine||'') + '</span>' +
+        '<span style="margin-right:auto;font-size:.76rem;color:#6b7280">גיליון: ' +
+          '<input type="number" value="' + (p.sheetW||100) + '" onchange="pi_profField(\'' + p.id + '\',\'sheetW\',this.value)" style="width:52px;padding:2px 4px;border:1px solid #ddd;border-radius:5px;text-align:center;font-family:Heebo">×' +
+          '<input type="number" value="' + (p.sheetH||70) + '" onchange="pi_profField(\'' + p.id + '\',\'sheetH\',this.value)" style="width:52px;padding:2px 4px;border:1px solid #ddd;border-radius:5px;text-align:center;font-family:Heebo"> ס"מ · ' +
+          'צבעים: <input type="number" value="' + (p.colors||4) + '" onchange="pi_profField(\'' + p.id + '\',\'colors\',this.value)" style="width:40px;padding:2px 4px;border:1px solid #ddd;border-radius:5px;text-align:center;font-family:Heebo"></span>' +
+      '</div>' +
+      '<div style="margin-top:6px">' + mChk + '</div>' +
+    '</div>';
+  }).join('');
+  html += '<div style="font-size:.72rem;color:#9ca3af;margin-top:12px">שלב 1 מתוך 4 — בונה האימפוזיציה (בחירת שיטה, קונטרסים והחלפת עמודים) ייבנה בשלב הבא.</div>';
+  body.innerHTML = html;
+}
+function pi_profField(id, field, val){
+  var p = window._pi.profiles[id]; if (!p) return;
+  p[field] = parseFloat(val) || 0;
+  pi_put('machineProfiles', id, p);
+  showToast('✅ הפרופיל עודכן');
+}
+function pi_profMethod(id, method, on){
+  var p = window._pi.profiles[id]; if (!p) return;
+  p.allowedMethods = (p.allowedMethods || []).filter(function(m){ return m !== method; });
+  if (on) p.allowedMethods.push(method);
+  pi_put('machineProfiles', id, p);
+}
+// שלב הבא: בונה האימפוזיציה — כרגע מציג הודעה בלבד (כדי שהזרימה תהיה גלויה וכנה)
+function pi_plan(proofId, partId){
+  showToast('🛠️ בונה האימפוזיציה — נבנה בשלב הבא של המודול');
+}
+try { setTimeout(pi_badge, 4000); } catch(e){}
+/* ══ PI:END ══════════════════════════════════════════════════════ */
 </script>
 </body>
 </html>
