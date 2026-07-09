@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783606133';
+window.APP_VERSION = '1783606980';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -12889,6 +12889,7 @@ function _jobCardHtml(c) {
           ${c.papyrusReminder?'<span title="פפירוס — לצרף מדבקות · לבדוק אריזה בקרטונים" style="font-size:.72rem;background:#fef9c3;color:#854d0e;border:1px solid #fde047;border-radius:5px;padding:2px 7px;font-weight:700">📌 פפירוס: מדבקות/קרטונים</span>':''}
           ${c.printedAt?'<span style="font-size:.72rem;background:#dcfce7;color:#15803d;border-radius:5px;padding:2px 7px;font-weight:700">🖨️ '+(c.printCount>1?c.printCount+'x ':'')+new Date(c.printedAt).toLocaleDateString("he-IL")+'</span>':''}
           ${(function(){ if(!(window.PI_ENABLED && typeof pi_impForCard==='function'))return''; var i=pi_impForCard(c.id); if(!i||i.status!=='approved')return''; return '<span onclick="event.stopPropagation();pi_openDraft(\''+i.id+'\')" title="תוכנית לוחות מאושרת — לחץ לפתיחה" style="font-size:.72rem;background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;border-radius:5px;padding:2px 7px;font-weight:700;cursor:pointer">🖨️ תוכנית לוחות ✓</span>'; })()}
+          ${(function(){ if(!(window.PI_ENABLED && typeof pi_cardUploadLink==='function' && typeof pi_isAdmin==='function' && pi_isAdmin()))return''; var lk=c.uploadProofId; return '<span onclick="event.stopPropagation();pi_cardUploadLink('+c.id+')" title="'+(lk?'קישור העלאה ללקוח (קיים) — לחץ להצגה':'צור קישור ללקוח להעלות את קבצי העיתון שלו')+'" style="font-size:.72rem;background:'+(lk?'#ccfbf1':'#f0fdfa')+';color:#0f766e;border:1px solid #5eead4;border-radius:5px;padding:2px 7px;font-weight:700;cursor:pointer">🔗 '+(lk?'קישור לקוח ✓':'קישור לקוח')+'</span>'; })()}
         </div>
       </div>
       <div class="jc-attrib">
@@ -21594,10 +21595,10 @@ function pi_getApprovedUnits(){
     var p = proofs[pid]; if (!p || typeof p !== 'object') return;
     var title = p.title || p.customer || p.name || pid;
     if (p.mode === 'full' && p.status === 'approved')
-      out.push({ proofId:pid, partId:'', title:title, runName:'מלא', customer:p.customer||'', pages:p.pageCount||0, approvedAt:p.approvedAt||0, fileUrl:p.fileUrl||'' });
+      out.push({ proofId:pid, partId:'', title:title, runName:'מלא', customer:p.customer||'', cardId:p.cardId||'', pages:p.pageCount||0, approvedAt:p.approvedAt||0, fileUrl:p.fileUrl||'' });
     if (p.parts && typeof p.parts === 'object') Object.keys(p.parts).forEach(function(k){
       var pt = p.parts[k]; if (!pt || pt.status !== 'approved') return;
-      out.push({ proofId:pid, partId:k, title:title + ' — ' + (pt.name||'ריצה'), runName:pt.name||'ריצה', customer:p.customer||'', pages:pt.pageCount||0, approvedAt:pt.approvedAt||0, fileUrl:pt.fileUrl||'' });
+      out.push({ proofId:pid, partId:k, title:title + ' — ' + (pt.name||'ריצה'), runName:pt.name||'ריצה', customer:p.customer||'', cardId:p.cardId||'', pages:pt.pageCount||0, approvedAt:pt.approvedAt||0, fileUrl:pt.fileUrl||'' });
     });
   });
   out.sort(function(a,b){ return (b.approvedAt||0) - (a.approvedAt||0); });
@@ -21615,7 +21616,7 @@ function pi_exportApogeeProof(proofId, partId){
   var frame = document.getElementById('pi-tpl-frame');
   var gen = frame && frame.contentWindow && frame.contentWindow.imposeRunPdf;
   if (!gen){ showToast('⏳ מנוע הפריסה נטען — נסה שוב'); pi_loadTemplates(); return; }
-  var card = pi_matchCardForProof(u.customer);
+  var card = pi_matchCardForUnit(u);
   var machine = (card && card.machine) || (pi_profilesFor(null)[0] && pi_profilesFor(null)[0].machine) || pi_getMachines()[0];
   var prof = pi_profilesFor(machine)[0] || pi_profilesFor(null)[0] || {};
   var g = pi_profileGeom(prof);
@@ -21641,7 +21642,7 @@ function pi_proofExportsHtml(){
   var html = '<div style="font-weight:800;color:#0f766e;font-size:.95rem;margin:2px 0 4px">📰 עבודות לקוח מאושרות (' + units.length + ')</div>' +
     '<div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px">מה שהלקוח העלה ואישר — הורד ריצה (סדר קריאה) או פרופר פרוס מוכן להעלאה לאפוגי.</div>';
   html += units.map(function(u){
-    var card = pi_matchCardForProof(u.customer);
+    var card = pi_matchCardForUnit(u);
     var mtxt = card ? ('מכונה: ' + escHtml(card.machine||'—') + ' (מהכרטיס)') : '<span style="color:#b45309">אין כרטיס תואם — פרופיל ברירת מחדל</span>';
     return '<div style="border:1px solid #99f6e4;border-radius:9px;padding:9px 12px;margin-bottom:7px;background:#f0fdfa">' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="flex:1;min-width:0;font-size:.9rem">' + escHtml(u.title) + '</b>' +
@@ -21653,6 +21654,41 @@ function pi_proofExportsHtml(){
       '</div></div>';
   }).join('');
   return html + '<div style="border-top:1px solid #eee;margin:12px 0"></div>';
+}
+// התאמת כרטיס ליחידת פרופר: קודם לפי cardId מפורש (הקישור פר-כרטיס), אחרת לפי שם לקוח
+function pi_matchCardForUnit(u){
+  if (u && u.cardId){ var c = pi_cardById(u.cardId); if (c) return c; }
+  return pi_matchCardForProof(u && u.customer);
+}
+// ── Request 2: קישור העלאה פר-כרטיס — הלקוח מעלה את קבצי העיתון שלו, מחובר ל-cardId ──
+function pi_cardUploadLink(cardId){
+  var c = pi_cardById(cardId); if (!c){ showToast('כרטיס לא נמצא'); return; }
+  var base = location.href.replace(/[^/]+(\?.*)?$/, '');
+  if (c.uploadProofId){ pi_showUploadLinkModal(c, base + 'proof-client.html?id=' + c.uploadProofId); return; }
+  var id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
+  var rec = { status:'pending_upload', customer: c.name||'', title: c.name||'עבודה', cardId: String(c.id),
+    createdAt: Date.now(), createdBy: (typeof currentUser!=='undefined' && currentUser && currentUser.name) || '' };
+  showToast('⏳ יוצר קישור...');
+  Promise.resolve(window._fbPut('customerProofs/' + id, rec)).then(function(){
+    c.uploadProofId = id; c.uploadProofAt = Date.now(); c._upd = Date.now();
+    try { persist(); if (typeof renderCards === 'function') renderCards(); } catch(e){}
+    pi_showUploadLinkModal(c, base + 'proof-client.html?id=' + id);
+  }).catch(function(e){ console.error('upload link failed', e); showToast('❌ יצירת הקישור נכשלה'); });
+}
+function pi_showUploadLinkModal(c, link){
+  var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 275;
+  m.innerHTML = '<div class="modal-box" style="max-width:540px;width:94vw">' +
+    '<div class="modal-header"><span>🔗 קישור העלאה ללקוח — ' + escHtml(c.name||'') + '</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:16px 18px">' +
+      '<div style="font-size:.85rem;color:#374151;margin-bottom:10px;line-height:1.6">שלח את הקישור ללקוח. הוא יעלה את קבצי העיתון שלו, יסדר עמודים ויאשר — והעבודה תתחבר אוטומטית לכרטיס זה, מוכנה לאימפוזיציה.</div>' +
+      '<div style="display:flex;gap:6px"><input id="pi-uplink" readonly value="' + escHtml(link) + '" style="flex:1;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:.78rem;direction:ltr;font-family:monospace"/>' +
+        '<button onclick="var i=document.getElementById(\'pi-uplink\');i.select();try{document.execCommand(\'copy\')}catch(e){};try{navigator.clipboard&&navigator.clipboard.writeText(i.value)}catch(e){};showToast(\'✓ הקישור הועתק\')" style="padding:9px 15px;border:none;border-radius:8px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">העתק</button></div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px">' +
+        '<a href="https://wa.me/?text=' + encodeURIComponent('קישור להעלאת קבצי העיתון שלך: ' + link) + '" target="_blank" style="flex:1;text-align:center;padding:10px;border-radius:8px;background:#25d366;color:#fff;font-weight:800;text-decoration:none;font-family:Heebo">📲 שלח בוואטסאפ</a>' +
+        '<a href="' + escHtml(link) + '" target="_blank" style="flex:1;text-align:center;padding:10px;border-radius:8px;background:#eef2ff;color:#3730a3;font-weight:800;text-decoration:none;font-family:Heebo">פתח לבדיקה</a>' +
+      '</div>' +
+    '</div></div>';
+  document.body.appendChild(m);
 }
 function pi_renderManualWS(){
   var body = document.getElementById('pi-body'); if (!body) return;
