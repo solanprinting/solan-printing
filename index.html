@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783595354';
+window.APP_VERSION = '1783600444';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -19088,12 +19088,11 @@ function _opSpinStyle() {
   if (!document.getElementById('op-spin-style')) {
     var st = document.createElement('style'); st.id = 'op-spin-style';
     st.textContent = '@keyframes opspin{to{transform:rotate(360deg)}}'
-      // מסך מלא: הפרופר נמתח למלא את כל המסך — גם ברוחב (הצדדים) וגם בגובה.
-      // עמוד בודד נמתח למילוי מלא (object-fit:fill — מעט עיוות, לפי בחירת המשתמש);
-      // בתצוגת כפולה משאירים אותם ליד זה בלי מתיחה מלאה.
+      // מסך מלא: הפרופר ממלא את כל המסך (object-fit:fill — עיוות קל מקובל),
+      // בלי חריגה ובלי צורך לגלול. עמוד בודד נמתח למסך; כפולה נשארת ליד זה.
       + '#op-proof-overlay:fullscreen{background:#000}'
       + '#op-proof-overlay:fullscreen #op-pv-viewport{padding:0!important;overflow:hidden!important}'
-      + '#op-proof-overlay:fullscreen .op-pv-stage{padding:0!important;gap:0!important;width:100%!important;height:100%!important}'
+      + '#op-proof-overlay:fullscreen .op-pv-stage{padding:0!important;gap:0!important;width:100%!important;height:100%!important;transform:none!important}'
       + '#op-proof-overlay:fullscreen .op-pv-img{box-shadow:none!important}'
       + '#op-proof-overlay:fullscreen .op-pv-img:only-child{width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:fill!important}'
       // סרגל דחוס במסך מלא — כפתורים קטנים יותר, פחות גובה, יותר מקום לתמונה
@@ -19101,7 +19100,7 @@ function _opSpinStyle() {
       + '#op-proof-overlay:fullscreen>div:first-child button{padding:5px 9px!important;font-size:.8rem!important}'
       + '#op-proof-overlay:-webkit-full-screen{background:#000}'
       + '#op-proof-overlay:-webkit-full-screen #op-pv-viewport{padding:0!important;overflow:hidden!important}'
-      + '#op-proof-overlay:-webkit-full-screen .op-pv-stage{padding:0!important;gap:0!important;width:100%!important;height:100%!important}'
+      + '#op-proof-overlay:-webkit-full-screen .op-pv-stage{padding:0!important;gap:0!important;width:100%!important;height:100%!important;transform:none!important}'
       + '#op-proof-overlay:-webkit-full-screen .op-pv-img{box-shadow:none!important}'
       + '#op-proof-overlay:-webkit-full-screen .op-pv-img:only-child{width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:fill!important}';
     document.head.appendChild(st);
@@ -19257,7 +19256,10 @@ function _opProofOverlay(url, type, label, revoke) {
   stage.style.cssText = 'width:100%;height:100%;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;margin:auto';
   var hide = function(){ var l = document.getElementById('op-proof-loading'); if (l) l.remove(); };
   var view;
-  if (isPdf) { view = document.createElement('iframe'); view.src = url; view.style.cssText = 'width:100%;height:100%;border:none'; }
+  if (isPdf) { view = document.createElement('iframe');
+    // מסתירים את סרגל ה-PDF המובנה של הדפדפן (הדפסה/שמירה/זכוכית/הגדרות) — נשארים רק הלחצנים שלנו
+    view.src = url + (url.indexOf('#') === -1 ? '#' : '&') + 'toolbar=0&navpanes=0';
+    view.style.cssText = 'width:100%;height:100%;border:none'; }
   else { view = document.createElement('img'); view.src = url; view.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain'; }
   view.onload = hide; view.onerror = hide;
   stage.appendChild(view); vp.appendChild(stage); ov.appendChild(vp);
@@ -21179,7 +21181,7 @@ function pi_newDraftFromCard(card){
   var colors = pi_cardColors(card);
   var d = {
     id: 'imp_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
-    createdAt: Date.now(), updatedAt: Date.now(), status: 'draft', source: 'card',
+    createdAt: Date.now(), updatedAt: Date.now(), status: 'draft', source: 'card', sourceType: 'card',
     jobCardId: String(card.id), name: card.name || 'עבודה', customer: card.name || '',
     machine: prof ? prof.machine : wantMachine, profileId: prof ? prof.id : '',
     method: method, colors: colors, colorMode: colors.length === 1 ? 'k' : 'cmyk',
@@ -21194,6 +21196,7 @@ function pi_openCard(cardId){ pi_close(); try { if (cardId && typeof editCard ==
 function pi_approve(){
   var cur = window._pi.cur; if (!cur) return;
   if (!confirm('לאשר את תוכנית הלוחות? לאחר אישור היא תסומן כמאושרת (אפשר עדיין לפתוח ולתקן).')) return;
+  if (window._pi.templates) pi_buildPlateModel(cur);   // רענון folios במודל המנורמל לפני אישור
   cur.status = 'approved'; cur.approvedAt = Date.now();
   cur.approvedBy = (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.name||'') : '';
   cur.updatedAt = Date.now();
@@ -21211,48 +21214,318 @@ function pi_setColors(mode){
   window._pi.dirty = true; pi_render();
 }
 // מסלול 2 — אימפוזיציה ידנית עצמאית (בלי כרטיס). המבנה מוכן; עורך הגרירה ייבנה בהמשך.
+/* ── Phase 6 — Manual Imposition Workspace (sourceType:'manual') ── */
 function pi_newManual(){
-  var profs = pi_profilesFor(null), prof = profs[0] || null;
+  var profs = pi_profilesFor(null), prof = profs.find(function(p){ return p.id === 'heidel8'; }) || profs[0] || null;
+  var g = pi_profileGeom(prof || {});
   window._pi.cur = {
     id: 'imp_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
-    createdAt: Date.now(), updatedAt: Date.now(), status: 'draft', source: 'manual',
+    createdAt: Date.now(), updatedAt: Date.now(), status: 'draft', source: 'manual', sourceType: 'manual',
     name: 'אימפוזיציה ידנית', machine: prof ? prof.machine : pi_getMachines()[0], profileId: prof ? prof.id : '',
-    method: (prof && (prof.allowedMethods||[])[0]) || 'perfecting', colors: ['C','M','Y','K'], colorMode: 'cmyk',
-    sheet: { w: prof ? (prof.sheetW||100) : 100, h: prof ? (prof.sheetH||70) : 70 },
-    files: [], sheets: [{ index: 1, items: [] }], signatures: []
+    colors: ['C','M','Y','K'], colorMode: 'cmyk',
+    sheet: { widthMm: g.sheetWidthMm, heightMm: g.sheetHeightMm },
+    files: [], items: [], signatures: [], warnings: []
   };
-  window._pi.dirty = true; window._pi.sel = null; window._pi.view = 'builder';
-  pi_loadTemplates(pi_render); pi_render();
+  window._pi.dirty = true; window._pi.canvasSel = null; window._pi.view = 'manual';
+  pi_loadTemplates(); pi_render();
 }
-function pi_renderManual(){
+function pi_manualSetMachine(v){
+  var cur = window._pi.cur; if (!cur) return;
+  cur.machine = v; var profs = pi_profilesFor(v);
+  cur.profileId = profs.length ? profs[0].id : '';
+  window._pi.dirty = true; window._pi.canvasSel = null; pi_render();
+}
+function pi_manualSetProfile(v){ var cur = window._pi.cur; if (!cur) return; cur.profileId = v; window._pi.dirty = true; pi_render(); }
+// קבצים —
+function pi_manualAddFile(){
+  var cur = window._pi.cur; if (!cur) return;
+  var gv = function(id){ var el = document.getElementById(id); return el ? String(el.value).trim() : ''; };
+  var name = gv('pi-mf-name'), w = parseFloat(gv('pi-mf-w')), h = parseFloat(gv('pi-mf-h'));
+  if (!name || !(w > 0) || !(h > 0)){ showToast('נא למלא שם קובץ + רוחב + גובה במ״מ'); return; }
+  var g = pi_curGeom(), bl = gv('pi-mf-bleed');
+  cur.files = cur.files || [];
+  cur.files.push({ id: 'f' + Date.now() + Math.random().toString(36).slice(2,5), name: name,
+    widthMm: w, heightMm: h, quantity: parseInt(gv('pi-mf-qty')) || 1,
+    bleedMm: bl !== '' ? parseFloat(bl) : g.defaultBleedMm, sourceFileUrl: gv('pi-mf-url') || '' });
+  window._pi.dirty = true; pi_render();
+}
+function pi_manualDelFile(fid){
+  var cur = window._pi.cur; if (!cur) return;
+  if ((cur.items||[]).some(function(it){ return it.fileId === fid; }) && !confirm('לקובץ יש פריטים על הגיליון — למחוק גם אותם?')) return;
+  cur.files = (cur.files||[]).filter(function(f){ return f.id !== fid; });
+  cur.items = (cur.items||[]).filter(function(it){ return it.fileId !== fid; });
+  window._pi.dirty = true; window._pi.canvasSel = null; pi_render();
+}
+// פריטים על הגיליון —
+function pi_manualAddItem(fileId, xMm, yMm){
+  var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === fileId; }); if (!f) return;
+  var g = pi_curGeom(), n = (cur.items||[]).length;
+  var x = xMm != null ? xMm : g.printX + (n % 6) * 12 + 6;
+  var y = yMm != null ? yMm : g.printY + (n % 6) * 12 + 6;
+  x = Math.max(0, Math.min(g.sheetWidthMm - f.widthMm, x));
+  y = Math.max(0, Math.min(g.sheetHeightMm - f.heightMm, y));
+  var id = 'it' + Date.now() + Math.random().toString(36).slice(2,5);
+  cur.items = cur.items || [];
+  cur.items.push({ id: id, fileId: f.id, xMm: x, yMm: y, widthMm: f.widthMm, heightMm: f.heightMm,
+    rotation: 0, bleedMm: f.bleedMm, copies: 1, sourceType: 'manual' });
+  cur._edited = true; window._pi.dirty = true; window._pi.canvasSel = id; window._pi.arrangeMsg = null; pi_render();
+}
+function pi_manualDupItem(id){
+  var cur = window._pi.cur, it = (cur.items||[]).find(function(x){ return String(x.id) === String(id); }); if (!it) return;
+  var g = pi_curGeom(), nid = 'it' + Date.now() + Math.random().toString(36).slice(2,5);
+  var c = Object.assign({}, it, { id: nid, xMm: Math.min(g.sheetWidthMm - it.widthMm, it.xMm + 10), yMm: Math.min(g.sheetHeightMm - it.heightMm, it.yMm + 10) });
+  cur.items.push(c); cur._edited = true; window._pi.dirty = true; window._pi.canvasSel = nid; window._pi.arrangeMsg = null; pi_render();
+}
+function pi_manualDelItem(id){
+  var cur = window._pi.cur; cur.items = (cur.items||[]).filter(function(x){ return String(x.id) !== String(id); });
+  window._pi.canvasSel = null; cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
+}
+function pi_manualRotateItem(id){
+  var cur = window._pi.cur, it = (cur.items||[]).find(function(x){ return String(x.id) === String(id); }); if (!it) return;
+  it.rotation = (it.rotation + 90) % 360; var w = it.widthMm; it.widthMm = it.heightMm; it.heightMm = w;
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
+}
+function pi_manualSetCopies(id, v){
+  var cur = window._pi.cur, it = (cur.items||[]).find(function(x){ return String(x.id) === String(id); }); if (!it) return;
+  it.copies = Math.max(1, parseInt(v) || 1); window._pi.dirty = true; pi_render();
+}
+// פריטים לרינדור/ולידציה — key=id, label=שם הקובץ
+function pi_manualRenderItems(cur){
+  var files = {}; (cur.files||[]).forEach(function(f){ files[f.id] = f; });
+  return (cur.items||[]).map(function(it){
+    var f = files[it.fileId];
+    return Object.assign({}, it, { key: String(it.id), label: (f ? f.name : 'קובץ?'), pageNumber: null });
+  });
+}
+// ── Phase 7 — Auto Arrange בסיסי (אריזת מדפים / shelf-packing, יציב) ──
+// ממיין גדול→קטן, ממקם בשורות משמאל-לימין בתוך אזור ההדפסה, שומר minGap, בלי גריפר/חריגה/חפיפה,
+// ומנסה סיבוב 90° אם משפר התאמה. פריט שלא נכנס → מסומן unplaced (עצירה + אזהרה).
+function pi_autoArrange(items, g){
+  var gap = g.minGapMm, x0 = g.printX, y0 = g.printY, W = g.printableWidthMm, H = g.printableHeightMm, E = 0.01;
+  var work = items.map(function(it){ return { id: String(it.id), w: it.widthMm, h: it.heightMm, rot: it.rotation || 0 }; });
+  work.sort(function(a, b){ var aa = a.w*a.h, ab = b.w*b.h; if (ab !== aa) return ab - aa; return Math.max(b.w,b.h) - Math.max(a.w,a.h); });
+  var cx = x0, cy = y0, rowH = 0, res = {}, unplaced = [];
+  work.forEach(function(w){
+    var o1 = { w: w.w, h: w.h, rot: w.rot }, o2 = { w: w.h, h: w.w, rot: (w.rot + 90) % 360 };
+    var opts = [o1, o2].filter(function(o){ return o.w <= W + E && o.h <= H + E; });   // חייב להיכנס לאזור ההדפסה בכלל
+    opts.sort(function(a, b){ return a.h - b.h; });   // מעדיף כיוון "רחב ונמוך" → מדפים קצרים, פחות בזבוז
+    // ניסיון מיקום בלי תופעות-לוואי בכישלון
+    var applied = null, chosen = null;
+    for (var k = 0; k < opts.length && !applied; k++){
+      var o = opts[k], nx = cx, ny = cy, nrow = rowH;
+      if (nx > x0 && (nx + o.w > x0 + W + E)){ nx = x0; ny += nrow + gap; nrow = 0; }   // אין רוחב בשורה → שורה חדשה
+      if (ny + o.h > y0 + H + E) continue;   // לא נכנס לגובה → נסה כיוון אחר
+      applied = { x: nx, y: ny, cx: nx + o.w + gap, cy: ny, row: Math.max(nrow, o.h) }; chosen = o;
+    }
+    if (!applied){ unplaced.push(w.id); return; }
+    res[w.id] = { xMm: applied.x, yMm: applied.y, widthMm: chosen.w, heightMm: chosen.h, rotation: chosen.rot };
+    cx = applied.cx; cy = applied.cy; rowH = applied.row;
+  });
+  return { res: res, unplaced: unplaced };
+}
+function pi_manualAutoArrange(){
+  var cur = window._pi.cur; if (!cur) return;
+  if (!(cur.items||[]).length){ showToast('אין פריטים לסדר'); return; }
+  var g = pi_curGeom(), out = pi_autoArrange(pi_manualRenderItems(cur), g);
+  (cur.items||[]).forEach(function(it){
+    var r = out.res[String(it.id)];
+    if (r){ it.xMm = r.xMm; it.yMm = r.yMm; it.widthMm = r.widthMm; it.heightMm = r.heightMm; it.rotation = r.rotation; }
+  });
+  var rendered = pi_manualRenderItems(cur);
+  var placed = rendered.filter(function(x){ return out.unplaced.indexOf(x.key) < 0; });
+  var util = pi_utilization(placed, g);
+  cur.warnings = pi_validateItems(rendered, g);
+  var unNames = out.unplaced.map(function(id){ var it = (cur.items||[]).find(function(x){ return String(x.id) === id; }); var f = it && (cur.files||[]).find(function(ff){ return ff.id === it.fileId; }); return f ? f.name : id; });
+  window._pi.arrangeMsg = { placed: placed.length, unplaced: unNames, util: util };
+  cur._edited = true; window._pi.dirty = true; window._pi.canvasSel = null; pi_render();
+  if (out.unplaced.length) showToast('⚠️ סודרו ' + placed.length + ' · ' + out.unplaced.length + ' לא נכנסו — הקטן/הסר או הגדל גיליון', 6500);
+  else showToast('✓ סודרו ' + placed.length + ' פריטים · ניצול ' + util + '%');
+}
+// SVG גיליון משותף (משמש את המסלול הידני) — צייר גיליון/גריפר/אזור הדפסה/פריטים
+function pi_drawSheetSvg(g, scale, items, selKey, warnKeys, svgId){
+  var SW = g.sheetWidthMm*scale, SH = g.sheetHeightMm*scale;
+  var s = '<svg id="' + svgId + '" width="' + Math.round(SW) + '" height="' + Math.round(SH) + '" viewBox="0 0 ' + SW + ' ' + SH + '" style="background:#f8fafc;border-radius:6px;touch-action:none">';
+  s += '<rect x="0" y="0" width="' + SW + '" height="' + SH + '" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>';
+  var gy = (g.sheetHeightMm - g.gripperMm)*scale;
+  s += '<rect x="0" y="' + gy + '" width="' + SW + '" height="' + (g.gripperMm*scale) + '" fill="#fecaca" opacity="0.6"/>' +
+    '<text x="' + (SW/2) + '" y="' + (gy + g.gripperMm*scale/2 + 3) + '" text-anchor="middle" font-size="9" fill="#991b1b" font-family="Heebo">גריפר ' + g.gripperMm + ' מ״מ</text>';
+  s += '<rect x="' + (g.printX*scale) + '" y="' + (g.printY*scale) + '" width="' + (g.printableWidthMm*scale) + '" height="' + (g.printableHeightMm*scale) + '" fill="none" stroke="#2563eb" stroke-width="1" stroke-dasharray="5 3"/>';
+  items.forEach(function(it){
+    var key = it.key, lvl = warnKeys[key];
+    var fill = it._moved ? '#dbeafe' : '#ede9fe';
+    var stroke = lvl === 'error' ? '#dc2626' : (lvl === 'warn' ? '#d97706' : (selKey === key ? '#c9a84c' : '#94a3b8'));
+    var sw = (selKey === key || lvl) ? 2.2 : 1;
+    var iw = it.widthMm*scale, ih = it.heightMm*scale, lbl = pi_pgLabel(it); if (lbl.length > 11) lbl = lbl.slice(0,10) + '…';
+    s += '<g data-item="' + key + '" transform="translate(' + (it.xMm*scale) + ',' + (it.yMm*scale) + ')" style="cursor:move">' +
+      '<rect x="0" y="0" width="' + iw + '" height="' + ih + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + sw + '" rx="2"/>' +
+      '<text x="' + (iw/2) + '" y="' + (ih/2 + 4) + '" text-anchor="middle" font-size="10" font-weight="800" fill="#4c1d95" font-family="Heebo" transform="rotate(' + (it.rotation===90?-90:(it.rotation===270?90:0)) + ',' + (iw/2) + ',' + (ih/2) + ')" style="pointer-events:none">' + escHtml(lbl) + '</text>' +
+      ((it.rotation===90||it.rotation===270) ? '<text x="3" y="11" font-size="8" fill="#64748b" style="pointer-events:none">⟳</text>' : '') +
+    '</g>';
+  });
+  s += '</svg>';
+  return s;
+}
+function pi_manualSave(){
+  var cur = window._pi.cur; if (!cur) return;
+  var g = pi_curGeom();
+  cur.sheet = { widthMm: g.sheetWidthMm, heightMm: g.sheetHeightMm };
+  cur.warnings = pi_validateItems(pi_manualRenderItems(cur), g);   // תמונת מצב של האזהרות
+  pi_saveDraft();
+}
+function pi_renderManualWS(){
   var body = document.getElementById('pi-body'); if (!body) return;
-  var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1020px';
-  var cur = window._pi.cur; var profs = pi_profilesFor(cur.machine);
+  var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1160px';
+  var cur = window._pi.cur; if (!cur){ window._pi.view = 'list'; pi_renderList(); return; }
+  var g = pi_curGeom();
+  var items = pi_manualRenderItems(cur);
+  var warns = pi_validateItems(items, g), util = pi_utilization(items, g);
+  var errN = warns.filter(function(x){ return x.level === 'error'; }).length;
+  var warnKeys = {}; warns.forEach(function(x){ [x.key, x.key2].forEach(function(k){ if (!k) return; if (x.level === 'error' || warnKeys[k] !== 'error') warnKeys[k] = x.level; }); });
+  var maxW = 520, maxH = 500;
+  var scale = Math.min(maxW / g.sheetWidthMm, maxH / g.sheetHeightMm);
+  window._pi.canvasScale = scale;
+  var sel = window._pi.canvasSel, selItem = sel ? items.find(function(x){ return x.key === sel; }) : null;
+  var profs = pi_profilesFor(cur.machine);
+  // ── header ──
   var html =
-    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">' +
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
       '<button onclick="pi_backToList()" style="padding:7px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700">→ חזרה</button>' +
-      '<b style="font-size:.95rem;flex:1;min-width:0">' + escHtml(cur.name||'') + ' <span style="font-size:.7rem;background:#ede9fe;color:#5b21b6;border-radius:6px;padding:2px 7px;font-weight:800">ידני</span>' +
-        (cur.status === 'approved' ? ' <span style="font-size:.72rem;color:#065f46;background:#d1fae5;border-radius:6px;padding:2px 7px;font-weight:800">✓ מאושר</span>' : '') + '</b>' +
+      '<b style="font-size:.95rem;flex:1;min-width:0">🧩 ' + escHtml(cur.name||'') + ' <span style="font-size:.68rem;background:#ccfbf1;color:#0f766e;border-radius:6px;padding:2px 7px;font-weight:800">ידני</span></b>' +
       (window._pi.dirty ? '<span style="font-size:.74rem;color:#b45309;font-weight:800">● לא נשמר</span>' : '<span style="font-size:.74rem;color:#059669;font-weight:700">✓ שמור</span>') +
-      '<button onclick="pi_saveDraft()" style="padding:8px 14px;border:none;border-radius:8px;background:#6d28d9;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">💾 שמור</button>' +
-    '</div>' +
-    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:#faf7ff;border:1px solid #ede9fe;border-radius:10px;padding:10px 12px;margin-bottom:12px">' +
-      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">מכונה<select onchange="pi_setMachine(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
-        pi_getMachines().map(function(m){ return '<option value="' + escHtml(m) + '"' + (m===cur.machine?' selected':'') + '>' + escHtml(m) + '</option>'; }).join('') + '</select></label>' +
-      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">גיליון (ס"מ)<span><input type="number" value="' + cur.sheet.w + '" onchange="pi_manualSheet(\'w\',this.value)" style="width:56px;padding:6px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center">×<input type="number" value="' + cur.sheet.h + '" onchange="pi_manualSheet(\'h\',this.value)" style="width:56px;padding:6px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></span></label>' +
-      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שיטת הדפסה<select onchange="pi_setMethod(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
-        PI_METHODS.map(function(m){ return '<option value="' + m.id + '"' + (m.id===cur.method?' selected':'') + '>' + m.label + '</option>'; }).join('') + '</select></label>' +
-      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">צבעים<select onchange="pi_setColors(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
-        '<option value="cmyk"' + (cur.colorMode!=='k'?' selected':'') + '>CMYK (4 פלטות/צד)</option><option value="k"' + (cur.colorMode==='k'?' selected':'') + '>שחור בלבד (1)</option></select></label>' +
-    '</div>' +
-    '<div style="border:2px dashed #c4b5fd;border-radius:12px;padding:32px 20px;text-align:center;background:#faf7ff;color:#6b7280">' +
-      '<div style="font-size:2.2rem">🧩</div>' +
-      '<div style="font-weight:800;color:#5b21b6;margin:8px 0">עורך סידור ידני — בקרוב</div>' +
-      '<div style="font-size:.85rem;max-width:540px;margin:0 auto;line-height:1.6">כאן ייבנה עורך גרירת קבצים על הגיליון: העלאת PDF, גרירה, סיבוב, שכפול, מחיקה, snap ואזהרות בזמן אמת (גבולות הדפסה / גריפר / מרחקים / חפיפה / בליד). מבנה הנתונים כבר תומך בזה (sheets → items → plateSets). בינתיים אפשר להגדיר מכונה / גיליון / שיטה / צבעים ולשמור טיוטה.</div>' +
+      '<button onclick="pi_manualSave()" style="padding:8px 14px;border:none;border-radius:8px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">💾 שמור טיוטה</button>' +
     '</div>';
+  // ── toolbar: מכונה + פרופיל ──
+  html += '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;padding:9px 12px;margin-bottom:12px">' +
+    '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">מכונה<select onchange="pi_manualSetMachine(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+      pi_getMachines().map(function(m){ return '<option value="' + escHtml(m) + '"' + (m===cur.machine?' selected':'') + '>' + escHtml(m) + '</option>'; }).join('') + '</select></label>' +
+    (profs.length > 1 ? '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">פרופיל<select onchange="pi_manualSetProfile(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+      profs.map(function(pr){ return '<option value="' + pr.id + '"' + (pr.id===cur.profileId?' selected':'') + '>' + escHtml(pr.name) + '</option>'; }).join('') + '</select></label>' : '') +
+    '<span style="font-size:.72rem;color:#6b7280;align-self:center">גיליון ' + g.sheetWidthMm + '×' + g.sheetHeightMm + ' מ״מ · הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + '</span>' +
+    '<button onclick="pi_manualAutoArrange()" style="margin-right:auto;padding:7px 14px;border:none;border-radius:8px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">🧮 סדר אוטומטית</button>' +
+  '</div>';
+  // ── גוף: סיידבר קבצים | גיליון | פאנל ──
+  html += '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">';
+  // סיידבר קבצים
+  html += '<div style="flex:none;width:212px">' +
+    '<div style="font-weight:800;font-size:.82rem;color:#0f766e;margin-bottom:6px">📁 קבצים</div>' +
+    '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:9px;padding:9px;margin-bottom:8px">' +
+      '<input id="pi-mf-name" placeholder="שם קובץ" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;font-size:.78rem;margin-bottom:5px">' +
+      '<div style="display:flex;gap:5px;margin-bottom:5px"><input id="pi-mf-w" type="number" placeholder="רוחב מ״מ" style="width:50%;padding:5px 6px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;font-size:.76rem"><input id="pi-mf-h" type="number" placeholder="גובה מ״מ" style="width:50%;padding:5px 6px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;font-size:.76rem"></div>' +
+      '<div style="display:flex;gap:5px;margin-bottom:5px"><input id="pi-mf-qty" type="number" placeholder="כמות" value="1" style="width:50%;padding:5px 6px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;font-size:.76rem"><input id="pi-mf-bleed" type="number" placeholder="בליד מ״מ" style="width:50%;padding:5px 6px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;font-size:.76rem"></div>' +
+      '<input id="pi-mf-url" placeholder="קישור לקובץ (רשות)" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;font-size:.74rem;margin-bottom:6px">' +
+      '<button onclick="pi_manualAddFile()" style="width:100%;padding:7px;border:none;border-radius:7px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.8rem">+ הוסף קובץ</button>' +
+    '</div>';
+  if (!(cur.files||[]).length){
+    html += '<div style="font-size:.74rem;color:#9ca3af;text-align:center;padding:8px">אין קבצים עדיין</div>';
+  } else {
+    html += (cur.files||[]).map(function(f){
+      var used = (cur.items||[]).filter(function(it){ return it.fileId === f.id; }).length;
+      return '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:6px 8px;margin-bottom:6px;background:#fff">' +
+        '<div style="display:flex;align-items:center;gap:5px">' +
+          '<span data-file-drag="' + f.id + '" title="גרור לגיליון" style="cursor:grab;color:#94a3b8;font-size:1rem;user-select:none;touch-action:none">⠿</span>' +
+          '<b style="flex:1;min-width:0;font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.name) + '</b>' +
+          '<button onclick="pi_manualDelFile(\'' + f.id + '\')" title="מחק קובץ" style="flex:none;border:none;background:none;color:#b91c1c;cursor:pointer;font-size:.85rem">🗑</button>' +
+        '</div>' +
+        '<div style="font-size:.7rem;color:#6b7280;margin:2px 0 5px">' + f.widthMm + '×' + f.heightMm + ' מ״מ · כמות ' + f.quantity + ' · בליד ' + f.bleedMm + (used ? ' · על הגיליון: ' + used : '') + '</div>' +
+        '<button onclick="pi_manualAddItem(\'' + f.id + '\')" style="width:100%;padding:5px;border:1px solid #99f6e4;border-radius:6px;background:#f0fdfa;color:#0f766e;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.76rem">➕ הוסף לגיליון</button>' +
+      '</div>';
+    }).join('');
+  }
+  html += '</div>';
+  // גיליון
+  html += '<div style="flex:none">' + pi_drawSheetSvg(g, scale, items, sel, warnKeys, 'pi-canvas-svg') +
+    '<div style="font-size:.7rem;color:#9ca3af;margin-top:4px;text-align:center">גרור ⠿ קובץ לגיליון · גרור פריט להזזה · 1 מ״מ = ' + scale.toFixed(2) + ' px</div></div>';
+  // פאנל
+  html += '<div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:9px">';
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+    (errN ? '<span style="background:#fee2e2;color:#991b1b;border-radius:7px;padding:5px 11px;font-weight:800;font-size:.82rem">⛔ ' + errN + ' בעיות</span>'
+          : (warns.length ? '<span style="background:#fef3c7;color:#92400e;border-radius:7px;padding:5px 11px;font-weight:800;font-size:.82rem">⚠️ ' + warns.length + ' אזהרות</span>'
+                          : '<span style="background:#dcfce7;color:#065f46;border-radius:7px;padding:5px 11px;font-weight:800;font-size:.82rem">✓ תקין</span>')) +
+    '<span style="background:#eef2ff;color:#3730a3;border-radius:7px;padding:5px 11px;font-weight:800;font-size:.82rem">📊 ניצול ' + util + '%</span>' +
+    '<span style="background:#f3f4f6;color:#374151;border-radius:7px;padding:5px 11px;font-weight:700;font-size:.82rem">🧩 ' + (cur.items||[]).length + ' פריטים</span>' +
+  '</div>';
+  var am = window._pi.arrangeMsg;
+  if (am){
+    html += '<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:9px;padding:8px 11px;font-size:.78rem;color:#3730a3">' +
+      '<b>🧮 סידור אוטומטי:</b> נכנסו ' + am.placed + ' פריטים · ניצול ' + am.util + '%' +
+      (am.unplaced.length ? '<div style="color:#b91c1c;font-weight:700;margin-top:4px">⛔ לא נכנסו ' + am.unplaced.length + ': ' + escHtml(am.unplaced.join(', ')) + '<br><span style="font-weight:500;color:#7f1d1d">הקטן/סובב/הסר פריטים או הגדל את הגיליון.</span></div>' : '<div style="color:#065f46;font-weight:700;margin-top:3px">✓ כל הפריטים נכנסו</div>') +
+    '</div>';
+  }
+  if (selItem){
+    var fnm = selItem.label;
+    html += '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:9px 11px;font-size:.76rem;color:#374151;line-height:1.7">' +
+      '<b style="color:#92400e">פריט נבחר: ' + escHtml(fnm) + '</b><br>' +
+      'מיקום: X ' + Math.round(selItem.xMm) + ' · Y ' + Math.round(selItem.yMm) + ' מ״מ · מידות ' + Math.round(selItem.widthMm) + '×' + Math.round(selItem.heightMm) + '<br>' +
+      'סיבוב: ' + selItem.rotation + '° · בליד: ' + selItem.bleedMm + ' · ' +
+      'כמות: <input type="number" min="1" value="' + (selItem.copies||1) + '" onchange="pi_manualSetCopies(\'' + selItem.key + '\',this.value)" style="width:52px;padding:2px 5px;border:1px solid #ddd;border-radius:5px;font-family:Heebo;text-align:center">' +
+      '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
+        '<button onclick="pi_manualRotateItem(\'' + selItem.key + '\')" style="flex:1;padding:6px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700;font-size:.76rem">⟳ סובב 90°</button>' +
+        '<button onclick="pi_manualDupItem(\'' + selItem.key + '\')" style="flex:1;padding:6px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700;font-size:.76rem">⧉ שכפל</button>' +
+        '<button onclick="pi_manualDelItem(\'' + selItem.key + '\')" style="flex:1;padding:6px;border:1px solid #fca5a5;border-radius:7px;background:#fff;color:#b91c1c;cursor:pointer;font-family:Heebo;font-weight:700;font-size:.76rem">🗑 מחק</button>' +
+      '</div></div>';
+  } else {
+    html += '<div style="font-size:.74rem;color:#9ca3af">💡 הוסף קבצים, גרור אותם לגיליון, ולחץ על פריט לעריכה (סיבוב / שכפול / מחיקה).</div>';
+  }
+  if (warns.length){
+    html += '<div style="border:1px solid #fecaca;border-radius:9px;overflow:hidden">' +
+      '<div style="background:#fef2f2;color:#991b1b;font-weight:800;font-size:.8rem;padding:6px 10px">אזהרות (' + warns.length + ')</div>' +
+      '<div style="max-height:200px;overflow:auto">' +
+      warns.map(function(x){ return '<div style="padding:5px 10px;border-top:1px solid #fee2e2;font-size:.76rem;color:' + (x.level==='error'?'#b91c1c':'#b45309') + '">' + (x.level==='error'?'⛔':'⚠️') + ' ' + escHtml(x.text) + '</div>'; }).join('') +
+      '</div></div>';
+  }
+  html += '</div>';   // panel
+  html += '</div>';   // body row
   body.innerHTML = html;
+  setTimeout(pi_manualBindDrag, 0);
 }
-function pi_manualSheet(dim, v){ var cur = window._pi.cur; if (!cur) return; cur.sheet[dim] = parseFloat(v)||0; window._pi.dirty = true; }
+function pi_manualBindDrag(){
+  var svg = document.getElementById('pi-canvas-svg');
+  if (svg) Array.prototype.forEach.call(svg.querySelectorAll('[data-item]'), function(el){
+    el.addEventListener('mousedown', pi_mDragStart);
+    el.addEventListener('touchstart', pi_mDragStart, { passive:false });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-file-drag]'), function(el){
+    el.addEventListener('mousedown', pi_fileDragStart);
+    el.addEventListener('touchstart', pi_fileDragStart, { passive:false });
+  });
+}
+function pi_mDragStart(e){
+  var el = e.currentTarget, id = el.getAttribute('data-item');
+  var cur = window._pi.cur, it = (cur.items||[]).find(function(x){ return String(x.id) === id; }); if (!it) return;
+  var pt = e.touches ? e.touches[0] : e;
+  window._pi._drag = { mode:'manual', key:id, id:id, el:el, sx:pt.clientX, sy:pt.clientY, ox:it.xMm, oy:it.yMm, w:it.widthMm, h:it.heightMm, g:pi_curGeom(), moved:false, nx:it.xMm, ny:it.yMm };
+  document.addEventListener('mousemove', pi_canvasDragMove);
+  document.addEventListener('mouseup', pi_canvasDragEnd);
+  document.addEventListener('touchmove', pi_canvasDragMove, { passive:false });
+  document.addEventListener('touchend', pi_canvasDragEnd);
+  e.preventDefault();
+}
+function pi_fileDragStart(e){
+  var el = e.currentTarget, fid = el.getAttribute('data-file-drag');
+  var pt = e.touches ? e.touches[0] : e;
+  window._pi._fileDrag = { fileId: fid, sx: pt.clientX, sy: pt.clientY };
+  document.addEventListener('mouseup', pi_fileDragEnd);
+  document.addEventListener('touchend', pi_fileDragEnd);
+  e.preventDefault();
+}
+function pi_fileDragEnd(e){
+  document.removeEventListener('mouseup', pi_fileDragEnd);
+  document.removeEventListener('touchend', pi_fileDragEnd);
+  var fd = window._pi._fileDrag; window._pi._fileDrag = null; if (!fd) return;
+  var pt = (e.changedTouches ? e.changedTouches[0] : e);
+  var svg = document.getElementById('pi-canvas-svg'); if (!svg) return;
+  var r = svg.getBoundingClientRect();
+  if (pt.clientX < r.left || pt.clientX > r.right || pt.clientY < r.top || pt.clientY > r.bottom){
+    var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === fd.fileId; });
+    if (Math.abs(pt.clientX - fd.sx) < 4 && Math.abs(pt.clientY - fd.sy) < 4) pi_manualAddItem(fd.fileId);   // קליק בלי גרירה = הוסף כברירת מחדל
+    return;
+  }
+  var scale = window._pi.canvasScale, cur2 = window._pi.cur;
+  var f2 = (cur2.files||[]).find(function(x){ return x.id === fd.fileId; });
+  var xMm = (pt.clientX - r.left) / scale - (f2 ? f2.widthMm/2 : 0);
+  var yMm = (pt.clientY - r.top) / scale - (f2 ? f2.heightMm/2 : 0);
+  pi_manualAddItem(fd.fileId, xMm, yMm);
+}
 
 /* ── זריעת פרופילי מכונה (פעם אחת, רק אם ריק גם בשרת) ───────────── */
 async function pi_seedProfiles(){
@@ -21262,10 +21535,37 @@ async function pi_seedProfiles(){
     if (sv && typeof sv === 'object' && Object.keys(sv).length){ pi_mergeKeyed(window._pi.profiles, sv); pi_save(); return; }
   } catch(e){}
   // ברירות מחדל לפי כללי המכונות הקיימים: 4 צבעים = מתהפך ; 8 צבעים = פרפקטור
-  pi_put('machineProfiles', 'roland4', { id:'roland4', name:'Roland — 4 צבעים', machine:'מכונה 4 צבעים',
-    sheetW:100, sheetH:70, colors:4, perfecting:false, allowedMethods:['regular','work_turn','work_tumble'], defaultTemplate:'32' });
-  pi_put('machineProfiles', 'heidel8', { id:'heidel8', name:'Heidelberg — 8 צבעים', machine:'מכונה 8 צבעים',
-    sheetW:100, sheetH:70, colors:8, perfecting:true, allowedMethods:['regular','perfecting'], defaultTemplate:'32' });
+  // מידות מלאות במ״מ (Phase 5): גיליון 1000×700, גריפר 10 מ״מ בקצה ההזנה, שוליים 8 מ״מ, מרווח מינימלי 3, בליד 3
+  var geo = { sheetWidthMm:1000, sheetHeightMm:700, gripperMm:10,
+    marginTopMm:8, marginBottomMm:8, marginLeftMm:8, marginRightMm:8, minGapMm:3, defaultBleedMm:3 };
+  geo.printableWidthMm  = geo.sheetWidthMm  - geo.marginLeftMm - geo.marginRightMm;
+  geo.printableHeightMm = geo.sheetHeightMm - geo.marginTopMm  - geo.marginBottomMm - geo.gripperMm;
+  pi_put('machineProfiles', 'roland4', Object.assign({ id:'roland4', name:'Roland — 4 צבעים', machine:'מכונה 4 צבעים',
+    sheetW:100, sheetH:70, colors:4, perfecting:false, allowedMethods:['regular','work_turn','work_tumble'], defaultTemplate:'32' }, geo));
+  pi_put('machineProfiles', 'heidel8', Object.assign({ id:'heidel8', name:'Heidelberg — 8 צבעים', machine:'מכונה 8 צבעים',
+    sheetW:100, sheetH:70, colors:8, perfecting:true, allowedMethods:['regular','perfecting'], defaultTemplate:'32' }, geo));
+}
+// חוקי מכונה מנורמלים במ״מ — משלים ברירות מחדל לפרופילים ישנים (נגזר מ-sheetW/H בס״מ ×10)
+function pi_profileGeom(prof){
+  prof = prof || {};
+  var sw = prof.sheetWidthMm  || (prof.sheetW ? prof.sheetW*10 : 1000);
+  var sh = prof.sheetHeightMm || (prof.sheetH ? prof.sheetH*10 : 700);
+  var g = {
+    sheetWidthMm: sw, sheetHeightMm: sh,
+    gripperMm:      prof.gripperMm      != null ? prof.gripperMm      : 10,
+    marginTopMm:    prof.marginTopMm    != null ? prof.marginTopMm    : 8,
+    marginBottomMm: prof.marginBottomMm != null ? prof.marginBottomMm : 8,
+    marginLeftMm:   prof.marginLeftMm   != null ? prof.marginLeftMm   : 8,
+    marginRightMm:  prof.marginRightMm  != null ? prof.marginRightMm  : 8,
+    minGapMm:       prof.minGapMm       != null ? prof.minGapMm       : 3,
+    defaultBleedMm: prof.defaultBleedMm != null ? prof.defaultBleedMm : 3
+  };
+  // מלבן ההדפסה הנטו (מתוך שוליים + גריפר בקצה התחתון/הזנה)
+  g.printX = g.marginLeftMm;
+  g.printY = g.marginTopMm;
+  g.printableWidthMm  = prof.printableWidthMm  || (sw - g.marginLeftMm - g.marginRightMm);
+  g.printableHeightMm = prof.printableHeightMm || (sh - g.marginTopMm - g.marginBottomMm - g.gripperMm);
+  return g;
 }
 
 /* ── UI ─────────────────────────────────────────────────────────── */
@@ -21324,15 +21624,20 @@ function pi_badge(){
 }
 function pi_fmtDate(ms){ return ms ? new Date(ms).toLocaleDateString('he-IL') + ' ' + new Date(ms).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}) : '—'; }
 function pi_render(){
-  if (window._pi.view === 'builder') pi_renderBuilder();
+  if (window._pi.view === 'manual') pi_renderManualWS();
+  else if (window._pi.view === 'canvas') pi_renderCanvas();
+  else if (window._pi.view === 'builder') pi_renderBuilder();
   else pi_renderList();
 }
 function pi_renderList(){
   var body = document.getElementById('pi-body'); if (!body) return;
   var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '760px';
   var pcards = pi_getPlanCards();
-  var html = '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin-bottom:4px">🗂️ עבודות לתכנון לוחות (' + pcards.length + ')</div>' +
-    '<div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px">כרטיס העבודה הוא מקור הנתונים — בחר כרטיס לבניית לוחות הדפסה.</div>';
+  var html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+      '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;flex:1">🗂️ עבודות לתכנון לוחות (' + pcards.length + ')</div>' +
+      '<button onclick="pi_newManual()" style="flex:none;padding:7px 12px;border:none;border-radius:8px;background:#0f766e;color:#fff;font-weight:800;font-size:.8rem;cursor:pointer;font-family:Heebo">➕ אימפוזיציה ידנית חדשה</button>' +
+    '</div>' +
+    '<div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px">כרטיס העבודה הוא מקור הנתונים — בחר כרטיס לבניית לוחות הדפסה. או בנה אימפוזיציה ידנית מקבצים.</div>';
   if (!pcards.length){
     html += '<div style="color:#9ca3af;font-size:.85rem;padding:14px;border:1px dashed #e5e7eb;border-radius:9px;text-align:center">אין כרטיסי עבודה פעילים לתכנון</div>';
   } else {
@@ -21356,9 +21661,12 @@ function pi_renderList(){
   if (drafts.length){
     html += '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin:18px 0 8px">📝 טיוטות אימפוזיציה (' + drafts.length + ')</div>';
     html += drafts.map(function(d){
+      var isMan = (d.sourceType === 'manual' || d.source === 'manual');
+      var meta = isMan ? ((d.items||[]).length + ' פריטים · ' + (d.files||[]).length + ' קבצים') : ((d.signatures||[]).length + ' קונטרסים');
       return '<div style="display:flex;gap:8px;align-items:center;border:1px solid #fde68a;border-radius:9px;padding:9px 12px;margin-bottom:7px;background:#fffbeb">' +
         '<span style="flex:1;min-width:0"><b style="font-size:.9rem">' + escHtml(d.name||d.id) + '</b>' +
-          '<div style="color:#6b7280;font-size:.76rem;margin-top:2px">' + escHtml(d.machine||'') + ' · ' + (d.signatures||[]).length + ' קונטרסים · עודכן ' + pi_fmtDate(d.updatedAt) + '</div></span>' +
+          (isMan ? ' <span style="font-size:.66rem;background:#ccfbf1;color:#0f766e;border-radius:5px;padding:1px 6px;font-weight:800">ידני</span>' : '') +
+          '<div style="color:#6b7280;font-size:.76rem;margin-top:2px">' + escHtml(d.machine||'') + ' · ' + meta + ' · עודכן ' + pi_fmtDate(d.updatedAt) + '</div></span>' +
         '<button onclick="pi_openDraft(\'' + d.id + '\')" style="flex:none;padding:7px 12px;border:none;border-radius:7px;background:#b45309;color:#fff;font-weight:700;font-size:.8rem;cursor:pointer">המשך עריכה</button>' +
         '<button onclick="pi_delDraft(\'' + d.id + '\')" title="מחק טיוטה" style="flex:none;padding:7px 9px;border:1px solid #fca5a5;border-radius:7px;background:#fff;color:#b91c1c;cursor:pointer;font-size:.8rem">🗑</button>' +
       '</div>';
@@ -21420,9 +21728,12 @@ function pi_plan(proofId, partId){
 function pi_openDraft(id){
   var d = window._pi.imps[id]; if (!d || d._deleted) return;
   window._pi.cur = JSON.parse(JSON.stringify(d));   // עותק עבודה — נשמר רק ב"שמור טיוטה"
+  var cur = window._pi.cur;
+  if (!cur.sourceType) cur.sourceType = cur.source || (cur.fromRuns ? 'card' : 'card');
+  if (cur.swaps && !cur.replacements) cur.replacements = cur.swaps;   // מיגרציה: swaps→replacements
   window._pi.dirty = false;
-  window._pi.sel = null;
-  window._pi.view = 'builder';
+  window._pi.sel = null; window._pi.canvasSel = null;
+  window._pi.view = (cur.sourceType === 'manual' || cur.source === 'manual') ? 'manual' : 'builder';
   pi_ensureModal();
   document.getElementById('piModal').classList.add('open');
   pi_loadTemplates(pi_render);
@@ -21504,6 +21815,76 @@ function pi_numberPlates(d){
   d.plateCount = plateNo - 1;
   d.platesPerSet = colors.length;
   if (d.runs) d.runs.forEach(function(r){ r.plateCount = runPlates[r.runIndex] || 0; });
+  pi_buildPlateModel(d);   // מודל מנורמל: sheets[] / sides[] / plateSets[]
+}
+// מודל לוחות מקצועי מנורמל — נגזר מ-signatures (מקור אחד). מבנה מפורש: Sheet → Side → PlateSet → C/M/Y/K.
+// Sheet = קונטרס אחד (גיליון פיזי אחד במכונה). לפרפקטור 2 צדדים (2 סטים); למתהפך צד לוגי אחד (סט אחד).
+function pi_buildPlateModel(d){
+  var sheets = [], sides = [], plateSets = [];
+  (d.signatures||[]).forEach(function(sig){
+    var perf = (sig.family || pi_familyFor(d.method)) === 'perf';
+    var sheetNo = sig.idx; sig.sheetNo = sheetNo;
+    var sheet = { sheetNo: sheetNo, runIndex: (sig.runIndex != null ? sig.runIndex : null), runNum: sig.runNum || null,
+      sigIdx: sig.idx, template: sig.template, perfecting: perf, sideIds: [] };
+    (sig.plateSets||[]).forEach(function(ps){
+      var label = perf ? (ps.side === 0 ? 'קדמי' : 'אחורי') : 'מתהפך';
+      var folios = pi_sideFolios(sig, ps.side);
+      var sideId = 's' + sig.idx + '-' + ps.side;
+      var plateNos = ps.plates.map(function(p){ return p.plateNo; });
+      ps.sideId = sideId; ps.sideLabel = label; ps.folios = folios;   // תיוג גם על ה-nested לנוחות
+      var common = { sheetNo: sheetNo, sigIdx: sig.idx, runIndex: sig.runIndex, runNum: sig.runNum,
+        side: ps.side, label: label, colors: ps.colors.slice(), plateNos: plateNos, folios: folios };
+      sides.push(Object.assign({ sideId: sideId, plateSetId: sideId }, common));
+      plateSets.push(Object.assign({ plateSetId: sideId, plates: ps.plates.map(function(p){ return { color: p.color, plateNo: p.plateNo }; }) }, common));
+      sheet.sideIds.push(sideId);
+    });
+    sheets.push(sheet);
+  });
+  d.sheets = sheets; d.sides = sides; d.plateSets = plateSets;
+  if (d.runs) d.runs.forEach(function(r){
+    r.pageRange = r.folioStart + '–' + r.folioEnd;
+    r.sheetNos = sheets.filter(function(s){ return s.runIndex === r.runIndex; }).map(function(s){ return s.sheetNo; });
+    r.plateSetIds = plateSets.filter(function(p){ return p.runIndex === r.runIndex; }).map(function(p){ return p.plateSetId; });
+  });
+}
+// טקסט מיקום מלא לצד מושפע: ריצה · קונטרס · גיליון · צד · סט CMYK (לוחות a–d)
+function pi_sideLocText(part){
+  var t = [];
+  if (part.runNum != null) t.push('ריצה ' + part.runNum);
+  t.push('קונטרס ' + part.sigIdx);
+  t.push('גיליון ' + part.sheetNo);
+  t.push('צד ' + part.label);
+  var pn = part.plateNos || [];
+  var pl = pn.length > 1 ? ('לוחות ' + pn[0] + '–' + pn[pn.length-1]) : (pn.length ? ('לוח ' + pn[0]) : '');
+  t.push('סט ' + (part.colors||[]).join('') + (pl ? ' (' + pl + ')' : ''));
+  return t.join(' · ');
+}
+// העמודים (folios) שיושבים על צד מסוים של קונטרס — לפי מיקומי התבנית בגריד של אותו צד
+function pi_sideFolios(sig, sideIdx){
+  var T = window._pi.templates || {}, tpl = T[sig.template];
+  if (!tpl || !tpl.grids[sideIdx]) return [];
+  var seen = {}, out = [];
+  tpl.grids[sideIdx].forEach(function(rowArr){ rowArr.forEach(function(local){
+    var g = sig.pageMap[local - 1];
+    if (g != null && !seen[g]){ seen[g] = 1; out.push(g); }
+  }); });
+  return out.sort(function(a,b){ return a - b; });
+}
+// רשימת פלטות פיזית — כל שורה = לוח אחד: מס' לוח → ריצה → קונטרס → צד → צבע → עמודים
+function pi_plateList(d){
+  var rows = [];
+  (d.signatures||[]).forEach(function(sig){
+    var perf = (sig.family || pi_familyFor(d.method)) === 'perf';
+    (sig.plateSets||[]).forEach(function(ps){
+      var sideName = perf ? (ps.side === 0 ? 'קדמי' : 'אחורי') : 'מתהפך';
+      var folios = pi_sideFolios(sig, ps.side);
+      (ps.plates||[]).forEach(function(pl){
+        rows.push({ plateNo: pl.plateNo, color: pl.color, runNum: sig.runNum || '', sigIdx: sig.idx,
+          side: sideName, folios: folios });
+      });
+    });
+  });
+  return rows.sort(function(a,b){ return a.plateNo - b.plateNo; });
 }
 // בונה signatures מתוך card.runs[] — כל ריצה בנפרד, טווחי עמודים מצטברים; פלטות ממוספרות ב-pi_numberPlates
 function pi_buildFromRuns(d, card){
@@ -21540,7 +21921,7 @@ function pi_cellSide(tpl, local){
 // בנייה מחדש לפי המקור (ריצות אם קיימות, אחרת פיצול לפי סך עמודים)
 function pi_rebuild(cur){
   if (cur.fromRuns){ var card = pi_cardById(cur.jobCardId); if (card){ pi_buildFromRuns(cur, card); return; } }
-  pi_rebuild(cur);
+  pi_buildSignatures(cur);
 }
 function pi_setRunFamily(runIndex, fam){
   var cur = window._pi.cur; if (!cur || !cur.fromRuns) return;
@@ -21548,7 +21929,7 @@ function pi_setRunFamily(runIndex, fam){
   if (cur.runFamilyOverride[runIndex] === fam) return;
   if (cur._edited && !confirm('שינוי שיטת הריצה יבנה מחדש את הלוחות והחלפות העמודים יאופסו. להמשיך?')){ pi_render(); return; }
   cur.runFamilyOverride[runIndex] = fam;
-  cur._edited = false; cur.swaps = []; pi_rebuild(cur);
+  cur._edited = false; cur.replacements = []; cur.itemOverrides = {}; pi_rebuild(cur);
   window._pi.dirty = true; window._pi.sel = null; pi_render();
 }
 function pi_setMachine(v){
@@ -21559,7 +21940,7 @@ function pi_setMachine(v){
   cur.profileId = profs.length ? profs[0].id : '';
   var allowed = profs.length ? (profs[0].allowedMethods||[]) : [];
   if (allowed.length && allowed.indexOf(cur.method) === -1) cur.method = allowed[0];
-  cur._edited = false; pi_rebuild(cur);
+  cur._edited = false; cur.replacements = []; cur.itemOverrides = {}; pi_rebuild(cur);
   window._pi.dirty = true; window._pi.sel = null; pi_render();
 }
 function pi_setProfile(v){
@@ -21569,21 +21950,21 @@ function pi_setProfile(v){
   var allowed = p ? (p.allowedMethods||[]) : [];
   if (allowed.length && allowed.indexOf(cur.method) === -1){
     if (cur._edited && !confirm('הפרופיל לא תומך בשיטה הנוכחית — הקונטרסים ייבנו מחדש. להמשיך?')){ pi_render(); return; }
-    cur.method = allowed[0]; cur._edited = false; pi_rebuild(cur);
+    cur.method = allowed[0]; cur._edited = false; cur.replacements = []; cur.itemOverrides = {}; pi_rebuild(cur);
   }
   window._pi.dirty = true; pi_render();
 }
 function pi_setMethod(v){
   var cur = window._pi.cur; if (!cur) return;
   if (cur._edited && !confirm('שינוי שיטה יבנה את הקונטרסים מחדש והחלפות העמודים יאופסו. להמשיך?')){ pi_render(); return; }
-  cur.method = v; cur._edited = false; pi_rebuild(cur);
+  cur.method = v; cur._edited = false; cur.replacements = []; cur.itemOverrides = {}; pi_rebuild(cur);
   window._pi.dirty = true; window._pi.sel = null; pi_render();
 }
 function pi_setPages(v){
   var cur = window._pi.cur; if (!cur) return;
   var n = parseInt(v, 10); if (!n || n < 1 || n > 2000){ pi_render(); return; }
   if (cur._edited && !confirm('שינוי מספר העמודים יבנה את הקונטרסים מחדש והחלפות העמודים יאופסו. להמשיך?')){ pi_render(); return; }
-  cur.pagesIn = n; cur._edited = false; pi_rebuild(cur);
+  cur.pagesIn = n; cur._edited = false; cur.replacements = []; cur.itemOverrides = {}; pi_rebuild(cur);
   window._pi.dirty = true; window._pi.sel = null; pi_render();
 }
 // החלפת עמודים: לחיצה ראשונה בוחרת, שנייה מחליפה (גם בין קונטרסים)
@@ -21595,22 +21976,27 @@ function pi_cellClick(sigIdx, local){
   var A = cur.signatures[sel.sig], B = cur.signatures[sigIdx];
   var va = A.pageMap[sel.local - 1], vb = B.pageMap[local - 1];
   A.pageMap[sel.local - 1] = vb; B.pageMap[local - 1] = va;
-  // תיעוד ההחלפה: איזה סט פלטות מושפע (כל C/M/Y/K של הצד) — לא "לוח בודד"
+  // תיעוד ההחלפה: כל צד = סט פלטות שלם (C/M/Y/K) שיש להוציא מחדש — לא "לוח בודד"
   var T = window._pi.templates || {};
   var sA = pi_cellSide(T[A.template], sel.local), sB = pi_cellSide(T[B.template], local);
   var psA = A.plateSets && A.plateSets[sA], psB = B.plateSets && B.plateSets[sB];
-  cur.swaps = cur.swaps || [];
-  cur.swaps.push({ at: Date.now(),
-    a: { runIndex:A.runIndex, sigIdx:A.idx, side:sA, folio:va, colors:(psA?psA.colors.slice():[]), plateSet:(psA?psA.plates.map(function(p){return p.plateNo;}):[]) },
-    b: { runIndex:B.runIndex, sigIdx:B.idx, side:sB, folio:vb, colors:(psB?psB.colors.slice():[]), plateSet:(psB?psB.plates.map(function(p){return p.plateNo;}):[]) } });
-  cur._edited = true; window._pi.dirty = true; window._pi.sel = null;
-  var affA = psA ? psA.colors.join('/') : '', affB = psB ? psB.colors.join('/') : '';
+  var partA = { runIndex:A.runIndex, runNum:A.runNum, sigIdx:A.idx, sheetNo:A.sheetNo||A.idx, side:sA, folio:vb,
+    label:(psA?psA.sideLabel:''), colors:(psA?psA.colors.slice():[]), plateNos:(psA?psA.plates.map(function(p){return p.plateNo;}):[]) };
+  var partB = { runIndex:B.runIndex, runNum:B.runNum, sigIdx:B.idx, sheetNo:B.sheetNo||B.idx, side:sB, folio:va,
+    label:(psB?psB.sideLabel:''), colors:(psB?psB.colors.slice():[]), plateNos:(psB?psB.plates.map(function(p){return p.plateNo;}):[]) };
   var same = (A.idx === B.idx && sA === sB);
-  showToast('↔ הוחלף — יש להוציא מחדש סט פלטות: ' + (same ? affA : (affA + ' + ' + affB)), 5000);
+  var sets = same ? [partA] : [partA, partB];
+  var msg = 'שינוי זה מחייב הוצאה מחדש של סט פלטות ' + (psA?psA.colors.join(''):'CMYK') + ' — ' +
+    sets.map(function(p){ return pi_sideLocText(p); }).join('  +  ');
+  cur.replacements = cur.replacements || [];
+  cur.replacements.push({ at: Date.now(), movedFolios:[va, vb], a: partA, b: partB, sameSide: same, message: msg });
+  cur._edited = true; window._pi.dirty = true; window._pi.sel = null;
+  showToast('↔ הוחלף · ' + msg, 6000);
   pi_render();
 }
 function pi_saveDraft(){
   var cur = window._pi.cur; if (!cur) return;
+  if (window._pi.templates) pi_buildPlateModel(cur);   // רענון folios במודל המנורמל כשהתבניות זמינות
   cur.updatedAt = Date.now();
   pi_put('impositions', cur.id, JSON.parse(JSON.stringify(cur)));
   window._pi.dirty = false;
@@ -21645,6 +22031,10 @@ function pi_renderBuilder(){
       '<button onclick="pi_saveDraft()" style="padding:8px 14px;border:none;border-radius:8px;background:#6d28d9;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">💾 שמור</button>' +
       '<button onclick="pi_approve()" style="padding:8px 14px;border:none;border-radius:8px;background:#065f46;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">✅ אשר תוכנית</button>' +
     '</div>' +
+    '<div style="display:inline-flex;gap:0;border:1px solid #ddd;border-radius:9px;overflow:hidden;margin-bottom:12px">' +
+      '<button style="padding:7px 14px;border:none;background:#6d28d9;color:#fff;font-weight:800;cursor:default;font-family:Heebo;font-size:.8rem">🔢 רשת קונטרסים</button>' +
+      '<button onclick="pi_showCanvas()" style="padding:7px 14px;border:none;background:#fff;color:#4c1d95;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.8rem">📐 גיליון מ״מ</button>' +
+    '</div>' +
     '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:#faf7ff;border:1px solid #ede9fe;border-radius:10px;padding:10px 12px;margin-bottom:12px">' +
       '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">מכונה' +
         '<select onchange="pi_setMachine(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
@@ -21674,6 +22064,8 @@ function pi_renderBuilder(){
       '<select onchange="pi_setColors(this.value)" style="border:none;background:none;font-family:Heebo;font-size:.76rem;font-weight:700;color:#5b21b6;cursor:pointer"><option value="cmyk"' + (cur.colorMode!=='k'?' selected':'') + '>CMYK</option><option value="k"' + (cur.colorMode==='k'?' selected':'') + '>שחור בלבד</option></select></label>' +
     (cur.fromRuns ? '<span style="font-size:.72rem;color:#9ca3af;align-self:center">נבנה ממבנה הריצות בכרטיס</span>' : '') +
   '</div>';
+  html += pi_plateListHtml(cur);
+  html += pi_replListHtml(cur);
   if (cur.blanks) html += '<div style="font-size:.78rem;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:7px 10px;margin-bottom:10px">⚠️ נוספו ' + cur.blanks + ' עמודים ריקים להשלמת קונטרסים.</div>';
   html += '<div style="font-size:.74rem;color:#6b7280;margin-bottom:10px">💡 להחלפת עמודים: לחץ על עמוד אחד ואז על עמוד שני (אפשר גם בין קונטרסים). הבחירה מודגשת בזהב.</div>';
   var sel = window._pi.sel, lastRun = -1;
@@ -21686,6 +22078,7 @@ function pi_renderBuilder(){
     var tpl = T[sig.template];
     html += '<div style="border:1px solid #e5e7eb;border-radius:11px;margin-bottom:14px;overflow:hidden">' +
       '<div style="background:#ede9fe;padding:8px 12px;font-weight:800;font-size:.86rem;color:#4c1d95">קונטרס ' + sig.idx +
+        ' · גיליון ' + (sig.sheetNo || sig.idx) +
         ' — ' + pi_tplLabel(sig.template) + ' · עמ\' ' + sig.start + '–' + (sig.start + sig.n - 1) + '</div>';
     if (!tpl){ html += '<div style="padding:12px;color:#b91c1c">תבנית ' + sig.template + ' לא נמצאה</div></div>'; return; }
     tpl.grids.forEach(function(grid, sideIdx){
@@ -21729,6 +22122,331 @@ function pi_runHeaderHtml(cur, rm){
     '</span>' +
     (rm.note ? '<span style="font-size:.72rem;opacity:.8;width:100%;border-top:1px solid rgba(255,255,255,.15);padding-top:5px;margin-top:3px">📝 ' + escHtml(rm.note) + '</span>' : '') +
   '</div>';
+}
+// מקטע מתקפל: רשימת פלטות פיזית לכל העבודה (מיפוי ריצה↔לוח מפורש להוצאה/תלייה)
+var PI_COLNAME = { C:'ציאן', M:'מגנטה', Y:'צהוב', K:'שחור' };
+var PI_COLHEX = { C:'#0891b2', M:'#db2777', Y:'#ca8a04', K:'#1f2937' };
+function pi_togglePlateList(){ window._pi.showPlates = !window._pi.showPlates; pi_render(); }
+function pi_plateListHtml(cur){
+  var open = !!window._pi.showPlates;
+  var head = '<div onclick="pi_togglePlateList()" style="display:flex;align-items:center;gap:7px;cursor:pointer;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:7px 11px;margin-bottom:' + (open ? '0' : '10') + 'px;font-weight:800;font-size:.82rem;color:#065f46;user-select:none">' +
+    '<span style="transition:transform .15s;transform:rotate(' + (open ? '90' : '0') + 'deg)">▶</span>🟩 רשימת פלטות (' + (cur.plateCount||0) + ') — מיפוי ריצה↔לוח</div>';
+  if (!open) return head;
+  var rows = pi_plateList(cur);
+  var body = '<div style="border:1px solid #bbf7d0;border-top:none;border-radius:0 0 8px 8px;margin-bottom:10px;overflow-x:auto">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:.78rem;min-width:520px">' +
+    '<thead><tr style="background:#ecfdf5;color:#065f46;text-align:right">' +
+      '<th style="padding:6px 9px;font-weight:800">לוח</th>' +
+      (cur.fromRuns ? '<th style="padding:6px 9px;font-weight:800">ריצה</th>' : '') +
+      '<th style="padding:6px 9px;font-weight:800">קונטרס</th>' +
+      '<th style="padding:6px 9px;font-weight:800">צד</th>' +
+      '<th style="padding:6px 9px;font-weight:800">צבע</th>' +
+      '<th style="padding:6px 9px;font-weight:800">עמודים בצד</th>' +
+    '</tr></thead><tbody>';
+  rows.forEach(function(r){
+    body += '<tr style="border-top:1px solid #e5e7eb">' +
+      '<td style="padding:5px 9px;font-weight:800;color:#065f46">' + r.plateNo + '</td>' +
+      (cur.fromRuns ? '<td style="padding:5px 9px">' + r.runNum + '</td>' : '') +
+      '<td style="padding:5px 9px">' + r.sigIdx + '</td>' +
+      '<td style="padding:5px 9px">' + r.side + '</td>' +
+      '<td style="padding:5px 9px;font-weight:700"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + (PI_COLHEX[r.color]||'#999') + ';margin-left:5px;vertical-align:middle"></span>' + (PI_COLNAME[r.color]||r.color) + '</td>' +
+      '<td style="padding:5px 9px;color:#374151">' + (r.folios.length ? r.folios.join(', ') : '—') + '</td>' +
+    '</tr>';
+  });
+  body += '</tbody></table></div>';
+  return head + body;
+}
+// יומן החלפות עמודים — לכל החלפה: העמודים שזזו + סטי הפלטות שמחייבים הוצאה מחדש (מיקום מלא: ריצה/קונטרס/גיליון/צד)
+function pi_toggleReplList(){ window._pi.showRepl = !window._pi.showRepl; pi_render(); }
+function pi_replListHtml(cur){
+  var repl = cur.replacements || [];
+  if (!repl.length) return '';
+  var open = (window._pi.showRepl == null) ? true : !!window._pi.showRepl;   // פתוח כברירת מחדל כשיש החלפות
+  var head = '<div onclick="pi_toggleReplList()" style="display:flex;align-items:center;gap:7px;cursor:pointer;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:7px 11px;margin-bottom:' + (open ? '0' : '10') + 'px;font-weight:800;font-size:.82rem;color:#991b1b;user-select:none">' +
+    '<span style="transition:transform .15s;transform:rotate(' + (open ? '90' : '0') + 'deg)">▶</span>↔ החלפות עמודים (' + repl.length + ') — סטי פלטות להוצאה מחדש</div>';
+  if (!open) return head;
+  var body = '<div style="border:1px solid #fecaca;border-top:none;border-radius:0 0 8px 8px;margin-bottom:10px;padding:4px 0">';
+  repl.slice().reverse().forEach(function(r, i){
+    var n = repl.length - i;
+    var parts = r.sameSide ? [r.a] : [r.a, r.b];
+    var loc = parts.map(function(p){ return '<div style="margin-top:3px;color:#7f1d1d">🔴 ' + escHtml(pi_sideLocText(p)) + '</div>'; }).join('');
+    var moved = (r.movedFolios||[]).filter(function(x){ return x!=null; });
+    body += '<div style="padding:8px 12px;border-top:' + (i ? '1px solid #fee2e2' : 'none') + '">' +
+      '<div style="font-weight:800;font-size:.8rem;color:#991b1b">#' + n + ' · הוחלפו עמודים ' + (moved.length ? moved.join(' ↔ ') : '—') + '</div>' +
+      '<div style="font-size:.76rem;color:#b91c1c;margin-top:2px">⚠️ יש להוציא מחדש סט פלטות ' + ((parts[0]&&parts[0].colors||['C','M','Y','K']).join('')) + ' לצד' + (parts.length>1?'ים':'') + ' הבא' + (parts.length>1?'ים':'') + ':</div>' +
+      loc +
+    '</div>';
+  });
+  body += '</div>';
+  return head + body;
+}
+/* ── Phase 5 — Sheet Canvas במ״מ + חוקי מכונה + ולידציה + עריכה בסיסית ── */
+function pi_showCanvas(){ window._pi.view = 'canvas'; window._pi.canvasSel = null; pi_render(); }
+function pi_showGrid(){ window._pi.view = 'builder'; window._pi.canvasSel = null; pi_render(); }
+function pi_curGeom(){ var cur = window._pi.cur; var prof = cur && window._pi.profiles[cur.profileId]; return pi_profileGeom(prof || {}); }
+function pi_pgLabel(it){ return (it.label != null) ? String(it.label) : ((it.pageNumber != null) ? String(it.pageNumber) : 'ריק'); }
+function pi_itemKey(sig, side, r, c){ return sig.idx + '_' + side + '_' + r + '_' + c; }
+// אפשרויות בורר: כל קונטרס × כל צד = גיליון/צד אחד להצגה
+function pi_canvasSheetOptions(){
+  var cur = window._pi.cur, T = window._pi.templates || {}, out = [];
+  (cur && cur.signatures || []).forEach(function(sig){
+    var tpl = T[sig.template]; var sides = tpl ? tpl.grids.length : 1;
+    for (var s = 0; s < sides; s++){
+      var label = (tpl && tpl.sides === 2) ? (s === 0 ? 'קדמי' : 'אחורי') : 'מתהפך';
+      out.push({ key: sig.idx + '_' + s, sigIdx: sig.idx, side: s,
+        text: 'ריצה ' + (sig.runNum||'?') + ' · קונטרס ' + sig.idx + ' · גיליון ' + (sig.sheetNo||sig.idx) + ' · ' + label });
+    }
+  });
+  return out;
+}
+// פריטי הגיליון (base) — כל תא בגריד התבנית → פריט במ״מ בתוך אזור ההדפסה
+function pi_computeSheetItems(d, sig, side, g){
+  var T = window._pi.templates || {}, tpl = T[sig.template];
+  if (!tpl || !tpl.grids[side]) return [];
+  var grid = tpl.grids[side], rows = grid.length, cols = grid[0].length, gap = g.minGapMm;
+  var cellW = (g.printableWidthMm - (cols-1)*gap) / cols;
+  var cellH = (g.printableHeightMm - (rows-1)*gap) / rows;
+  var items = [];
+  for (var r = 0; r < rows; r++){ for (var c = 0; c < cols; c++){
+    var local = grid[r][c], page = sig.pageMap[local-1];
+    var rot = (tpl.rot && tpl.rot[c] === 90) ? 90 : 270;
+    items.push({ key: pi_itemKey(sig, side, r, c), local: local, col: c, row: r,
+      pageNumber: page, runIndex: sig.runIndex, signatureIndex: sig.idx, sheetIndex: sig.sheetNo || sig.idx, side: side,
+      xMm: g.printX + c*(cellW+gap), yMm: g.printY + r*(cellH+gap), widthMm: cellW, heightMm: cellH,
+      rotation: rot, bleedMm: g.defaultBleedMm, sourceType: d.sourceType || d.source || 'card' });
+  }}
+  return items;
+}
+// base + overrides (מיקום/סיבוב/מידות ידניים שנשמרו בטיוטה)
+function pi_sheetItems(d, sigIdx, side){
+  var g = pi_curGeom();
+  var sig = (d.signatures || []).find(function(s){ return s.idx === sigIdx; });
+  if (!sig) return { items: [], sig: null, geom: g };
+  var items = pi_computeSheetItems(d, sig, side, g), ov = d.itemOverrides || {};
+  items.forEach(function(it){ var o = ov[it.key]; if (o){
+    if (o.xMm != null) it.xMm = o.xMm; if (o.yMm != null) it.yMm = o.yMm;
+    if (o.widthMm != null) it.widthMm = o.widthMm; if (o.heightMm != null) it.heightMm = o.heightMm;
+    if (o.rotation != null) it.rotation = o.rotation; it._moved = true;
+  }});
+  return { items: items, sig: sig, geom: g };
+}
+// ולידציה בזמן אמת — 6 חוקים; מחזיר רשימת אזהרות {level,type,key,text}
+function pi_validateItems(items, g){
+  var w = [], pX = g.printX, pY = g.printY, pW = g.printableWidthMm, pH = g.printableHeightMm;
+  var gripTop = g.sheetHeightMm - g.gripperMm, E = 0.05;
+  items.forEach(function(it){
+    var x = it.xMm, y = it.yMm, x2 = it.xMm + it.widthMm, y2 = it.yMm + it.heightMm;
+    if (x < -E || y < -E || x2 > g.sheetWidthMm + E || y2 > g.sheetHeightMm + E)
+      w.push({ level:'error', key:it.key, type:'sheet', text:'עמוד ' + pi_pgLabel(it) + ' חורג מגבול הגיליון' });
+    else if (x < pX - E || y < pY - E || x2 > pX + pW + E || y2 > pY + pH + E)
+      w.push({ level:'warn', key:it.key, type:'printable', text:'עמוד ' + pi_pgLabel(it) + ' חורג מאזור ההדפסה' });
+    if (y2 > gripTop + E)
+      w.push({ level:'error', key:it.key, type:'gripper', text:'עמוד ' + pi_pgLabel(it) + ' נכנס לאזור הגריפר (' + g.gripperMm + ' מ״מ)' });
+    if (g.defaultBleedMm > 0 && (it.bleedMm || 0) <= 0)
+      w.push({ level:'warn', key:it.key, type:'bleed', text:'עמוד ' + pi_pgLabel(it) + ' ללא בליד' });
+  });
+  for (var i = 0; i < items.length; i++){ for (var j = i+1; j < items.length; j++){
+    var a = items[i], b = items[j];
+    var ox = Math.min(a.xMm+a.widthMm, b.xMm+b.widthMm) - Math.max(a.xMm, b.xMm);
+    var oy = Math.min(a.yMm+a.heightMm, b.yMm+b.heightMm) - Math.max(a.yMm, b.yMm);
+    if (ox > E && oy > E){ w.push({ level:'error', key:a.key, key2:b.key, type:'overlap', text:'עמודים ' + pi_pgLabel(a) + ' ו-' + pi_pgLabel(b) + ' חופפים' }); continue; }
+    var dx = ox < 0 ? -ox : 0, dy = oy < 0 ? -oy : 0;
+    if ((oy > E && dx > E && dx < g.minGapMm - E) || (ox > E && dy > E && dy < g.minGapMm - E))
+      w.push({ level:'warn', key:a.key, key2:b.key, type:'gap', text:'מרווח קטן מ-' + g.minGapMm + ' מ״מ בין ' + pi_pgLabel(a) + ' ו-' + pi_pgLabel(b) });
+  }}
+  return w;
+}
+function pi_utilization(items, g){
+  var used = 0; items.forEach(function(it){ used += it.widthMm * it.heightMm; });
+  var area = g.printableWidthMm * g.printableHeightMm;
+  return area > 0 ? Math.round(used / area * 100) : 0;
+}
+function pi_setCanvasKey(v){ window._pi.canvasKey = v; window._pi.canvasSel = null; pi_render(); }
+function pi_renderCanvas(){
+  var body = document.getElementById('pi-body'); if (!body) return;
+  var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1120px';
+  var cur = window._pi.cur;
+  if (!cur){ window._pi.view = 'list'; pi_renderList(); return; }
+  if (!window._pi.templates){ body.innerHTML = '<div style="text-align:center;padding:34px;color:#6b7280">⏳ טוען תבניות... <button onclick="pi_loadTemplates(pi_render)" style="margin-right:8px;padding:5px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo">נסה שוב</button></div>'; return; }
+  var opts = pi_canvasSheetOptions();
+  if (!opts.length){ body.innerHTML = '<div style="padding:20px;color:#9ca3af">אין קונטרסים להצגה</div>'; return; }
+  var ck = window._pi.canvasKey;
+  if (!ck || !opts.find(function(o){ return o.key === ck; })) ck = opts[0].key;
+  window._pi.canvasKey = ck;
+  var p = ck.split('_'), sigIdx = parseInt(p[0]), side = parseInt(p[1]);
+  window._pi.canvasCtx = { sigIdx: sigIdx, side: side };
+  var R = pi_sheetItems(cur, sigIdx, side), g = R.geom, items = R.items;
+  var warns = pi_validateItems(items, g), util = pi_utilization(items, g);
+  var errN = warns.filter(function(x){ return x.level === 'error'; }).length;
+  var warnKeys = {}; warns.forEach(function(x){ warnKeys[x.key] = warnKeys[x.key] || x.level; if (x.level === 'error') warnKeys[x.key] = 'error'; if (x.key2){ warnKeys[x.key2] = warnKeys[x.key2] || x.level; if (x.level === 'error') warnKeys[x.key2] = 'error'; } });
+  var maxW = 620, maxH = 540;
+  var scale = Math.min(maxW / g.sheetWidthMm, maxH / g.sheetHeightMm);
+  window._pi.canvasScale = scale;
+  var SW = g.sheetWidthMm * scale, SH = g.sheetHeightMm * scale;
+  var sel = window._pi.canvasSel;
+  // ── SVG גיליון ──
+  var svg = '<svg id="pi-canvas-svg" width="' + Math.round(SW) + '" height="' + Math.round(SH) + '" viewBox="0 0 ' + SW + ' ' + SH + '" style="background:#f8fafc;border-radius:6px;touch-action:none">';
+  svg += '<rect x="0" y="0" width="' + SW + '" height="' + SH + '" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>';
+  // גריפר (קצה הזנה תחתון)
+  var gy = (g.sheetHeightMm - g.gripperMm) * scale;
+  svg += '<rect x="0" y="' + gy + '" width="' + SW + '" height="' + (g.gripperMm*scale) + '" fill="#fecaca" opacity="0.6"/>' +
+    '<text x="' + (SW/2) + '" y="' + (gy + g.gripperMm*scale/2 + 3) + '" text-anchor="middle" font-size="9" fill="#991b1b" font-family="Heebo">גריפר ' + g.gripperMm + ' מ״מ</text>';
+  // אזור הדפסה נטו
+  svg += '<rect x="' + (g.printX*scale) + '" y="' + (g.printY*scale) + '" width="' + (g.printableWidthMm*scale) + '" height="' + (g.printableHeightMm*scale) + '" fill="none" stroke="#2563eb" stroke-width="1" stroke-dasharray="5 3"/>';
+  // פריטים
+  items.forEach(function(it){
+    var lvl = warnKeys[it.key];
+    var fill = it.pageNumber == null ? '#f1f5f9' : (it._moved ? '#dbeafe' : '#ede9fe');
+    var stroke = lvl === 'error' ? '#dc2626' : (lvl === 'warn' ? '#d97706' : (sel === it.key ? '#c9a84c' : '#94a3b8'));
+    var sw = (sel === it.key || lvl) ? 2.2 : 1;
+    var iw = it.widthMm*scale, ih = it.heightMm*scale;
+    svg += '<g data-item="' + it.key + '" transform="translate(' + (it.xMm*scale) + ',' + (it.yMm*scale) + ')" style="cursor:move">' +
+      '<rect x="0" y="0" width="' + iw + '" height="' + ih + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + sw + '" rx="2"/>' +
+      '<text x="' + (iw/2) + '" y="' + (ih/2 + 4) + '" text-anchor="middle" font-size="12" font-weight="800" fill="' + (it.pageNumber==null?'#cbd5e1':'#4c1d95') + '" font-family="Heebo" transform="rotate(' + (it.rotation===90?-90:(it.rotation===270?90:0)) + ',' + (iw/2) + ',' + (ih/2) + ')" style="pointer-events:none">' + pi_pgLabel(it) + '</text>' +
+      ((it.rotation===90||it.rotation===270) ? '<text x="3" y="11" font-size="8" fill="#64748b" style="pointer-events:none">⟳</text>' : '') +
+    '</g>';
+  });
+  svg += '</svg>';
+  // ── פאנל צד ──
+  var selItem = sel ? items.find(function(x){ return x.key === sel; }) : null;
+  var panel = '<div style="flex:1;min-width:250px;display:flex;flex-direction:column;gap:10px">';
+  // בורר גיליון/צד
+  panel += '<select onchange="pi_setCanvasKey(this.value)" style="padding:7px 9px;border:1px solid #ddd;border-radius:8px;font-family:Heebo;font-weight:700;font-size:.82rem">' +
+    opts.map(function(o){ return '<option value="' + o.key + '"' + (o.key===ck?' selected':'') + '>' + o.text + '</option>'; }).join('') + '</select>';
+  // תג בעיות + ניצול
+  panel += '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+    (errN ? '<span style="background:#fee2e2;color:#991b1b;border-radius:7px;padding:5px 11px;font-weight:800;font-size:.82rem">⛔ ' + errN + ' בעיות</span>'
+          : (warns.length ? '<span style="background:#fef3c7;color:#92400e;border-radius:7px;padding:5px 11px;font-weight:800;font-size:.82rem">⚠️ ' + warns.length + ' אזהרות</span>'
+                          : '<span style="background:#dcfce7;color:#065f46;border-radius:7px;padding:5px 11px;font-weight:800;font-size:.82rem">✓ תקין</span>')) +
+    '<span style="background:#eef2ff;color:#3730a3;border-radius:7px;padding:5px 11px;font-weight:800;font-size:.82rem">📊 ניצול ' + util + '%</span>' +
+  '</div>';
+  // פרטי מכונה
+  panel += '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:9px;padding:9px 11px;font-size:.76rem;color:#374151;line-height:1.7">' +
+    '<b style="color:#111827">חוקי מכונה (מ״מ)</b><br>' +
+    'גיליון: ' + g.sheetWidthMm + '×' + g.sheetHeightMm + ' · הדפסה: ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + '<br>' +
+    'גריפר: ' + g.gripperMm + ' · שוליים: ' + g.marginTopMm + '/' + g.marginBottomMm + '/' + g.marginLeftMm + '/' + g.marginRightMm + '<br>' +
+    'מרווח מינ\': ' + g.minGapMm + ' · בליד: ' + g.defaultBleedMm + '<br>' +
+    '<span style="color:#9ca3af">קנה מידה: 1 מ״מ = ' + scale.toFixed(2) + ' px (1:' + Math.round(1/scale) + ')</span>' +
+  '</div>';
+  // פרטי פריט נבחר + עריכה
+  if (selItem){
+    panel += '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:9px 11px;font-size:.76rem;color:#374151;line-height:1.7">' +
+      '<b style="color:#92400e">עמוד נבחר: ' + pi_pgLabel(selItem) + '</b><br>' +
+      'מיקום: X ' + Math.round(selItem.xMm) + ' · Y ' + Math.round(selItem.yMm) + ' מ״מ<br>' +
+      'מידות: ' + Math.round(selItem.widthMm) + '×' + Math.round(selItem.heightMm) + ' · סיבוב: ' + selItem.rotation + '°<br>' +
+      'בליד: ' + selItem.bleedMm + ' · ריצה ' + (selItem.runIndex!=null?selItem.runIndex+1:'?') + ' · קונטרס ' + selItem.signatureIndex +
+      '<div style="display:flex;gap:6px;margin-top:8px">' +
+        '<button onclick="pi_canvasRotate(\'' + selItem.key + '\')" style="flex:1;padding:6px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700;font-size:.78rem">⟳ סובב 90°</button>' +
+        '<button onclick="pi_canvasReset(\'' + selItem.key + '\')" style="flex:1;padding:6px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700;font-size:.78rem">↺ איפוס</button>' +
+      '</div></div>';
+  } else {
+    panel += '<div style="font-size:.74rem;color:#9ca3af;padding:2px 2px">💡 לחץ על עמוד לבחירה · גרור להזזה · "סובב"/"איפוס" בפרטי הפריט.</div>';
+  }
+  // רשימת אזהרות
+  if (warns.length){
+    panel += '<div style="border:1px solid #fecaca;border-radius:9px;overflow:hidden">' +
+      '<div style="background:#fef2f2;color:#991b1b;font-weight:800;font-size:.8rem;padding:6px 10px">אזהרות (' + warns.length + ')</div>' +
+      '<div style="max-height:180px;overflow:auto">' +
+      warns.map(function(x){ return '<div style="padding:5px 10px;border-top:1px solid #fee2e2;font-size:.76rem;color:' + (x.level==='error'?'#b91c1c':'#b45309') + '">' + (x.level==='error'?'⛔':'⚠️') + ' ' + escHtml(x.text) + '</div>'; }).join('') +
+      '</div></div>';
+  }
+  // כפתורים
+  panel += '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:auto">' +
+    '<button onclick="pi_saveDraft()" style="flex:1;padding:9px;border:none;border-radius:8px;background:#6d28d9;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">💾 שמור מיקומים</button>' +
+    '<button onclick="pi_canvasResetAll()" style="padding:9px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700">↺ אפס הכל</button>' +
+  '</div>';
+  panel += '</div>';
+  // ── הרכבה ──
+  var html =
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
+      '<button onclick="pi_showGrid()" style="padding:7px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700">→ רשת קונטרסים</button>' +
+      '<b style="font-size:.95rem;flex:1;min-width:0">📐 גיליון מ״מ — ' + escHtml(cur.name||'') + '</b>' +
+      (window._pi.dirty ? '<span style="font-size:.74rem;color:#b45309;font-weight:800">● לא נשמר</span>' : '<span style="font-size:.74rem;color:#059669;font-weight:700">✓ שמור</span>') +
+    '</div>' +
+    '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">' +
+      '<div style="flex:none">' + svg + '</div>' + panel +
+    '</div>';
+  body.innerHTML = html;
+  setTimeout(pi_canvasBindDrag, 0);
+}
+function pi_canvasBindDrag(){
+  var svg = document.getElementById('pi-canvas-svg'); if (!svg) return;
+  Array.prototype.forEach.call(svg.querySelectorAll('[data-item]'), function(el){
+    el.addEventListener('mousedown', pi_canvasDragStart);
+    el.addEventListener('touchstart', pi_canvasDragStart, { passive:false });
+  });
+}
+function pi_canvasDragStart(e){
+  var el = e.currentTarget, key = el.getAttribute('data-item');
+  var ctx = window._pi.canvasCtx, cur = window._pi.cur;
+  var R = pi_sheetItems(cur, ctx.sigIdx, ctx.side), it = R.items.find(function(x){ return x.key === key; });
+  if (!it) return;
+  var pt = e.touches ? e.touches[0] : e;
+  window._pi._drag = { key:key, el:el, sx:pt.clientX, sy:pt.clientY, ox:it.xMm, oy:it.yMm, w:it.widthMm, h:it.heightMm, g:R.geom, moved:false, nx:it.xMm, ny:it.yMm };
+  document.addEventListener('mousemove', pi_canvasDragMove);
+  document.addEventListener('mouseup', pi_canvasDragEnd);
+  document.addEventListener('touchmove', pi_canvasDragMove, { passive:false });
+  document.addEventListener('touchend', pi_canvasDragEnd);
+  e.preventDefault();
+}
+function pi_canvasDragMove(e){
+  var dr = window._pi._drag; if (!dr) return;
+  var scale = window._pi.canvasScale, pt = e.touches ? e.touches[0] : e;
+  var dxMm = (pt.clientX - dr.sx) / scale, dyMm = (pt.clientY - dr.sy) / scale;
+  if (Math.abs(pt.clientX - dr.sx) > 3 || Math.abs(pt.clientY - dr.sy) > 3) dr.moved = true;
+  var nx = dr.ox + dxMm, ny = dr.oy + dyMm, g = dr.g;
+  nx = Math.max(-dr.w + 10, Math.min(g.sheetWidthMm - 10, nx));   // חייב להשאיר חלק על הגיליון
+  ny = Math.max(-dr.h + 10, Math.min(g.sheetHeightMm - 10, ny));
+  dr.nx = nx; dr.ny = ny;
+  dr.el.setAttribute('transform', 'translate(' + (nx*scale) + ',' + (ny*scale) + ')');
+  if (e.cancelable) e.preventDefault();
+}
+function pi_canvasDragEnd(){
+  document.removeEventListener('mousemove', pi_canvasDragMove);
+  document.removeEventListener('mouseup', pi_canvasDragEnd);
+  document.removeEventListener('touchmove', pi_canvasDragMove);
+  document.removeEventListener('touchend', pi_canvasDragEnd);
+  var dr = window._pi._drag; window._pi._drag = null; if (!dr) return;
+  var cur = window._pi.cur;
+  if (dr.moved){
+    if (dr.mode === 'manual'){
+      var it = (cur.items||[]).find(function(x){ return String(x.id) === dr.id; });
+      if (it){ it.xMm = dr.nx; it.yMm = dr.ny; }
+      window._pi.canvasSel = dr.id; window._pi.arrangeMsg = null;
+    } else {
+      cur.itemOverrides = cur.itemOverrides || {};
+      cur.itemOverrides[dr.key] = Object.assign({}, cur.itemOverrides[dr.key] || {}, { xMm: dr.nx, yMm: dr.ny });
+      window._pi.canvasSel = dr.key;
+    }
+    cur._edited = true; window._pi.dirty = true;
+  } else {
+    var k = (dr.mode === 'manual') ? dr.id : dr.key;
+    window._pi.canvasSel = (window._pi.canvasSel === k) ? null : k;
+  }
+  pi_render();
+}
+function pi_canvasRotate(key){
+  var cur = window._pi.cur, ctx = window._pi.canvasCtx;
+  var R = pi_sheetItems(cur, ctx.sigIdx, ctx.side), it = R.items.find(function(x){ return x.key === key; });
+  if (!it) return;
+  cur.itemOverrides = cur.itemOverrides || {};
+  cur.itemOverrides[key] = Object.assign({}, cur.itemOverrides[key] || {},
+    { rotation: (it.rotation + 90) % 360, widthMm: it.heightMm, heightMm: it.widthMm });
+  cur._edited = true; window._pi.dirty = true; window._pi.canvasSel = key; pi_render();
+}
+function pi_canvasReset(key){
+  var cur = window._pi.cur; if (!cur.itemOverrides) return;
+  delete cur.itemOverrides[key]; window._pi.dirty = true; pi_render();
+}
+function pi_canvasResetAll(){
+  var cur = window._pi.cur, ctx = window._pi.canvasCtx || {};
+  var prefix = ctx.sigIdx + '_' + ctx.side + '_';
+  var ov = cur.itemOverrides || {};
+  var keys = Object.keys(ov).filter(function(k){ return k.indexOf(prefix) === 0; });
+  if (!keys.length){ showToast('אין מיקומים ידניים לאיפוס בגיליון זה'); return; }
+  if (!confirm('לאפס את כל המיקומים הידניים בגיליון זה חזרה לסידור האוטומטי?')) return;
+  keys.forEach(function(k){ delete ov[k]; });
+  window._pi.dirty = true; window._pi.canvasSel = null; pi_render();
 }
 try { setTimeout(pi_badge, 4000); } catch(e){}
 /* ══ PI:END ══════════════════════════════════════════════════════ */
