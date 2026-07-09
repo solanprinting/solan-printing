@@ -469,6 +469,63 @@ async function buildImpositionPdf(spec){
 }
 window.buildImpositionPdf = buildImpositionPdf;
 
+/* מפמפוזיטור קדימה: קובץ בסדר קריאה → גיליון פרוס, לפי הגיאומטריה המאומתת (COLCX/ROWCY/TRIM/rot).
+   מייצר items במיקומי התאים האמיתיים ומעביר ל-buildImpositionPdf (הטמעה+סימנים+boxes).
+   srcUrl = ה-PDF של הריצה (סדר קריאה); srcPage = מספר העמוד (folio) בתא. עמוד לכל צד. */
+async function imposeReadingPdf(srcUrl, type, opts){
+  opts = opts || {};
+  const tpl = TEMPLATES[type]; if(!tpl) throw new Error('template not found: '+type);
+  const sheetW = opts.sheetWmm || 1000, sheetH = opts.sheetHmm || 700;
+  const offX = (sheetW-1000)/2, offY = (sheetH-700)/2;   // אזור הפריסה 1000×700 ממורכז בגיליון
+  const nSides = tpl.grids.length, pages = [];
+  const maxPage = opts.maxPage || tpl.N;            // לא לשבץ עמודים שלא קיימים בקובץ
+  for(let side=0; side<nSides; side++){
+    const grid = tpl.grids[side], items = [];
+    for(let r=0; r<grid.length; r++){ for(let col=0; col<grid[r].length; col++){    // כל תא (כולל כפילויות step-and-repeat)
+      const n = grid[r][col]; if(!n || n>maxPage) continue;
+      const cxTL = COLCX[col]+offX, cyTL = ROWCY[r]+offY;              // מרכז התא (top-left מ״מ)
+      const rot = (tpl.rot[col]===90) ? 270 : 90;                     // סיבוב קדימה (הופכי ל-fold)
+      const footW = (rot===90||rot===270) ? TRIM_H : TRIM_W;         // footprint על הגיליון
+      const footH = (rot===90||rot===270) ? TRIM_W : TRIM_H;
+      items.push({ srcUrl, srcPage:n, xMm:cxTL-footW/2, yMm:cyTL-footH/2, wMm:footW, hMm:footH, rotation:rot, label:String(n), n });
+    }}
+    pages.push({ name:(opts.sheetName||'Sheet')+'_'+(nSides===2?(side===0?'Front':'Back'):'One'),
+      sheetWmm:sheetW, sheetHmm:sheetH, items });
+  }
+  return await buildImpositionPdf({ jobName:opts.jobName||'', bleedMm:opts.bleedMm!=null?opts.bleedMm:3,
+    markMm:opts.markMm!=null?opts.markMm:12, pages });
+}
+window.imposeReadingPdf = imposeReadingPdf;
+
+/* ריצה שלמה (עיתון) → PDF פרוס אחד, עם כמה חתימות. segments = [{type, pageOffset, maxCount}]
+   (חלוקה לחתימות נעשית בצד הקורא לפי מספר העמודים). כל חתימה → עמוד/צד; הכל ב-PDF אחד. */
+async function imposeRunPdf(srcUrl, segments, opts){
+  opts = opts || {};
+  const sheetW = opts.sheetWmm || 1000, sheetH = opts.sheetHmm || 700;
+  const offX = (sheetW-1000)/2, offY = (sheetH-700)/2, pages = [];
+  let sigNo = 0;
+  for(const seg of (segments||[])){
+    sigNo++;
+    const tpl = TEMPLATES[seg.type]; if(!tpl) continue;
+    const nSides = tpl.grids.length;
+    for(let side=0; side<nSides; side++){
+      const grid = tpl.grids[side], items = [];
+      for(let r=0; r<grid.length; r++){ for(let col=0; col<grid[r].length; col++){
+        const cell = grid[r][col]; if(!cell || cell>seg.maxCount) continue;   // עמוד לא קיים בחתימה → ריק
+        const srcPage = (seg.pageOffset||0) + cell;
+        const cxTL = COLCX[col]+offX, cyTL = ROWCY[r]+offY;
+        const rot = (tpl.rot[col]===90) ? 270 : 90;
+        const footW = (rot===90||rot===270) ? TRIM_H : TRIM_W, footH = (rot===90||rot===270) ? TRIM_W : TRIM_H;
+        items.push({ srcUrl, srcPage, xMm:cxTL-footW/2, yMm:cyTL-footH/2, wMm:footW, hMm:footH, rotation:rot, label:String(srcPage), n:srcPage });
+      }}
+      pages.push({ name:'Sig'+sigNo+'_'+(nSides===2?(side===0?'Front':'Back'):'One'), sheetWmm:sheetW, sheetHmm:sheetH, items });
+    }
+  }
+  return await buildImpositionPdf({ jobName:opts.jobName||'', bleedMm:opts.bleedMm!=null?opts.bleedMm:3,
+    markMm:opts.markMm!=null?opts.markMm:12, pages });
+}
+window.imposeRunPdf = imposeRunPdf;
+
 // חשיפה לבדיקות
 window.fold = fold;
 window.TEMPLATES = TEMPLATES;

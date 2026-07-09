@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783604257';
+window.APP_VERSION = '1783605437';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21507,6 +21507,90 @@ function pi_exportProductionPdf(){
     showToast('✓ PDF דפוס הופק · ' + spec.pages.length + ' צדדים');
   }).catch(function(e){ console.error('production pdf failed', e); showToast('❌ יצירת PDF נכשלה: ' + (e && e.message || e)); });
 }
+// ── Phase 10 — עבודות לקוח מאושרות → ריצות + פרופר פרוס לאפוגי (מונחה customerProofs) ──
+function pi_safeName(s){ return String(s||'Job').replace(/[^\w֐-׿-]+/g,'_').slice(0,30) || 'Job'; }
+function pi_downloadBytes(bytes, name, type){
+  var blob = new Blob([bytes], { type: type || 'application/octet-stream' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 6000);
+}
+function pi_normName(s){ return String(s||'').replace(/\s+/g,'').toLowerCase(); }
+function pi_matchCardForProof(customer){
+  var t = pi_normName(customer); if (!t) return null;
+  return pi_allCards().find(function(c){
+    if (!c || c.done || c.archived) return false;
+    var n = pi_normName(c.name), cu = pi_normName(c.customer);
+    return n === t || cu === t || (n.length > 2 && (n.indexOf(t) >= 0 || t.indexOf(n) >= 0));
+  }) || null;
+}
+// כל יחידות הפרופר המאושרות (מלא + parts), בלי סינון "כבר שובץ"
+function pi_getApprovedUnits(){
+  var out = [], proofs = window._pi.proofs || {};
+  Object.keys(proofs).forEach(function(pid){
+    var p = proofs[pid]; if (!p || typeof p !== 'object') return;
+    var title = p.title || p.customer || p.name || pid;
+    if (p.mode === 'full' && p.status === 'approved')
+      out.push({ proofId:pid, partId:'', title:title, runName:'מלא', customer:p.customer||'', pages:p.pageCount||0, approvedAt:p.approvedAt||0, fileUrl:p.fileUrl||'' });
+    if (p.parts && typeof p.parts === 'object') Object.keys(p.parts).forEach(function(k){
+      var pt = p.parts[k]; if (!pt || pt.status !== 'approved') return;
+      out.push({ proofId:pid, partId:k, title:title + ' — ' + (pt.name||'ריצה'), runName:pt.name||'ריצה', customer:p.customer||'', pages:pt.pageCount||0, approvedAt:pt.approvedAt||0, fileUrl:pt.fileUrl||'' });
+    });
+  });
+  out.sort(function(a,b){ return (b.approvedAt||0) - (a.approvedAt||0); });
+  return out;
+}
+function pi_unitBy(proofId, partId){ return pi_getApprovedUnits().find(function(u){ return u.proofId === proofId && (u.partId||'') === (partId||''); }); }
+function pi_downloadProofRun(proofId, partId){
+  var u = pi_unitBy(proofId, partId); if (!u || !u.fileUrl){ showToast('אין קובץ לריצה'); return; }
+  var a = document.createElement('a'); a.href = u.fileUrl; a.download = pi_safeName(u.title) + '_reading.pdf'; a.target = '_blank';
+  document.body.appendChild(a); a.click(); a.remove();
+  showToast('⬇️ מוריד ריצה (סדר קריאה)');
+}
+function pi_exportApogeeProof(proofId, partId){
+  var u = pi_unitBy(proofId, partId); if (!u || !u.fileUrl){ showToast('אין קובץ לריצה'); return; }
+  var frame = document.getElementById('pi-tpl-frame');
+  var gen = frame && frame.contentWindow && frame.contentWindow.imposeRunPdf;
+  if (!gen){ showToast('⏳ מנוע הפריסה נטען — נסה שוב'); pi_loadTemplates(); return; }
+  var card = pi_matchCardForProof(u.customer);
+  var machine = (card && card.machine) || (pi_profilesFor(null)[0] && pi_profilesFor(null)[0].machine) || pi_getMachines()[0];
+  var prof = pi_profilesFor(machine)[0] || pi_profilesFor(null)[0] || {};
+  var g = pi_profileGeom(prof);
+  var method = card ? pi_cardMethod(card) : ((prof.allowedMethods||[])[0] || 'perfecting');
+  var family = pi_familyFor(method);
+  var pages = parseInt(u.pages) || 1;
+  var sp = pi_splitPages(pages, family), off = 0, segments = [];
+  sp.sigs.forEach(function(size){
+    segments.push({ type: PI_TPL[family][size], pageOffset: off, maxCount: Math.max(0, Math.min(size, pages - off)) });
+    off += size;
+  });
+  showToast('⏳ מייצר פרופר פרוס לאפוגי (' + segments.length + ' חתימות)...');
+  Promise.resolve().then(function(){
+    return gen(u.fileUrl, segments, { sheetWmm:g.sheetWidthMm, sheetHmm:g.sheetHeightMm, bleedMm:g.defaultBleedMm, markMm:12, jobName:u.title });
+  }).then(function(bytes){
+    pi_downloadBytes(bytes, pi_safeName(u.title) + '_Apogee.pdf', 'application/pdf');
+    showToast('✓ פרופר פרוס לאפוגי הופק · ' + segments.length + ' חתימות · ' + (family==='p'?'מתהפך':'פרפקטור'));
+  }).catch(function(e){ console.error('apogee proof failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
+}
+function pi_proofExportsHtml(){
+  var units = pi_getApprovedUnits();
+  if (!units.length) return '';
+  var html = '<div style="font-weight:800;color:#0f766e;font-size:.95rem;margin:2px 0 4px">📰 עבודות לקוח מאושרות (' + units.length + ')</div>' +
+    '<div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px">מה שהלקוח העלה ואישר — הורד ריצה (סדר קריאה) או פרופר פרוס מוכן להעלאה לאפוגי.</div>';
+  html += units.map(function(u){
+    var card = pi_matchCardForProof(u.customer);
+    var mtxt = card ? ('מכונה: ' + escHtml(card.machine||'—') + ' (מהכרטיס)') : '<span style="color:#b45309">אין כרטיס תואם — פרופיל ברירת מחדל</span>';
+    return '<div style="border:1px solid #99f6e4;border-radius:9px;padding:9px 12px;margin-bottom:7px;background:#f0fdfa">' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="flex:1;min-width:0;font-size:.9rem">' + escHtml(u.title) + '</b>' +
+        '<span style="flex:none;font-size:.74rem;color:#0f766e;font-weight:800">' + u.pages + ' עמ\'</span></div>' +
+      '<div style="font-size:.72rem;color:#6b7280;margin:2px 0 7px">לקוח: ' + escHtml(u.customer||'—') + ' · ' + mtxt + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button onclick="pi_downloadProofRun(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" style="flex:1;min-width:130px;padding:8px;border:1px solid #99f6e4;border-radius:7px;background:#fff;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.8rem">⬇️ ריצה (קריאה)</button>' +
+        '<button onclick="pi_exportApogeeProof(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" style="flex:1;min-width:130px;padding:8px;border:none;border-radius:7px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.8rem">🏭 פרופר לאפוגי</button>' +
+      '</div></div>';
+  }).join('');
+  return html + '<div style="border-top:1px solid #eee;margin:12px 0"></div>';
+}
 function pi_renderManualWS(){
   var body = document.getElementById('pi-body'); if (!body) return;
   var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1160px';
@@ -21773,6 +21857,7 @@ function pi_renderList(){
   var html = '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin-bottom:4px">🗂️ עבודות לתכנון לוחות (' + pcards.length + ')</div>' +
     '<div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px">כרטיס העבודה הוא מקור הנתונים — בחר כרטיס לבניית לוחות הדפסה. או בנה אימפוזיציה ידנית מקבצים.</div>' +
     '<button onclick="pi_newManual()" style="display:block;width:100%;padding:12px;border:none;border-radius:10px;background:#0f766e;color:#fff;font-weight:800;font-size:.92rem;cursor:pointer;font-family:Heebo;margin-bottom:14px">➕ אימפוזיציה ידנית חדשה</button>';
+  html += pi_proofExportsHtml();
   if (!pcards.length){
     html += '<div style="color:#9ca3af;font-size:.85rem;padding:14px;border:1px dashed #e5e7eb;border-radius:9px;text-align:center">אין כרטיסי עבודה פעילים לתכנון</div>';
   } else {
