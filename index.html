@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783600444';
+window.APP_VERSION = '1783601553';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -19148,14 +19148,57 @@ function _opProofImagesOverlay(pagesUrl, pdfUrl, type, label) {
   document.body.appendChild(ov);
   fetch(pagesUrl).then(function(r){ return r.json(); }).then(function(imgs){
     var l = document.getElementById('op-proof-loading'); if (l) l.remove();
-    if (!Array.isArray(imgs) || !imgs.length) { if (pdfUrl){ _opCloseProof(); _opProofOverlay(pdfUrl, type||'application/pdf', label, false); } return; }
+    if (!Array.isArray(imgs) || !imgs.length) { if (pdfUrl){ _opCloseProof(); _opRenderPdfToImages(pdfUrl, type||'application/pdf', label); } return; }
     window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: pdfUrl, type: type, label: label };
     _opInk.previewSrc = null; _opInk._hiResIdx = undefined;   // איפוס תצוגת ברזי-צבע ברזולוציה גבוהה לפרופר חדש
     _opPVBuild(ov);
   }).catch(function(){
     var l = document.getElementById('op-proof-loading'); if (l) l.remove();
-    if (pdfUrl){ _opCloseProof(); _opProofOverlay(pdfUrl, type||'application/pdf', label, false); }
+    if (pdfUrl){ _opCloseProof(); _opRenderPdfToImages(pdfUrl, type||'application/pdf', label); }
   });
+}
+// מרנדר PDF לתמונות ומציג בצופה-התמונות הנקי (זום/התאם/מסך-מלא) — כדי לא להיתקל בסרגל ה-PDF של הדפדפן.
+// לא-PDF או אין pdf.js → נופל לצופה הרגיל (_opProofOverlay).
+function _opRenderPdfToImages(url, type, label){
+  var isPdf = (type||'').indexOf('pdf') !== -1 || /\.pdf(\?|#|$)/i.test(url||'');
+  if (!isPdf || !window.pdfjsLib){ _opProofOverlay(url, type, label, false); return; }
+  _opSpinStyle();
+  var ov = document.createElement('div'); ov.id = 'op-proof-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:99999;display:flex;flex-direction:column';
+  ov.appendChild(_opLoadingEl());
+  document.body.appendChild(ov);
+  fetch(url).then(function(r){ return r.arrayBuffer(); })
+    .then(function(buf){ return pdfjsLib.getDocument({ data: buf }).promise; })
+    .then(function(pdf){
+      var imgs = [], RENDER_H = 2200, n = pdf.numPages;
+      (function step(i){
+        if (i > n){
+          pdf.cleanup && pdf.cleanup();
+          var l = document.getElementById('op-proof-loading'); if (l) l.remove();
+          if (!imgs.length){ _opCloseProof(); _opProofOverlay(url, type, label, false); return; }
+          window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label };
+          _opInk.previewSrc = null; _opInk._hiResIdx = undefined;
+          _opPVBuild(ov);
+          return;
+        }
+        pdf.getPage(i).then(function(page){
+          var v1 = page.getViewport({ scale: 1 });
+          var scale = Math.min(3.0, RENDER_H / v1.height);
+          var vp = page.getViewport({ scale: scale });
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
+          return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function(){
+            imgs.push(c.toDataURL('image/jpeg', 0.92));
+            page.cleanup && page.cleanup(); step(i + 1);
+          });
+        }).catch(function(e){ console.warn('pdf page render failed', e); step(i + 1); });
+      })(1);
+    })
+    .catch(function(e){
+      console.warn('pdf render failed', e);
+      var l = document.getElementById('op-proof-loading'); if (l) l.remove();
+      _opCloseProof(); _opProofOverlay(url, type, label, false);
+    });
 }
 function _opPVBuild(ov){
   var pv = window._opPV; var multi = pv.imgs.length > 1;
@@ -19470,7 +19513,7 @@ function _opViewProof(cardId, runKey) {
   var directType= rec && rec.type;
   // תצוגה מהירה מתמונות (אם קיים cache) — כמעט מיידי, בלי הורדת PDF כבד
   if (pagesUrl) { _opProofImagesOverlay(pagesUrl, directUrl || '', directType, runKey || 'פרופר'); return; }
-  if (directUrl) { _opProofOverlay(directUrl, directType, runKey || 'פרופר', false); return; }
+  if (directUrl) { _opRenderPdfToImages(directUrl, directType, runKey || 'פרופר'); return; }
   // פרופר ישן (legacy) — base64 ב-RTDB
   showToast('📄 טוען פרופר...');
   var path = legacyKey ? 'proofs/' + cardId + '/' + legacyKey : 'proofs/' + cardId;
@@ -19479,7 +19522,7 @@ function _opViewProof(cardId, runKey) {
     return p;
   }).then(function(p) {
     if (!p || !p.data) { showToast('⚠️ אין פרופר מצורף'); return; }
-    try { _opProofOverlay(URL.createObjectURL(_dataUrlToBlob(p.data)), p.type, runKey || 'פרופר', true); }
+    try { _opRenderPdfToImages(URL.createObjectURL(_dataUrlToBlob(p.data)), p.type, runKey || 'פרופר'); }
     catch(e) { showToast('⚠️ שגיאה בטעינת הפרופר'); }
   });
 }
