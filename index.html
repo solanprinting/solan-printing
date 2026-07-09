@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783576896';
+window.APP_VERSION = '1783582963';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21176,12 +21176,14 @@ function pi_newDraftFromCard(card){
   var method = pi_cardMethod(card);
   var allowed = prof ? (prof.allowedMethods||[]) : [];
   if (allowed.length && allowed.indexOf(method) === -1) method = allowed[0];
+  var colors = pi_cardColors(card);
   var d = {
     id: 'imp_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
-    createdAt: Date.now(), updatedAt: Date.now(), status: 'draft',
+    createdAt: Date.now(), updatedAt: Date.now(), status: 'draft', source: 'card',
     jobCardId: String(card.id), name: card.name || 'עבודה', customer: card.name || '',
     machine: prof ? prof.machine : wantMachine, profileId: prof ? prof.id : '',
-    method: method
+    method: method, colors: colors, colorMode: colors.length === 1 ? 'k' : 'cmyk',
+    sheet: { w: prof ? (prof.sheetW||100) : 100, h: prof ? (prof.sheetH||70) : 70 }
   };
   var runs = (card.runs||[]).filter(function(r){ return (parseInt(r.pages)||0) > 0; });
   if (runs.length){ d.fromRuns = true; pi_buildFromRuns(d, card); }   // מבנה הריצות = מקור האמת
@@ -21200,6 +21202,57 @@ function pi_approve(){
   showToast('✅ תוכנית הלוחות אושרה');
   window._pi.view = 'list'; pi_render(); pi_badge();
 }
+// בורר צבעים — משנה רק את מספור הפלטות (לא את פריסת העמודים)
+function pi_setColors(mode){
+  var cur = window._pi.cur; if (!cur) return;
+  cur.colors = mode === 'k' ? ['K'] : ['C','M','Y','K'];
+  cur.colorMode = mode;
+  pi_numberPlates(cur);
+  window._pi.dirty = true; pi_render();
+}
+// מסלול 2 — אימפוזיציה ידנית עצמאית (בלי כרטיס). המבנה מוכן; עורך הגרירה ייבנה בהמשך.
+function pi_newManual(){
+  var profs = pi_profilesFor(null), prof = profs[0] || null;
+  window._pi.cur = {
+    id: 'imp_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    createdAt: Date.now(), updatedAt: Date.now(), status: 'draft', source: 'manual',
+    name: 'אימפוזיציה ידנית', machine: prof ? prof.machine : pi_getMachines()[0], profileId: prof ? prof.id : '',
+    method: (prof && (prof.allowedMethods||[])[0]) || 'perfecting', colors: ['C','M','Y','K'], colorMode: 'cmyk',
+    sheet: { w: prof ? (prof.sheetW||100) : 100, h: prof ? (prof.sheetH||70) : 70 },
+    files: [], sheets: [{ index: 1, items: [] }], signatures: []
+  };
+  window._pi.dirty = true; window._pi.sel = null; window._pi.view = 'builder';
+  pi_loadTemplates(pi_render); pi_render();
+}
+function pi_renderManual(){
+  var body = document.getElementById('pi-body'); if (!body) return;
+  var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1020px';
+  var cur = window._pi.cur; var profs = pi_profilesFor(cur.machine);
+  var html =
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">' +
+      '<button onclick="pi_backToList()" style="padding:7px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700">→ חזרה</button>' +
+      '<b style="font-size:.95rem;flex:1;min-width:0">' + escHtml(cur.name||'') + ' <span style="font-size:.7rem;background:#ede9fe;color:#5b21b6;border-radius:6px;padding:2px 7px;font-weight:800">ידני</span>' +
+        (cur.status === 'approved' ? ' <span style="font-size:.72rem;color:#065f46;background:#d1fae5;border-radius:6px;padding:2px 7px;font-weight:800">✓ מאושר</span>' : '') + '</b>' +
+      (window._pi.dirty ? '<span style="font-size:.74rem;color:#b45309;font-weight:800">● לא נשמר</span>' : '<span style="font-size:.74rem;color:#059669;font-weight:700">✓ שמור</span>') +
+      '<button onclick="pi_saveDraft()" style="padding:8px 14px;border:none;border-radius:8px;background:#6d28d9;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">💾 שמור</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:#faf7ff;border:1px solid #ede9fe;border-radius:10px;padding:10px 12px;margin-bottom:12px">' +
+      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">מכונה<select onchange="pi_setMachine(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+        pi_getMachines().map(function(m){ return '<option value="' + escHtml(m) + '"' + (m===cur.machine?' selected':'') + '>' + escHtml(m) + '</option>'; }).join('') + '</select></label>' +
+      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">גיליון (ס"מ)<span><input type="number" value="' + cur.sheet.w + '" onchange="pi_manualSheet(\'w\',this.value)" style="width:56px;padding:6px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center">×<input type="number" value="' + cur.sheet.h + '" onchange="pi_manualSheet(\'h\',this.value)" style="width:56px;padding:6px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></span></label>' +
+      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שיטת הדפסה<select onchange="pi_setMethod(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+        PI_METHODS.map(function(m){ return '<option value="' + m.id + '"' + (m.id===cur.method?' selected':'') + '>' + m.label + '</option>'; }).join('') + '</select></label>' +
+      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">צבעים<select onchange="pi_setColors(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+        '<option value="cmyk"' + (cur.colorMode!=='k'?' selected':'') + '>CMYK (4 פלטות/צד)</option><option value="k"' + (cur.colorMode==='k'?' selected':'') + '>שחור בלבד (1)</option></select></label>' +
+    '</div>' +
+    '<div style="border:2px dashed #c4b5fd;border-radius:12px;padding:32px 20px;text-align:center;background:#faf7ff;color:#6b7280">' +
+      '<div style="font-size:2.2rem">🧩</div>' +
+      '<div style="font-weight:800;color:#5b21b6;margin:8px 0">עורך סידור ידני — בקרוב</div>' +
+      '<div style="font-size:.85rem;max-width:540px;margin:0 auto;line-height:1.6">כאן ייבנה עורך גרירת קבצים על הגיליון: העלאת PDF, גרירה, סיבוב, שכפול, מחיקה, snap ואזהרות בזמן אמת (גבולות הדפסה / גריפר / מרחקים / חפיפה / בליד). מבנה הנתונים כבר תומך בזה (sheets → items → plateSets). בינתיים אפשר להגדיר מכונה / גיליון / שיטה / צבעים ולשמור טיוטה.</div>' +
+    '</div>';
+  body.innerHTML = html;
+}
+function pi_manualSheet(dim, v){ var cur = window._pi.cur; if (!cur) return; cur.sheet[dim] = parseFloat(v)||0; window._pi.dirty = true; }
 
 /* ── זריעת פרופילי מכונה (פעם אחת, רק אם ריק גם בשרת) ───────────── */
 async function pi_seedProfiles(){
@@ -21278,7 +21331,9 @@ function pi_renderList(){
   var body = document.getElementById('pi-body'); if (!body) return;
   var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '760px';
   var pcards = pi_getPlanCards();
-  var html = '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin-bottom:4px">🗂️ עבודות לתכנון לוחות (' + pcards.length + ')</div>' +
+  var html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+    '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;flex:1">🗂️ עבודות לתכנון לוחות (' + pcards.length + ')</div>' +
+    '<button onclick="pi_newManual()" style="padding:6px 12px;border:1px solid #c4b5fd;border-radius:7px;background:#faf7ff;color:#5b21b6;font-weight:700;font-size:.8rem;cursor:pointer;font-family:Heebo">➕ אימפוזיציה ידנית</button></div>' +
     '<div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px">כרטיס העבודה הוא מקור הנתונים — בחר כרטיס לבניית לוחות הדפסה.</div>';
   if (!pcards.length){
     html += '<div style="color:#9ca3af;font-size:.85rem;padding:14px;border:1px dashed #e5e7eb;border-radius:9px;text-align:center">אין כרטיסי עבודה פעילים לתכנון</div>';
@@ -21410,9 +21465,10 @@ function pi_buildSignatures(d){
   sp.sigs.forEach(function(n, i){
     var pm = [];
     for (var p = start; p < start + n; p++) pm.push(p <= d.pagesIn ? p : null);
-    d.signatures.push({ idx: i + 1, template: PI_TPL[family][n], n: n, start: start, pageMap: pm });
+    d.signatures.push({ idx: i + 1, template: PI_TPL[family][n], n: n, family: family, start: start, pageMap: pm });
     start += n;
   });
+  pi_numberPlates(d);
 }
 // משפחת תבנית לריצה: A+B/8-צבעים = פרפקטור (דו-צדדי) ; מתהפך/4-צבעים = חד-צדדי
 function pi_runFamily(run, fallbackMethod, override){
@@ -21426,33 +21482,56 @@ function pi_runFamily(run, fallbackMethod, override){
   }
   return pi_familyFor(fallbackMethod || 'perfecting');
 }
-// בונה signatures מתוך card.runs[] — כל ריצה בנפרד, עם טווחי עמודים מצטברים ומספרי לוחות רצים
+// צבעי הדפסה (סט הפלטות לצד) לפי הכרטיס: 1 צבע → K ; אחרת פרוצס CMYK
+function pi_cardColors(card){
+  var n = parseInt((String((card && card.color) || '').match(/\d+/) || [])[0]) || 0;
+  if (n === 1) return ['K'];
+  return ['C','M','Y','K'];
+}
+// מספור פלטות: כל צד = סט פלטות מלא (C/M/Y/K). לוח = צבע-פר-צד. מספרים רצים על כל העבודה.
+function pi_numberPlates(d){
+  var colors = (d.colors && d.colors.length) ? d.colors : ['C','M','Y','K'];
+  var plateNo = 1, runPlates = {};
+  d.signatures.forEach(function(sig){
+    var fam = sig.family || pi_familyFor(d.method);
+    var sides = fam === 'perf' ? 2 : 1;
+    sig.plateSets = [];
+    for (var s = 0; s < sides; s++){
+      var ps = { side: s, colors: colors.slice(), plates: [] };
+      colors.forEach(function(col){ ps.plates.push({ color: col, plateNo: plateNo }); plateNo++; });
+      sig.plateSets.push(ps);
+    }
+    if (sig.runIndex != null) runPlates[sig.runIndex] = (runPlates[sig.runIndex] || 0) + sides * colors.length;
+  });
+  d.plateCount = plateNo - 1;
+  d.platesPerSet = colors.length;
+  if (d.runs) d.runs.forEach(function(r){ r.plateCount = runPlates[r.runIndex] || 0; });
+}
+// בונה signatures מתוך card.runs[] — כל ריצה בנפרד, טווחי עמודים מצטברים; פלטות ממוספרות ב-pi_numberPlates
 function pi_buildFromRuns(d, card){
   var ovr = d.runFamilyOverride || {};
   d.signatures = []; d.runs = [];
-  var folio = 1, plateNo = 1, sigIdx = 1, blanksTotal = 0;
+  var folio = 1, sigIdx = 1, blanksTotal = 0;
   (card.runs||[]).forEach(function(run, ri){
     var pages = parseInt(run.pages)||0; if (!pages) return;
     var fam = pi_runFamily(run, d.method, ovr[ri]);
     var folioStart = folio, sp = pi_splitPages(pages, fam);
     blanksTotal += sp.blanks;
-    var sigIdxs = [], plateNos = [], paddedPos = 1;
+    var sigIdxs = [], paddedPos = 1;
     sp.sigs.forEach(function(n){
       var pm = [];
       for (var k = 0; k < n; k++){ var pp = paddedPos + k; pm.push(pp <= pages ? (folioStart + pp - 1) : null); }
-      var sides = fam === 'perf' ? 2 : 1, plates = [];
-      for (var s = 0; s < sides; s++){ plates.push({ plateNo: plateNo, side: s }); plateNos.push(plateNo); plateNo++; }
       d.signatures.push({ idx: sigIdx, runIndex: ri, runNum: run.num || (ri+1), template: PI_TPL[fam][n],
-        n: n, family: fam, start: folioStart + paddedPos - 1, pageMap: pm, plates: plates });
+        n: n, family: fam, start: folioStart + paddedPos - 1, pageMap: pm });
       sigIdxs.push(sigIdx); sigIdx++; paddedPos += n;
     });
     d.runs.push({ runIndex: ri, runNum: run.num || (ri+1), pages: pages, copies: parseInt(run.copies)||0,
       machine: run.machine||'', paper: run.paper||'', tumble: !!run.tumble, ab: !!run.abEnabled,
-      note: run.manualExtra||'', family: fam, folioStart: folioStart, folioEnd: folioStart + pages - 1,
-      plateNos: plateNos, plateCount: plateNos.length, sigIdxs: sigIdxs });
+      note: run.manualExtra||'', family: fam, folioStart: folioStart, folioEnd: folioStart + pages - 1, sigIdxs: sigIdxs });
     folio += pages;
   });
-  d.pagesIn = folio - 1; d.blanks = blanksTotal; d.plateCount = plateNo - 1;
+  d.pagesIn = folio - 1; d.blanks = blanksTotal;
+  pi_numberPlates(d);
 }
 // באיזה צד (=לוח) יושב מיקום התבנית local
 function pi_cellSide(tpl, local){
@@ -21518,15 +21597,18 @@ function pi_cellClick(sigIdx, local){
   var A = cur.signatures[sel.sig], B = cur.signatures[sigIdx];
   var va = A.pageMap[sel.local - 1], vb = B.pageMap[local - 1];
   A.pageMap[sel.local - 1] = vb; B.pageMap[local - 1] = va;
-  // תיעוד ההחלפה: ריצה, קונטרס, לוח מושפע (לכל צד)
+  // תיעוד ההחלפה: איזה סט פלטות מושפע (כל C/M/Y/K של הצד) — לא "לוח בודד"
   var T = window._pi.templates || {};
   var sA = pi_cellSide(T[A.template], sel.local), sB = pi_cellSide(T[B.template], local);
+  var psA = A.plateSets && A.plateSets[sA], psB = B.plateSets && B.plateSets[sB];
   cur.swaps = cur.swaps || [];
   cur.swaps.push({ at: Date.now(),
-    a: { runIndex:A.runIndex, sigIdx:A.idx, local:sel.local, side:sA, plate:(A.plates&&A.plates[sA]?A.plates[sA].plateNo:null), folio:va },
-    b: { runIndex:B.runIndex, sigIdx:B.idx, local:local, side:sB, plate:(B.plates&&B.plates[sB]?B.plates[sB].plateNo:null), folio:vb } });
+    a: { runIndex:A.runIndex, sigIdx:A.idx, side:sA, folio:va, colors:(psA?psA.colors.slice():[]), plateSet:(psA?psA.plates.map(function(p){return p.plateNo;}):[]) },
+    b: { runIndex:B.runIndex, sigIdx:B.idx, side:sB, folio:vb, colors:(psB?psB.colors.slice():[]), plateSet:(psB?psB.plates.map(function(p){return p.plateNo;}):[]) } });
   cur._edited = true; window._pi.dirty = true; window._pi.sel = null;
-  showToast('↔ הוחלפו: עמ\' ' + (va == null ? 'ריק' : va) + ' ↔ עמ\' ' + (vb == null ? 'ריק' : vb));
+  var affA = psA ? psA.colors.join('/') : '', affB = psB ? psB.colors.join('/') : '';
+  var same = (A.idx === B.idx && sA === sB);
+  showToast('↔ הוחלף — יש להוציא מחדש סט פלטות: ' + (same ? affA : (affA + ' + ' + affB)), 5000);
   pi_render();
 }
 function pi_saveDraft(){
@@ -21547,6 +21629,7 @@ function pi_renderBuilder(){
   var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1020px';
   var cur = window._pi.cur;
   if (!cur){ window._pi.view = 'list'; pi_renderList(); return; }
+  if (cur.source === 'manual'){ pi_renderManual(); return; }   // מסלול ידני — עורך נפרד
   var T = window._pi.templates;
   if (!T){
     body.innerHTML = '<div style="text-align:center;padding:34px;color:#6b7280">⏳ טוען תבניות פריסה... <button onclick="pi_loadTemplates(pi_render)" style="margin-right:8px;padding:5px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo">נסה שוב</button></div>';
@@ -21585,13 +21668,14 @@ function pi_renderBuilder(){
       (prof ? '<span style="font-size:.72rem;color:#6b7280;margin-right:auto">גיליון ' + (prof.sheetW||100) + '×' + (prof.sheetH||70) + ' ס"מ · ' + (prof.colors||'') + ' צבעים</span>' : '') +
     '</div>';
   // סיכום לוחות
-  var totalPlates = 0;
-  cur.signatures.forEach(function(sig){ var t=T[sig.template]; totalPlates += (sig.plates ? sig.plates.length : (t ? t.sides : 1)); });
+  var totalPlates = cur.plateCount || 0, platesPerSet = cur.platesPerSet || (cur.colors ? cur.colors.length : 4);
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:.8rem;margin-bottom:10px">' +
     (cur.fromRuns ? '<span style="background:#eef2ff;color:#3730a3;border-radius:7px;padding:4px 10px;font-weight:700">🏃 ' + (cur.runs||[]).length + ' ריצות</span>' : '') +
     '<span style="background:#ede9fe;color:#5b21b6;border-radius:7px;padding:4px 10px;font-weight:700">📄 ' + cur.signatures.length + ' קונטרסים</span>' +
-    '<span style="background:#dcfce7;color:#065f46;border-radius:7px;padding:4px 10px;font-weight:800">🟩 ' + totalPlates + ' לוחות</span>' +
-    (cur.fromRuns ? '<span style="font-size:.72rem;color:#9ca3af;align-self:center">הקונטרסים והלוחות נבנים ממבנה הריצות בכרטיס העבודה</span>' : '') +
+    '<span style="background:#dcfce7;color:#065f46;border-radius:7px;padding:4px 10px;font-weight:800">🟩 ' + totalPlates + ' פלטות (' + (cur.colors||['C','M','Y','K']).join('') + ' × ' + platesPerSet + '/צד)</span>' +
+    '<label style="display:inline-flex;align-items:center;gap:4px;font-size:.74rem;color:#777;background:#faf7ff;border:1px solid #ede9fe;border-radius:7px;padding:2px 8px">צבעים:' +
+      '<select onchange="pi_setColors(this.value)" style="border:none;background:none;font-family:Heebo;font-size:.76rem;font-weight:700;color:#5b21b6;cursor:pointer"><option value="cmyk"' + (cur.colorMode!=='k'?' selected':'') + '>CMYK</option><option value="k"' + (cur.colorMode==='k'?' selected':'') + '>שחור בלבד</option></select></label>' +
+    (cur.fromRuns ? '<span style="font-size:.72rem;color:#9ca3af;align-self:center">נבנה ממבנה הריצות בכרטיס</span>' : '') +
   '</div>';
   if (cur.blanks) html += '<div style="font-size:.78rem;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:7px 10px;margin-bottom:10px">⚠️ נוספו ' + cur.blanks + ' עמודים ריקים להשלמת קונטרסים.</div>';
   html += '<div style="font-size:.74rem;color:#6b7280;margin-bottom:10px">💡 להחלפת עמודים: לחץ על עמוד אחד ואז על עמוד שני (אפשר גם בין קונטרסים). הבחירה מודגשת בזהב.</div>';
@@ -21608,9 +21692,10 @@ function pi_renderBuilder(){
         ' — ' + pi_tplLabel(sig.template) + ' · עמ\' ' + sig.start + '–' + (sig.start + sig.n - 1) + '</div>';
     if (!tpl){ html += '<div style="padding:12px;color:#b91c1c">תבנית ' + sig.template + ' לא נמצאה</div></div>'; return; }
     tpl.grids.forEach(function(grid, sideIdx){
-      var plateNo = (sig.plates && sig.plates[sideIdx]) ? sig.plates[sideIdx].plateNo : (sig.plates && sig.plates[0] ? sig.plates[0].plateNo : null);
+      var ps = sig.plateSets && sig.plateSets[sideIdx];
       var sideName = tpl.sides === 2 ? (sideIdx === 0 ? 'צד קדמי' : 'צד אחורי') : 'מתהפך — שני הצדדים מפלטה אחת';
-      var sideLabel = sideName + (plateNo ? ' · <b style="color:#065f46">לוח ' + plateNo + '</b>' : '');
+      var psLabel = ps ? (' · <b style="color:#065f46">סט פלטות ' + ps.colors.join(' ') + ' (' + (ps.plates.length>1 ? 'לוחות ' + ps.plates[0].plateNo + '–' + ps.plates[ps.plates.length-1].plateNo : 'לוח ' + ps.plates[0].plateNo) + ')</b>') : '';
+      var sideLabel = sideName + psLabel;
       html += '<div style="padding:10px 12px">' +
         '<div style="font-size:.74rem;font-weight:700;color:#6b7280;margin-bottom:6px">' + sideLabel + '</div>' +
         '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
