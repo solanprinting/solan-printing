@@ -94,7 +94,7 @@
 </div>
 
 <script>
-const { PDFDocument, degrees } = PDFLib;
+const { PDFDocument, degrees, rgb, cmyk, StandardFonts } = PDFLib;
 const MM = 72/25.4;
 const COLCX = [125, 375, 625, 875];          // מ"מ — מרכז עמודה (top-left, על שטח פריסה 1000×700)
 const ROWCY = [97.5, 262.5, 437.5, 602.5];   // מ"מ — מרכז שורה (top-left)
@@ -383,6 +383,91 @@ document.addEventListener('keydown', function(e){
   if (e.key==='ArrowLeft') _fbStep(1);
   else if (e.key==='ArrowRight') _fbStep(-1);
 });
+
+/* ══ Phase 9 — Production PDF Export (pdf-lib) ═══════════════════════════════
+   בונה PDF בגודל גיליון אמיתי במ״מ: MediaBox/TrimBox/BleedBox/CropBox מדויקים,
+   הטמעת תוכן המקור כווקטור (embedPdf/drawPage — פונטים/וקטורים/שקיפות נשמרים),
+   crop+registration marks + color bar ב-CMYK (cmyk()), עמוד לכל צד/גיליון.
+   ההגבלות הכנות (client-side pdf-lib): אין המרת RGB→CMYK של המקור, אין ICC output-intent,
+   אין הפרדות/spot אמיתיים — ראה דיווח. spec:
+   { jobName, bleedMm, markMm, itemCropMarks?, pages:[ { name, sheetWmm, sheetHmm,
+       items:[ {srcUrl,srcPage,xMm,yMm,wMm,hMm,rotation,bleedMm,label,n} ] } ] }  */
+function _ascii(s){ return String(s==null?'':s).replace(/[^\x20-\x7E]/g,'').trim(); }
+function _cropTick(page, x, y, dx, dy, len, gap, color){   // x,y בפינה (pt), dx/dy כיוון החוצה (±1)
+  page.drawLine({ start:{x:x+dx*gap, y:y}, end:{x:x+dx*(gap+len), y:y}, thickness:0.5, color:color });
+  page.drawLine({ start:{x:x, y:y+dy*gap}, end:{x:x, y:y+dy*(gap+len)}, thickness:0.5, color:color });
+}
+function _regMark(page, cx, cy, r, color){                 // עיגול + צלב = סימן רגיסטר
+  page.drawCircle({ x:cx, y:cy, size:r, borderColor:color, borderWidth:0.4, color:undefined });
+  page.drawLine({ start:{x:cx-r*1.6,y:cy}, end:{x:cx+r*1.6,y:cy}, thickness:0.4, color:color });
+  page.drawLine({ start:{x:cx,y:cy-r*1.6}, end:{x:cx,y:cy+r*1.6}, thickness:0.4, color:color });
+}
+async function buildImpositionPdf(spec){
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bleed = spec.bleedMm!=null?spec.bleedMm:3, mark = spec.markMm!=null?spec.markMm:12;
+  const REG = cmyk(1,1,1,1);                    // צבע רגיסטר (כל הפלטות)
+  const srcCache = {}, embCache = {};
+  async function getEmbed(url, pageIdx){
+    if(!url) return null;
+    const key = url+'|'+pageIdx;
+    if(key in embCache) return embCache[key];
+    try{
+      if(!srcCache[url]){ const r = await fetch(url); srcCache[url] = await r.arrayBuffer(); }
+      const arr = await doc.embedPdf(srcCache[url], [Math.max(0,pageIdx)]);
+      return (embCache[key] = arr[0] || null);
+    }catch(e){ console.warn('embed failed', url, e); return (embCache[key]=null); }
+  }
+  for(const pg of (spec.pages||[])){
+    const trimW = pg.sheetWmm, trimH = pg.sheetHmm;
+    const mediaW = trimW + 2*bleed + 2*mark, mediaH = trimH + 2*bleed + 2*mark;
+    const ox = bleed + mark, oy = bleed + mark;      // מקור ה-trim בתוך ה-media (מ״מ, מפינה שמאלית-תחתונה)
+    const page = doc.addPage([mediaW*MM, mediaH*MM]);
+    page.setMediaBox(0, 0, mediaW*MM, mediaH*MM);
+    page.setCropBox(0, 0, mediaW*MM, mediaH*MM);
+    page.setBleedBox((ox-bleed)*MM, (oy-bleed)*MM, (trimW+2*bleed)*MM, (trimH+2*bleed)*MM);
+    page.setTrimBox(ox*MM, oy*MM, trimW*MM, trimH*MM);
+    // ── פריטים ──
+    for(const it of (pg.items||[])){
+      const rot = ((it.rotation||0)%360+360)%360;
+      const Cx = (ox + it.xMm + it.wMm/2)*MM;                       // מרכז מלבן היעד (pt, y למעלה)
+      const Cy = (oy + (trimH - (it.yMm + it.hMm/2)))*MM;
+      const frameW = (rot===90||rot===270) ? it.hMm : it.wMm;      // גודל בפריים-העמוד (לפני סיבוב)
+      const frameH = (rot===90||rot===270) ? it.wMm : it.hMm;
+      const emb = await getEmbed(it.srcUrl, (it.srcPage||1)-1);
+      if(emb){
+        const xScale = (frameW*MM)/emb.width, yScale = (frameH*MM)/emb.height;
+        const px = frameW*MM/2, py = frameH*MM/2, th = rot*Math.PI/180, c=Math.cos(th), s=Math.sin(th);
+        page.drawPage(emb, { x: Cx-(px*c-py*s), y: Cy-(px*s+py*c), xScale, yScale, rotate: degrees(rot) });
+      } else {
+        const rx=(ox+it.xMm)*MM, ry=(oy+(trimH-it.yMm-it.hMm))*MM;  // placeholder — כשאין מקור
+        page.drawRectangle({ x:rx, y:ry, width:it.wMm*MM, height:it.hMm*MM, borderColor:cmyk(0,0,0,0.6), borderWidth:0.5, color:cmyk(0.04,0.02,0,0) });
+        const lbl = _ascii(it.label) || ('#'+(it.n||''));
+        if(lbl) page.drawText(lbl, { x:rx+3, y:ry+it.hMm*MM-11, size:9, font, color:cmyk(0,0,0,1) });
+      }
+      // crop marks לפינות הפריט (רגיסטר) — קצרים כדי לא להתנגש
+      const ix0=(ox+it.xMm)*MM, iy0=(oy+(trimH-it.yMm-it.hMm))*MM, ix1=ix0+it.wMm*MM, iy1=iy0+it.hMm*MM, L=2.2*MM, G=0.6*MM;
+      _cropTick(page, ix0, iy1, -1, 1, L, G, REG); _cropTick(page, ix1, iy1, 1, 1, L, G, REG);
+      _cropTick(page, ix0, iy0, -1, -1, L, G, REG); _cropTick(page, ix1, iy0, 1, -1, L, G, REG);
+    }
+    // ── סימני גיליון: crop לפינות ה-trim + רגיסטר באמצע הצדדים + color bar + slug ──
+    const tx0=ox*MM, ty0=oy*MM, tx1=(ox+trimW)*MM, ty1=(oy+trimH)*MM, CL=4*MM, CG=(bleed+1)*MM;
+    _cropTick(page, tx0, ty1, -1, 1, CL, CG, REG); _cropTick(page, tx1, ty1, 1, 1, CL, CG, REG);
+    _cropTick(page, tx0, ty0, -1, -1, CL, CG, REG); _cropTick(page, tx1, ty0, 1, -1, CL, CG, REG);
+    const rr=2.2*MM, mm2=(mark/2)*MM;
+    _regMark(page, (ox+trimW/2)*MM, ty1+mm2, rr, REG); _regMark(page, (ox+trimW/2)*MM, ty0-mm2, rr, REG);
+    _regMark(page, tx0-mm2, (oy+trimH/2)*MM, rr, REG); _regMark(page, tx1+mm2, (oy+trimH/2)*MM, rr, REG);
+    // color bar CMYK בשוליים התחתונים (slug)
+    const bars=[cmyk(1,0,0,0),cmyk(0,1,0,0),cmyk(0,0,1,0),cmyk(0,0,0,1),cmyk(0,0,0,0.5),cmyk(1,1,1,1),cmyk(0.4,0.3,0.3,0)];
+    const bw=6*MM, bh=4*MM, by=(mark/2-2)*MM;
+    bars.forEach(function(col,i){ page.drawRectangle({ x:(ox)*MM + i*(bw+1.5), y:by, width:bw, height:bh, color:col }); });
+    // slug text (ASCII)
+    const slug = _ascii((spec.jobName||'') + '  |  ' + (pg.name||'') + '  |  ' + trimW + 'x' + trimH + 'mm  bleed ' + bleed + 'mm');
+    page.drawText(slug || 'imposition', { x:(ox)*MM + bars.length*(bw+1.5) + 4, y:by+bh/2-3, size:7, font, color:cmyk(0,0,0,1) });
+  }
+  return await doc.save();
+}
+window.buildImpositionPdf = buildImpositionPdf;
 
 // חשיפה לבדיקות
 window.fold = fold;
