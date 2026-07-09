@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783601553';
+window.APP_VERSION = '1783602428';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21415,6 +21415,55 @@ function pi_manualSave(){
   cur.warnings = pi_validateItems(pi_manualRenderItems(cur), g);   // תמונת מצב של האזהרות
   pi_saveDraft();
 }
+// ── Phase 8 — Prototype ייצוא PDF (client-side, jsPDF) — גיליון מלא במ״מ, צד אחד ──
+// מלבנים במיקומי הפריטים + מספר/מידות/סיבוב + crop marks בפינות. לא הפקה סופית: בלי תוכן/בליד/CMYK.
+function pi_manualExportPdf(){
+  var cur = window._pi.cur; if (!cur) return;
+  if (!(window.jspdf && window.jspdf.jsPDF)){ showToast('⚠️ ספריית ה-PDF (jsPDF) לא נטענה'); return; }
+  var items = pi_manualRenderItems(cur);
+  if (!items.length){ showToast('אין פריטים לייצוא'); return; }
+  var g = pi_curGeom(), W = g.sheetWidthMm, H = g.sheetHeightMm;
+  var doc = new window.jspdf.jsPDF({ orientation: W >= H ? 'landscape' : 'portrait', unit: 'mm', format: [W, H] });
+  // גבול גיליון
+  doc.setDrawColor(20,20,20); doc.setLineWidth(0.5); doc.rect(0, 0, W, H);
+  // אזור הדפסה (מקווקו)
+  doc.setDrawColor(120,150,235); doc.setLineWidth(0.3);
+  try { doc.setLineDashPattern([2.5,2],0); } catch(e){}
+  doc.rect(g.printX, g.printY, g.printableWidthMm, g.printableHeightMm);
+  try { doc.setLineDashPattern([],0); } catch(e){}
+  // גריפר (פס תחתון)
+  doc.setFillColor(250,215,215); doc.rect(0, H - g.gripperMm, W, g.gripperMm, 'F');
+  doc.setFontSize(7); doc.setTextColor(150,60,60);
+  try { doc.text('GRIPPER ' + g.gripperMm + 'mm', W/2, H - g.gripperMm/2, { align:'center', baseline:'middle' }); } catch(e){}
+  // פריטים
+  items.forEach(function(it, idx){
+    var x = it.xMm, y = it.yMm, w = it.widthMm, h = it.heightMm;
+    doc.setDrawColor(80,60,140); doc.setLineWidth(0.4); doc.setFillColor(237,233,254);
+    doc.rect(x, y, w, h, 'FD');
+    // crop marks — צלב קטן בכל פינה (זרוע 1.2 מ״מ, לא מתנגש עם המרווח 3 מ״מ)
+    doc.setDrawColor(0,0,0); doc.setLineWidth(0.2);
+    var a = 1.2, corners = [[x,y],[x+w,y],[x,y+h],[x+w,y+h]];
+    corners.forEach(function(c){ doc.line(c[0]-a, c[1], c[0]+a, c[1]); doc.line(c[0], c[1]-a, c[0], c[1]+a); });
+    // תוויות (ASCII — jsPDF core לא תומך עברית)
+    doc.setTextColor(60,30,90);
+    doc.setFontSize(Math.max(9, Math.min(18, Math.min(w, h) * 0.5)));
+    try { doc.text('#' + (idx+1), x + w/2, y + h/2 - 1, { align:'center', baseline:'middle' }); } catch(e){}
+    doc.setFontSize(8); doc.setTextColor(90,70,120);
+    var dim = Math.round(w) + '×' + Math.round(h) + 'mm' + (it.rotation ? ('  ' + it.rotation + '°') : '');
+    try { doc.text(dim, x + w/2, y + h/2 + 5, { align:'center', baseline:'middle' }); } catch(e){}
+    // שם קובץ רק אם לטיני (עברית לא מתרנדרת ב-jsPDF core)
+    if (it.label && !/[֐-׿]/.test(it.label)){
+      doc.setFontSize(7); doc.setTextColor(120,120,140);
+      try { doc.text(String(it.label).slice(0,22), x + w/2, y + 3, { align:'center', baseline:'top' }); } catch(e){}
+    }
+  });
+  // כותרת עליונה (ASCII)
+  doc.setFontSize(6); doc.setTextColor(130,130,130);
+  try { doc.text('SOLAN imposition PROTOTYPE (not for production)  ' + W + '×' + H + 'mm  ' + items.length + ' items  ' + new Date().toISOString().slice(0,10), 3, 3, { baseline:'top' }); } catch(e){}
+  var safe = String(cur.name || 'manual').replace(/[^\w-]+/g,'_').slice(0,24) || 'manual';
+  doc.save('imposition_test_' + safe + '_' + Date.now() + '.pdf');
+  showToast('✓ יוצא PDF בגודל ' + W + '×' + H + ' מ״מ · ' + items.length + ' פריטים');
+}
 function pi_renderManualWS(){
   var body = document.getElementById('pi-body'); if (!body) return;
   var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1160px';
@@ -21445,6 +21494,7 @@ function pi_renderManualWS(){
       profs.map(function(pr){ return '<option value="' + pr.id + '"' + (pr.id===cur.profileId?' selected':'') + '>' + escHtml(pr.name) + '</option>'; }).join('') + '</select></label>' : '') +
     '<span style="font-size:.72rem;color:#6b7280;align-self:center">גיליון ' + g.sheetWidthMm + '×' + g.sheetHeightMm + ' מ״מ · הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + '</span>' +
     '<button onclick="pi_manualAutoArrange()" style="margin-right:auto;padding:7px 14px;border:none;border-radius:8px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">🧮 סדר אוטומטית</button>' +
+    '<button onclick="pi_manualExportPdf()" title="Prototype — PDF בגודל גיליון לבדיקה (לא להפקה)" style="padding:7px 14px;border:none;border-radius:8px;background:#b45309;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">📄 Export PDF Test</button>' +
   '</div>';
   // ── גוף: סיידבר קבצים | גיליון | פאנל ──
   html += '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">';
