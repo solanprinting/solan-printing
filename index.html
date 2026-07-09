@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783569250';
+window.APP_VERSION = '1783576896';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21181,9 +21181,11 @@ function pi_newDraftFromCard(card){
     createdAt: Date.now(), updatedAt: Date.now(), status: 'draft',
     jobCardId: String(card.id), name: card.name || 'עבודה', customer: card.name || '',
     machine: prof ? prof.machine : wantMachine, profileId: prof ? prof.id : '',
-    method: method, pagesIn: pi_cardPages(card) || 32
+    method: method
   };
-  pi_buildSignatures(d);
+  var runs = (card.runs||[]).filter(function(r){ return (parseInt(r.pages)||0) > 0; });
+  if (runs.length){ d.fromRuns = true; pi_buildFromRuns(d, card); }   // מבנה הריצות = מקור האמת
+  else { d.pagesIn = pi_cardPages(card) || 32; pi_buildSignatures(d); }
   return d;
 }
 function pi_openCard(cardId){ pi_close(); try { if (cardId && typeof editCard === 'function') editCard(cardId); } catch(e){} }
@@ -21412,6 +21414,66 @@ function pi_buildSignatures(d){
     start += n;
   });
 }
+// משפחת תבנית לריצה: A+B/8-צבעים = פרפקטור (דו-צדדי) ; מתהפך/4-צבעים = חד-צדדי
+function pi_runFamily(run, fallbackMethod, override){
+  if (override === 'perf' || override === 'p') return override;
+  if (run){
+    if (run.abEnabled) return 'perf';
+    if (run.tumble) return 'p';
+    var m = String(run.machine||'');
+    if (m.indexOf('8') !== -1) return 'perf';
+    if (m.indexOf('4') !== -1) return 'p';
+  }
+  return pi_familyFor(fallbackMethod || 'perfecting');
+}
+// בונה signatures מתוך card.runs[] — כל ריצה בנפרד, עם טווחי עמודים מצטברים ומספרי לוחות רצים
+function pi_buildFromRuns(d, card){
+  var ovr = d.runFamilyOverride || {};
+  d.signatures = []; d.runs = [];
+  var folio = 1, plateNo = 1, sigIdx = 1, blanksTotal = 0;
+  (card.runs||[]).forEach(function(run, ri){
+    var pages = parseInt(run.pages)||0; if (!pages) return;
+    var fam = pi_runFamily(run, d.method, ovr[ri]);
+    var folioStart = folio, sp = pi_splitPages(pages, fam);
+    blanksTotal += sp.blanks;
+    var sigIdxs = [], plateNos = [], paddedPos = 1;
+    sp.sigs.forEach(function(n){
+      var pm = [];
+      for (var k = 0; k < n; k++){ var pp = paddedPos + k; pm.push(pp <= pages ? (folioStart + pp - 1) : null); }
+      var sides = fam === 'perf' ? 2 : 1, plates = [];
+      for (var s = 0; s < sides; s++){ plates.push({ plateNo: plateNo, side: s }); plateNos.push(plateNo); plateNo++; }
+      d.signatures.push({ idx: sigIdx, runIndex: ri, runNum: run.num || (ri+1), template: PI_TPL[fam][n],
+        n: n, family: fam, start: folioStart + paddedPos - 1, pageMap: pm, plates: plates });
+      sigIdxs.push(sigIdx); sigIdx++; paddedPos += n;
+    });
+    d.runs.push({ runIndex: ri, runNum: run.num || (ri+1), pages: pages, copies: parseInt(run.copies)||0,
+      machine: run.machine||'', paper: run.paper||'', tumble: !!run.tumble, ab: !!run.abEnabled,
+      note: run.manualExtra||'', family: fam, folioStart: folioStart, folioEnd: folioStart + pages - 1,
+      plateNos: plateNos, plateCount: plateNos.length, sigIdxs: sigIdxs });
+    folio += pages;
+  });
+  d.pagesIn = folio - 1; d.blanks = blanksTotal; d.plateCount = plateNo - 1;
+}
+// באיזה צד (=לוח) יושב מיקום התבנית local
+function pi_cellSide(tpl, local){
+  if (!tpl) return 0;
+  for (var s = 0; s < tpl.grids.length; s++){ for (var r = 0; r < tpl.grids[s].length; r++){ if (tpl.grids[s][r].indexOf(local) !== -1) return s; } }
+  return 0;
+}
+// בנייה מחדש לפי המקור (ריצות אם קיימות, אחרת פיצול לפי סך עמודים)
+function pi_rebuild(cur){
+  if (cur.fromRuns){ var card = pi_cardById(cur.jobCardId); if (card){ pi_buildFromRuns(cur, card); return; } }
+  pi_rebuild(cur);
+}
+function pi_setRunFamily(runIndex, fam){
+  var cur = window._pi.cur; if (!cur || !cur.fromRuns) return;
+  cur.runFamilyOverride = cur.runFamilyOverride || {};
+  if (cur.runFamilyOverride[runIndex] === fam) return;
+  if (cur._edited && !confirm('שינוי שיטת הריצה יבנה מחדש את הלוחות והחלפות העמודים יאופסו. להמשיך?')){ pi_render(); return; }
+  cur.runFamilyOverride[runIndex] = fam;
+  cur._edited = false; cur.swaps = []; pi_rebuild(cur);
+  window._pi.dirty = true; window._pi.sel = null; pi_render();
+}
 function pi_setMachine(v){
   var cur = window._pi.cur; if (!cur) return;
   if (cur._edited && !confirm('שינוי מכונה יבנה את הקונטרסים מחדש והחלפות העמודים יאופסו. להמשיך?')){ pi_render(); return; }
@@ -21420,7 +21482,7 @@ function pi_setMachine(v){
   cur.profileId = profs.length ? profs[0].id : '';
   var allowed = profs.length ? (profs[0].allowedMethods||[]) : [];
   if (allowed.length && allowed.indexOf(cur.method) === -1) cur.method = allowed[0];
-  cur._edited = false; pi_buildSignatures(cur);
+  cur._edited = false; pi_rebuild(cur);
   window._pi.dirty = true; window._pi.sel = null; pi_render();
 }
 function pi_setProfile(v){
@@ -21430,21 +21492,21 @@ function pi_setProfile(v){
   var allowed = p ? (p.allowedMethods||[]) : [];
   if (allowed.length && allowed.indexOf(cur.method) === -1){
     if (cur._edited && !confirm('הפרופיל לא תומך בשיטה הנוכחית — הקונטרסים ייבנו מחדש. להמשיך?')){ pi_render(); return; }
-    cur.method = allowed[0]; cur._edited = false; pi_buildSignatures(cur);
+    cur.method = allowed[0]; cur._edited = false; pi_rebuild(cur);
   }
   window._pi.dirty = true; pi_render();
 }
 function pi_setMethod(v){
   var cur = window._pi.cur; if (!cur) return;
   if (cur._edited && !confirm('שינוי שיטה יבנה את הקונטרסים מחדש והחלפות העמודים יאופסו. להמשיך?')){ pi_render(); return; }
-  cur.method = v; cur._edited = false; pi_buildSignatures(cur);
+  cur.method = v; cur._edited = false; pi_rebuild(cur);
   window._pi.dirty = true; window._pi.sel = null; pi_render();
 }
 function pi_setPages(v){
   var cur = window._pi.cur; if (!cur) return;
   var n = parseInt(v, 10); if (!n || n < 1 || n > 2000){ pi_render(); return; }
   if (cur._edited && !confirm('שינוי מספר העמודים יבנה את הקונטרסים מחדש והחלפות העמודים יאופסו. להמשיך?')){ pi_render(); return; }
-  cur.pagesIn = n; cur._edited = false; pi_buildSignatures(cur);
+  cur.pagesIn = n; cur._edited = false; pi_rebuild(cur);
   window._pi.dirty = true; window._pi.sel = null; pi_render();
 }
 // החלפת עמודים: לחיצה ראשונה בוחרת, שנייה מחליפה (גם בין קונטרסים)
@@ -21456,6 +21518,13 @@ function pi_cellClick(sigIdx, local){
   var A = cur.signatures[sel.sig], B = cur.signatures[sigIdx];
   var va = A.pageMap[sel.local - 1], vb = B.pageMap[local - 1];
   A.pageMap[sel.local - 1] = vb; B.pageMap[local - 1] = va;
+  // תיעוד ההחלפה: ריצה, קונטרס, לוח מושפע (לכל צד)
+  var T = window._pi.templates || {};
+  var sA = pi_cellSide(T[A.template], sel.local), sB = pi_cellSide(T[B.template], local);
+  cur.swaps = cur.swaps || [];
+  cur.swaps.push({ at: Date.now(),
+    a: { runIndex:A.runIndex, sigIdx:A.idx, local:sel.local, side:sA, plate:(A.plates&&A.plates[sA]?A.plates[sA].plateNo:null), folio:va },
+    b: { runIndex:B.runIndex, sigIdx:B.idx, local:local, side:sB, plate:(B.plates&&B.plates[sB]?B.plates[sB].plateNo:null), folio:vb } });
   cur._edited = true; window._pi.dirty = true; window._pi.sel = null;
   showToast('↔ הוחלפו: עמ\' ' + (va == null ? 'ריק' : va) + ' ↔ עמ\' ' + (vb == null ? 'ריק' : vb));
   pi_render();
@@ -21505,26 +21574,43 @@ function pi_renderBuilder(){
         '<select onchange="pi_setProfile(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
           profs.map(function(p){ return '<option value="' + p.id + '"' + (p.id===cur.profileId?' selected':'') + '>' + escHtml(p.name||p.id) + '</option>'; }).join('') +
         '</select></label>' +
-      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שיטת הדפסה' +
-        '<select onchange="pi_setMethod(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
-          PI_METHODS.filter(function(m){ return !allowed.length || allowed.indexOf(m.id) !== -1; })
-            .map(function(m){ return '<option value="' + m.id + '"' + (m.id===cur.method?' selected':'') + '>' + m.label + '</option>'; }).join('') +
-        '</select></label>' +
-      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">עמודים' +
-        '<input type="number" min="1" value="' + cur.pagesIn + '" onchange="pi_setPages(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
+      (cur.fromRuns ? '' :
+        '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שיטת הדפסה' +
+          '<select onchange="pi_setMethod(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+            PI_METHODS.filter(function(m){ return !allowed.length || allowed.indexOf(m.id) !== -1; })
+              .map(function(m){ return '<option value="' + m.id + '"' + (m.id===cur.method?' selected':'') + '>' + m.label + '</option>'; }).join('') +
+          '</select></label>' +
+        '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">עמודים' +
+          '<input type="number" min="1" value="' + cur.pagesIn + '" onchange="pi_setPages(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>') +
       (prof ? '<span style="font-size:.72rem;color:#6b7280;margin-right:auto">גיליון ' + (prof.sheetW||100) + '×' + (prof.sheetH||70) + ' ס"מ · ' + (prof.colors||'') + ' צבעים</span>' : '') +
     '</div>';
-  if (cur.blanks) html += '<div style="font-size:.78rem;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:7px 10px;margin-bottom:10px">⚠️ ' + cur.pagesIn + ' עמ\' אינם מתחלקים נקי — נוספו ' + cur.blanks + ' עמודים ריקים בסוף.</div>';
+  // סיכום לוחות
+  var totalPlates = 0;
+  cur.signatures.forEach(function(sig){ var t=T[sig.template]; totalPlates += (sig.plates ? sig.plates.length : (t ? t.sides : 1)); });
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:.8rem;margin-bottom:10px">' +
+    (cur.fromRuns ? '<span style="background:#eef2ff;color:#3730a3;border-radius:7px;padding:4px 10px;font-weight:700">🏃 ' + (cur.runs||[]).length + ' ריצות</span>' : '') +
+    '<span style="background:#ede9fe;color:#5b21b6;border-radius:7px;padding:4px 10px;font-weight:700">📄 ' + cur.signatures.length + ' קונטרסים</span>' +
+    '<span style="background:#dcfce7;color:#065f46;border-radius:7px;padding:4px 10px;font-weight:800">🟩 ' + totalPlates + ' לוחות</span>' +
+    (cur.fromRuns ? '<span style="font-size:.72rem;color:#9ca3af;align-self:center">הקונטרסים והלוחות נבנים ממבנה הריצות בכרטיס העבודה</span>' : '') +
+  '</div>';
+  if (cur.blanks) html += '<div style="font-size:.78rem;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:7px 10px;margin-bottom:10px">⚠️ נוספו ' + cur.blanks + ' עמודים ריקים להשלמת קונטרסים.</div>';
   html += '<div style="font-size:.74rem;color:#6b7280;margin-bottom:10px">💡 להחלפת עמודים: לחץ על עמוד אחד ואז על עמוד שני (אפשר גם בין קונטרסים). הבחירה מודגשת בזהב.</div>';
-  var sel = window._pi.sel;
+  var sel = window._pi.sel, lastRun = -1;
   cur.signatures.forEach(function(sig, si){
+    if (cur.fromRuns && sig.runIndex !== lastRun){
+      lastRun = sig.runIndex;
+      var rm = (cur.runs||[]).find(function(r){ return r.runIndex === sig.runIndex; }) || { runIndex:sig.runIndex, runNum:sig.runNum, plateCount:0 };
+      html += pi_runHeaderHtml(cur, rm);
+    }
     var tpl = T[sig.template];
     html += '<div style="border:1px solid #e5e7eb;border-radius:11px;margin-bottom:14px;overflow:hidden">' +
       '<div style="background:#ede9fe;padding:8px 12px;font-weight:800;font-size:.86rem;color:#4c1d95">קונטרס ' + sig.idx +
         ' — ' + pi_tplLabel(sig.template) + ' · עמ\' ' + sig.start + '–' + (sig.start + sig.n - 1) + '</div>';
     if (!tpl){ html += '<div style="padding:12px;color:#b91c1c">תבנית ' + sig.template + ' לא נמצאה</div></div>'; return; }
     tpl.grids.forEach(function(grid, sideIdx){
-      var sideLabel = tpl.sides === 2 ? (sideIdx === 0 ? 'צד קדמי' : 'צד אחורי') : 'פלטה אחת — מתהפך (שני הצדדים מאותה פלטה)';
+      var plateNo = (sig.plates && sig.plates[sideIdx]) ? sig.plates[sideIdx].plateNo : (sig.plates && sig.plates[0] ? sig.plates[0].plateNo : null);
+      var sideName = tpl.sides === 2 ? (sideIdx === 0 ? 'צד קדמי' : 'צד אחורי') : 'מתהפך — שני הצדדים מפלטה אחת';
+      var sideLabel = sideName + (plateNo ? ' · <b style="color:#065f46">לוח ' + plateNo + '</b>' : '');
       html += '<div style="padding:10px 12px">' +
         '<div style="font-size:.74rem;font-weight:700;color:#6b7280;margin-bottom:6px">' + sideLabel + '</div>' +
         '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
@@ -21544,6 +21630,23 @@ function pi_renderBuilder(){
     html += '</div>';
   });
   body.innerHTML = html;
+}
+// כותרת קבוצת ריצה בבונה — מטא-נתונים מהכרטיס + מספר לוחות + מתג שיטה
+function pi_runHeaderHtml(cur, rm){
+  return '<div style="background:#1a1a4e;color:#fff;border-radius:10px;padding:9px 12px;margin:16px 0 8px;display:flex;gap:9px;align-items:center;flex-wrap:wrap">' +
+    '<b style="font-size:.9rem">🏃 ריצה ' + rm.runNum + '</b>' +
+    '<span style="font-size:.78rem;opacity:.85">עמ\' ' + rm.folioStart + '–' + rm.folioEnd + '</span>' +
+    (rm.machine ? '<span style="font-size:.76rem;opacity:.8">🖨️ ' + escHtml(rm.machine) + '</span>' : '') +
+    (rm.copies ? '<span style="font-size:.76rem;opacity:.8">' + rm.copies + ' עותקים</span>' : '') +
+    '<span style="font-size:.76rem;background:rgba(255,255,255,.18);border-radius:6px;padding:2px 8px;font-weight:800">' + (rm.plateCount||0) + ' לוחות</span>' +
+    (cur.status === 'approved' ? '<span style="font-size:.72rem;background:#d1fae5;color:#065f46;border-radius:6px;padding:2px 8px;font-weight:800">✓ מאושר</span>' : '') +
+    '<span style="margin-right:auto;display:flex;gap:4px;align-items:center">' +
+      '<span style="font-size:.72rem;opacity:.75">שיטה:</span>' +
+      '<button onclick="pi_setRunFamily(' + rm.runIndex + ',\'perf\')" style="' + (rm.family==='perf'?'background:#c9a84c;color:#1a1a2e':'background:rgba(255,255,255,.15);color:#fff') + ';border:none;border-radius:6px;padding:3px 9px;font-size:.72rem;font-weight:700;cursor:pointer;font-family:Heebo">פרפקטור</button>' +
+      '<button onclick="pi_setRunFamily(' + rm.runIndex + ',\'p\')" style="' + (rm.family==='p'?'background:#c9a84c;color:#1a1a2e':'background:rgba(255,255,255,.15);color:#fff') + ';border:none;border-radius:6px;padding:3px 9px;font-size:.72rem;font-weight:700;cursor:pointer;font-family:Heebo">מתהפך</button>' +
+    '</span>' +
+    (rm.note ? '<span style="font-size:.72rem;opacity:.8;width:100%;border-top:1px solid rgba(255,255,255,.15);padding-top:5px;margin-top:3px">📝 ' + escHtml(rm.note) + '</span>' : '') +
+  '</div>';
 }
 try { setTimeout(pi_badge, 4000); } catch(e){}
 /* ══ PI:END ══════════════════════════════════════════════════════ */
