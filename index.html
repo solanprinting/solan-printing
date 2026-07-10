@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783691945';
+window.APP_VERSION = '1783692392';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21641,6 +21641,8 @@ function pi_nupFillSheet(){
 var PI_TOOLS = [
   { id:'arrange',   label:'🧮 סדר אוטומטית',  onclick:'pi_manualAutoArrange()', bg:'#4338ca', color:'#fff' },
   { id:'nup',       label:'🧮 מחשבון N-up',    onclick:'pi_nupCalc()',           bg:'#4338ca', color:'#fff' },
+  { id:'gang',      label:'🧮 מחשבון עבודות',  onclick:'pi_gangCalc()',          bg:'#4338ca', color:'#fff' },
+  { id:'clear',     label:'🧹 נקה גיליון',      onclick:'pi_manualClearSheet()',  bg:'#fff5f5', color:'#e11d48' },
   { id:'addall',    label:'➕ הוסף הכל',        onclick:'pi_manualAddAll()',      bg:'#eef2ff', color:'#3730a3' },
   { id:'center',    label:'⊹ מרכז בגיליון',    onclick:'pi_manualCenterAll()',   bg:'#eef2ff', color:'#3730a3' },
   { id:'crop',      label:'✚ צלבי חיתוך',      onclick:'pi_manualToggleCrop()',  bg:'#f0fdf4', color:'#166534' },
@@ -21653,7 +21655,7 @@ var PI_TOOLS = [
 ];
 function pi_favTools(){
   try { var s = JSON.parse(localStorage.getItem('solanPiTools') || 'null'); if (Array.isArray(s)) return s; } catch(e){}
-  return ['arrange','nup','addall','center','crop','cutv','cuth','preflight','sheetfull','prodpdf'];
+  return ['arrange','nup','gang','addall','center','clear','crop','cutv','cuth','preflight','sheetfull','prodpdf'];
 }
 function pi_toggleFavTool(id){
   var f = pi_favTools(), i = f.indexOf(id); if (i >= 0) f.splice(i,1); else f.push(id);
@@ -21718,6 +21720,128 @@ function pi_preflight(){
       C.map(function(c){ return '<div style="display:flex;gap:8px;padding:6px 9px;border:1px solid #f0f0f0;border-radius:8px;margin-bottom:5px;font-size:.82rem;color:' + cl[c.l] + '"><span>' + ic[c.l] + '</span><span style="color:#374151">' + escHtml(c.t) + '</span></div>'; }).join('') +
     '</div></div>';
   document.body.appendChild(m);
+}
+// ── נקה גיליון ──
+function pi_manualClearSheet(){
+  var cur = window._pi.cur; if (!cur || !(cur.items||[]).length){ showToast('הגיליון כבר ריק'); return; }
+  if (!confirm('לנקות את כל הפריטים מהגיליון? (הקבצים ברשימה יישארו)')) return;
+  cur.items = []; (cur.cutBars = cur.cutBars || []).length = 0;
+  pi_selSet([]); cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
+  showToast('🧹 הגיליון נוקה');
+}
+// ── מחשבון עבודות רב-קבצים: כמה מכל קובץ נכנס בגיליון (אופטימלי) + כמה גיליונות לכמות הנדרשת ──
+// אורז חמדני מודרך-יחס: בכל שלב ממקם את הפריט הכי "מפגר" ביחס לכמות שנדרשת ממנו (מאזן בזבוז)
+function pi_gangPack(types, W, H, gap){
+  var n = types.length, placed = []; for (var k=0;k<n;k++) placed.push(0);
+  var boxes = [], cx=0, cy=0, rowH=0, guard=100000;
+  while (guard-- > 0){
+    var best = null;
+    for (var i=0;i<n;i++){
+      var t = types[i], oris = [[t.w,t.h,0]];
+      if (Math.abs(t.w-t.h) > 0.01) oris.push([t.h,t.w,90]);
+      for (var o=0;o<oris.length;o++){
+        var pw=oris[o][0], ph=oris[o][1];
+        if (pw > W+0.001 || ph > H+0.001) continue;
+        var x=cx, y=cy, rh=rowH;
+        if (x>0 && x+pw > W+0.001){ x=0; y=cy+rh+gap; rh=0; }
+        if (y+ph > H+0.001) continue;
+        var ratio = placed[i] / (t.need > 0 ? t.need : 1), area = pw*ph;
+        if (best===null || ratio < best.ratio - 1e-9 || (Math.abs(ratio-best.ratio)<1e-9 && area > best.area)){
+          best = { i:i, w:pw, h:ph, rot:oris[o][2], x:x, y:y, rh:Math.max(rh,ph), nextX:x+pw+gap, ratio:ratio, area:area };
+        }
+      }
+    }
+    if (!best) break;
+    cx = best.x; cy = best.y; rowH = best.rh;
+    boxes.push({ x:cx, y:cy, w:best.w, h:best.h, rot:best.rot, type:best.i });
+    placed[best.i]++; cx = best.nextX;
+  }
+  return { placed:placed, boxes:boxes };
+}
+function pi_gangCompute(rows, g){
+  var gap = g.minGapMm, W = g.printableWidthMm, H = g.printableHeightMm;
+  var valid = (rows||[]).filter(function(r){ return r.w>0 && r.h>0; });
+  var pack = pi_gangPack(valid, W, H, gap), perSheet = pack.placed;
+  var sheets = 0;
+  valid.forEach(function(r,i){ if ((r.need||0)>0 && perSheet[i]>0) sheets = Math.max(sheets, Math.ceil(r.need/perSheet[i])); });
+  if (sheets===0 && valid.length) sheets = 1;
+  var produced = perSheet.map(function(nn){ return nn*sheets; });
+  var used = 0; pack.boxes.forEach(function(b){ used += b.w*b.h; });
+  return { valid:valid, perSheet:perSheet, sheets:sheets, produced:produced, boxes:pack.boxes, util:(W*H>0?Math.round(used/(W*H)*100):0) };
+}
+function pi_gangResultsHtml(res){
+  if (!res.valid.length) return '<div style="color:#9ca3af;font-size:.82rem;padding:6px 0">הזן קובץ אחד לפחות (רוחב×גובה)</div>';
+  var rows = res.valid.map(function(r,i){
+    var per=res.perSheet[i], prod=res.produced[i], need=r.need||0, over=prod-need, warn=(per===0);
+    return '<tr style="border-top:1px solid #e5e7eb">' +
+      '<td style="padding:4px 8px">' + escHtml(r.name||('פריט '+(i+1))) + ' <span style="color:#9ca3af;font-size:.7rem">' + Math.round(r.w) + '×' + Math.round(r.h) + '</span></td>' +
+      '<td style="padding:4px 8px;text-align:center;font-weight:800;color:' + (warn?'#b91c1c':'#4338ca') + '">' + (warn?'לא נכנס':per) + '</td>' +
+      '<td style="padding:4px 8px;text-align:center">' + need + '</td>' +
+      '<td style="padding:4px 8px;text-align:center">' + prod + '</td>' +
+      '<td style="padding:4px 8px;text-align:center;color:' + (over<0?'#b91c1c':'#6b7280') + '">' + (over>=0?'+'+over:over) + '</td>' +
+    '</tr>';
+  }).join('');
+  return '<div style="background:#eef2ff;border-radius:9px;padding:10px 12px;margin:8px 0">' +
+    '<div style="font-size:1.05rem;font-weight:800;color:#4338ca;margin-bottom:6px">📄 ' + res.sheets + ' גיליונות הדפסה · ניצול גיליון ' + res.util + '%</div>' +
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.8rem;min-width:340px"><thead><tr style="color:#6b7280;font-size:.7rem"><th style="text-align:right;padding:2px 8px">קובץ</th><th>לגיליון</th><th>צריך</th><th>יופק</th><th>עודף</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+  '</div>';
+}
+function pi_gangUpdateResults(){ var el=document.getElementById('pi-gang-results'); if (el) el.innerHTML = pi_gangResultsHtml(pi_gangCompute(window._pi._calc.rows, pi_curGeom())); }
+function pi_gangAddRow(){ window._pi._calc.rows.push({ name:'קובץ ' + (window._pi._calc.rows.length+1), w:90, h:50, need:100 }); pi_gangRender(); }
+function pi_gangFromFiles(){
+  var cur=window._pi.cur, added=0;
+  (cur.files||[]).forEach(function(f){ window._pi._calc.rows.push({ name:f.name||'קובץ', w:f.widthMm, h:f.heightMm, need:100 }); added++; });
+  if(!added) showToast('אין קבצים שהעלית'); pi_gangRender();
+}
+function pi_gangFill(){
+  var cur=window._pi.cur, g=pi_curGeom(), res=pi_gangCompute(window._pi._calc.rows, g);
+  if(!res.boxes.length){ showToast('אין מה למלא — בדוק גדלים'); return; }
+  cur.items=cur.items||[];
+  res.boxes.forEach(function(b,i){ var r=res.valid[b.type];
+    cur.items.push({ id:'it'+Date.now()+i+Math.random().toString(36).slice(2,4), fileId:null, empty:true, gangName:(r&&r.name)||'',
+      xMm:Math.round((g.printX+b.x)*10)/10, yMm:Math.round((g.printY+b.y)*10)/10, widthMm:b.w, heightMm:b.h, rotation:b.rot||0, bleedMm:g.defaultBleedMm, copies:1, sourceType:'manual' }); });
+  cur._edited=true; window._pi.dirty=true; pi_selSet([]);
+  var mm=document.getElementById('pi-gang-modal'); if(mm) mm.remove();
+  pi_render();
+  showToast('✓ מולא — '+res.boxes.length+' פריטים · '+res.sheets+' גיליונות');
+}
+function pi_gangRender(){
+  var c = window._pi._calc, m = document.getElementById('pi-gang-modal');
+  if (!m){ m=document.createElement('div'); m.id='pi-gang-modal'; m.className='modal-overlay open'; m.style.zIndex=286; document.body.appendChild(m); }
+  var inp = 'padding:5px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;font-size:.78rem;text-align:center';
+  var rowsHtml = c.rows.map(function(r,i){
+    return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;flex-wrap:wrap">' +
+      '<input value="' + escHtml(r.name||'') + '" oninput="window._pi._calc.rows[' + i + '].name=this.value;pi_gangUpdateResults()" placeholder="שם" style="flex:1;min-width:80px;' + inp + ';text-align:right">' +
+      '<input type="number" min="1" value="' + r.w + '" oninput="window._pi._calc.rows[' + i + '].w=parseFloat(this.value)||0;pi_gangUpdateResults()" title="רוחב מ״מ" style="width:56px;' + inp + '">' +
+      '<span style="color:#9ca3af">×</span>' +
+      '<input type="number" min="1" value="' + r.h + '" oninput="window._pi._calc.rows[' + i + '].h=parseFloat(this.value)||0;pi_gangUpdateResults()" title="גובה מ״מ" style="width:56px;' + inp + '">' +
+      '<span style="font-size:.72rem;color:#777">צריך</span>' +
+      '<input type="number" min="0" value="' + r.need + '" oninput="window._pi._calc.rows[' + i + '].need=parseInt(this.value)||0;pi_gangUpdateResults()" title="כמות נדרשת" style="width:74px;' + inp + '">' +
+      '<button onclick="window._pi._calc.rows.splice(' + i + ',1);pi_gangRender()" title="הסר" style="border:none;background:none;color:#b91c1c;cursor:pointer;font-size:.9rem">🗑</button>' +
+    '</div>';
+  }).join('');
+  m.innerHTML = '<div class="modal-box" style="max-width:660px;width:95vw;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div class="modal-header"><span>🧮 מחשבון עבודות — כמה נכנס וכמה גיליונות</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:14px 18px;overflow:auto">' +
+      '<div style="font-size:.78rem;color:#6b7280;margin-bottom:8px">לכל קובץ: שם · רוחב×גובה (מ״מ) · כמה סה״כ צריך. המערכת תחשב כמה מכל אחד נכנס בגיליון אופטימלית וכמה גיליונות צריך.</div>' +
+      rowsHtml +
+      '<div style="display:flex;gap:6px;margin:8px 0 4px;flex-wrap:wrap">' +
+        '<button onclick="pi_gangAddRow()" style="padding:6px 12px;border:1px solid #c7d2fe;border-radius:7px;background:#fff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">➕ הוסף שורה</button>' +
+        '<button onclick="pi_gangFromFiles()" style="padding:6px 12px;border:1px solid #99f6e4;border-radius:7px;background:#f0fdfa;color:#0f766e;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">➕ מהקבצים שהעליתי</button>' +
+      '</div>' +
+      '<div id="pi-gang-results"></div>' +
+      '<button onclick="pi_gangFill()" style="width:100%;padding:10px;border:none;border-radius:9px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;margin-top:6px">▦ מלא גיליון בסידור זה</button>' +
+    '</div></div>';
+  pi_gangUpdateResults();
+}
+function pi_gangCalc(){
+  window._pi._calc = window._pi._calc || { rows: [] };
+  if (!window._pi._calc.rows.length){
+    var files = (window._pi.cur.files||[]);
+    window._pi._calc.rows = files.length ? files.map(function(f){ return { name:f.name||'קובץ', w:f.widthMm, h:f.heightMm, need:100 }; })
+      : [{ name:'קובץ 1', w:90, h:50, need:1000 }];
+  }
+  pi_gangRender();
 }
 // גרירת קבצים אל חלון האימפוזיציה (מאזין פעם אחת על pi-body)
 function pi_manualBindDrop(){
@@ -21815,7 +21939,7 @@ function pi_manualRenderItems(cur){
   var files = {}; (cur.files||[]).forEach(function(f){ files[f.id] = f; });
   return (cur.items||[]).map(function(it){
     var f = files[it.fileId];
-    return Object.assign({}, it, { key: String(it.id), label: (f ? f.name : (it.empty ? 'ריק' : 'קובץ?')), pageNumber: null });
+    return Object.assign({}, it, { key: String(it.id), label: (f ? f.name : (it.gangName || (it.empty ? 'ריק' : 'קובץ?'))), pageNumber: null });
   });
 }
 // ── Phase 7 — Auto Arrange בסיסי (אריזת מדפים / shelf-packing, יציב) ──
@@ -22122,7 +22246,7 @@ function pi_showFeatures(){
     'ולידציה בזמן אמת (חריגה/גריפר/חפיפה/מרווח/בליד)','ייצוא PDF דפוס — הטמעת וקטור, boxes מדויקים (Media/Trim/Bleed/Crop), סימנים ב-CMYK',
     'קדמי/אחורי + מספר קונטרסים/גיליונות','מעבודת הלקוח → ריצות מסודרות + פרופר פרוס לאפוגי','קישור העלאה פר-כרטיס',
     'מד התקדמות ליצירת PDF','מסך מלא + אפליקציית מחשב','אימות קיפול (Round-trip)',
-    'מחשבון N-up (כמה נכנס בגיליון) + מילוי אוטומטי','🔎 Preflight — בדיקת מוכנות (מיקום/בליד/תוכן/ניצול)','התאמת חלון — בחירת כלים מועדפים (⚙️)'
+    'מחשבון N-up (כמה נכנס בגיליון) + מילוי אוטומטי','מחשבון עבודות רב-קבצים (כמות נדרשת → גיליונות + gang אופטימלי)','נקה גיליון','🔎 Preflight — בדיקת מוכנות (מיקום/בליד/תוכן/ניצול)','התאמת חלון — בחירת כלים מועדפים (⚙️)'
   ];
   var plannedCats = [
     { c:'🗂️ סידור ואימפוזיציה', items:[
