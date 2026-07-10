@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783703506';
+window.APP_VERSION = '1783703737';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22174,10 +22174,42 @@ function pi_manualRenderItems(cur){
     return Object.assign({}, it, { key: String(it.id), label: (f ? f.name : (it.gangName || (it.empty ? 'ריק' : 'קובץ?'))), pageNumber: null });
   });
 }
-// ── Phase 7 — Auto Arrange בסיסי (אריזת מדפים / shelf-packing, יציב) ──
-// ממיין גדול→קטן, ממקם בשורות משמאל-לימין בתוך אזור ההדפסה, שומר minGap, בלי גריפר/חריגה/חפיפה,
-// ומנסה סיבוב 90° אם משפר התאמה. פריט שלא נכנס → מסומן unplaced (עצירה + אזהרה).
+// ── Phase 7 — Auto Arrange (בוחר בין אריזת-רשת אופטימלית לפריטים זהים לבין shelf-packing לגדלים מעורבים) ──
+// שומר minGap, בלי גריפר/חריגה/חפיפה, מנסה סיבוב 90°. פריט שלא נכנס → unplaced.
 function pi_autoArrange(items, g){
+  var cands = [];
+  var grid = pi_arrangeUniformGrid(items, g);   // פריטים בגודל זהה → רשת אופטימלית (4×2 וכו')
+  if (grid) cands.push(grid);
+  cands.push(pi_arrangeShelf(items, g));         // גדלים מעורבים / גיבוי
+  // בוחר את התוצאה שמציבה הכי הרבה פריטים; שוויון → ניצול שטח גבוה יותר
+  cands.sort(function(a, b){
+    var pa = Object.keys(a.res).length, pb = Object.keys(b.res).length;
+    if (pb !== pa) return pb - pa;
+    return pi_arrangeArea(b) - pi_arrangeArea(a);
+  });
+  return cands[0];
+}
+function pi_arrangeArea(r){ var s = 0; Object.keys(r.res).forEach(function(k){ var b = r.res[k]; s += b.widthMm * b.heightMm; }); return s; }
+// אריזת רשת אופטימלית כשכל הפריטים באותו גודל — משתמש ב-pi_nupFit (מנסה שני הכיוונים + רצועת סיבוב)
+function pi_arrangeUniformGrid(items, g){
+  if (!items.length) return null;
+  var w0 = items[0].widthMm, h0 = items[0].heightMm;
+  var uniform = items.every(function(it){ return Math.abs(it.widthMm - w0) < 0.5 && Math.abs(it.heightMm - h0) < 0.5; });
+  if (!uniform) return null;
+  var fit = pi_nupFit(w0, h0, g.printableWidthMm, g.printableHeightMm, g.minGapMm);
+  if (!fit.count) return null;
+  var res = {}, unplaced = [];
+  items.forEach(function(it, i){
+    if (i < fit.boxes.length){
+      var b = fit.boxes[i], sameFootprint = Math.abs(b.w - w0) < 0.5;
+      res[String(it.id)] = { xMm: g.printX + b.x, yMm: g.printY + b.y, widthMm: b.w, heightMm: b.h,
+        rotation: sameFootprint ? (it.rotation || 0) : (((it.rotation || 0) + 90) % 360) };
+    } else unplaced.push(String(it.id));
+  });
+  return { res: res, unplaced: unplaced };
+}
+// אריזת מדפים (shelf-packing): גדול→קטן, שורות משמאל-לימין, מנסה סיבוב 90°
+function pi_arrangeShelf(items, g){
   var gap = g.minGapMm, x0 = g.printX, y0 = g.printY, W = g.printableWidthMm, H = g.printableHeightMm, E = 0.01;
   var work = items.map(function(it){ return { id: String(it.id), w: it.widthMm, h: it.heightMm, rot: it.rotation || 0 }; });
   work.sort(function(a, b){ var aa = a.w*a.h, ab = b.w*b.h; if (ab !== aa) return ab - aa; return Math.max(b.w,b.h) - Math.max(a.w,a.h); });
