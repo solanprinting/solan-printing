@@ -429,6 +429,8 @@ async function buildImpositionPdf(spec){
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bleed = spec.bleedMm!=null?spec.bleedMm:3, mark = spec.markMm!=null?spec.markMm:12;
+  // מצב צלבי חיתוך: 'item' (פר-פריט) · 'perimeter' (רק היקף) · 'off' (בלי). כריכייה → תמיד היקף. תאימות לאחור מ-itemCropMarks.
+  const markMode = spec.bindingMode ? 'perimeter' : (spec.perimeterMarks ? 'perimeter' : (spec.markMode || (spec.itemCropMarks===false ? 'off' : 'item')));
   const REG = cmyk(1,1,1,1);                    // צבע רגיסטר (כל הפלטות)
   const srcCache = {}, embCache = {};
   const onP = (typeof spec.onProgress === 'function') ? spec.onProgress : function(){};
@@ -471,8 +473,8 @@ async function buildImpositionPdf(spec){
         const lbl = _ascii(it.label) || ('#'+(it.n||''));
         if(lbl) page.drawText(lbl, { x:rx+3, y:ry+it.hMm*MM-11, size:9, font, color:cmyk(0,0,0,1) });
       }
-      // crop marks לפינות הפריט (רגיסטר) — קצרים כדי לא להתנגש; ניתן לכיבוי. במצב כריכייה — כבוי (רק היקף)
-      if (spec.itemCropMarks !== false && !spec.bindingMode){
+      // crop marks לפינות הפריט (רגיסטר) — קצרים כדי לא להתנגש. רק במצב 'item'. אפשר גם לכבות ידנית לפריט (it.noMarks) או לכפות (it.marks)
+      if ((it.marks === true) || (markMode === 'item' && it.noMarks !== true)){
         const ix0=(ox+it.xMm)*MM, iy0=(oy+(trimH-it.yMm-it.hMm))*MM, ix1=ix0+it.wMm*MM, iy1=iy0+it.hMm*MM, L=2.2*MM, G=0.6*MM;
         _cropTick(page, ix0, iy1, -1, 1, L, G, REG); _cropTick(page, ix1, iy1, 1, 1, L, G, REG);
         _cropTick(page, ix0, iy0, -1, -1, L, G, REG); _cropTick(page, ix1, iy0, 1, -1, L, G, REG);
@@ -480,13 +482,13 @@ async function buildImpositionPdf(spec){
     }
     // ── סימני גיליון: crop לפינות ה-trim + רגיסטר באמצע הצדדים + color bar + slug ──
     const tx0=ox*MM, ty0=oy*MM, tx1=(ox+trimW)*MM, ty1=(oy+trimH)*MM, CL=4*MM, CG=(bleed+1)*MM;
-    if (spec.bindingMode){
-      // כריכייה: צלבי חיתוך רק בהיקף (בכל גבול-עמוד שנוגע בקצה החיצוני), כלום בין העמודים
+    if (markMode === 'perimeter'){
+      // כריכייה/היקף: צלבי חיתוך רק בהיקף (בכל גבול-עמוד שנוגע בקצה החיצוני), כלום בין העמודים
       _bindingPerimeterMarks(page, pg.items||[], ox, oy, trimH, bleed, REG);
-    } else {
+    } else if (markMode === 'item'){
       _cropTick(page, tx0, ty1, -1, 1, CL, CG, REG); _cropTick(page, tx1, ty1, 1, 1, CL, CG, REG);
       _cropTick(page, tx0, ty0, -1, -1, CL, CG, REG); _cropTick(page, tx1, ty0, 1, -1, CL, CG, REG);
-    }
+    }   // 'off' → בלי צלבי חיתוך כלל (סימני רגיסטר + color bar עדיין נמשכים)
     const rr=2.2*MM, mm2=(mark/2)*MM;
     _regMark(page, (ox+trimW/2)*MM, ty1+mm2, rr, REG); _regMark(page, (ox+trimW/2)*MM, ty0-mm2, rr, REG);
     _regMark(page, tx0-mm2, (oy+trimH/2)*MM, rr, REG); _regMark(page, tx1+mm2, (oy+trimH/2)*MM, rr, REG);
