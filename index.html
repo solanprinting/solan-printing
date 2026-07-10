@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783694745';
+window.APP_VERSION = '1783695027';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -17264,6 +17264,21 @@ async function _fbPollAll() {
       }
       window._fbSnapshot.customerStock = JSON.stringify(customerStock);
     }
+    // גדלי גיליון קבועים לאימפוזיציה — משותפים לכל המשתמשים
+    var pshv = await _pollGet('piSheets');
+    if (pshv !== null && !(_pend.piSheets > 0)) {
+      var _psArr = Array.isArray(pshv) ? pshv : Object.values(pshv);
+      _psArr = _psArr.filter(function(x){ return x && x.w>0 && x.h>0; });
+      if (_psArr.length){
+        var _psJson = JSON.stringify(_psArr);
+        if (window._fbSnapshot.piSheets !== _psJson){
+          window._piSheetsShared = _psArr;
+          try { localStorage.setItem('solanPiSheets', _psJson); } catch(e){}
+          window._fbSnapshot.piSheets = _psJson;
+          if (window._pi && window._pi.view === 'manual' && document.getElementById('pi-body')) pi_render();
+        }
+      }
+    }
     // עבודות שבועיות
     var wjv = await _pollGet('weeklyJobs');
     if (wjv !== null && !(_pend.weeklyJobs > 0)) {
@@ -23424,13 +23439,25 @@ var PI_SHEETS_DEFAULT = [
   { name:'B1 70.7×100', w:707, h:1000 }, { name:'B2 50×70.7', w:500, h:707 },
   { name:'A3 29.7×42', w:297, h:420 }, { name:'A2 42×59.4', w:420, h:594 }, { name:'A4 21×29.7', w:210, h:297 }
 ];
-// קורא את רשימת הגדלים הערוכה (או ברירת המחדל)
+// קורא את רשימת הגדלים המשותפת (Firebase → cache מקומי → ברירת מחדל)
 function pi_sheets(){
+  var sh = window._piSheetsShared;
+  if (Array.isArray(sh) && sh.length) return sh.filter(function(x){ return x && x.w>0 && x.h>0; });
   try { var s = JSON.parse(localStorage.getItem('solanPiSheets') || 'null');
     if (Array.isArray(s) && s.length) return s.filter(function(x){ return x && x.w>0 && x.h>0; }); } catch(e){}
   return PI_SHEETS_DEFAULT.slice();
 }
-function pi_saveSheets(list){ try { localStorage.setItem('solanPiSheets', JSON.stringify(list)); } catch(e){} }
+// שמירה: משותף לכל המשתמשים — דוחף ל-Firebase (וגם cache מקומי). דחיפה רק בשמירה מפורשת → אין דריסה משגה.
+function pi_saveSheets(list){
+  window._piSheetsShared = list.slice();
+  try { localStorage.setItem('solanPiSheets', JSON.stringify(list)); } catch(e){}
+  if (window._fbPut){
+    var json = JSON.stringify(list);
+    window._fbSnapshot = window._fbSnapshot || {}; window._fbSnapshot.piSheets = json;
+    window._fbPendingPuts = window._fbPendingPuts || {}; window._fbPendingPuts.piSheets = (window._fbPendingPuts.piSheets||0)+1;
+    window._fbPut('piSheets', list).then(function(){ window._fbPendingPuts.piSheets = Math.max(0,(window._fbPendingPuts.piSheets||1)-1); });
+  }
+}
 // חלון עריכת גדלי גיליון קבועים
 function pi_editSheets(){
   window._pi._sheetsEdit = pi_sheets().map(function(s){ return { name:s.name, w:s.w, h:s.h }; });
@@ -23453,12 +23480,12 @@ function pi_renderEditSheets(){
   m.innerHTML = '<div class="modal-box" style="max-width:520px;width:95vw;max-height:88vh;display:flex;flex-direction:column">' +
     '<div class="modal-header"><span>📐 עריכת גדלי גיליון קבועים</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
     '<div style="padding:14px 18px;overflow:auto">' +
-      '<div style="font-size:.78rem;color:#6b7280;margin-bottom:10px">הגדלים שתגדיר כאן יופיעו בבורר גודל הגיליון ובהמלצות המחשבונים. מידות במ״מ (70×100 ס״מ = 700×1000 מ״מ).</div>' +
+      '<div style="font-size:.78rem;color:#6b7280;margin-bottom:10px">🌐 הגדלים משותפים לכל מי שמשתמש באימפוזיציה. יופיעו בבורר גודל הגיליון ובהמלצות המחשבונים. מידות במ״מ (70×100 ס״מ = 700×1000 מ״מ).</div>' +
       '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:.7rem;color:#9ca3af"><span style="flex:1">שם</span><span style="width:64px;text-align:center">רוחב</span><span style="width:14px"></span><span style="width:64px;text-align:center">גובה</span><span style="width:56px"></span></div>' +
       rows +
       '<div style="display:flex;gap:6px;margin:8px 0 4px;flex-wrap:wrap">' +
         '<button onclick="window._pi._sheetsEdit.push({name:\'חדש\',w:700,h:1000});pi_renderEditSheets()" style="padding:6px 12px;border:1px solid #c7d2fe;border-radius:7px;background:#fff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">➕ הוסף גודל</button>' +
-        '<button onclick="if(confirm(\'לשחזר את רשימת ברירת המחדל?\')){localStorage.removeItem(\'solanPiSheets\');pi_editSheets();}" style="padding:6px 12px;border:1px solid #e5e7eb;border-radius:7px;background:#fff;color:#6b7280;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">↺ ברירת מחדל</button>' +
+        '<button onclick="if(confirm(\'לטעון את רשימת ברירת המחדל? (יחליף את מה שמוצג; נשמר בלחיצה על שמור)\')){window._pi._sheetsEdit=PI_SHEETS_DEFAULT.map(function(s){return {name:s.name,w:s.w,h:s.h};});pi_renderEditSheets();}" style="padding:6px 12px;border:1px solid #e5e7eb;border-radius:7px;background:#fff;color:#6b7280;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">↺ ברירת מחדל</button>' +
       '</div>' +
     '</div>' +
     '<div style="padding:12px 18px;border-top:1px solid #eee;display:flex;gap:8px">' +
