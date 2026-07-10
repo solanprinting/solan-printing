@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783702841';
+window.APP_VERSION = '1783703117';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23619,6 +23619,7 @@ function pi_showGrid(){ window._pi.view = 'builder'; window._pi.canvasSel = null
 function pi_curGeom(){
   var cur = window._pi.cur; var prof = cur && window._pi.profiles[cur.profileId]; var g = pi_profileGeom(prof || {});
   if (cur && cur.bleedMm != null) g.defaultBleedMm = Math.max(0, cur.bleedMm);
+  if (g.defaultBleedMm <= 0) g.minGapMm = 0;   // בלי בליד → אין צורך במרווח; הפריטים יכולים להיצמד אחד לשני
   if (cur && cur.sheetWmm > 0 && cur.sheetHmm > 0){ g.sheetWidthMm = cur.sheetWmm; g.sheetHeightMm = cur.sheetHmm; }   // גודל גיליון נבחר
   var mm = (cur && cur.marginMm != null) ? Math.max(0, cur.marginMm) : g.marginLeftMm;   // שוליים
   g.marginTopMm = g.marginBottomMm = g.marginLeftMm = g.marginRightMm = mm;
@@ -23721,7 +23722,9 @@ function pi_manualSetBleed(v){
   cur.bleedMm = b;
   (cur.items||[]).forEach(function(it){ it.bleedMm = b; });
   (cur.files||[]).forEach(function(f){ f.bleedMm = b; });
-  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null;
+  // הבליד קובע את המרווח בין הפריטים (0=נצמדים) → סדר מחדש כדי שהצמידות תיכנס לתוקף מיד
+  if ((cur.items||[]).length) pi_manualAutoArrange(); else pi_render();
 }
 function pi_pgLabel(it){ return (it.label != null) ? String(it.label) : ((it.pageNumber != null) ? String(it.pageNumber) : 'ריק'); }
 function pi_itemKey(sig, side, r, c){ return sig.idx + '_' + side + '_' + r + '_' + c; }
