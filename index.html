@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783710402';
+window.APP_VERSION = '1783711015';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21478,6 +21478,27 @@ function pi_detectSizeMm(file){
     } catch(e){ resolve({}); }
   });
 }
+// זיהוי בליד לקובץ אימפוזיציה — קורא TrimBox/BleedBox/MediaBox דרך pdfStructReport (iframe) ושומר על הקובץ.
+// Stage 4: זיהוי בלבד (בלי הוספה אוטומטית). Stage 3 משתמש ב-f.srcBleedMm כדי למקם צלבים על ה-trim.
+function pi_detectFileBleed(f, bytes){
+  if (!f) return Promise.resolve(null);
+  var frame = document.getElementById('pi-tpl-frame');
+  var rep = frame && frame.contentWindow && frame.contentWindow.pdfStructReport;
+  var isImg = /^image\//.test((f.type||'')) || /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(f.name||'') || /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(f.sourceFileUrl||'');
+  if (isImg){ f.bleedChecked = true; f.srcBleedMm = 0; f.hasBleed = null; return Promise.resolve(f); }   // תמונה — אי אפשר לזהות בליד
+  if (!rep){ return Promise.resolve(null); }   // מנוע ה-PDF עוד לא נטען — ננסה שוב מאוחר יותר
+  var getBytes = bytes ? Promise.resolve(bytes)
+    : (f.sourceFileUrl ? fetch(f.sourceFileUrl).then(function(r){ return r.arrayBuffer(); }) : Promise.reject(new Error('no source')));
+  return getBytes.then(function(buf){ return rep(buf); }).then(function(st){
+    if (!st || !st.pages || !st.pages.length) return null;
+    var p = st.pages[0];
+    var mediaB = (p.mediaWmm > p.trimWmm) ? Math.round((p.mediaWmm - p.trimWmm)/2*10)/10 : 0;
+    f.srcBleedMm = Math.max(0, p.bleedMm||0, mediaB);   // בליד = הגדול מבין BleedBox / MediaBox מעבר ל-trim
+    f.hasBleed = f.srcBleedMm >= 1;
+    f.trimWmm = p.trimWmm; f.trimHmm = p.trimHmm; f.bleedChecked = true;
+    return f;
+  }).catch(function(){ return null; });
+}
 // מפתח מיון לפי שם-בסיס + מספר עמוד (קבצים "עלון-1","עלון-2" יסתדרו לפי סדר העמוד)
 function pi_fileSortKey(name){
   var n = String(name||'').replace(/\.[a-z0-9]+$/i,'');
@@ -21535,12 +21556,15 @@ function pi_manualUploadFiles(fileList){
     pi_detectSizeMm(file).then(function(dim){
       return _uploadProofToStorage(path, file, null).then(function(url){
         cur.files = cur.files || [];
-        cur.files.push({ id: fid, name:file.name||'קובץ',
-          widthMm: dim.wMm||100, heightMm: dim.hMm||100, quantity:1, bleedMm:g.defaultBleedMm, sourceFileUrl:url });
+        var nf = { id: fid, name:file.name||'קובץ',
+          widthMm: dim.wMm||100, heightMm: dim.hMm||100, quantity:1, bleedMm:g.defaultBleedMm, sourceFileUrl:url };
+        cur.files.push(nf);
         cur.files.sort(pi_fileCompare);   // שמירה על סדר לפי שם+עמוד גם כשההעלאות מסתיימות לא בסדר
         cur._edited = true; window._pi.dirty = true; done++;
         showToast('✓ הועלה ' + done + '/' + total + ' · ' + (file.name||''));
         pi_render();
+        // Stage 4 — זיהוי בליד מהקובץ עצמו (לא חוסם את ההעלאה)
+        file.arrayBuffer().then(function(buf){ nf.type = file.type; return pi_detectFileBleed(nf, buf); }).then(function(r){ if (r) pi_render(); });
       });
     }).catch(function(e){ console.error('upload failed', e); showToast('❌ העלאה נכשלה: ' + (file.name||'')); });
   });
@@ -22604,8 +22628,23 @@ function pi_exportProductionPdf(){
   var frame = document.getElementById('pi-tpl-frame');
   var gen = frame && frame.contentWindow && frame.contentWindow.buildImpositionPdf;
   if (!gen){ showToast('⏳ מנוע ה-PDF נטען — נסה שוב בעוד רגע'); pi_loadTemplates(); return; }
-  var g = pi_curGeom();
   var isManual = (cur.sourceType === 'manual' || cur.source === 'manual');
+  // Stage 4 — לפני הפקה במסלול הידני: לוודא שזיהינו בליד לכל הקבצים + להתריע על חוסר בליד
+  if (isManual){
+    var undet = (cur.files||[]).filter(function(f){ return !f.bleedChecked && f.sourceFileUrl; });
+    if (undet.length){
+      showToast('🔎 בודק בליד ב-' + undet.length + ' קבצים…');
+      Promise.all(undet.map(function(f){ return pi_detectFileBleed(f); })).then(function(){ pi_render(); pi_exportProductionPdf(); });
+      return;
+    }
+    var noBleed = (cur.files||[]).filter(function(f){ return f.bleedChecked && f.hasBleed === false && (cur.items||[]).some(function(it){ return it.fileId === f.id; }); });
+    if (noBleed.length && !cur._bleedWarned){
+      var names = noBleed.map(function(f){ return f.name || 'קובץ'; }).slice(0,4).join(', ');
+      if (!confirm('⚠️ זוהו ' + noBleed.length + ' קבצים ללא בליד (' + names + (noBleed.length>4?' …':'') + ').\nהמערכת לא מוסיפה בליד אוטומטית — הגרפיקה לא תגלוש מעבר לקו החיתוך.\nלהמשיך בכל זאת?')) return;
+      cur._bleedWarned = true;   // לא לשאול שוב באותה עבודה
+    }
+  }
+  var g = pi_curGeom();
   var spec = { jobName: (cur.name || 'Job'), bleedMm: g.defaultBleedMm, markMm: 12, pages: [],
     markMode: (cur.cropMode || (cur.cropMarks === false ? 'off' : 'item')),   // 'item' | 'perimeter' | 'off'
     cutBars: (cur.cutBars||[]),
@@ -22613,8 +22652,9 @@ function pi_exportProductionPdf(){
   if (isManual){
     var items = pi_manualRenderItems(cur).map(function(it, i){
       var f = (cur.files||[]).find(function(x){ return x.id === it.fileId; });
+      var srcB = (f && f.srcBleedMm != null) ? f.srcBleedMm : 0;   // Stage 3 — צלבים על ה-trim לפי הבליד האמיתי של הקובץ
       return { srcUrl: (f && f.sourceFileUrl) || '', srcPage: 1, xMm: it.xMm, yMm: it.yMm,
-        wMm: it.widthMm, hMm: it.heightMm, rotation: it.rotation, bleedMm: it.bleedMm, label: it.label, n: i+1,
+        wMm: it.widthMm, hMm: it.heightMm, rotation: it.rotation, bleedMm: srcB, label: it.label, n: i+1,
         marks: it.marks === true ? true : undefined, noMarks: it.noMarks === true ? true : undefined };
     });
     spec.pages.push({ name: 'Sheet1_Front', sheetWmm: g.sheetWidthMm, sheetHmm: g.sheetHeightMm, items: items });
@@ -22988,7 +23028,14 @@ function pi_renderManualWS(){
           (f.preflight ? '<span title="ציון Preflight" style="flex:none;font-size:.66rem;font-weight:800;color:' + (f.preflight.block?'#b91c1c':(f.preflight.warn||f.preflight.fix?'#b45309':'#065f46')) + '">' + f.preflight.score + '</span>' : '') +
           '<button onclick="pi_manualDelFile(\'' + f.id + '\')" title="מחק קובץ" style="flex:none;border:none;background:none;color:#b91c1c;cursor:pointer;font-size:.85rem">🗑</button>' +
         '</div>' +
-        '<div style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:' + (green?'#059669':'#6b7280') + ';margin:3px 0 5px">' +
+        '<div style="margin:3px 0 4px">' +
+          (f.bleedChecked
+            ? (f.hasBleed === true ? '<span style="font-size:.66rem;font-weight:800;color:#065f46;background:#dcfce7;border-radius:5px;padding:1px 7px">✓ בליד ' + f.srcBleedMm + ' מ״מ</span>'
+              : (f.hasBleed === false ? '<span title="הקובץ בלי בליד — הגרפיקה לא תגלוש מעבר לחיתוך. אין הוספה אוטומטית." style="font-size:.66rem;font-weight:800;color:#b45309;background:#fef3c7;border-radius:5px;padding:1px 7px">⚠️ אין בליד</span>'
+                : '<span style="font-size:.66rem;color:#9ca3af">בליד: תמונה — לא נבדק</span>'))
+            : '<span style="font-size:.66rem;color:#9ca3af">בליד: בבדיקה…</span>') +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:' + (green?'#059669':'#6b7280') + ';margin:0 0 5px">' +
           '<span>' + f.widthMm + '×' + f.heightMm + ' מ״מ</span>' +
           '<span style="margin-right:auto">כמות בגיליון</span>' +
           '<input type="number" min="0" value="' + (used || f.quantity || 1) + '" onchange="pi_manualSetFileQty(\'' + f.id + '\',this.value)" title="כמה עותקים מהקובץ יהיו על הגיליון (המערכת תוסיף/תסיר ותסדר)" style="width:52px;padding:3px 5px;border:1px solid #94a3b8;border-radius:5px;font-family:Heebo;text-align:center;font-size:.76rem;font-weight:700">' +
