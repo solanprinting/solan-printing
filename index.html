@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783687133';
+window.APP_VERSION = '1783687834';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1332,6 +1332,10 @@ window._fbSnapshot = {};
         <button class="btn btn-tpl" onclick="openApplyTemplateModal()"
           style="font-size:.82rem;background:#f0f4ff;color:#2d3561;border:1.5px solid #c0ccf0;border-radius:8px;padding:5px 14px;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">
           🗂️ בחר מתבנית
+        </button>
+        <button id="card-uplink-btn" onclick="pi_cardUploadLink(window._editingCardId)"
+          style="display:none;font-size:.82rem;background:#f0fdfa;color:#0f766e;border:1.5px solid #5eead4;border-radius:8px;padding:5px 14px;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">
+          🔗 קישור העלאה ללקוח
         </button>
         <button class="btn btn-clear" onclick="clearForm()" style="margin-right:auto">נקה</button>
       </div>
@@ -6422,6 +6426,9 @@ function editCard(id) {
   if (!c) return;
   _recordCardView(c);
   clearForm();
+  window._editingCardId = id;
+  var _upBtn = document.getElementById('card-uplink-btn');
+  if (_upBtn) _upBtn.style.display = (window.PI_ENABLED && typeof pi_isAdmin === 'function' && pi_isAdmin()) ? '' : 'none';
   // fill all fields
   var setVal = function(elId, val){ var e=document.getElementById(elId); if(e) e.value=val||''; };
   setVal('f-name',          c.name);
@@ -6486,6 +6493,8 @@ function editCard(id) {
   window.scrollTo(0,0);
 }
 function clearForm() {
+  window._editingCardId = null;
+  var _upBtn = document.getElementById('card-uplink-btn'); if (_upBtn) _upBtn.style.display = 'none';
   ['f-name','f-type','f-order-date','f-delivery-date','f-copies','f-pages','f-pages-note','f-size','f-paper','f-notes','f-internal-notes','f-machine','f-placement-details']
     .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   document.querySelectorAll('input[name="color"]').forEach(r=>r.checked=false);
@@ -21714,16 +21723,13 @@ function pi_exportProductionPdf(){
     });
   }
   if (!spec.pages.length || !spec.pages.some(function(p){ return p.items.length; })){ showToast('אין פריטים לייצוא'); return; }
-  showToast('⏳ מייצר PDF דפוס...');
+  spec.onProgress = pi_progressUpdate;
+  pi_progressShow('מייצר PDF דפוס');
   Promise.resolve().then(function(){ return gen(spec); }).then(function(bytes){
-    var blob = new Blob([bytes], { type: 'application/pdf' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a'); a.href = url;
-    a.download = String(cur.name || 'Job').replace(/[^\w-]+/g,'_').slice(0,24) + '_Imposition.pdf';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+    pi_progressClose();
+    pi_downloadBytes(bytes, String(cur.name || 'Job').replace(/[^\w-]+/g,'_').slice(0,24) + '_Imposition.pdf', 'application/pdf');
     showToast('✓ PDF דפוס הופק · ' + spec.pages.length + ' צדדים');
-  }).catch(function(e){ console.error('production pdf failed', e); showToast('❌ יצירת PDF נכשלה: ' + (e && e.message || e)); });
+  }).catch(function(e){ pi_progressClose(); console.error('production pdf failed', e); showToast('❌ יצירת PDF נכשלה: ' + (e && e.message || e)); });
 }
 // ── Phase 10 — עבודות לקוח מאושרות → ריצות + פרופר פרוס לאפוגי (מונחה customerProofs) ──
 function pi_safeName(s){ return String(s||'Job').replace(/[^\w֐-׿-]+/g,'_').slice(0,30) || 'Job'; }
@@ -21733,6 +21739,26 @@ function pi_downloadBytes(bytes, name, type){
   var a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(function(){ URL.revokeObjectURL(url); }, 6000);
 }
+// מד התקדמות ליצירת PDF
+function pi_progressShow(title){
+  var m = document.getElementById('pi-progress');
+  if (!m){ m = document.createElement('div'); m.id = 'pi-progress'; document.body.appendChild(m); }
+  m.style.cssText = 'position:fixed;inset:0;z-index:100003;background:rgba(15,23,42,.72);display:flex;align-items:center;justify-content:center;font-family:Heebo,sans-serif;direction:rtl';
+  m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:22px 26px;width:360px;max-width:92vw;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.4)">' +
+    '<div style="font-size:2.1rem">🏭</div>' +
+    '<div style="font-weight:800;font-size:1rem;margin:6px 0 12px">' + escHtml(title || 'מייצר PDF…') + '</div>' +
+    '<div style="background:#e5e7eb;border-radius:10px;height:16px;overflow:hidden"><div id="pi-progress-bar" style="height:100%;width:0%;background:#0f766e;transition:width .25s"></div></div>' +
+    '<div id="pi-progress-label" style="font-size:.82rem;color:#6b7280;margin-top:9px">מתחיל…</div>' +
+  '</div>';
+  m.style.display = 'flex';
+}
+function pi_progressUpdate(done, total, label){
+  var bar = document.getElementById('pi-progress-bar'), lb = document.getElementById('pi-progress-label');
+  var pct = total > 0 ? Math.round(done/total*100) : 0;
+  if (bar) bar.style.width = pct + '%';
+  if (lb) lb.textContent = (label || '') + ' · ' + pct + '%';
+}
+function pi_progressClose(){ var m = document.getElementById('pi-progress'); if (m) m.style.display = 'none'; }
 function pi_normName(s){ return String(s||'').replace(/\s+/g,'').toLowerCase(); }
 function pi_matchCardForProof(customer){
   var t = pi_normName(customer); if (!t) return null;
@@ -21782,13 +21808,14 @@ function pi_exportApogeeProof(proofId, partId){
     segments.push({ type: PI_TPL[family][size], pageOffset: off, maxCount: Math.max(0, Math.min(size, pages - off)) });
     off += size;
   });
-  showToast('⏳ מייצר פרופר פרוס לאפוגי (' + segments.length + ' חתימות)...');
+  pi_progressShow('מייצר פרופר פרוס לאפוגי (' + segments.length + ' חתימות)');
   Promise.resolve().then(function(){
-    return gen(u.fileUrl, segments, { sheetWmm:g.sheetWidthMm, sheetHmm:g.sheetHeightMm, bleedMm:g.defaultBleedMm, markMm:12, jobName:u.title });
+    return gen(u.fileUrl, segments, { sheetWmm:g.sheetWidthMm, sheetHmm:g.sheetHeightMm, bleedMm:g.defaultBleedMm, markMm:12, jobName:u.title, onProgress: pi_progressUpdate });
   }).then(function(bytes){
+    pi_progressClose();
     pi_downloadBytes(bytes, pi_safeName(u.title) + '_Apogee.pdf', 'application/pdf');
     showToast('✓ פרופר פרוס לאפוגי הופק · ' + segments.length + ' חתימות · ' + (family==='p'?'מתהפך':'פרפקטור'));
-  }).catch(function(e){ console.error('apogee proof failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
+  }).catch(function(e){ pi_progressClose(); console.error('apogee proof failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
 }
 function pi_proofExportsHtml(){
   var units = pi_getApprovedUnits();

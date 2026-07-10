@@ -408,12 +408,15 @@ async function buildImpositionPdf(spec){
   const bleed = spec.bleedMm!=null?spec.bleedMm:3, mark = spec.markMm!=null?spec.markMm:12;
   const REG = cmyk(1,1,1,1);                    // צבע רגיסטר (כל הפלטות)
   const srcCache = {}, embCache = {};
+  const onP = (typeof spec.onProgress === 'function') ? spec.onProgress : function(){};
+  const totalP = (spec.pages||[]).length || 1; let doneP = 0;
+  try { onP(0, totalP, 'טוען קבצים…'); } catch(e){}
   async function getEmbed(url, pageIdx){
     if(!url) return null;
     const key = url+'|'+pageIdx;
     if(key in embCache) return embCache[key];
     try{
-      if(!srcCache[url]){ const r = await fetch(url); srcCache[url] = await r.arrayBuffer(); }
+      if(!srcCache[url]){ try { onP(doneP, totalP, 'מוריד קובץ מקור…'); } catch(e){} const r = await fetch(url); srcCache[url] = await r.arrayBuffer(); }
       const arr = await doc.embedPdf(srcCache[url], [Math.max(0,pageIdx)]);
       return (embCache[key] = arr[0] || null);
     }catch(e){ console.warn('embed failed', url, e); return (embCache[key]=null); }
@@ -464,7 +467,10 @@ async function buildImpositionPdf(spec){
     // slug text (ASCII)
     const slug = _ascii((spec.jobName||'') + '  |  ' + (pg.name||'') + '  |  ' + trimW + 'x' + trimH + 'mm  bleed ' + bleed + 'mm');
     page.drawText(slug || 'imposition', { x:(ox)*MM + bars.length*(bw+1.5) + 4, y:by+bh/2-3, size:7, font, color:cmyk(0,0,0,1) });
+    doneP++; try { onP(doneP, totalP, 'מייצר צד ' + doneP + ' מתוך ' + totalP); } catch(e){}
+    await new Promise(function(r){ setTimeout(r, 0); });   // מאפשר לממשק לרענן את מד ההתקדמות
   }
+  try { onP(totalP, totalP, 'מסיים…'); } catch(e){}
   return await doc.save();
 }
 window.buildImpositionPdf = buildImpositionPdf;
@@ -522,7 +528,7 @@ async function imposeRunPdf(srcUrl, segments, opts){
     }
   }
   return await buildImpositionPdf({ jobName:opts.jobName||'', bleedMm:opts.bleedMm!=null?opts.bleedMm:3,
-    markMm:opts.markMm!=null?opts.markMm:12, pages });
+    markMm:opts.markMm!=null?opts.markMm:12, pages, onProgress: opts.onProgress });
 }
 window.imposeRunPdf = imposeRunPdf;
 
