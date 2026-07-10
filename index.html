@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783708114';
+window.APP_VERSION = '1783708977';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22577,9 +22577,10 @@ function pi_exportProductionPdf(){
   var gen = frame && frame.contentWindow && frame.contentWindow.buildImpositionPdf;
   if (!gen){ showToast('⏳ מנוע ה-PDF נטען — נסה שוב בעוד רגע'); pi_loadTemplates(); return; }
   var g = pi_curGeom();
-  var spec = { jobName: (cur.name || 'Job'), bleedMm: g.defaultBleedMm, markMm: 12, pages: [],
-    itemCropMarks: cur.cropMarks !== false, cutBars: (cur.cutBars||[]) };
   var isManual = (cur.sourceType === 'manual' || cur.source === 'manual');
+  var spec = { jobName: (cur.name || 'Job'), bleedMm: g.defaultBleedMm, markMm: 12, pages: [],
+    itemCropMarks: cur.cropMarks !== false, cutBars: (cur.cutBars||[]),
+    bindingMode: !isManual };   // מסלול כרטיס (קונטרסים) = עבודת כריכייה → עמודים צמודים + צלבים בהיקף
   if (isManual){
     var items = pi_manualRenderItems(cur).map(function(it, i){
       var f = (cur.files||[]).find(function(x){ return x.id === it.fileId; });
@@ -22589,10 +22590,11 @@ function pi_exportProductionPdf(){
     spec.pages.push({ name: 'Sheet1_Front', sheetWmm: g.sheetWidthMm, sheetHmm: g.sheetHeightMm, items: items });
   } else {
     var T = window._pi.templates || {};
+    var gBind = Object.assign({}, g, { minGapMm: 0 });   // כריכייה: עמודים צמודים (בלי רווח בין תאי הקונטרס)
     (cur.signatures||[]).forEach(function(sig){
       var tpl = T[sig.template]; var sides = tpl ? tpl.grids.length : 1;
       for (var s = 0; s < sides; s++){
-        var cells = pi_computeSheetItems(cur, sig, s, g).map(function(it){
+        var cells = pi_computeSheetItems(cur, sig, s, gBind).map(function(it){
           return { srcUrl: '', srcPage: it.pageNumber || 1, xMm: it.xMm, yMm: it.yMm, wMm: it.widthMm, hMm: it.heightMm,
             rotation: it.rotation, label: (it.pageNumber != null ? String(it.pageNumber) : ''), n: it.pageNumber };
         });
@@ -22908,6 +22910,7 @@ function pi_renderManualWS(){
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">בליד מ״מ (0=בלי)<input type="number" min="0" step="0.5" value="' + (cur.bleedMm!=null?cur.bleedMm:g.defaultBleedMm) + '" onchange="pi_manualSetBleed(this.value)" style="width:66px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שוליים מ״מ (0=גיליון מלא)<input type="number" min="0" step="0.5" value="' + Math.round((cur.marginMm!=null?cur.marginMm:g.marginLeftMm)*10)/10 + '" onchange="pi_manualSetMargin(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
     '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#3730a3;align-self:center;background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (window._pi.snap!==false?' checked':'') + ' onchange="window._pi.snap=this.checked" style="cursor:pointer"> 🧲 יישור אוטומטי</label>' +
+    '<label title="עבודה שטוחה (לא כריכייה): עם רווח מינימלי בין הקבצים או צמודים" style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#166534;align-self:center;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (cur.gangGaps!==false?' checked':'') + ' onchange="pi_manualSetGaps(this.checked)" style="cursor:pointer"> ▭ רווחים בין קבצים</label>' +
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">גודל גיליון<span style="display:flex;gap:4px"><select onchange="pi_manualSetSheetSel(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
       (cur.sheetWmm>0 ? '' : '<option value="machine" selected>לפי מכונה (' + g.sheetWidthMm + '×' + g.sheetHeightMm + ')</option>') +
       pi_sheets().map(function(s){ var sel = (cur.sheetWmm===s.w && cur.sheetHmm===s.h); return '<option value="' + s.w + 'x' + s.h + '"' + (sel?' selected':'') + '>' + escHtml(s.name) + '</option>'; }).join('') +
@@ -23927,6 +23930,7 @@ function pi_curGeom(){
   var cur = window._pi.cur; var prof = cur && window._pi.profiles[cur.profileId]; var g = pi_profileGeom(prof || {});
   if (cur && cur.bleedMm != null) g.defaultBleedMm = Math.max(0, cur.bleedMm);
   if (g.defaultBleedMm <= 0) g.minGapMm = 0;   // בלי בליד → אין צורך במרווח; הפריטים יכולים להיצמד אחד לשני
+  if (cur && cur.gangGaps === false) g.minGapMm = 0;   // בחירת המשתמש: בלי רווחים בין הקבצים (עבודה שטוחה)
   if (cur && cur.sheetWmm > 0 && cur.sheetHmm > 0){ g.sheetWidthMm = cur.sheetWmm; g.sheetHeightMm = cur.sheetHmm; }   // גודל גיליון נבחר
   var mm = (cur && cur.marginMm != null) ? Math.max(0, cur.marginMm) : g.marginLeftMm;   // שוליים
   g.marginTopMm = g.marginBottomMm = g.marginLeftMm = g.marginRightMm = mm;
@@ -24031,6 +24035,13 @@ function pi_manualSetBleed(v){
   (cur.files||[]).forEach(function(f){ f.bleedMm = b; });
   cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null;
   // הבליד קובע את המרווח בין הפריטים (0=נצמדים) → סדר מחדש כדי שהצמידות תיכנס לתוקף מיד
+  if ((cur.items||[]).length) pi_manualAutoArrange(); else pi_render();
+}
+// עבודה שטוחה (לא כריכייה): בחירה עם/בלי רווחים בין הקבצים בגיליון
+function pi_manualSetGaps(withGaps){
+  var cur = window._pi.cur; if (!cur) return;
+  cur.gangGaps = !!withGaps;   // true = מרווח מינימלי בין קבצים ; false = צמודים
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null;
   if ((cur.items||[]).length) pi_manualAutoArrange(); else pi_render();
 }
 function pi_pgLabel(it){ return (it.label != null) ? String(it.label) : ((it.pageNumber != null) ? String(it.pageNumber) : 'ריק'); }
