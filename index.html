@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783693098';
+window.APP_VERSION = '1783693694';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21598,6 +21598,34 @@ function pi_nupCalc(){
   var it = pi_groupItems()[0] || (window._pi.cur.items||[])[0];   // ברירת מחדל מפריט נבחר/ראשון
   if (it){ document.getElementById('pi-nup-w').value = Math.round(it.widthMm); document.getElementById('pi-nup-h').value = Math.round(it.heightMm); pi_nupUpdate(); }
 }
+// המלצת גיליון אופטימלי לפריט יחיד: הגיליון עם ניצול השטח הכי גבוה (הכי פחות בזבוז)
+function pi_nupBestSheets(w, h, baseG){
+  var out = [];
+  PI_SHEETS.forEach(function(s){
+    var best = null;
+    [[s.w,s.h],[s.h,s.w]].forEach(function(o){
+      var W = o[0] - baseG.marginLeftMm - baseG.marginRightMm, H = o[1] - baseG.marginTopMm - baseG.marginBottomMm - baseG.gripperMm;
+      if (W<=0 || H<=0) return;
+      var fit = pi_nupFit(w, h, W, H, baseG.minGapMm);
+      if (!fit.count) return;
+      var util = Math.round(fit.count * w * h / (o[0]*o[1]) * 100);
+      var cand = { name:s.name, w:o[0], h:o[1], count:fit.count, util:util };
+      if (!best || cand.util>best.util) best = cand;
+    });
+    if (best) out.push(best);
+  });
+  out.sort(function(a,b){ return b.util - a.util || b.count - a.count; });
+  return out.slice(0,4);
+}
+function pi_nupBestSheetsHtml(w, h, g){
+  var best = pi_nupBestSheets(w, h, g); if (!best.length) return '';
+  return '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;padding:8px 10px;margin-top:9px">' +
+    '<div style="font-size:.78rem;font-weight:800;color:#166534;margin-bottom:4px">🏆 גיליון אופטימלי (ניצול שטח מרבי):</div>' +
+    best.map(function(b,i){ var isCur = (Math.round(b.w)===Math.round(g.sheetWidthMm)&&Math.round(b.h)===Math.round(g.sheetHeightMm))||(Math.round(b.h)===Math.round(g.sheetWidthMm)&&Math.round(b.w)===Math.round(g.sheetHeightMm));
+      return '<button onclick="pi_gangApplySheet(' + b.w + ',' + b.h + ')" style="display:inline-flex;gap:5px;align-items:center;margin:2px;padding:5px 10px;border:1px solid ' + (i===0?'#16a34a':'#d1d5db') + ';border-radius:8px;background:' + (i===0?'#dcfce7':'#fff') + ';cursor:pointer;font-family:Heebo;font-size:.76rem;font-weight:700">' +
+        (i===0?'⭐ ':'') + b.name + ' <span style="color:#166534">' + b.count + '×</span> <span style="color:#9ca3af;font-size:.68rem">' + b.util + '%</span>' + (isCur?' ✓':'') + '</button>';
+    }).join('') + '</div>';
+}
 function pi_nupUpdate(){
   var g = pi_curGeom(), gap = g.minGapMm;
   var w = parseFloat((document.getElementById('pi-nup-w')||{}).value), h = parseFloat((document.getElementById('pi-nup-h')||{}).value);
@@ -21607,7 +21635,8 @@ function pi_nupUpdate(){
   var portrait = Math.max(0,Math.floor((g.printableWidthMm+gap)/(w+gap))) * Math.max(0,Math.floor((g.printableHeightMm+gap)/(h+gap)));
   var land = Math.max(0,Math.floor((g.printableWidthMm+gap)/(h+gap))) * Math.max(0,Math.floor((g.printableHeightMm+gap)/(w+gap)));
   el.innerHTML = 'נכנס אופטימלית: <b style="font-size:1.3rem;color:#4338ca">' + fit.count + '</b> פעמים על הגיליון' +
-    '<br><span style="color:#6b7280;font-size:.78rem">לאורך: ' + portrait + ' · לרוחב: ' + land + ' · אזור הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + ' מ״מ · מרווח ' + gap + ' מ״מ</span>';
+    '<br><span style="color:#6b7280;font-size:.78rem">לאורך: ' + portrait + ' · לרוחב: ' + land + ' · אזור הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + ' מ״מ · מרווח ' + gap + ' מ״מ</span>' +
+    pi_nupBestSheetsHtml(w, h, g);
   var fb = document.getElementById('pi-nup-fill'); if (fb) fb.textContent = '▦ מלא גיליון (' + fit.count + ')';
 }
 function pi_nupAddOne(){
@@ -21769,6 +21798,40 @@ function pi_gangCompute(rows, g){
   var used = 0; pack.boxes.forEach(function(b){ used += b.w*b.h; });
   return { valid:valid, perSheet:perSheet, sheets:sheets, produced:produced, boxes:pack.boxes, util:(W*H>0?Math.round(used/(W*H)*100):0) };
 }
+// המלצת גודל גיליון אופטימלי מתוך הגדלים הסטנדרטיים (הכי מעט גיליונות הדפסה לכמות הנדרשת)
+function pi_gangBestSheets(rows, baseG){
+  var valid = (rows||[]).filter(function(r){ return r.w>0 && r.h>0; });
+  if (!valid.length) return [];
+  var out = [];
+  PI_SHEETS.forEach(function(s){
+    var best = null;
+    [[s.w,s.h],[s.h,s.w]].forEach(function(o){
+      var g = { minGapMm: baseG.minGapMm,
+        printableWidthMm:  o[0] - baseG.marginLeftMm - baseG.marginRightMm,
+        printableHeightMm: o[1] - baseG.marginTopMm - baseG.marginBottomMm - baseG.gripperMm };
+      if (g.printableWidthMm <= 0 || g.printableHeightMm <= 0) return;
+      var res = pi_gangCompute(valid, g);
+      if (!res.perSheet.every(function(p){ return p>0; })) return;   // חייב שכל הפריטים ייכנסו
+      var cand = { name:s.name, w:o[0], h:o[1], sheets:res.sheets, util:res.util };
+      if (!best || cand.sheets < best.sheets || (cand.sheets===best.sheets && cand.util>best.util)) best = cand;
+    });
+    if (best) out.push(best);
+  });
+  out.sort(function(a,b){ return a.sheets - b.sheets || b.util - a.util; });
+  return out.slice(0,4);
+}
+function pi_gangApplySheet(w,h){ pi_manualSetSheet(w,h); ['pi-gang-modal','pi-nup-modal'].forEach(function(id){ var mm=document.getElementById(id); if(mm) mm.remove(); }); showToast('✓ גודל גיליון נקבע: '+Math.round(w/10)+'×'+Math.round(h/10)+' ס״מ'); }
+function pi_bestSheetsHtml(best, curW, curH){
+  if (!best.length) return '';
+  return '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;padding:9px 11px;margin:8px 0">' +
+    '<div style="font-size:.8rem;font-weight:800;color:#166534;margin-bottom:5px">🏆 גיליון אופטימלי (הכי פחות גיליונות):</div>' +
+    best.map(function(b,i){ var isCur = (Math.round(b.w)===Math.round(curW) && Math.round(b.h)===Math.round(curH)) || (Math.round(b.h)===Math.round(curW) && Math.round(b.w)===Math.round(curH));
+      return '<button onclick="pi_gangApplySheet(' + b.w + ',' + b.h + ')" style="display:inline-flex;gap:6px;align-items:center;margin:3px;padding:6px 11px;border:1px solid ' + (i===0?'#16a34a':'#d1d5db') + ';border-radius:8px;background:' + (i===0?'#dcfce7':'#fff') + ';cursor:pointer;font-family:Heebo;font-size:.78rem;font-weight:700">' +
+        (i===0?'⭐ ':'') + b.name + ' <span style="color:#166534">' + b.sheets + ' גיל׳</span> <span style="color:#9ca3af;font-size:.7rem">' + b.util + '%</span>' + (isCur?' <span style="color:#4338ca">✓ נבחר</span>':'') + '</button>';
+    }).join('') +
+    '<div style="font-size:.68rem;color:#6b7280;margin-top:4px">לחיצה קובעת את גודל הגיליון לאימפוזיציה</div>' +
+  '</div>';
+}
 function pi_gangResultsHtml(res){
   if (!res.valid.length) return '<div style="color:#9ca3af;font-size:.82rem;padding:6px 0">הזן קובץ אחד לפחות (רוחב×גובה)</div>';
   var rows = res.valid.map(function(r,i){
@@ -21786,7 +21849,7 @@ function pi_gangResultsHtml(res){
     '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.8rem;min-width:340px"><thead><tr style="color:#6b7280;font-size:.7rem"><th style="text-align:right;padding:2px 8px">קובץ</th><th>לגיליון</th><th>צריך</th><th>יופק</th><th>עודף</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
   '</div>';
 }
-function pi_gangUpdateResults(){ var el=document.getElementById('pi-gang-results'); if (el) el.innerHTML = pi_gangResultsHtml(pi_gangCompute(window._pi._calc.rows, pi_curGeom())); }
+function pi_gangUpdateResults(){ var el=document.getElementById('pi-gang-results'); if (!el) return; var g=pi_curGeom(); el.innerHTML = pi_gangResultsHtml(pi_gangCompute(window._pi._calc.rows, g)) + pi_bestSheetsHtml(pi_gangBestSheets(window._pi._calc.rows, g), g.sheetWidthMm, g.sheetHeightMm); }
 function pi_gangAddRow(){ window._pi._calc.rows.push({ name:'קובץ ' + (window._pi._calc.rows.length+1), w:90, h:50, need:100 }); pi_gangRender(); }
 function pi_gangFromFiles(){
   var cur=window._pi.cur, added=0;
@@ -22468,7 +22531,14 @@ function pi_renderManualWS(){
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">בליד מ״מ (0=בלי)<input type="number" min="0" step="0.5" value="' + (cur.bleedMm!=null?cur.bleedMm:g.defaultBleedMm) + '" onchange="pi_manualSetBleed(this.value)" style="width:66px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שוליים מ״מ (0=גיליון מלא)<input type="number" min="0" step="0.5" value="' + Math.round((cur.marginMm!=null?cur.marginMm:g.marginLeftMm)*10)/10 + '" onchange="pi_manualSetMargin(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
     '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#3730a3;align-self:center;background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (window._pi.snap!==false?' checked':'') + ' onchange="window._pi.snap=this.checked" style="cursor:pointer"> 🧲 יישור אוטומטי</label>' +
-    '<span style="font-size:.72rem;color:#6b7280;align-self:center;margin-right:auto">גיליון ' + g.sheetWidthMm + '×' + g.sheetHeightMm + ' מ״מ · הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + '</span>' +
+    '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">גודל גיליון<select onchange="pi_manualSetSheetSel(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+      (cur.sheetWmm>0 ? '' : '<option value="machine" selected>לפי מכונה (' + g.sheetWidthMm + '×' + g.sheetHeightMm + ')</option>') +
+      PI_SHEETS.map(function(s){ var sel = (cur.sheetWmm===s.w && cur.sheetHmm===s.h); return '<option value="' + s.w + 'x' + s.h + '"' + (sel?' selected':'') + '>' + s.name + '</option>'; }).join('') +
+      (cur.sheetWmm>0 && !PI_SHEETS.some(function(s){return cur.sheetWmm===s.w&&cur.sheetHmm===s.h;}) ? '<option value="' + cur.sheetWmm + 'x' + cur.sheetHmm + '" selected>' + Math.round(cur.sheetWmm/10) + '×' + Math.round(cur.sheetHmm/10) + '</option>' : '') +
+      '<option value="custom">מותאם…</option>' +
+      (cur.sheetWmm>0 ? '<option value="machine">↺ לפי מכונה</option>' : '') +
+    '</select></label>' +
+    '<span style="font-size:.72rem;color:#6b7280;align-self:center;margin-right:auto">הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + ' מ״מ</span>' +
   '</div>';
   // ── שורת כלים ניתנת להתאמה (מועדפים) ──
   html += pi_toolsRowHtml(cur);
@@ -23337,14 +23407,32 @@ function pi_showGrid(){ window._pi.view = 'builder'; window._pi.canvasSel = null
 function pi_curGeom(){
   var cur = window._pi.cur; var prof = cur && window._pi.profiles[cur.profileId]; var g = pi_profileGeom(prof || {});
   if (cur && cur.bleedMm != null) g.defaultBleedMm = Math.max(0, cur.bleedMm);
-  if (cur && cur.marginMm != null){   // ביטול/שינוי המרחק מקצה הגיליון (0 = גיליון מלא)
-    var mm = Math.max(0, cur.marginMm);
-    g.marginTopMm = g.marginBottomMm = g.marginLeftMm = g.marginRightMm = mm;
-    g.printX = mm; g.printY = mm;
-    g.printableWidthMm  = g.sheetWidthMm  - 2*mm;
-    g.printableHeightMm = g.sheetHeightMm - 2*mm - g.gripperMm;
-  }
+  if (cur && cur.sheetWmm > 0 && cur.sheetHmm > 0){ g.sheetWidthMm = cur.sheetWmm; g.sheetHeightMm = cur.sheetHmm; }   // גודל גיליון נבחר
+  var mm = (cur && cur.marginMm != null) ? Math.max(0, cur.marginMm) : g.marginLeftMm;   // שוליים
+  g.marginTopMm = g.marginBottomMm = g.marginLeftMm = g.marginRightMm = mm;
+  g.printX = mm; g.printY = mm;
+  g.printableWidthMm  = g.sheetWidthMm  - 2*mm;
+  g.printableHeightMm = g.sheetHeightMm - 2*mm - g.gripperMm;
   return g;
+}
+// גדלי גיליון סטנדרטיים (מ״מ)
+var PI_SHEETS = [
+  { name:'70×100', w:700, h:1000 }, { name:'72×102', w:720, h:1020 }, { name:'65×92', w:650, h:920 },
+  { name:'64×90', w:640, h:900 }, { name:'61×86', w:610, h:860 }, { name:'50×70', w:500, h:700 },
+  { name:'45×64', w:450, h:640 }, { name:'35×50', w:350, h:500 },
+  { name:'SRA3 32×45', w:320, h:450 }, { name:'SRA2 45×64', w:450, h:640 }, { name:'SRA1 64×90', w:640, h:900 },
+  { name:'B1 70.7×100', w:707, h:1000 }, { name:'B2 50×70.7', w:500, h:707 },
+  { name:'A3 29.7×42', w:297, h:420 }, { name:'A2 42×59.4', w:420, h:594 }, { name:'A4 21×29.7', w:210, h:297 }
+];
+function pi_manualSetSheet(w, h){
+  var cur = window._pi.cur; if (!cur) return;
+  cur.sheetWmm = Math.round(w); cur.sheetHmm = Math.round(h);
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
+}
+function pi_manualSetSheetSel(v){
+  if (v === 'custom'){ var s = prompt('גודל גיליון (מ״מ), למשל 700x1000:', ''); if (!s) { pi_render(); return; } var m = String(s).replace(/[×xX*]/,'x').split('x'); var w = parseFloat(m[0]), h = parseFloat(m[1]); if (w>0 && h>0) pi_manualSetSheet(w, h); else { showToast('פורמט לא תקין'); pi_render(); } return; }
+  if (v === 'machine'){ var cur=window._pi.cur; if(cur){ delete cur.sheetWmm; delete cur.sheetHmm; window._pi.dirty=true; window._pi.arrangeMsg=null; pi_render(); } return; }
+  var p = v.split('x'); pi_manualSetSheet(parseFloat(p[0]), parseFloat(p[1]));
 }
 // שליטה במרחק מקצה הגיליון (שוליים) — 0 = בלי מרחק, הגיליון המלא ניתן לשימוש
 function pi_manualSetMargin(v){
