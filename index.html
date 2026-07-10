@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783701961';
+window.APP_VERSION = '1783702506';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21777,10 +21777,13 @@ function pi_manualClearSheet(){
 // אורז חמדני מודרך-יחס: בכל שלב ממקם את הפריט הכי "מפגר" ביחס לכמות שנדרשת ממנו (מאזן בזבוז)
 function pi_gangPack(types, W, H, gap){
   var n = types.length, placed = []; for (var k=0;k<n;k++) placed.push(0);
+  // מכסה ידנית לגיליון: אם המשתמש בחר "בגיליון" לשורה — לא ממקמים יותר מזה בגיליון אחד
+  var caps = types.map(function(t){ return (t.perSheet > 0) ? t.perSheet : Infinity; });
   var boxes = [], cx=0, cy=0, rowH=0, guard=100000;
   while (guard-- > 0){
     var best = null;
     for (var i=0;i<n;i++){
+      if (placed[i] >= caps[i]) continue;   // הגיע למכסה הידנית שנבחרה לגיליון
       var t = types[i], oris = [[t.w,t.h,0]];
       if (Math.abs(t.w-t.h) > 0.01) oris.push([t.h,t.w,90]);
       for (var o=0;o<oris.length;o++){
@@ -21789,9 +21792,14 @@ function pi_gangPack(types, W, H, gap){
         var x=cx, y=cy, rh=rowH;
         if (x>0 && x+pw > W+0.001){ x=0; y=cy+rh+gap; rh=0; }
         if (y+ph > H+0.001) continue;
-        var ratio = placed[i] / (t.need > 0 ? t.need : 1), area = pw*ph;
-        if (best===null || ratio < best.ratio - 1e-9 || (Math.abs(ratio-best.ratio)<1e-9 && area > best.area)){
-          best = { i:i, w:pw, h:ph, rot:oris[o][2], x:x, y:y, rh:Math.max(rh,ph), nextX:x+pw+gap, ratio:ratio, area:area };
+        // עדיפות: שורות עם מכסה ידנית (perSheet) קודם ממלאות את המכסה שלהן, ואז שורות "אוטומטי" ממלאות את השאר.
+        var capped = isFinite(caps[i]), prio = capped ? 0 : 1;
+        var denom = capped ? caps[i] : (t.need > 0 ? t.need : 1);
+        var ratio = placed[i] / denom, area = pw*ph;
+        if (best===null || prio < best.prio ||
+            (prio===best.prio && ratio < best.ratio - 1e-9) ||
+            (prio===best.prio && Math.abs(ratio-best.ratio)<1e-9 && area > best.area)){
+          best = { i:i, w:pw, h:ph, rot:oris[o][2], x:x, y:y, rh:Math.max(rh,ph), nextX:x+pw+gap, prio:prio, ratio:ratio, area:area };
         }
       }
     }
@@ -21865,50 +21873,70 @@ function pi_gangResultsHtml(res){
   '</div>';
 }
 function pi_gangUpdateResults(){ var el=document.getElementById('pi-gang-results'); if (!el) return; var g=pi_curGeom(); el.innerHTML = pi_gangResultsHtml(pi_gangCompute(window._pi._calc.rows, g)) + pi_bestSheetsHtml(pi_gangBestSheets(window._pi._calc.rows, g), g.sheetWidthMm, g.sheetHeightMm); }
-function pi_gangAddRow(){ window._pi._calc.rows.push({ name:'קובץ ' + (window._pi._calc.rows.length+1), w:90, h:50, need:100 }); pi_gangRender(); }
+function pi_gangAddRow(){ window._pi._calc.rows.push({ name:'קובץ ' + (window._pi._calc.rows.length+1), w:90, h:50, need:100, fileId:null, perSheet:0 }); pi_gangRender(); }
 function pi_gangFromFiles(){
   var cur=window._pi.cur, added=0;
-  (cur.files||[]).forEach(function(f){ window._pi._calc.rows.push({ name:f.name||'קובץ', w:f.widthMm, h:f.heightMm, need:100 }); added++; });
+  (cur.files||[]).forEach(function(f){ window._pi._calc.rows.push({ name:f.name||'קובץ', w:f.widthMm, h:f.heightMm, need:100, fileId:f.id, perSheet:0 }); added++; });
   if(!added) showToast('אין קבצים שהעלית'); pi_gangRender();
+}
+// קישור שורה לקובץ שהעלית (מעדכן מידות מהקובץ) — למילוי הטמפלט עם הגרפיקה
+function pi_gangSetFile(i, fid){
+  var row = window._pi._calc.rows[i]; if (!row) return;
+  if (!fid){ row.fileId = null; pi_gangRender(); return; }
+  var f = (window._pi.cur.files||[]).find(function(x){ return x.id === fid; });
+  if (f){ row.fileId = f.id; if (!row.name || /^קובץ/.test(row.name)) row.name = f.name || row.name; row.w = f.widthMm || row.w; row.h = f.heightMm || row.h; }
+  pi_gangRender();
 }
 function pi_gangFill(){
   var cur=window._pi.cur, g=pi_curGeom(), res=pi_gangCompute(window._pi._calc.rows, g);
   if(!res.boxes.length){ showToast('אין מה למלא — בדוק גדלים'); return; }
   cur.items=cur.items||[];
-  res.boxes.forEach(function(b,i){ var r=res.valid[b.type];
-    cur.items.push({ id:'it'+Date.now()+i+Math.random().toString(36).slice(2,4), fileId:null, empty:true, gangName:(r&&r.name)||'',
+  var withFile=0;
+  res.boxes.forEach(function(b,i){ var r=res.valid[b.type]; var fid = (r && r.fileId) ? r.fileId : null;
+    if (fid) withFile++;
+    cur.items.push({ id:'it'+Date.now()+i+Math.random().toString(36).slice(2,4), fileId:fid, empty: fid?false:true, gangName:(r&&r.name)||'',
       xMm:Math.round((g.printX+b.x)*10)/10, yMm:Math.round((g.printY+b.y)*10)/10, widthMm:b.w, heightMm:b.h, rotation:b.rot||0, bleedMm:g.defaultBleedMm, copies:1, sourceType:'manual' }); });
+  pi_ensurePreviews(cur);   // ודא שגרפיקת הקבצים המקושרים מוצגת על הגיליון
   cur._edited=true; window._pi.dirty=true; pi_selSet([]);
   var mm=document.getElementById('pi-gang-modal'); if(mm) mm.remove();
   pi_render();
-  showToast('✓ מולא — '+res.boxes.length+' פריטים · '+res.sheets+' גיליונות');
+  showToast('✓ מולא — '+res.boxes.length+' פריטים'+(withFile?(' ('+withFile+' עם גרפיקה)'):'')+' · '+res.sheets+' גיליונות');
 }
 function pi_gangRender(){
   var c = window._pi._calc, m = document.getElementById('pi-gang-modal');
   if (!m){ m=document.createElement('div'); m.id='pi-gang-modal'; m.className='modal-overlay open'; m.style.zIndex=286; document.body.appendChild(m); }
   var inp = 'padding:5px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;font-size:.78rem;text-align:center';
+  var files = (window._pi.cur.files||[]);
   var rowsHtml = c.rows.map(function(r,i){
-    return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;flex-wrap:wrap">' +
-      '<input value="' + escHtml(r.name||'') + '" oninput="window._pi._calc.rows[' + i + '].name=this.value;pi_gangUpdateResults()" placeholder="שם" style="flex:1;min-width:80px;' + inp + ';text-align:right">' +
-      '<input type="number" min="1" value="' + r.w + '" oninput="window._pi._calc.rows[' + i + '].w=parseFloat(this.value)||0;pi_gangUpdateResults()" title="רוחב מ״מ" style="width:56px;' + inp + '">' +
+    var fileSel = files.length
+      ? '<select onchange="pi_gangSetFile(' + i + ',this.value)" title="קשר לקובץ שהעלית — למילוי הטמפלט עם הגרפיקה" style="max-width:118px;' + inp + '"><option value="">📎 קובץ…</option>' +
+          files.map(function(f){ return '<option value="' + f.id + '"' + (r.fileId===f.id?' selected':'') + '>' + escHtml((f.name||'קובץ').slice(0,20)) + '</option>'; }).join('') + '</select>'
+      : '';
+    return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;flex-wrap:wrap' + (r.fileId?';background:#f0fdfa;border-radius:7px;padding:3px 4px':'') + '">' +
+      (r.fileId ? '<span title="מקושר לקובץ" style="font-size:.85rem">📎</span>' : '') +
+      '<input value="' + escHtml(r.name||'') + '" oninput="window._pi._calc.rows[' + i + '].name=this.value;pi_gangUpdateResults()" placeholder="שם" style="flex:1;min-width:70px;' + inp + ';text-align:right">' +
+      fileSel +
+      '<input type="number" min="1" value="' + r.w + '" oninput="window._pi._calc.rows[' + i + '].w=parseFloat(this.value)||0;pi_gangUpdateResults()" title="רוחב מ״מ" style="width:52px;' + inp + '">' +
       '<span style="color:#9ca3af">×</span>' +
-      '<input type="number" min="1" value="' + r.h + '" oninput="window._pi._calc.rows[' + i + '].h=parseFloat(this.value)||0;pi_gangUpdateResults()" title="גובה מ״מ" style="width:56px;' + inp + '">' +
+      '<input type="number" min="1" value="' + r.h + '" oninput="window._pi._calc.rows[' + i + '].h=parseFloat(this.value)||0;pi_gangUpdateResults()" title="גובה מ״מ" style="width:52px;' + inp + '">' +
+      '<span style="font-size:.72rem;color:#777">בגיליון</span>' +
+      '<input type="number" min="0" value="' + (r.perSheet||'') + '" placeholder="אוט׳" oninput="window._pi._calc.rows[' + i + '].perSheet=parseInt(this.value)||0;pi_gangUpdateResults()" title="כמה עותקים מהקובץ ייכנסו בגיליון (ריק=אוטומטי/מקסימום)" style="width:56px;' + inp + '">' +
       '<span style="font-size:.72rem;color:#777">צריך</span>' +
-      '<input type="number" min="0" value="' + r.need + '" oninput="window._pi._calc.rows[' + i + '].need=parseInt(this.value)||0;pi_gangUpdateResults()" title="כמות נדרשת" style="width:74px;' + inp + '">' +
+      '<input type="number" min="0" value="' + r.need + '" oninput="window._pi._calc.rows[' + i + '].need=parseInt(this.value)||0;pi_gangUpdateResults()" title="כמות נדרשת סה״כ" style="width:64px;' + inp + '">' +
       '<button onclick="window._pi._calc.rows.splice(' + i + ',1);pi_gangRender()" title="הסר" style="border:none;background:none;color:#b91c1c;cursor:pointer;font-size:.9rem">🗑</button>' +
     '</div>';
   }).join('');
   m.innerHTML = '<div class="modal-box" style="max-width:660px;width:95vw;max-height:88vh;display:flex;flex-direction:column">' +
     '<div class="modal-header"><span>🧮 מחשבון עבודות — כמה נכנס וכמה גיליונות</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
     '<div style="padding:14px 18px;overflow:auto">' +
-      '<div style="font-size:.78rem;color:#6b7280;margin-bottom:8px">לכל קובץ: שם · רוחב×גובה (מ״מ) · כמה סה״כ צריך. המערכת תחשב כמה מכל אחד נכנס בגיליון אופטימלית וכמה גיליונות צריך.</div>' +
+      '<div style="font-size:.78rem;color:#6b7280;margin-bottom:8px">לכל שורה: שם · 📎 קשר לקובץ שהעלית (הטמפלט יתמלא בגרפיקה שלו) · רוחב×גובה מ״מ · <b>בגיליון</b> = כמה עותקים לבחור ידנית בגיליון (ריק=אוטומטי/מקסימום) · כמה סה״כ צריך.</div>' +
       rowsHtml +
       '<div style="display:flex;gap:6px;margin:8px 0 4px;flex-wrap:wrap">' +
         '<button onclick="pi_gangAddRow()" style="padding:6px 12px;border:1px solid #c7d2fe;border-radius:7px;background:#fff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">➕ הוסף שורה</button>' +
         '<button onclick="pi_gangFromFiles()" style="padding:6px 12px;border:1px solid #99f6e4;border-radius:7px;background:#f0fdfa;color:#0f766e;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">➕ מהקבצים שהעליתי</button>' +
       '</div>' +
       '<div id="pi-gang-results"></div>' +
-      '<button onclick="pi_gangFill()" style="width:100%;padding:10px;border:none;border-radius:9px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;margin-top:6px">▦ מלא גיליון בסידור זה</button>' +
+      '<button onclick="pi_gangFill()" style="width:100%;padding:10px;border:none;border-radius:9px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;margin-top:6px">▦ מלא את הטמפלט (בגרפיקה של הקבצים המקושרים)</button>' +
     '</div></div>';
   pi_gangUpdateResults();
 }
@@ -21916,8 +21944,8 @@ function pi_gangCalc(){
   window._pi._calc = window._pi._calc || { rows: [] };
   if (!window._pi._calc.rows.length){
     var files = (window._pi.cur.files||[]);
-    window._pi._calc.rows = files.length ? files.map(function(f){ return { name:f.name||'קובץ', w:f.widthMm, h:f.heightMm, need:100 }; })
-      : [{ name:'קובץ 1', w:90, h:50, need:1000 }];
+    window._pi._calc.rows = files.length ? files.map(function(f){ return { name:f.name||'קובץ', w:f.widthMm, h:f.heightMm, need:100, fileId:f.id, perSheet:0 }; })
+      : [{ name:'קובץ 1', w:90, h:50, need:1000, fileId:null, perSheet:0 }];
   }
   pi_gangRender();
 }
