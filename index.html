@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783687834';
+window.APP_VERSION = '1783688462';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -16765,6 +16765,33 @@ function _downloadKioskLauncher(mv, label) {
   document.body.appendChild(a); a.click();
   setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
+// הורדת מפעיל "אפליקציית מחשב" לאימפוזיציה — חלון --app עצמאי (בלי סרגלי דפדפן), מסתנכרן דרך Firebase
+function _downloadImpositionApp() {
+  var url = location.href.replace(/[?#].*$/, '') + '?planning=1';
+  var bat = '@echo off\r\n'
+    + 'REM ===== סולן - אימפוזיציה (אפליקציית מחשב) =====\r\n'
+    + 'set "URL=' + url + '"\r\n'
+    + 'set "EDGE=C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"\r\n'
+    + 'if not exist "%EDGE%" set "EDGE=C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"\r\n'
+    + 'if exist "%EDGE%" (\r\n'
+    + '  start "" "%EDGE%" --app="%URL%" --no-first-run\r\n'
+    + '  goto :eof\r\n'
+    + ')\r\n'
+    + 'set "CHROME=C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"\r\n'
+    + 'if not exist "%CHROME%" set "CHROME=C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"\r\n'
+    + 'if exist "%CHROME%" (\r\n'
+    + '  start "" "%CHROME%" --app="%URL%" --no-first-run\r\n'
+    + '  goto :eof\r\n'
+    + ')\r\n'
+    + 'start "" "%URL%"\r\n';
+  var blob = new Blob(['﻿' + bat], { type: 'application/octet-stream' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'סולן-אימפוזיציה.bat';
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  try { showToast('⬇️ הורד — העבר לשולחן העבודה והפעל בדאבל-קליק'); } catch(e){}
+}
 function _copyOperatorLink(url, btn) {
   var done = function(){ if (btn){ var t=btn.textContent; btn.textContent='✓ הועתק'; setTimeout(function(){ btn.textContent=t; },1500);} };
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -22163,7 +22190,11 @@ function pi_renderList(){
   var pcards = pi_getPlanCards();
   var html = '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin-bottom:4px">🗂️ עבודות לתכנון לוחות (' + pcards.length + ')</div>' +
     '<div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px">כרטיס העבודה הוא מקור הנתונים — בחר כרטיס לבניית לוחות הדפסה. או בנה אימפוזיציה ידנית מקבצים.</div>' +
-    '<button onclick="pi_newManual()" style="display:block;width:100%;padding:12px;border:none;border-radius:10px;background:#0f766e;color:#fff;font-weight:800;font-size:.92rem;cursor:pointer;font-family:Heebo;margin-bottom:14px">➕ אימפוזיציה ידנית חדשה</button>';
+    '<button onclick="pi_newManual()" style="display:block;width:100%;padding:12px;border:none;border-radius:10px;background:#0f766e;color:#fff;font-weight:800;font-size:.92rem;cursor:pointer;font-family:Heebo;margin-bottom:8px">➕ אימפוזיציה ידנית חדשה</button>' +
+    '<div style="display:flex;align-items:center;gap:8px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:9px;padding:7px 11px;margin-bottom:14px">' +
+      '<span style="flex:1;font-size:.76rem;color:#3730a3;font-weight:700">🖥️ הפעל את האימפוזיציה כאפליקציית מחשב עצמאית (מסתנכרן אוטומטית)</span>' +
+      '<button onclick="_downloadImpositionApp()" style="flex:none;padding:6px 12px;border:none;border-radius:7px;background:#4338ca;color:#fff;font-weight:800;font-size:.76rem;cursor:pointer;font-family:Heebo">⬇️ הורד</button>' +
+    '</div>';
   html += pi_proofExportsHtml();
   if (!pcards.length){
     html += '<div style="color:#9ca3af;font-size:.85rem;padding:14px;border:1px dashed #e5e7eb;border-radius:9px;text-align:center">אין כרטיסי עבודה פעילים לתכנון</div>';
@@ -22977,6 +23008,18 @@ function pi_canvasResetAll(){
   window._pi.dirty = true; window._pi.canvasSel = null; pi_render();
 }
 try { setTimeout(pi_badge, 4000); } catch(e){}
+// אפליקציית מחשב לאימפוזיציה: כשנפתח עם ?planning=1 — פותח אוטומטית את המודול אחרי התחברות
+(function(){
+  try { if (new URLSearchParams(location.search).get('planning') !== '1') return; } catch(e){ return; }
+  var tries = 0;
+  var iv = setInterval(function(){
+    tries++;
+    if (window.PI_ENABLED && typeof pi_open === 'function' && typeof currentUser !== 'undefined' && currentUser && !window._piAutoOpened){
+      window._piAutoOpened = true; clearInterval(iv);
+      try { if (typeof pi_isAdmin === 'function' && pi_isAdmin()) pi_open(); } catch(e){}
+    } else if (tries > 120) clearInterval(iv);   // מוותר אחרי דקה
+  }, 500);
+})();
 /* ══ PI:END ══════════════════════════════════════════════════════ */
 </script>
 </body>
