@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783693694';
+window.APP_VERSION = '1783694745';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21601,7 +21601,7 @@ function pi_nupCalc(){
 // המלצת גיליון אופטימלי לפריט יחיד: הגיליון עם ניצול השטח הכי גבוה (הכי פחות בזבוז)
 function pi_nupBestSheets(w, h, baseG){
   var out = [];
-  PI_SHEETS.forEach(function(s){
+  pi_sheets().forEach(function(s){
     var best = null;
     [[s.w,s.h],[s.h,s.w]].forEach(function(o){
       var W = o[0] - baseG.marginLeftMm - baseG.marginRightMm, H = o[1] - baseG.marginTopMm - baseG.marginBottomMm - baseG.gripperMm;
@@ -21803,7 +21803,7 @@ function pi_gangBestSheets(rows, baseG){
   var valid = (rows||[]).filter(function(r){ return r.w>0 && r.h>0; });
   if (!valid.length) return [];
   var out = [];
-  PI_SHEETS.forEach(function(s){
+  pi_sheets().forEach(function(s){
     var best = null;
     [[s.w,s.h],[s.h,s.w]].forEach(function(o){
       var g = { minGapMm: baseG.minGapMm,
@@ -22531,13 +22531,13 @@ function pi_renderManualWS(){
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">בליד מ״מ (0=בלי)<input type="number" min="0" step="0.5" value="' + (cur.bleedMm!=null?cur.bleedMm:g.defaultBleedMm) + '" onchange="pi_manualSetBleed(this.value)" style="width:66px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שוליים מ״מ (0=גיליון מלא)<input type="number" min="0" step="0.5" value="' + Math.round((cur.marginMm!=null?cur.marginMm:g.marginLeftMm)*10)/10 + '" onchange="pi_manualSetMargin(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
     '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#3730a3;align-self:center;background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (window._pi.snap!==false?' checked':'') + ' onchange="window._pi.snap=this.checked" style="cursor:pointer"> 🧲 יישור אוטומטי</label>' +
-    '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">גודל גיליון<select onchange="pi_manualSetSheetSel(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+    '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">גודל גיליון<span style="display:flex;gap:4px"><select onchange="pi_manualSetSheetSel(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
       (cur.sheetWmm>0 ? '' : '<option value="machine" selected>לפי מכונה (' + g.sheetWidthMm + '×' + g.sheetHeightMm + ')</option>') +
-      PI_SHEETS.map(function(s){ var sel = (cur.sheetWmm===s.w && cur.sheetHmm===s.h); return '<option value="' + s.w + 'x' + s.h + '"' + (sel?' selected':'') + '>' + s.name + '</option>'; }).join('') +
-      (cur.sheetWmm>0 && !PI_SHEETS.some(function(s){return cur.sheetWmm===s.w&&cur.sheetHmm===s.h;}) ? '<option value="' + cur.sheetWmm + 'x' + cur.sheetHmm + '" selected>' + Math.round(cur.sheetWmm/10) + '×' + Math.round(cur.sheetHmm/10) + '</option>' : '') +
+      pi_sheets().map(function(s){ var sel = (cur.sheetWmm===s.w && cur.sheetHmm===s.h); return '<option value="' + s.w + 'x' + s.h + '"' + (sel?' selected':'') + '>' + escHtml(s.name) + '</option>'; }).join('') +
+      (cur.sheetWmm>0 && !pi_sheets().some(function(s){return cur.sheetWmm===s.w&&cur.sheetHmm===s.h;}) ? '<option value="' + cur.sheetWmm + 'x' + cur.sheetHmm + '" selected>' + Math.round(cur.sheetWmm/10) + '×' + Math.round(cur.sheetHmm/10) + '</option>' : '') +
       '<option value="custom">מותאם…</option>' +
       (cur.sheetWmm>0 ? '<option value="machine">↺ לפי מכונה</option>' : '') +
-    '</select></label>' +
+    '</select><button onclick="pi_editSheets()" title="ערוך גדלי גיליון קבועים" style="padding:6px 9px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-size:.85rem">📐</button></span></label>' +
     '<span style="font-size:.72rem;color:#6b7280;align-self:center;margin-right:auto">הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + ' מ״מ</span>' +
   '</div>';
   // ── שורת כלים ניתנת להתאמה (מועדפים) ──
@@ -23415,8 +23415,8 @@ function pi_curGeom(){
   g.printableHeightMm = g.sheetHeightMm - 2*mm - g.gripperMm;
   return g;
 }
-// גדלי גיליון סטנדרטיים (מ״מ)
-var PI_SHEETS = [
+// גדלי גיליון סטנדרטיים (מ״מ) — ברירת מחדל; ניתנים לעריכה ונשמרים אצל המשתמש
+var PI_SHEETS_DEFAULT = [
   { name:'70×100', w:700, h:1000 }, { name:'72×102', w:720, h:1020 }, { name:'65×92', w:650, h:920 },
   { name:'64×90', w:640, h:900 }, { name:'61×86', w:610, h:860 }, { name:'50×70', w:500, h:700 },
   { name:'45×64', w:450, h:640 }, { name:'35×50', w:350, h:500 },
@@ -23424,6 +23424,56 @@ var PI_SHEETS = [
   { name:'B1 70.7×100', w:707, h:1000 }, { name:'B2 50×70.7', w:500, h:707 },
   { name:'A3 29.7×42', w:297, h:420 }, { name:'A2 42×59.4', w:420, h:594 }, { name:'A4 21×29.7', w:210, h:297 }
 ];
+// קורא את רשימת הגדלים הערוכה (או ברירת המחדל)
+function pi_sheets(){
+  try { var s = JSON.parse(localStorage.getItem('solanPiSheets') || 'null');
+    if (Array.isArray(s) && s.length) return s.filter(function(x){ return x && x.w>0 && x.h>0; }); } catch(e){}
+  return PI_SHEETS_DEFAULT.slice();
+}
+function pi_saveSheets(list){ try { localStorage.setItem('solanPiSheets', JSON.stringify(list)); } catch(e){} }
+// חלון עריכת גדלי גיליון קבועים
+function pi_editSheets(){
+  window._pi._sheetsEdit = pi_sheets().map(function(s){ return { name:s.name, w:s.w, h:s.h }; });
+  pi_renderEditSheets();
+}
+function pi_renderEditSheets(){
+  var list = window._pi._sheetsEdit, m = document.getElementById('pi-sheets-modal');
+  if (!m){ m=document.createElement('div'); m.id='pi-sheets-modal'; m.className='modal-overlay open'; m.style.zIndex=288; document.body.appendChild(m); }
+  var inp = 'padding:5px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;font-size:.8rem;text-align:center';
+  var rows = list.map(function(s,i){
+    return '<div style="display:flex;gap:6px;align-items:center;margin-bottom:5px">' +
+      '<input value="' + escHtml(s.name||'') + '" oninput="window._pi._sheetsEdit[' + i + '].name=this.value" placeholder="שם" style="flex:1;min-width:90px;' + inp + ';text-align:right">' +
+      '<input type="number" min="1" value="' + s.w + '" oninput="window._pi._sheetsEdit[' + i + '].w=parseFloat(this.value)||0" title="רוחב מ״מ" style="width:64px;' + inp + '">' +
+      '<span style="color:#9ca3af">×</span>' +
+      '<input type="number" min="1" value="' + s.h + '" oninput="window._pi._sheetsEdit[' + i + '].h=parseFloat(this.value)||0" title="גובה מ״מ" style="width:64px;' + inp + '">' +
+      '<span style="font-size:.7rem;color:#9ca3af">מ״מ</span>' +
+      '<button onclick="window._pi._sheetsEdit.splice(' + i + ',1);pi_renderEditSheets()" title="הסר" style="border:none;background:none;color:#b91c1c;cursor:pointer;font-size:.95rem">🗑</button>' +
+    '</div>';
+  }).join('');
+  m.innerHTML = '<div class="modal-box" style="max-width:520px;width:95vw;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div class="modal-header"><span>📐 עריכת גדלי גיליון קבועים</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:14px 18px;overflow:auto">' +
+      '<div style="font-size:.78rem;color:#6b7280;margin-bottom:10px">הגדלים שתגדיר כאן יופיעו בבורר גודל הגיליון ובהמלצות המחשבונים. מידות במ״מ (70×100 ס״מ = 700×1000 מ״מ).</div>' +
+      '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:.7rem;color:#9ca3af"><span style="flex:1">שם</span><span style="width:64px;text-align:center">רוחב</span><span style="width:14px"></span><span style="width:64px;text-align:center">גובה</span><span style="width:56px"></span></div>' +
+      rows +
+      '<div style="display:flex;gap:6px;margin:8px 0 4px;flex-wrap:wrap">' +
+        '<button onclick="window._pi._sheetsEdit.push({name:\'חדש\',w:700,h:1000});pi_renderEditSheets()" style="padding:6px 12px;border:1px solid #c7d2fe;border-radius:7px;background:#fff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">➕ הוסף גודל</button>' +
+        '<button onclick="if(confirm(\'לשחזר את רשימת ברירת המחדל?\')){localStorage.removeItem(\'solanPiSheets\');pi_editSheets();}" style="padding:6px 12px;border:1px solid #e5e7eb;border-radius:7px;background:#fff;color:#6b7280;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">↺ ברירת מחדל</button>' +
+      '</div>' +
+    '</div>' +
+    '<div style="padding:12px 18px;border-top:1px solid #eee;display:flex;gap:8px">' +
+      '<button onclick="pi_saveSheetsFromEdit()" style="flex:1;padding:10px;border:none;border-radius:9px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">💾 שמור</button>' +
+      '<button onclick="this.closest(\'.modal-overlay\').remove()" style="padding:10px 16px;border:1px solid #e5e7eb;border-radius:9px;background:#fff;color:#6b7280;font-weight:700;cursor:pointer;font-family:Heebo">ביטול</button>' +
+    '</div></div>';
+}
+function pi_saveSheetsFromEdit(){
+  var clean = (window._pi._sheetsEdit||[]).filter(function(s){ return s.w>0 && s.h>0; })
+    .map(function(s){ return { name:(s.name||'').trim() || (Math.round(s.w/10)+'×'+Math.round(s.h/10)), w:Math.round(s.w), h:Math.round(s.h) }; });
+  if (!clean.length){ showToast('צריך לפחות גודל אחד'); return; }
+  pi_saveSheets(clean);
+  var mm=document.getElementById('pi-sheets-modal'); if(mm) mm.remove();
+  pi_render(); showToast('✓ נשמרו ' + clean.length + ' גדלי גיליון');
+}
 function pi_manualSetSheet(w, h){
   var cur = window._pi.cur; if (!cur) return;
   cur.sheetWmm = Math.round(w); cur.sheetHmm = Math.round(h);
