@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783688462';
+window.APP_VERSION = '1783688813';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21932,6 +21932,8 @@ function pi_renderManualWS(){
       pi_getMachines().map(function(m){ return '<option value="' + escHtml(m) + '"' + (m===cur.machine?' selected':'') + '>' + escHtml(m) + '</option>'; }).join('') + '</select></label>' +
     (profs.length > 1 ? '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">פרופיל<select onchange="pi_manualSetProfile(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
       profs.map(function(pr){ return '<option value="' + pr.id + '"' + (pr.id===cur.profileId?' selected':'') + '>' + escHtml(pr.name) + '</option>'; }).join('') + '</select></label>' : '') +
+    '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">בליד מ״מ (0=בלי)<input type="number" min="0" step="0.5" value="' + (cur.bleedMm!=null?cur.bleedMm:g.defaultBleedMm) + '" onchange="pi_manualSetBleed(this.value)" style="width:66px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
+    '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#3730a3;align-self:center;background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (window._pi.snap!==false?' checked':'') + ' onchange="window._pi.snap=this.checked" style="cursor:pointer"> 🧲 יישור אוטומטי</label>' +
     '<span style="font-size:.72rem;color:#6b7280;align-self:center">גיליון ' + g.sheetWidthMm + '×' + g.sheetHeightMm + ' מ״מ · הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + '</span>' +
     '<button onclick="pi_manualAutoArrange()" style="margin-right:auto;padding:7px 14px;border:none;border-radius:8px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">🧮 סדר אוטומטית</button>' +
     '<button onclick="pi_manualExportPdf()" title="Prototype — PDF בגודל גיליון לבדיקה (לא להפקה)" style="padding:7px 14px;border:none;border-radius:8px;background:#b45309;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">📄 Export PDF Test</button>' +
@@ -22742,7 +22744,16 @@ function pi_replListHtml(cur){
 /* ── Phase 5 — Sheet Canvas במ״מ + חוקי מכונה + ולידציה + עריכה בסיסית ── */
 function pi_showCanvas(){ window._pi.view = 'canvas'; window._pi.canvasSel = null; pi_render(); }
 function pi_showGrid(){ window._pi.view = 'builder'; window._pi.canvasSel = null; pi_render(); }
-function pi_curGeom(){ var cur = window._pi.cur; var prof = cur && window._pi.profiles[cur.profileId]; return pi_profileGeom(prof || {}); }
+function pi_curGeom(){ var cur = window._pi.cur; var prof = cur && window._pi.profiles[cur.profileId]; var g = pi_profileGeom(prof || {}); if (cur && cur.bleedMm != null) g.defaultBleedMm = Math.max(0, cur.bleedMm); return g; }
+// בחירת בליד לאימפוזיציה (כולל 0 = בלי בליד) — משפיע על אזהרות, סימני חיתוך וייצוא ה-PDF
+function pi_manualSetBleed(v){
+  var cur = window._pi.cur; if (!cur) return;
+  var b = Math.max(0, parseFloat(v) || 0);
+  cur.bleedMm = b;
+  (cur.items||[]).forEach(function(it){ it.bleedMm = b; });
+  (cur.files||[]).forEach(function(f){ f.bleedMm = b; });
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
+}
 function pi_pgLabel(it){ return (it.label != null) ? String(it.label) : ((it.pageNumber != null) ? String(it.pageNumber) : 'ריק'); }
 function pi_itemKey(sig, side, r, c){ return sig.idx + '_' + side + '_' + r + '_' + c; }
 // אפשרויות בורר: כל קונטרס × כל צד = גיליון/צד אחד להצגה
@@ -22956,9 +22967,40 @@ function pi_canvasDragMove(e){
   var nx = dr.ox + dxMm, ny = dr.oy + dyMm, g = dr.g;
   nx = Math.max(-dr.w + 10, Math.min(g.sheetWidthMm - 10, nx));   // חייב להשאיר חלק על הגיליון
   ny = Math.max(-dr.h + 10, Math.min(g.sheetHeightMm - 10, ny));
+  if (dr.mode === 'manual' && window._pi.snap !== false){
+    var sn = pi_snapManual(dr, nx, ny); nx = sn.nx; ny = sn.ny; pi_drawGuides(sn.gx, sn.gy, scale);
+  } else if (dr.mode === 'manual'){ pi_drawGuides(null, null, scale); }
   dr.nx = nx; dr.ny = ny;
   dr.el.setAttribute('transform', 'translate(' + (nx*scale) + ',' + (ny*scale) + ')');
   if (e.cancelable) e.preventDefault();
+}
+// עזרי יישור: snap לשולי/מרכז אזור ההדפסה ולקצוות/מרכזי פריטים אחרים (סף 3 מ״מ)
+function pi_snapManual(dr, nx0, ny0){
+  var cur = window._pi.cur, g = dr.g, w = dr.w, h = dr.h, THR = 3;
+  var xLines = [g.printX, g.printX + g.printableWidthMm, g.printX + g.printableWidthMm/2, g.sheetWidthMm/2];
+  var yLines = [g.printY, g.printY + g.printableHeightMm, g.printY + g.printableHeightMm/2, g.sheetHeightMm/2];
+  (cur.items||[]).forEach(function(it){
+    if (String(it.id) === dr.id) return;
+    xLines.push(it.xMm, it.xMm + it.widthMm, it.xMm + it.widthMm/2);
+    yLines.push(it.yMm, it.yMm + it.heightMm, it.yMm + it.heightMm/2);
+  });
+  var bestDX = null, bX = THR + 0.001, gx = null;
+  [{p:nx0,o:0},{p:nx0+w/2,o:w/2},{p:nx0+w,o:w}].forEach(function(pt){
+    xLines.forEach(function(L){ var d = Math.abs(pt.p - L); if (d < bX){ bX = d; bestDX = (L - pt.o) - nx0; gx = L; } });
+  });
+  var bestDY = null, bY = THR + 0.001, gy = null;
+  [{p:ny0,o:0},{p:ny0+h/2,o:h/2},{p:ny0+h,o:h}].forEach(function(pt){
+    yLines.forEach(function(L){ var d = Math.abs(pt.p - L); if (d < bY){ bY = d; bestDY = (L - pt.o) - ny0; gy = L; } });
+  });
+  return { nx: nx0 + (bestDX||0), ny: ny0 + (bestDY||0), gx: (bestDX!=null?gx:null), gy: (bestDY!=null?gy:null) };
+}
+function pi_drawGuides(gx, gy, scale){
+  var svg = document.getElementById('pi-canvas-svg'); if (!svg) return;
+  var vb = (svg.getAttribute('viewBox')||'0 0 0 0').split(' '), W = parseFloat(vb[2]), H = parseFloat(vb[3]);
+  var ensure = function(id){ var el = document.getElementById(id); if (!el){ el = document.createElementNS('http://www.w3.org/2000/svg','line'); el.id = id; el.setAttribute('stroke','#f43f5e'); el.setAttribute('stroke-width','0.8'); el.setAttribute('stroke-dasharray','4 3'); el.setAttribute('pointer-events','none'); svg.appendChild(el); } return el; };
+  var v = ensure('pi-guide-v'), hn = ensure('pi-guide-h');
+  if (gx != null){ v.setAttribute('x1', gx*scale); v.setAttribute('x2', gx*scale); v.setAttribute('y1', 0); v.setAttribute('y2', H); v.style.display=''; } else v.style.display='none';
+  if (gy != null){ hn.setAttribute('y1', gy*scale); hn.setAttribute('y2', gy*scale); hn.setAttribute('x1', 0); hn.setAttribute('x2', W); hn.style.display=''; } else hn.style.display='none';
 }
 function pi_canvasDragEnd(){
   document.removeEventListener('mousemove', pi_canvasDragMove);
