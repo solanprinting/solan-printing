@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783691093';
+window.APP_VERSION = '1783691464';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21556,6 +21556,87 @@ function pi_manualAddCut(orient){
 }
 function pi_manualSetCut(id,v){ var cur=window._pi.cur, b=(cur.cutBars||[]).find(function(x){return x.id===id;}); if(b){ b.posMm=parseFloat(v)||0; window._pi.dirty=true; pi_render(); } }
 function pi_manualDelCut(id){ var cur=window._pi.cur; cur.cutBars=(cur.cutBars||[]).filter(function(x){return x.id!==id;}); window._pi.dirty=true; pi_render(); }
+// ── מחשבון N-up: כמה פעמים גודל נתון נכנס בגיליון (אופטימלי), + מילוי בקוביות ריקות ──
+function pi_nupFit(iw, ih, W, H, gap){
+  gap = gap || 0;
+  function grid(pw, ph, availW, availH, x0, y0){
+    var cols = Math.max(0, Math.floor((availW + gap) / (pw + gap)));
+    var rows = Math.max(0, Math.floor((availH + gap) / (ph + gap)));
+    var boxes = [];
+    for (var r=0;r<rows;r++) for (var c=0;c<cols;c++) boxes.push({ x:x0+c*(pw+gap), y:y0+r*(ph+gap), w:pw, h:ph });
+    return { usedW: cols>0?cols*(pw+gap)-gap:0, usedH: rows>0?rows*(ph+gap)-gap:0, boxes:boxes };
+  }
+  var best = { count:0, boxes:[] };
+  function consider(boxes){ if (boxes.length > best.count) best = { count:boxes.length, boxes:boxes }; }
+  [[iw,ih],[ih,iw]].forEach(function(o){
+    var pw=o[0], ph=o[1], main=grid(pw, ph, W, H, 0, 0);
+    consider(main.boxes.slice());
+    var leftW = W - main.usedW - gap;
+    if (leftW > 0){ var sr = grid(ph, pw, leftW, H, main.usedW + gap, 0); consider(main.boxes.concat(sr.boxes)); }   // רצועת סיבוב מימין
+    var leftH = H - main.usedH - gap;
+    if (leftH > 0){ var sb = grid(ph, pw, W, leftH, 0, main.usedH + gap); consider(main.boxes.concat(sb.boxes)); }   // רצועת סיבוב למטה
+  });
+  return best;
+}
+function pi_nupCalc(){
+  var m = document.createElement('div'); m.id = 'pi-nup-modal'; m.className = 'modal-overlay open'; m.style.zIndex = 282;
+  m.innerHTML = '<div class="modal-box" style="max-width:470px;width:94vw">' +
+    '<div class="modal-header"><span>🧮 מחשבון N-up — כמה נכנס בגיליון</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:16px 18px">' +
+      '<div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">' +
+        '<label style="flex:1;font-size:.78rem;color:#555">רוחב מ״מ<input id="pi-nup-w" type="number" min="1" oninput="pi_nupUpdate()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;font-family:Heebo;text-align:center;font-size:1rem"></label>' +
+        '<span style="font-size:1.2rem;color:#9ca3af;padding-bottom:6px">×</span>' +
+        '<label style="flex:1;font-size:.78rem;color:#555">גובה מ״מ<input id="pi-nup-h" type="number" min="1" oninput="pi_nupUpdate()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;font-family:Heebo;text-align:center;font-size:1rem"></label>' +
+      '</div>' +
+      '<div id="pi-nup-result" style="background:#eef2ff;border-radius:9px;padding:11px 13px;font-size:.85rem;color:#374151;line-height:1.6;margin-bottom:12px">הזן רוחב וגובה לחישוב</div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button onclick="pi_nupAddOne()" style="flex:1;padding:10px;border:1px solid #c7d2fe;border-radius:9px;background:#fff;color:#3730a3;font-weight:800;cursor:pointer;font-family:Heebo">➕ הצג קוביה</button>' +
+        '<button id="pi-nup-fill" onclick="pi_nupFillSheet()" style="flex:1;padding:10px;border:none;border-radius:9px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">▦ מלא גיליון</button>' +
+      '</div>' +
+    '</div></div>';
+  document.body.appendChild(m);
+  var it = pi_groupItems()[0] || (window._pi.cur.items||[])[0];   // ברירת מחדל מפריט נבחר/ראשון
+  if (it){ document.getElementById('pi-nup-w').value = Math.round(it.widthMm); document.getElementById('pi-nup-h').value = Math.round(it.heightMm); pi_nupUpdate(); }
+}
+function pi_nupUpdate(){
+  var g = pi_curGeom(), gap = g.minGapMm;
+  var w = parseFloat((document.getElementById('pi-nup-w')||{}).value), h = parseFloat((document.getElementById('pi-nup-h')||{}).value);
+  var el = document.getElementById('pi-nup-result'); if (!el) return;
+  if (!(w>0 && h>0)){ el.innerHTML = 'הזן רוחב וגובה לחישוב'; return; }
+  var fit = pi_nupFit(w, h, g.printableWidthMm, g.printableHeightMm, gap);
+  var portrait = Math.max(0,Math.floor((g.printableWidthMm+gap)/(w+gap))) * Math.max(0,Math.floor((g.printableHeightMm+gap)/(h+gap)));
+  var land = Math.max(0,Math.floor((g.printableWidthMm+gap)/(h+gap))) * Math.max(0,Math.floor((g.printableHeightMm+gap)/(w+gap)));
+  el.innerHTML = 'נכנס אופטימלית: <b style="font-size:1.3rem;color:#4338ca">' + fit.count + '</b> פעמים על הגיליון' +
+    '<br><span style="color:#6b7280;font-size:.78rem">לאורך: ' + portrait + ' · לרוחב: ' + land + ' · אזור הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + ' מ״מ · מרווח ' + gap + ' מ״מ</span>';
+  var fb = document.getElementById('pi-nup-fill'); if (fb) fb.textContent = '▦ מלא גיליון (' + fit.count + ')';
+}
+function pi_nupAddOne(){
+  var cur = window._pi.cur, g = pi_curGeom();
+  var w = parseFloat((document.getElementById('pi-nup-w')||{}).value), h = parseFloat((document.getElementById('pi-nup-h')||{}).value);
+  if (!(w>0 && h>0)){ showToast('הזן רוחב וגובה'); return; }
+  var id = 'it'+Date.now()+Math.random().toString(36).slice(2,5);
+  cur.items = cur.items || [];
+  cur.items.push({ id:id, fileId:null, empty:true, xMm:g.printX+5, yMm:g.printY+5, widthMm:Math.round(w), heightMm:Math.round(h), rotation:0, bleedMm:g.defaultBleedMm, copies:1, sourceType:'manual' });
+  cur._edited = true; window._pi.dirty = true; pi_selSet([id]); pi_render();
+  showToast('➕ קוביה ' + Math.round(w) + '×' + Math.round(h) + ' מ״מ');
+}
+function pi_nupFillSheet(){
+  var cur = window._pi.cur, g = pi_curGeom(), gap = g.minGapMm;
+  var w = parseFloat((document.getElementById('pi-nup-w')||{}).value), h = parseFloat((document.getElementById('pi-nup-h')||{}).value);
+  if (!(w>0 && h>0)){ showToast('הזן רוחב וגובה'); return; }
+  var fit = pi_nupFit(w, h, g.printableWidthMm, g.printableHeightMm, gap);
+  if (!fit.count){ showToast('לא נכנס — גדול מהגיליון'); return; }
+  cur.items = cur.items || [];
+  fit.boxes.forEach(function(b, i){
+    cur.items.push({ id:'it'+Date.now()+i+Math.random().toString(36).slice(2,4), fileId:null, empty:true,
+      xMm: Math.round((g.printX + b.x)*10)/10, yMm: Math.round((g.printY + b.y)*10)/10, widthMm: b.w, heightMm: b.h,
+      rotation: (Math.abs(b.w - w) < 0.5 ? 0 : 90), bleedMm:g.defaultBleedMm, copies:1, sourceType:'manual' });
+  });
+  cur._edited = true; window._pi.dirty = true; pi_selSet([]);
+  var mm = document.getElementById('pi-nup-modal'); if (mm) mm.remove();
+  pi_render();
+  showToast('✓ מולא הגיליון — ' + fit.count + ' פעמים');
+}
 // גרירת קבצים אל חלון האימפוזיציה (מאזין פעם אחת על pi-body)
 function pi_manualBindDrop(){
   var body = document.getElementById('pi-body'); if (!body || body._piDropBound) return; body._piDropBound = true;
@@ -21652,7 +21733,7 @@ function pi_manualRenderItems(cur){
   var files = {}; (cur.files||[]).forEach(function(f){ files[f.id] = f; });
   return (cur.items||[]).map(function(it){
     var f = files[it.fileId];
-    return Object.assign({}, it, { key: String(it.id), label: (f ? f.name : 'קובץ?'), pageNumber: null });
+    return Object.assign({}, it, { key: String(it.id), label: (f ? f.name : (it.empty ? 'ריק' : 'קובץ?')), pageNumber: null });
   });
 }
 // ── Phase 7 — Auto Arrange בסיסי (אריזת מדפים / shelf-packing, יציב) ──
@@ -22091,7 +22172,8 @@ function pi_renderManualWS(){
   '</div>';
   // ── שורת כלים: מרכוז, צלבי חיתוך, פסי חיתוך ──
   html += '<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px">' +
-    '<button onclick="pi_manualCenterAll()" title="מרכז את כל הקבצים בגיליון (≥3 מ״מ מהקצוות)" style="padding:6px 12px;border:1px solid #c7d2fe;border-radius:7px;background:#eef2ff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">⊹ מרכז בגיליון</button>' +
+    '<button onclick="pi_nupCalc()" title="מחשבון N-up: כמה נכנס בגיליון + מילוי בקוביות" style="padding:6px 12px;border:none;border-radius:7px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">🧮 מחשבון N-up</button>' +
+    '<button onclick="pi_manualCenterAll()" title="מרכז את כל הקבצים בגיליון" style="padding:6px 12px;border:1px solid #c7d2fe;border-radius:7px;background:#eef2ff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">⊹ מרכז בגיליון</button>' +
     '<button onclick="pi_manualToggleCrop()" title="הוסף/הסר צלבי חיתוך בייצוא" style="padding:6px 12px;border:1px solid ' + (cur.cropMarks===false?'#fca5a5':'#86efac') + ';border-radius:7px;background:' + (cur.cropMarks===false?'#fef2f2':'#f0fdf4') + ';color:' + (cur.cropMarks===false?'#b91c1c':'#166534') + ';font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">✚ צלבי חיתוך: ' + (cur.cropMarks===false?'כבוי':'פעיל') + '</button>' +
     '<span style="width:1px;height:20px;background:#e5e7eb"></span>' +
     '<span style="font-size:.74rem;color:#6b7280">פס חיתוך:</span>' +
