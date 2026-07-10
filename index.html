@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783704353';
+window.APP_VERSION = '1783706970';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21753,6 +21753,7 @@ var PI_TOOLS = [
   { id:'arrange',   label:'🧮 סדר אוטומטית',  onclick:'pi_manualAutoArrange()', bg:'#4338ca', color:'#fff' },
   { id:'nup',       label:'🧮 מחשבון N-up',    onclick:'pi_nupCalc()',           bg:'#4338ca', color:'#fff' },
   { id:'gang',      label:'🧮 מחשבון עבודות',  onclick:'pi_gangCalc()',          bg:'#4338ca', color:'#fff' },
+  { id:'holes',     label:'🧩 מצא עבודות לחורים', onclick:'pi_findHolesModal()',  bg:'#065f46', color:'#fff' },
   { id:'clear',     label:'🧹 נקה גיליון',      onclick:'pi_manualClearSheet()',  bg:'#fff5f5', color:'#e11d48' },
   { id:'addall',    label:'➕ הוסף הכל',        onclick:'pi_manualAddAll()',      bg:'#eef2ff', color:'#3730a3' },
   { id:'center',    label:'⊹ מרכז בגיליון',    onclick:'pi_manualCenterAll()',   bg:'#eef2ff', color:'#3730a3' },
@@ -21766,7 +21767,7 @@ var PI_TOOLS = [
 ];
 function pi_favTools(){
   try { var s = JSON.parse(localStorage.getItem('solanPiTools') || 'null'); if (Array.isArray(s)) return s; } catch(e){}
-  return ['arrange','nup','gang','addall','center','clear','crop','cutv','cuth','preflight','sheetfull','prodpdf'];
+  return ['arrange','nup','gang','holes','addall','center','clear','crop','cutv','cuth','preflight','sheetfull','prodpdf'];
 }
 function pi_toggleFavTool(id){
   var f = pi_favTools(), i = f.indexOf(id); if (i >= 0) f.splice(i,1); else f.push(id);
@@ -22018,6 +22019,163 @@ function pi_gangCalc(){
       : [{ name:'קובץ 1', w:90, h:50, need:1000, fileId:null, perSheet:0 }];
   }
   pi_gangRender();
+}
+
+/* ── Phase 12 — Ganging מתוך "להכניס בחורים" (מסלול ידני; שטח פנוי אמיתי) ──
+   המנוע מציע · העובד בודק/עורך · רק העובד מאשר. לא נוגע בעבודה הראשית בלי בחירה. */
+// תאימות נייר: אם שני הגרמזׁ'ים ידועים — חייבים להיות זהים; אם שני הסוגים (מט/גלוס) ידועים — זהים.
+function pi_paperCompatible(a, b){
+  var pa = _paperKindGram(a), pb = _paperKindGram(b);
+  if (pa.gram && pb.gram && pa.gram !== pb.gram) return false;
+  if (pa.kind && pb.kind && pa.kind !== pb.kind) return false;
+  return true;
+}
+// האם מלבן (x,y,w,h) יושב בתוך אזור ההדפסה ולא חופף אף בלוק (בלוק = פריט קיים מורחב במרווח)
+function pi_fitsFree(x, y, w, h, blocks, g){
+  if (x < g.printX - 0.01 || y < g.printY - 0.01) return false;
+  if (x + w > g.printX + g.printableWidthMm + 0.01) return false;
+  if (y + h > g.printY + g.printableHeightMm + 0.01) return false;
+  for (var i = 0; i < blocks.length; i++){ var b = blocks[i];
+    if (x < b.x + b.w - 0.01 && x + w > b.x + 0.01 && y < b.y + b.h - 0.01 && y + h > b.y + 0.01) return false;
+  }
+  return true;
+}
+// סריקת מיקום חמדנית: ממקם עד maxCopies עותקים של w0×h0 בשטח הפנוי סביב הפריטים הקיימים (בלי להזיזם)
+function pi_placeHoleCopies(w0, h0, cur, g, maxCopies){
+  var gap = g.minGapMm, step = Math.max(3, Math.round(gap || 3));
+  var blocks = (cur.items || []).map(function(it){ return { x: it.xMm - gap, y: it.yMm - gap, w: it.widthMm + 2*gap, h: it.heightMm + 2*gap }; });
+  var placed = [], cap = maxCopies || 500, guard = 20000;
+  while (placed.length < cap && guard-- > 0){
+    var spot = null;
+    var oris = (Math.abs(w0 - h0) < 0.5) ? [[w0,h0,0]] : [[w0,h0,0],[h0,w0,90]];
+    for (var y = g.printY; y <= g.printY + g.printableHeightMm + 0.01 && !spot; y += step){
+      for (var x = g.printX; x <= g.printX + g.printableWidthMm + 0.01 && !spot; x += step){
+        for (var o = 0; o < oris.length; o++){
+          if (pi_fitsFree(x, y, oris[o][0], oris[o][1], blocks, g)){ spot = { x:x, y:y, w:oris[o][0], h:oris[o][1], rot:oris[o][2] }; break; }
+        }
+      }
+    }
+    if (!spot) break;
+    placed.push(spot);
+    blocks.push({ x: spot.x - gap, y: spot.y - gap, w: spot.w + 2*gap, h: spot.h + 2*gap });
+  }
+  return placed;
+}
+// מועמדים מהתאב "להכניס בחורים" — מסונן + מדורג עם אחוז התאמה וסיבה
+function pi_holeCandidates(cur, g){
+  var items = cur.items || [], mainPaper = cur.holesMainPaper || cur.paper || '';
+  var freeFrac = Math.max(0, 1 - pi_utilization(items, g) / 100);
+  var freeArea = g.printableWidthMm * g.printableHeightMm * freeFrac;
+  var eligible = [], excluded = [];
+  (typeof printFiles !== 'undefined' ? printFiles : []).forEach(function(pf){
+    if (pf._deleted) return;
+    var rem = _pfRemaining(pf);
+    if (rem <= 0){ excluded.push({ name: pf.name, reason: 'אין כמות שנותרה להדפסה' }); return; }
+    if (!pf.approved){ excluded.push({ name: pf.name, reason: 'הקובץ לא סומן "מאושר להפקה"' }); return; }
+    if (!(pf.widthMm > 0 && pf.heightMm > 0)){ excluded.push({ name: pf.name, reason: 'מידות חסרות — עדכן מפרט בתאב' }); return; }
+    if (parseInt(pf.sides) === 2){ excluded.push({ name: pf.name, reason: 'עבודה דו-צדדית — לא נתמך ב-MVP (שלב חד-צדדי בלבד)' }); return; }
+    if (mainPaper && pf.paper && !pi_paperCompatible(mainPaper, pf.paper)){ excluded.push({ name: pf.name, reason: 'נייר לא תואם: "' + pf.paper + '" מול "' + mainPaper + '"' }); return; }
+    var placed = pi_placeHoleCopies(pf.widthMm, pf.heightMm, cur, g, 500);
+    if (!placed.length){ excluded.push({ name: pf.name, reason: 'אין מספיק שטח פנוי (כולל בליד ומרחק חיתוך)' }); return; }
+    var used = placed.length * pf.widthMm * pf.heightMm;
+    var match = Math.max(1, Math.min(100, Math.round(used / Math.max(1, freeArea) * 100)));
+    var reasons = ['נכנס ' + placed.length + '× בשטח הפנוי'];
+    if (pf.paper) reasons.push('נייר: ' + pf.paper + (mainPaper ? ' (תואם)' : ''));
+    eligible.push({ pf: pf, fitPerSheet: placed.length, match: match, remaining: rem, why: reasons.join(' · ') });
+  });
+  eligible.sort(function(a, b){ return b.match - a.match || b.fitPerSheet - a.fitPerSheet || (a.pf.name||'').localeCompare(b.pf.name||''); });
+  return { eligible: eligible, excluded: excluded, freePct: Math.round(freeFrac * 100) };
+}
+// הוספת עבודת-חור לגיליון (מילוי השטח הפנוי; לא מזיז את הראשית) + חישוב עודף
+function pi_addHoleJob(pfId){
+  var cur = window._pi.cur, g = pi_curGeom();
+  var pf = (printFiles || []).find(function(x){ return String(x.id) === String(pfId); });
+  if (!pf){ showToast('הקובץ לא נמצא'); return; }
+  var placed = pi_placeHoleCopies(pf.widthMm, pf.heightMm, cur, g, 500);
+  if (!placed.length){ showToast('אין שטח פנוי מתאים'); return; }
+  cur.files = cur.files || [];
+  var fid = 'hf' + pf.id;
+  if (!cur.files.some(function(f){ return f.id === fid; }))
+    cur.files.push({ id: fid, name: pf.name || 'פלייר', widthMm: pf.widthMm, heightMm: pf.heightMm,
+      quantity: placed.length, bleedMm: g.defaultBleedMm, sourceFileUrl: pf.fileUrl || '', holeJobId: pf.id });
+  cur.items = cur.items || [];
+  placed.forEach(function(s, i){
+    cur.items.push({ id: 'ith' + pf.id + '_' + i + Date.now().toString(36).slice(-3), fileId: fid, empty: !pf.fileUrl,
+      gangName: pf.name || '', xMm: Math.round(s.x*10)/10, yMm: Math.round(s.y*10)/10, widthMm: s.w, heightMm: s.h,
+      rotation: s.rot || 0, bleedMm: g.defaultBleedMm, copies: 1, sourceType: 'manual', holeJobId: pf.id });
+  });
+  pi_ensurePreviews(cur);
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null;
+  var mainSheets = parseInt((document.getElementById('pi-holes-sheets') || {}).value) || 1;
+  var rem = _pfRemaining(pf), produced = placed.length * mainSheets, overrun = produced - rem;
+  var mm = document.getElementById('pi-holes-modal'); if (mm) mm.remove();
+  pi_render();
+  var msg = '✓ שולבו ' + placed.length + ' עותקים של "' + (pf.name || '') + '" בשטח הפנוי';
+  if (mainSheets > 1) msg += ' · יופקו ' + produced.toLocaleString() + ' (על ' + mainSheets + ' גיליונות)';
+  if (overrun > 0) msg += ' · ⚠️ עודף ' + overrun.toLocaleString() + ' מעל הנדרש (' + rem.toLocaleString() + ')';
+  showToast(msg, 6500);
+}
+// מצב "שכפל ראשית": ממלא את השטח הפנוי בעוד עותקים של הקבצים שכבר על הגיליון
+function pi_holesRepeatMain(){
+  var cur = window._pi.cur, g = pi_curGeom();
+  var items = cur.items || []; if (!items.length){ showToast('אין עבודה ראשית לשכפל'); return; }
+  var byFile = {}; items.forEach(function(it){ if (it.fileId && !byFile[it.fileId]) byFile[it.fileId] = it; });
+  var units = Object.keys(byFile).map(function(k){ return byFile[k]; });
+  if (!units.length) units = [items[0]];
+  var added = 0;
+  units.forEach(function(u){
+    var placed = pi_placeHoleCopies(u.widthMm, u.heightMm, cur, g, 500);
+    placed.forEach(function(s, i){
+      cur.items.push({ id: 'itr' + Date.now().toString(36) + '_' + added + '_' + i, fileId: u.fileId, empty: !!u.empty,
+        gangName: u.gangName || '', xMm: Math.round(s.x*10)/10, yMm: Math.round(s.y*10)/10, widthMm: s.w, heightMm: s.h,
+        rotation: s.rot || 0, bleedMm: u.bleedMm, copies: 1, sourceType: 'manual' });
+      added++;
+    });
+  });
+  if (!added){ showToast('אין שטח פנוי לשכפול'); return; }
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null;
+  var mm = document.getElementById('pi-holes-modal'); if (mm) mm.remove();
+  pi_render();
+  showToast('✓ שוכפלה העבודה הראשית — נוספו ' + added + ' עותקים · ניצול ' + pi_utilization(pi_manualRenderItems(cur), g) + '%');
+}
+// המודל: 3 מצבי מילוי + רשימת מועמדים מסוננת עם סיבות
+function pi_findHolesModal(){
+  var cur = window._pi.cur; if (!cur){ showToast('פתח עבודה ידנית קודם'); return; }
+  var g = pi_curGeom();
+  if (!(cur.items || []).length){ showToast('הנח קודם את העבודה הראשית על הגיליון'); return; }
+  var R = pi_holeCandidates(cur, g);
+  var m = document.getElementById('pi-holes-modal');
+  if (!m){ m = document.createElement('div'); m.id = 'pi-holes-modal'; m.className = 'modal-overlay open'; m.style.zIndex = 287; document.body.appendChild(m); }
+  var chip = 'display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:2px 7px;font-size:.7rem;font-weight:700';
+  var eligHtml = R.eligible.length ? R.eligible.map(function(c){
+    var over = '';
+    return '<div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:9px;padding:9px 11px;margin-bottom:7px">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<b style="flex:1;min-width:120px;font-size:.88rem;color:#065f46">' + escHtml(c.pf.name || 'פלייר') + '</b>' +
+        '<span style="' + chip + ';background:#dcfce7;color:#166534">התאמה ' + c.match + '%</span>' +
+        '<span style="' + chip + ';background:#eef2ff;color:#3730a3">נכנס ' + c.fitPerSheet + '×</span>' +
+        '<button onclick="pi_addHoleJob(\'' + c.pf.id + '\')" style="border:none;border-radius:7px;background:#16a34a;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.76rem;padding:5px 12px">➕ הוסף לגיליון</button>' +
+      '</div>' +
+      '<div style="font-size:.72rem;color:#4b5563;margin-top:3px">' + Math.round(c.pf.widthMm) + '×' + Math.round(c.pf.heightMm) + ' מ״מ · נותרו ' + c.remaining.toLocaleString() + ' · ' + escHtml(c.why) + '</div>' +
+    '</div>';
+  }).join('') : '<div style="color:#9ca3af;font-size:.82rem;padding:8px 0">אין עבודות מתאימות כרגע.</div>';
+  var exclHtml = R.excluded.length ? '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:.78rem;color:#b45309;font-weight:700">⚠️ ' + R.excluded.length + ' עבודות לא שולבו (לחץ לפירוט)</summary>' +
+    R.excluded.map(function(e){ return '<div style="font-size:.74rem;color:#6b7280;padding:4px 8px;border-bottom:1px solid #f3f4f6">✗ <b>' + escHtml(e.name || 'קובץ') + '</b> — ' + escHtml(e.reason) + '</div>'; }).join('') + '</details>' : '';
+  m.innerHTML = '<div class="modal-box" style="max-width:600px;width:95vw;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div class="modal-header"><span>🧩 מצא עבודות לחורים — שילוב מ"להכניס בחורים"</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:14px 18px;overflow:auto">' +
+      '<div style="background:#eef2ff;border-radius:9px;padding:9px 12px;margin-bottom:12px;font-size:.82rem;color:#3730a3">🕳️ שטח פנוי בגיליון: <b>' + R.freePct + '%</b> · אזור הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + ' מ״מ</div>' +
+      '<div style="font-size:.76rem;font-weight:800;color:#374151;margin-bottom:6px">בחר מה לעשות עם השטח הפנוי:</div>' +
+      '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">' +
+        '<button onclick="pi_holesRepeatMain()" style="flex:1;min-width:150px;padding:9px;border:1px solid #c7d2fe;border-radius:8px;background:#fff;color:#3730a3;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">🔁 שכפל עבודה ראשית<br><span style="font-weight:500;font-size:.68rem;color:#6b7280">יותר עותקים בכל מעבר</span></button>' +
+        '<button onclick="this.closest(\'.modal-overlay\').remove();showToast(\'השטח נשאר ריק\')" style="flex:1;min-width:150px;padding:9px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;color:#6b7280;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">⬜ השאר ריק<br><span style="font-weight:500;font-size:.68rem">בלי עבודה נוספת</span></button>' +
+        '<div style="flex:1;min-width:150px;padding:9px;border:1px solid #bbf7d0;border-radius:8px;background:#f0fdf4;color:#166534;font-weight:800;font-size:.78rem;text-align:center">🧩 שלב עבודות מהחורים<br><span style="font-weight:500;font-size:.68rem;color:#6b7280">בחר מהרשימה למטה</span></div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;font-size:.76rem;color:#555">' +
+        'כמות גיליונות ראשית (לחישוב עודף): <input id="pi-holes-sheets" type="number" min="1" value="1" style="width:70px;padding:4px 6px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;text-align:center">' +
+      '</div>' +
+      eligHtml + exclHtml +
+    '</div></div>';
 }
 // ── Preflight מקצועי (file-level) — MVP: RGB / bleed / גדלים / סיבוב / overprint / annotations ──
 function pi_colorScan(bytes){
