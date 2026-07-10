@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783690359';
+window.APP_VERSION = '1783690574';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21491,7 +21491,7 @@ function pi_manualAddAll(){
 // ── מרכוז כל הקבצים בגיליון (מרווח ≥3 מ״מ מהקצוות) ──
 function pi_manualCenterAll(){
   var cur = window._pi.cur; if (!cur || !(cur.items||[]).length){ showToast('אין פריטים'); return; }
-  var g = pi_curGeom(), M = 3;
+  var g = pi_curGeom(), M = 0;   // בלי מרחק כפוי מקצה הגיליון
   var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   cur.items.forEach(function(it){ minX=Math.min(minX,it.xMm); minY=Math.min(minY,it.yMm); maxX=Math.max(maxX,it.xMm+it.widthMm); maxY=Math.max(maxY,it.yMm+it.heightMm); });
   var bw = maxX-minX, bh = maxY-minY;
@@ -21501,7 +21501,7 @@ function pi_manualCenterAll(){
   var dx = tx-minX, dy = ty-minY;
   cur.items.forEach(function(it){ it.xMm += dx; it.yMm += dy; });
   cur._edited=true; window._pi.dirty=true; window._pi.arrangeMsg=null; pi_render();
-  showToast('⊹ מורכז בגיליון (≥3 מ״מ מהקצוות)');
+  showToast('⊹ מורכז בגיליון');
 }
 // ── צלבי חיתוך: הפעלה/כיבוי (בייצוא ה-PDF) ──
 function pi_manualToggleCrop(){
@@ -22037,6 +22037,7 @@ function pi_renderManualWS(){
     (profs.length > 1 ? '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">פרופיל<select onchange="pi_manualSetProfile(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
       profs.map(function(pr){ return '<option value="' + pr.id + '"' + (pr.id===cur.profileId?' selected':'') + '>' + escHtml(pr.name) + '</option>'; }).join('') + '</select></label>' : '') +
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">בליד מ״מ (0=בלי)<input type="number" min="0" step="0.5" value="' + (cur.bleedMm!=null?cur.bleedMm:g.defaultBleedMm) + '" onchange="pi_manualSetBleed(this.value)" style="width:66px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
+    '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שוליים מ״מ (0=גיליון מלא)<input type="number" min="0" step="0.5" value="' + Math.round((cur.marginMm!=null?cur.marginMm:g.marginLeftMm)*10)/10 + '" onchange="pi_manualSetMargin(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
     '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#3730a3;align-self:center;background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (window._pi.snap!==false?' checked':'') + ' onchange="window._pi.snap=this.checked" style="cursor:pointer"> 🧲 יישור אוטומטי</label>' +
     '<span style="font-size:.72rem;color:#6b7280;align-self:center">גיליון ' + g.sheetWidthMm + '×' + g.sheetHeightMm + ' מ״מ · הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + '</span>' +
     '<button onclick="pi_manualAutoArrange()" style="margin-right:auto;padding:7px 14px;border:none;border-radius:8px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">🧮 סדר אוטומטית</button>' +
@@ -22910,7 +22911,24 @@ function pi_replListHtml(cur){
 /* ── Phase 5 — Sheet Canvas במ״מ + חוקי מכונה + ולידציה + עריכה בסיסית ── */
 function pi_showCanvas(){ window._pi.view = 'canvas'; window._pi.canvasSel = null; pi_render(); }
 function pi_showGrid(){ window._pi.view = 'builder'; window._pi.canvasSel = null; pi_render(); }
-function pi_curGeom(){ var cur = window._pi.cur; var prof = cur && window._pi.profiles[cur.profileId]; var g = pi_profileGeom(prof || {}); if (cur && cur.bleedMm != null) g.defaultBleedMm = Math.max(0, cur.bleedMm); return g; }
+function pi_curGeom(){
+  var cur = window._pi.cur; var prof = cur && window._pi.profiles[cur.profileId]; var g = pi_profileGeom(prof || {});
+  if (cur && cur.bleedMm != null) g.defaultBleedMm = Math.max(0, cur.bleedMm);
+  if (cur && cur.marginMm != null){   // ביטול/שינוי המרחק מקצה הגיליון (0 = גיליון מלא)
+    var mm = Math.max(0, cur.marginMm);
+    g.marginTopMm = g.marginBottomMm = g.marginLeftMm = g.marginRightMm = mm;
+    g.printX = mm; g.printY = mm;
+    g.printableWidthMm  = g.sheetWidthMm  - 2*mm;
+    g.printableHeightMm = g.sheetHeightMm - 2*mm - g.gripperMm;
+  }
+  return g;
+}
+// שליטה במרחק מקצה הגיליון (שוליים) — 0 = בלי מרחק, הגיליון המלא ניתן לשימוש
+function pi_manualSetMargin(v){
+  var cur = window._pi.cur; if (!cur) return;
+  cur.marginMm = Math.max(0, parseFloat(v) || 0);
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
+}
 // בחירת בליד לאימפוזיציה (כולל 0 = בלי בליד) — משפיע על אזהרות, סימני חיתוך וייצוא ה-PDF
 function pi_manualSetBleed(v){
   var cur = window._pi.cur; if (!cur) return;
