@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783606980';
+window.APP_VERSION = '1783685961';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2848,7 +2848,9 @@ function attemptLogin() {
   document.getElementById('login-screen').style.display = 'none';
   applyPermissionsToUI();
   showToast('👋 ברוך הבא, ' + u.name + '!');
+  window._idleLoggedOut = false; window._lastActivity = Date.now();
   if (!_fbConnected) connectFirebase();
+  else if (!window._fbPollInterval && typeof setupFBListeners === 'function') setupFBListeners();   // חידוש פולינג אחרי ניתוק אי-פעילות
   setTimeout(checkAgentPending, 2500);
   // אם זה מנהל עם PIN ברירת מחדל — הצע לשנות
   if (u.isAdmin && u.pin === '0000') {
@@ -16924,12 +16926,51 @@ function _resumePolling(){
   if (!window._fbPollInterval) window._fbPollInterval = setInterval(_fbPollAll, 30 * 1000);
   try { showToast('🔄 החיבור חודש'); } catch(e){}
 }
+// ── ניתוק אחרי שעתיים חוסר-פעילות — חיסכון בנתונים + מסך התחברות ──
+window._IDLE_MS = 2 * 60 * 60 * 1000;   // שעתיים
+// משתמש רגיל: עוצר פולינג, מנתק (currentUser=null) ומחזיר את מסך ה-PIN
+function _idleLogout(){
+  if (window._isMachineView || !currentUser || window._idleLoggedOut) return;
+  if (window._fbPollInterval){ clearInterval(window._fbPollInterval); window._fbPollInterval = null; }   // עצירת פולינג
+  window._idleLoggedOut = true;
+  currentUser = null;
+  try { sessionStorage.removeItem('solanCurrentUser'); } catch(e){}
+  try { initLoginScreen(); } catch(e){}
+  var ls = document.getElementById('login-screen'); if (ls) ls.style.display = '';
+  try { showToast('🔒 נותקת עקב חוסר פעילות — התחבר מחדש'); } catch(e){}
+}
+// דפס (מסך מכונה): נועל את המסך + כפתור "כניסה מהירה" ללא סיסמא (עוצר את פולינג הדפסים)
+function _opIdleLock(){
+  if (window._opLocked) return;
+  window._opLocked = true;
+  if (window._opPollInterval){ clearInterval(window._opPollInterval); window._opPollInterval = null; }
+  var ov = document.getElementById('op-idle-lock');
+  if (!ov){
+    ov = document.createElement('div'); ov.id = 'op-idle-lock';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#0f172a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;color:#fff;font-family:Heebo,sans-serif;direction:rtl;text-align:center;padding:24px';
+    ov.innerHTML = '<div style="font-size:3.4rem">🔒</div>' +
+      '<div style="font-size:1.35rem;font-weight:800">המסך ננעל לחיסכון בנתונים</div>' +
+      '<div style="font-size:1rem;opacity:.75">' + (typeof _machineViewMachine !== 'undefined' ? escHtml(_machineViewMachine || '') : '') + '</div>' +
+      '<button onclick="_opIdleUnlock()" style="margin-top:8px;padding:22px 60px;border:none;border-radius:18px;background:#c9a84c;color:#1a1a2e;font-weight:900;font-size:1.5rem;cursor:pointer;font-family:Heebo">🔓 כניסה מהירה</button>';
+    document.body.appendChild(ov);
+  }
+  ov.style.display = 'flex';
+}
+function _opIdleUnlock(){
+  window._opLocked = false; window._lastActivity = Date.now();
+  var ov = document.getElementById('op-idle-lock'); if (ov) ov.style.display = 'none';
+  try { if (!_fbConnected) connectFirebase(); } catch(e){}
+  if (!window._opPollInterval){ try { _opLoadAndRender(); } catch(e){} window._opPollInterval = setInterval(_opLoadAndRender, 20000); }
+  try { showToast('🔄 חובר מחדש'); } catch(e){}
+}
 (function(){
-  var mark = function(){ if (window._pollPaused) _resumePolling(); else window._lastActivity = Date.now(); };
+  window._lastActivity = Date.now();
+  var mark = function(){ window._lastActivity = Date.now(); };
   ['mousedown','keydown','touchstart','scroll','click'].forEach(function(ev){ document.addEventListener(ev, mark, {passive:true}); });
   setInterval(function(){
-    if (window._isMachineView || window._pollPaused) return;
-    if (Date.now() - (window._lastActivity || Date.now()) > 2 * 60 * 60 * 1000) _pausePolling();   // שעתיים
+    if (Date.now() - (window._lastActivity || Date.now()) <= window._IDLE_MS) return;
+    if (window._isMachineView) _opIdleLock();
+    else _idleLogout();
   }, 60000);
 })();
 
