@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783690824';
+window.APP_VERSION = '1783691005';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21521,6 +21521,20 @@ function pi_manualGroupRotate(){ pi_groupItems().forEach(function(it){ it.rotati
 function pi_manualGroupDup(){ var cur=window._pi.cur, g=pi_curGeom(), n=[]; pi_groupItems().forEach(function(it){ var nid='it'+Date.now()+Math.random().toString(36).slice(2,5); cur.items.push(Object.assign({},it,{id:nid,xMm:Math.min(g.sheetWidthMm-it.widthMm,it.xMm+10),yMm:Math.min(g.sheetHeightMm-it.heightMm,it.yMm+10)})); n.push(nid); }); pi_selSet(n); _piGroupCommit(); }
 function pi_manualGroupDel(){ var cur=window._pi.cur, ids=pi_selArr(); cur.items=(cur.items||[]).filter(function(it){ return ids.indexOf(String(it.id))<0; }); pi_selSet([]); _piGroupCommit(); }
 function pi_manualGroupSetSize(dim,v){ var val=parseFloat(v); if(!(val>0)) return; pi_groupItems().forEach(function(it){ var a=it.widthMm/it.heightMm||1; if(dim==='w'){ it.widthMm=Math.round(val); it.heightMm=Math.max(1,Math.round(val/a)); } else { it.heightMm=Math.round(val); it.widthMm=Math.max(1,Math.round(val*a)); } }); _piGroupCommit(); }
+// שינוי גודל קבוצתי — קורא רוחב+גובה יחד (בלחיצת "החל"), בלי לבצע באמצע ההקלדה
+function pi_manualGroupApplySize(){
+  var wi = document.getElementById('pi-grp-w'), hi = document.getElementById('pi-grp-h');
+  var w = wi ? parseFloat(wi.value) : NaN, h = hi ? parseFloat(hi.value) : NaN;
+  var its = pi_groupItems(); if (!its.length){ showToast('לא נבחרו פריטים'); return; }
+  if (!(w > 0) && !(h > 0)){ showToast('הזן רוחב ו/או גובה'); return; }
+  its.forEach(function(it){
+    var a = it.widthMm / it.heightMm || 1;
+    if (w > 0 && h > 0){ it.widthMm = Math.round(w); it.heightMm = Math.round(h); }      // שניהם → גודל מדויק אחיד
+    else if (w > 0){ it.widthMm = Math.round(w); it.heightMm = Math.max(1, Math.round(w / a)); }  // רק רוחב → יחס נשמר
+    else { it.heightMm = Math.round(h); it.widthMm = Math.max(1, Math.round(h * a)); }            // רק גובה → יחס נשמר
+  });
+  _piGroupCommit();
+}
 function pi_manualGroupAlign(edge){
   var its=pi_groupItems(); if(its.length<2){ showToast('בחר לפחות 2 פריטים'); return; }
   var minX=Math.min.apply(null,its.map(function(i){return i.xMm;})), maxX=Math.max.apply(null,its.map(function(i){return i.xMm+i.widthMm;}));
@@ -22145,10 +22159,12 @@ function pi_renderManualWS(){
   if (selArr.length > 1){
     html += '<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:9px;padding:9px 11px;font-size:.76rem;color:#3730a3;line-height:1.7">' +
       '<b>🔲 נבחרו ' + selArr.length + ' פריטים</b> (Ctrl/Shift+לחיצה להוספה)<br>' +
-      '<div style="display:flex;gap:5px;align-items:center;margin-top:7px;background:#fff;border:1px solid #c7d2fe;border-radius:7px;padding:5px 7px">' +
+      '<div style="display:flex;gap:5px;align-items:center;margin-top:7px;background:#fff;border:1px solid #c7d2fe;border-radius:7px;padding:5px 7px;flex-wrap:wrap">' +
         '<b style="font-size:.72rem">שנה גודל לכולם:</b>' +
-        'רוחב <input type="number" min="1" placeholder="מ״מ" onchange="pi_manualGroupSetSize(\'w\',this.value)" style="width:56px;padding:2px 5px;border:1px solid #ddd;border-radius:5px;font-family:Heebo;text-align:center">' +
-        'גובה <input type="number" min="1" placeholder="מ״מ" onchange="pi_manualGroupSetSize(\'h\',this.value)" style="width:56px;padding:2px 5px;border:1px solid #ddd;border-radius:5px;font-family:Heebo;text-align:center">' +
+        'רוחב <input id="pi-grp-w" type="number" min="1" placeholder="מ״מ" onkeydown="if(event.key===\'Enter\')pi_manualGroupApplySize()" style="width:56px;padding:2px 5px;border:1px solid #ddd;border-radius:5px;font-family:Heebo;text-align:center">' +
+        'גובה <input id="pi-grp-h" type="number" min="1" placeholder="מ״מ" onkeydown="if(event.key===\'Enter\')pi_manualGroupApplySize()" style="width:56px;padding:2px 5px;border:1px solid #ddd;border-radius:5px;font-family:Heebo;text-align:center">' +
+        '<button onclick="pi_manualGroupApplySize()" style="padding:4px 12px;border:none;border-radius:6px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.74rem">החל</button>' +
+        '<span style="font-size:.66rem;color:#9ca3af;width:100%">מלא רוחב וגובה ולחץ "החל". אם תמלא רק אחד — היחס נשמר.</span>' +
       '</div>' +
       '<div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap">' +
         '<b style="font-size:.72rem;align-self:center">יישור:</b>' +
