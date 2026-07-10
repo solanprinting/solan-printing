@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783703117';
+window.APP_VERSION = '1783703506';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21707,7 +21707,10 @@ function pi_toggleFavTool(id){
   pi_render();
 }
 function pi_toolsRowHtml(cur){
+  var undoN = (window._pi._undo || []).length, canUndo = undoN > 0;
+  var undoBtn = '<button onclick="pi_undo()" ' + (canUndo?'':'disabled ') + 'title="בטל את הפעולה האחרונה (Ctrl+Z)" style="padding:6px 12px;border:1px solid ' + (canUndo?'#fcd34d':'#e5e7eb') + ';border-radius:7px;background:' + (canUndo?'#fffbeb':'#f9fafb') + ';color:' + (canUndo?'#92400e':'#cbd5e1') + ';font-weight:800;cursor:' + (canUndo?'pointer':'default') + ';font-family:Heebo;font-size:.78rem">↩︎ בטל' + (canUndo?(' ('+undoN+')'):'') + '</button>';
   return '<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px">' +
+    undoBtn +
     pi_favTools().map(function(id){
       var t = PI_TOOLS.find(function(x){ return x.id === id; }); if (!t) return '';
       var lbl = t.label; if (id === 'crop') lbl = '✚ צלבי חיתוך: ' + (cur.cropMarks === false ? 'כבוי' : 'פעיל');
@@ -22563,11 +22566,58 @@ function pi_showUploadLinkModal(c, link){
     '</div></div>';
   document.body.appendChild(m);
 }
+// ── Undo — ביטול הפעולה האחרונה בעורך הידני (מעקב אוטומטי דרך הרינדור) ──
+// בכל רינדור של העורך: אם מצב הטיוטה השתנה מאז הרינדור הקודם — דוחפים את המצב הקודם למחסנית.
+// כך כל פעולה (הוספה/הסרה/גרירה/סידור/בליד/שוליים/כמות…) ניתנת לביטול, בלי לגעת בכל פונקציה בנפרד.
+function pi_trackHistory(cur){
+  window._pi._undo = window._pi._undo || [];
+  if (window._pi._undoFor !== cur.id){   // טיוטה אחרת נפתחה — אפס את ההיסטוריה
+    window._pi._undo = []; window._pi._undoFor = cur.id; window._pi._lastCommitted = null;
+  }
+  var snap;
+  try { snap = JSON.stringify(cur); } catch(e){ return; }
+  if (window._pi._restoring){ window._pi._lastCommitted = snap; return; }   // רינדור שנגרם מ-Undo — לא לתעד
+  var last = window._pi._lastCommitted;
+  if (last != null && last !== snap){
+    window._pi._undo.push(last);
+    if (window._pi._undo.length > 50) window._pi._undo.shift();
+  }
+  window._pi._lastCommitted = snap;
+}
+function pi_undo(){
+  var st = window._pi._undo || [];
+  if (!st.length){ showToast('אין פעולה לבטל'); return; }
+  var prev = st.pop();
+  window._pi._restoring = true;
+  try {
+    window._pi.cur = JSON.parse(prev);
+    window._pi.selIds = []; window._pi.canvasSel = null; window._pi.arrangeMsg = null; window._pi.dirty = true;
+    pi_ensurePreviews(window._pi.cur);
+    pi_render();
+    showToast('↩︎ הפעולה בוטלה' + (st.length ? ' (' + st.length + ' עוד)' : ''));
+  } catch(e){ showToast('שגיאה בביטול'); }
+  finally { window._pi._restoring = false; }
+}
+// מקש קיצור Ctrl+Z לביטול — מותקן פעם אחת, פעיל רק כשעורך האימפוזיציה הידני פתוח
+function pi_installUndoKey(){
+  if (window._pi._undoKeyInstalled) return; window._pi._undoKeyInstalled = true;
+  document.addEventListener('keydown', function(e){
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+    if (String(e.key).toLowerCase() !== 'z') return;
+    var m = document.getElementById('piModal');
+    if (!m || !m.classList.contains('open') || window._pi.view !== 'manual') return;
+    var tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;   // אל תחטוף undo של שדות טקסט
+    e.preventDefault(); pi_undo();
+  });
+}
 function pi_renderManualWS(){
   var body = document.getElementById('pi-body'); if (!body) return;
+  pi_installUndoKey();
   pi_piFsStyle();
   var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1160px';
   var cur = window._pi.cur; if (!cur){ window._pi.view = 'list'; pi_renderList(); return; }
+  pi_trackHistory(cur);   // מעקב היסטוריה לביטול פעולה (Undo) — נקודת חיבור אחת
   pi_ensurePreviews(cur);
   var g = pi_curGeom();
   var items = pi_manualRenderItems(cur);
