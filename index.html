@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783695027';
+window.APP_VERSION = '1783701961';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22781,6 +22781,144 @@ function pi_profileGeom(prof){
   g.printableWidthMm  = prof.printableWidthMm  || (sw - g.marginLeftMm - g.marginRightMm);
   g.printableHeightMm = prof.printableHeightMm || (sh - g.marginTopMm - g.marginBottomMm - g.gripperMm);
   return g;
+}
+
+/* ── Phase 11 — Smart Imposition Engine (מנוע הצעות דטרמיניסטי, מסלול כרטיס) ──
+   המנוע מציע · העובד בודק/עורך · רק העובד מאשר. שום אישור אוטומטי / שינוי לכרטיס / שינוי סדר עמודים.
+   Deploy 1 = ליבה טהורה (בלי UI): נרמול כרטיס → מועמדים חוקיים למכונות → ניקוד שקוף → דירוג top-3. */
+var PI_ENGINE_VERSION = 'smart-1.0';
+// ניצול גיליון מוערך פר-תבנית (מסלול קונטרס — התבנית קובעת מילוי; דטרמיניסטי, שקוף).
+// גיאומטריית ה-70×100 המאומתת מ-imposition-tool; ערכים משקפים פחת טיפוסי לכל משפחת תבנית.
+var PI_ENGINE_UTIL = { '32':0.94,'16perf':0.92,'16p':0.92,'8perf':0.90,'8p':0.90,'4perf':0.88,'4p':0.88 };
+var PI_ENGINE_METHOD_LBL = { regular:'רגיל', perfecting:'פרפקטור', work_turn:'מתהפך (Work-and-Turn)', work_tumble:'מתהפך (Tumble)', ab:'A/B' };
+function pi_methodLabel(m){ return PI_ENGINE_METHOD_LBL[m] || m; }
+
+// נרמול כרטיס עבודה → מודל העבודה של המנוע (הכרטיס = מקור האמת; לא נוגעים בו)
+function pi_jobFromCard(card){
+  var runs = (card.runs||[]).filter(function(r){ return (parseInt(r.pages)||0) > 0; })
+    .map(function(r, i){ return { runIndex:i, runNum:r.num||(i+1), pages:parseInt(r.pages)||0,
+      copies:parseInt(r.copies)||0, machine:r.machine||'', paper:r.paper||'',
+      tumble:!!r.tumble, ab:!!r.abEnabled, note:r.note||'' }; });
+  var colors = pi_cardColors(card);
+  return {
+    jobId: String(card.id), jobCardId: String(card.id), sourceType:'card',
+    customer: card.name||'', jobName: card.name||'עבודה',
+    pageCount: pi_cardPages(card), copies: parseInt(card.copies)||0,
+    paperType: card.paper||'', colors: colors, colorCount: colors.length,
+    machineHint: card.machine||'', method: pi_cardMethod(card),
+    dueDate: card.dueDate || card.deadline || card.due || null,
+    runs: runs
+  };
+}
+
+// פתרון שיטה/משפחה למכונה מועמדת. משפחת התבנית נגזרת מיכולת המכונה (פרפקטור→perf, אחרת→p).
+// חוק קשיח יחיד ברמה זו: מספר צבעי הפרוצס גדול מיכולת המכונה. פרפקטור/מתהפך = החלטת מכונה, לא פסילה.
+function pi_engineMachinePlan(job, prof){
+  var hasPerf = !!(prof.perfecting || prof.supportsPerfecting);
+  var maxColors = prof.maxColors || prof.colors || 4;
+  if ((job.colorCount || 4) > maxColors)
+    return { ok:false, reasons:['העבודה דורשת ' + (job.colorCount) + ' צבעים, מעבר ליכולת ' + (prof.name||prof.machine) + ' (' + maxColors + ' צבעים)'] };
+  var family = hasPerf ? 'perf' : 'p';
+  var method = hasPerf ? 'perfecting' : (job.method === 'work_tumble' ? 'work_tumble' : 'work_turn');
+  return { ok:true, reasons:[], method:method, family:family };
+}
+
+// מועמד למסלול כרטיס: בונה קונטרסים אנליטית (בלי לגעת בסדר עמודים) ומחשב מדדים מדויקים.
+function pi_engineCardCandidate(job, prof){
+  var mp = pi_engineMachinePlan(job, prof);
+  if (!mp.ok) return { feasible:false, machine:prof.machine, machineName:prof.name||prof.machine, reasons:mp.reasons };
+  var family = mp.family, sides = family === 'perf' ? 2 : 1, colors = job.colorCount || 4;
+  var runs = job.runs.length ? job.runs : [{ runIndex:0, pages:job.pageCount||32, copies:job.copies }];
+  var sigs = [];
+  runs.forEach(function(run){
+    var sp = pi_splitPages(run.pages, family);
+    sp.sigs.forEach(function(n){ sigs.push({ pages:n, template:(PI_TPL[family]||{})[n] || String(n), runIndex:run.runIndex }); });
+  });
+  var sheetCount = sigs.length;
+  var plateSets = sheetCount * sides;          // צד = סט פלטות
+  var plateCount = plateSets * colors;         // לוח = צבע לכל צד
+  var uf = 0; sigs.forEach(function(s){ uf += (PI_ENGINE_UTIL[s.template] != null ? PI_ENGINE_UTIL[s.template] : 0.9); });
+  var util = sheetCount ? Math.round(uf / sheetCount * 100) : 0;
+  var geom = pi_profileGeom(prof);
+  return {
+    feasible:true, sourceType:'card',
+    machine:prof.machine, machineName:prof.name||prof.machine, profileId:prof.id,
+    method:mp.method, family:family, familyDeviation:false, sides:sheetCount*sides,
+    sheetWmm:geom.sheetWidthMm, sheetHmm:geom.sheetHeightMm,
+    colors:job.colors.slice(), colorCount:colors,
+    signatures:sigs, sheets:sheetCount, plateSets:plateSets, plateCount:plateCount,
+    util:util, waste:100 - util,
+    warnings:[], includedJobs:[job.jobId], excludedJobs:[]
+  };
+}
+
+// התאמה למכונה (0..100): המכונה שסומנה בכרטיס = מלאה; מכונה אחרת = בסיסית; קנס אם שיטת ההדפסה
+// (משפחה) שונה ממה שהמכונה שסומנה הייתה מפיקה.
+function pi_engineMachineFit(cand, job){
+  if (!job) return 70;
+  var hintMatch = job.machineHint && cand.machine && (String(job.machineHint) === String(cand.machine));
+  var base = hintMatch ? 100 : 60;
+  if (cand.familyDeviation) base -= 15;
+  return Math.max(0, base);
+}
+// עדיפות אספקה (0..100): אין תאריך מובנה בכרטיס → ניטרלי. עם dueDate → קרוב יותר = גבוה יותר.
+function pi_engineDueScore(job){
+  if (!job || !job.dueDate) return 60;
+  var t = new Date(job.dueDate).getTime(); if (isNaN(t)) return 60;
+  var days = (t - Date.now()) / 86400000;
+  if (days <= 1) return 100; if (days <= 3) return 85; if (days <= 7) return 70; return 55;
+}
+// פונקציית ניקוד שקופה (0..100) — משקלים לפי אפיון Phase 11. מחזיר score + פירוט מלא.
+function pi_scoreCandidate(cand, ctx){
+  ctx = ctx || {};
+  var util = cand.util;
+  var machineFit = pi_engineMachineFit(cand, ctx.job);
+  var wasteScore = 100 - cand.waste;
+  var plateScore = (ctx.minPlateSets && cand.plateSets) ? Math.round(100 * ctx.minPlateSets / cand.plateSets) : 100;
+  var dueScore = (ctx.dueScore != null ? ctx.dueScore : 60);
+  var manualScore = cand.sourceType === 'card' ? 100 : Math.max(0, 100 - (cand.unplaced || 0) * 20);
+  var breakdown = { util:util, machineFit:machineFit, waste:wasteScore, plateSets:plateScore, dueDate:dueScore, manual:manualScore };
+  var score = Math.round(util*0.40 + machineFit*0.20 + wasteScore*0.15 + plateScore*0.10 + dueScore*0.10 + manualScore*0.05);
+  return { score:Math.max(0, Math.min(100, score)), breakdown:breakdown };
+}
+// הסבר החלטה בעברית — שורות קצרות שהעובד מבין
+function pi_engineExplain(cand, job){
+  var r = [];
+  r.push('מכונה: ' + cand.machineName + (job && job.machineHint && String(job.machineHint)===String(cand.machine) ? ' (כפי שסומן בכרטיס)' : ''));
+  r.push('שיטה: ' + pi_methodLabel(cand.method) + (cand.familyDeviation ? ' — שונה מהמכונה שסומנה בכרטיס' : ''));
+  r.push('ניצול גיליון ~' + cand.util + '% · פחת ' + cand.waste + '%');
+  r.push(cand.sheets + ' קונטרסים · ' + cand.plateSets + ' סטי פלטות · ' + cand.plateCount + ' פלטות (' + (cand.colorCount===1?'שחור בלבד':'CMYK') + ')');
+  (cand.warnings||[]).forEach(function(w){ r.push('⚠️ ' + w); });
+  return r;
+}
+// אורקסטרטור — מסלול כרטיס, עבודה אחת: מועמדים חוקיים לכל המכונות → ניקוד → דירוג top-3 (Plan A/B/C)
+function pi_smartPlanCard(card){
+  var job = pi_jobFromCard(card);
+  var profs = pi_profilesFor(null);
+  // משפחת ההדפסה של המכונה שסומנה בכרטיס — בסיס למדידת "שינוי שיטה" בכל מועמד
+  var hintProf = job.machineHint ? profs.find(function(p){ return String(p.machine) === String(job.machineHint); }) : null;
+  var hintFamily = hintProf ? ((hintProf.perfecting || hintProf.supportsPerfecting) ? 'perf' : 'p') : null;
+  var feasible = [], excluded = [];
+  profs.forEach(function(prof){
+    var c = pi_engineCardCandidate(job, prof);
+    if (!c.feasible){ excluded.push({ machine:c.machineName, reasons:c.reasons }); return; }
+    if (hintFamily && c.family !== hintFamily){
+      c.familyDeviation = true;
+      c.warnings.push('שיטת ההדפסה (' + pi_methodLabel(c.method) + ') שונה מהמכונה שסומנה בכרטיס');
+    }
+    feasible.push(c);
+  });
+  var minPS = feasible.reduce(function(m,c){ return Math.min(m, c.plateSets); }, Infinity);
+  var ctx = { job:job, minPlateSets: isFinite(minPS) ? minPS : 1, dueScore: pi_engineDueScore(job) };
+  feasible.forEach(function(c){
+    var s = pi_scoreCandidate(c, ctx);
+    c.optimizationScore = s.score; c.scoreBreakdown = s.breakdown;
+    c.decisionReasons = pi_engineExplain(c, job);
+  });
+  feasible.sort(function(a,b){ return b.optimizationScore - a.optimizationScore || a.plateCount - b.plateCount || a.machineName.localeCompare(b.machineName); });
+  var plans = feasible.slice(0, 3);
+  plans.forEach(function(p, i){ p.planLabel = ['A','B','C'][i]; });
+  return { job:job, plans:plans, excluded:excluded, engineVersion:PI_ENGINE_VERSION, generatedAt:Date.now() };
 }
 
 /* ── UI ─────────────────────────────────────────────────────────── */
