@@ -31,13 +31,11 @@
   #spread .page { display:inline-flex; flex-direction:column; align-items:center; gap:5px; line-height:0; }
   /* בלי צל פר-עמוד — צל פנימי היה יוצר "תפר" בין שני העמודים */
   #spread img { display:block; height:80vh; width:auto; max-width:48vw; background:#fff; box-shadow:none; }
-  /* תצוגה "נטו": ה-div מציג רק את אזור החיתוך (TrimBox) של העמוד דרך background, כך שהבליד והצלבים לא נראים והעמודים מתחברים נקי */
-  #spread .netcrop { display:block; height:80vh; width:auto; max-width:48vw; background-color:#fff; background-repeat:no-repeat; box-sizing:border-box; border:1.4px dashed #e11d48; }
-  /* מסגרת קו-החיתוך (TrimBox) — מקווקוות; בצד השדרה מדלגים (border:none) כדי שהכפולה תתחבר נקי */
-  #spread .netcrop.tf-r  { border-left:none; }   /* עמוד ימני — השדרה משמאל */
-  #spread .netcrop.tf-l  { border-right:none; }  /* עמוד שמאלי — השדרה מימין */
-  .cutlegend { text-align:center; font-size:.78rem; color:#6b7280; margin-top:2px; }
-  .cutlegend b { color:#e11d48; letter-spacing:2px; }
+  /* תצוגת "גלישות": חותכים ל-TrimBox רק בצד השדרה (כדי שהכפולה תתחבר נקי), ובצדדים החיצוניים
+     מציגים את הבליד + צלבי החיתוך של הקובץ + מסגרת קו-חיתוך (TrimBox) — כדי לבדוק שיש גלישות */
+  #spread .cropwrap { position:relative; display:inline-block; line-height:0; }
+  #spread .mediacrop { display:block; height:80vh; width:auto; max-width:48vw; background-color:#fff; background-repeat:no-repeat; }
+  #spread .trimframe { position:absolute; box-sizing:border-box; pointer-events:none; }  /* מסגרת trim מקווקוות (border נקבע inline, מדלג על השדרה) */
   /* מספר עמוד — תווית עזר מתחת לעמוד ובשקיפות (לא חלק מהעיתון) */
   #spread .pgnum { line-height:1; color:#6b7280; opacity:.5; font-size:.82rem; font-weight:700; }
   #spread .ph { color:#6b7280; font-size:.95rem; padding:50px; }
@@ -49,8 +47,8 @@
   #viewer:fullscreen #spread { background:#111; flex:1; min-height:0; padding:4px; }
   #viewer:fullscreen #spread img { height:auto; width:auto; max-height:90vh; max-width:48vw; }
   #viewer:fullscreen #spread .page:only-child img { max-width:94vw; max-height:92vh; }
-  #viewer:fullscreen #spread .netcrop { height:88vh; max-height:92vh; max-width:48vw; }
-  #viewer:fullscreen #spread .page:only-child .netcrop { height:90vh; max-width:94vw; }
+  #viewer:fullscreen #spread .mediacrop { height:88vh; max-height:92vh; max-width:48vw; }
+  #viewer:fullscreen #spread .page:only-child .mediacrop { height:90vh; max-width:94vw; }
   #viewer:fullscreen #vlabel { color:#fff; }
   #overlay { position:fixed; inset:0; background:rgba(255,255,255,.95); display:flex; align-items:center;
              justify-content:center; flex-direction:column; gap:12px; z-index:50; text-align:center; padding:24px; white-space:pre-line; }
@@ -59,7 +57,7 @@
   .parts-pick { display:flex; flex-direction:column; gap:10px; max-width:480px; width:100%; }
   .parts-pick a { display:block; padding:14px 18px; background:#fff; border:1.5px solid var(--line); border-radius:10px;
     text-decoration:none; color:var(--press); font-weight:800; font-size:1rem; text-align:center; }
-  @media (max-width:680px){ #spread img{height:auto;max-height:60vh;width:auto;max-width:96vw} #spread .netcrop{height:56vh;max-width:96vw} }
+  @media (max-width:680px){ #spread img{height:auto;max-height:60vh;width:auto;max-width:96vw} #spread .mediacrop{height:56vh;max-width:96vw} }
 </style>
 </head>
 <body>
@@ -248,19 +246,33 @@ function renderViewer(){
   spread.innerHTML = s.map((i, pos) => {
     const tf = metas[i];
     if (tf && (tf.w < 1 || tf.h < 1)) {
-      // תצוגה נטו: חותכים ל-TrimBox דרך background → הבליד והצלבים לא נראים, העמודים מתחברים נקי
-      const ar = (tf.wmm && tf.hmm) ? (tf.wmm / tf.hmm) : (tf.w / tf.h);
-      const posX = tf.w < 1 ? (tf.l / (1 - tf.w) * 100) : 0;
-      const posY = tf.h < 1 ? (tf.t / (1 - tf.h) * 100) : 0;
-      const sizeW = (100 / tf.w).toFixed(3), sizeH = (100 / tf.h).toFixed(3);
-      // מסגרת קו-חיתוך: מדלגים על צד השדרה (בכפולה) כדי שהחיבור יישאר נקי
-      const spineCls = two ? (pos === 0 ? ' tf-r' : ' tf-l') : '';   // עמוד ראשון (ימני) שדרה משמאל, שני (שמאלי) שדרה מימין
-      const st = `aspect-ratio:${ar.toFixed(4)};background-image:url('${imgs[i]}');`
-        + `background-size:${sizeW}% ${sizeH}%;background-position:${posX.toFixed(3)}% ${posY.toFixed(3)}%;`;
-      return `<div class="page"><div class="netcrop${spineCls}" style="${st}"></div><div class="pgnum">עמוד ${i+1}</div></div>`;
+      // חותכים ל-TrimBox רק בצד השדרה (חיבור נקי); בצדדים החיצוניים מציגים בליד + צלבי חיתוך + מסגרת trim
+      const spine = two ? (pos === 0 ? 'left' : 'right') : 'none';   // ימני(ראשון) שדרה שמאל · שמאלי שדרה ימין · יחיד = כל הבליד
+      const sp = _pageNetSpec(tf, spine);
+      const mc = `aspect-ratio:${sp.arr.toFixed(4)};background-image:url('${imgs[i]}');`
+        + `background-size:${sp.sizeW.toFixed(3)}% 100%;background-position:${sp.posX.toFixed(3)}% 0%;`;
+      const f = sp.frame;
+      const fb = `border:1.4px dashed #e11d48;`
+        + (f.skip === 'left' ? 'border-left:none;' : '') + (f.skip === 'right' ? 'border-right:none;' : '');
+      const fst = `left:${f.left.toFixed(2)}%;top:${f.top.toFixed(2)}%;width:${f.width.toFixed(2)}%;height:${f.height.toFixed(2)}%;${fb}`;
+      return `<div class="page"><div class="cropwrap"><div class="mediacrop" style="${mc}"></div><div class="trimframe" style="${fst}"></div></div><div class="pgnum">עמוד ${i+1}</div></div>`;
     }
     return `<div class="page"><img src="${imgs[i]}" alt=""><div class="pgnum">עמוד ${i+1}</div></div>`;
   }).join('');
+}
+// חישוב אזור התצוגה (חיתוך שדרה בלבד) + מיקום מסגרת ה-trim בתוך העמוד, לפי TrimBox
+function _pageNetSpec(tf, spine){
+  const mediaHmm = tf.hmm / tf.h, mediaWmm = tf.wmm / tf.w;
+  let shownL, shownR;
+  if (spine === 'left'){ shownL = tf.l; shownR = 1; }            // חותך בליד שמאל (שדרה), מציג עד ימין
+  else if (spine === 'right'){ shownL = 0; shownR = tf.l + tf.w; } // חותך בליד ימין (שדרה), מציג עד שמאל
+  else { shownL = 0; shownR = 1; }                                 // עמוד יחיד — כל הבליד
+  const shownW = shownR - shownL;
+  const arr = (shownW * mediaWmm) / mediaHmm;
+  const posX = shownW < 1 ? (shownL / (1 - shownW) * 100) : 0;
+  const sizeW = 100 / shownW;
+  const trimL = (tf.l - shownL) / shownW, trimR = (tf.l + tf.w - shownL) / shownW;
+  return { arr, sizeW, posX, frame: { left: trimL*100, top: tf.t*100, width: (trimR-trimL)*100, height: tf.h*100, skip: spine } };
 }
 function step(d){
   if (vIndex === 0) vIndex = d > 0 ? 1 : 0;
