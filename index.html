@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783691464';
+window.APP_VERSION = '1783691945';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21637,6 +21637,88 @@ function pi_nupFillSheet(){
   pi_render();
   showToast('✓ מולא הגיליון — ' + fit.count + ' פעמים');
 }
+// ── התאמת חלון: רישום כלים + מועדפים (נשמר ב-localStorage) ──
+var PI_TOOLS = [
+  { id:'arrange',   label:'🧮 סדר אוטומטית',  onclick:'pi_manualAutoArrange()', bg:'#4338ca', color:'#fff' },
+  { id:'nup',       label:'🧮 מחשבון N-up',    onclick:'pi_nupCalc()',           bg:'#4338ca', color:'#fff' },
+  { id:'addall',    label:'➕ הוסף הכל',        onclick:'pi_manualAddAll()',      bg:'#eef2ff', color:'#3730a3' },
+  { id:'center',    label:'⊹ מרכז בגיליון',    onclick:'pi_manualCenterAll()',   bg:'#eef2ff', color:'#3730a3' },
+  { id:'crop',      label:'✚ צלבי חיתוך',      onclick:'pi_manualToggleCrop()',  bg:'#f0fdf4', color:'#166534' },
+  { id:'cutv',      label:'✂ קו חיתוך אנכי',   onclick:"pi_manualAddCut('v')",   bg:'#fff5f5', color:'#e11d48' },
+  { id:'cuth',      label:'✂ קו חיתוך אופקי',  onclick:"pi_manualAddCut('h')",   bg:'#fff5f5', color:'#e11d48' },
+  { id:'preflight', label:'🔎 Preflight',      onclick:'pi_preflight()',         bg:'#fffbeb', color:'#92400e' },
+  { id:'sheetfull', label:'🖼️ גיליון מלא',      onclick:'pi_sheetFullView()',     bg:'#eef2ff', color:'#3730a3' },
+  { id:'prodpdf',   label:'🏭 PDF דפוס',        onclick:'pi_exportProductionPdf()', bg:'#065f46', color:'#fff' },
+  { id:'testpdf',   label:'📄 PDF בדיקה',       onclick:'pi_manualExportPdf()',   bg:'#b45309', color:'#fff' }
+];
+function pi_favTools(){
+  try { var s = JSON.parse(localStorage.getItem('solanPiTools') || 'null'); if (Array.isArray(s)) return s; } catch(e){}
+  return ['arrange','nup','addall','center','crop','cutv','cuth','preflight','sheetfull','prodpdf'];
+}
+function pi_toggleFavTool(id){
+  var f = pi_favTools(), i = f.indexOf(id); if (i >= 0) f.splice(i,1); else f.push(id);
+  try { localStorage.setItem('solanPiTools', JSON.stringify(f)); } catch(e){}
+  pi_render();
+}
+function pi_toolsRowHtml(cur){
+  return '<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px">' +
+    pi_favTools().map(function(id){
+      var t = PI_TOOLS.find(function(x){ return x.id === id; }); if (!t) return '';
+      var lbl = t.label; if (id === 'crop') lbl = '✚ צלבי חיתוך: ' + (cur.cropMarks === false ? 'כבוי' : 'פעיל');
+      var border = (/^#(fff|eef|f0f|fff5|fffb)/i.test(t.bg)) ? '1px solid #e5e7eb' : 'none';
+      return '<button onclick="' + t.onclick + '" style="padding:6px 12px;border:' + border + ';border-radius:7px;background:' + t.bg + ';color:' + t.color + ';font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">' + lbl + '</button>';
+    }).join('') +
+    '<button onclick="pi_showCustomize()" title="בחר אילו כלים יופיעו בחלון" style="padding:6px 10px;border:1px dashed #a5b4fc;border-radius:7px;background:#fff;color:#4338ca;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">⚙️ התאם חלון</button>' +
+  '</div>';
+}
+function pi_showCustomize(){
+  var fav = pi_favTools();
+  var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 284;
+  m.innerHTML = '<div class="modal-box" style="max-width:460px;width:94vw;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div class="modal-header"><span>⚙️ התאם חלון — אילו כלים יופיעו</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:14px 18px;overflow:auto">' +
+      '<div style="font-size:.78rem;color:#6b7280;margin-bottom:10px">סמן אילו כלים יופיעו בסרגל העורך שלך. הבחירה נשמרת אצלך ומופיעה בכל פעם.</div>' +
+      PI_TOOLS.map(function(t){ var on = fav.indexOf(t.id) >= 0;
+        return '<label id="pi-cz-' + t.id + '" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #eee;border-radius:8px;margin-bottom:6px;cursor:pointer;background:' + (on?'#f0fdfa':'#fff') + '">' +
+          '<input type="checkbox"' + (on?' checked':'') + ' onchange="pi_toggleFavTool(\'' + t.id + '\');this.closest(\'label\').style.background=this.checked?\'#f0fdfa\':\'#fff\'" style="width:17px;height:17px;cursor:pointer">' +
+          '<span style="font-weight:700;font-size:.88rem">' + t.label + '</span></label>'; }).join('') +
+    '</div></div>';
+  document.body.appendChild(m);
+}
+// ── 🔎 Preflight — בדיקת מוכנות להפקה (מה שאפשר לבדוק client-side) ──
+function pi_preflight(){
+  var cur = window._pi.cur; if (!cur) return;
+  var g = pi_curGeom(), items = pi_manualRenderItems(cur), warns = pi_validateItems(items, g);
+  var C = [];
+  if (!items.length) C.push({ l:'error', t:'אין פריטים על הגיליון' });
+  var errs = warns.filter(function(w){ return w.level==='error'; }), wns = warns.filter(function(w){ return w.level==='warn'; });
+  if (errs.length) C.push({ l:'error', t:errs.length + ' בעיות מיקום (חריגה/גריפר/חפיפה): ' + errs.slice(0,3).map(function(e){return e.text;}).join(' · ') + (errs.length>3?' …':'') });
+  else if (items.length) C.push({ l:'ok', t:'אין חריגות/חפיפות/כניסה לגריפר' });
+  var empties = items.filter(function(it){ return it.empty || !it.fileId; });
+  if (empties.length) C.push({ l:'warn', t:empties.length + ' קוביות ריקות (בלי תוכן) — לא יודפס בהן כלום' });
+  var noSrc = (cur.files||[]).filter(function(f){ return !f.sourceFileUrl; });
+  if (noSrc.length) C.push({ l:'warn', t:noSrc.length + ' קבצים בלי מקור מוטמע (מטא-דאטה) — יופיעו כ-placeholder' });
+  var withSrc = items.filter(function(it){ return it.fileId && !it.empty; }).length;
+  if (withSrc) C.push({ l:'ok', t:withSrc + ' פריטים עם תוכן קובץ אמיתי' });
+  if (g.defaultBleedMm <= 0) C.push({ l:'warn', t:'אין בליד (0 מ״מ) — ודא שזה מכוון' });
+  else C.push({ l:'ok', t:'בליד ' + g.defaultBleedMm + ' מ״מ' });
+  if (wns.length) C.push({ l:'warn', t:wns.length + ' אזהרות (מרווח/בליד קטן בין פריטים)' });
+  C.push({ l:'ok', t:'ניצול גיליון: ' + pi_utilization(items.filter(function(it){return !it.empty;}), g) + '% · אזור הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + ' מ״מ' });
+  C.push({ l:'info', t:'צבע: תוכן המקור נשמר כמו שהוא (בלי המרת RGB→CMYK / ICC). ל-CMYK מובטח נדרש שלב צבע/RIP.' });
+  C.push({ l:'info', t:'רזולוציית תמונות / פונטים / PDF/X — בדיקות עמוקות ברשימת המתוכננות (🔎 Preflight מתקדם).' });
+  var errN = C.filter(function(c){return c.l==='error';}).length, warnN = C.filter(function(c){return c.l==='warn';}).length;
+  var ic = { error:'⛔', warn:'⚠️', ok:'✓', info:'ℹ️' }, cl = { error:'#b91c1c', warn:'#b45309', ok:'#065f46', info:'#4338ca' };
+  var status = errN ? '<span style="color:#b91c1c">⛔ לא מוכן להפקה — ' + errN + ' בעיות</span>'
+    : (warnN ? '<span style="color:#b45309">⚠️ מוכן עם ' + warnN + ' הערות</span>' : '<span style="color:#065f46">✓ מוכן להפקה</span>');
+  var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 284;
+  m.innerHTML = '<div class="modal-box" style="max-width:520px;width:94vw;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div class="modal-header"><span>🔎 Preflight — בדיקת מוכנות</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:14px 18px;overflow:auto">' +
+      '<div style="font-weight:800;font-size:1rem;margin-bottom:10px">' + status + '</div>' +
+      C.map(function(c){ return '<div style="display:flex;gap:8px;padding:6px 9px;border:1px solid #f0f0f0;border-radius:8px;margin-bottom:5px;font-size:.82rem;color:' + cl[c.l] + '"><span>' + ic[c.l] + '</span><span style="color:#374151">' + escHtml(c.t) + '</span></div>'; }).join('') +
+    '</div></div>';
+  document.body.appendChild(m);
+}
 // גרירת קבצים אל חלון האימפוזיציה (מאזין פעם אחת על pi-body)
 function pi_manualBindDrop(){
   var body = document.getElementById('pi-body'); if (!body || body._piDropBound) return; body._piDropBound = true;
@@ -22039,7 +22121,8 @@ function pi_showFeatures(){
     'בליד לבחירה (כולל 0)','צלבי חיתוך — הוסף/הסר','פסי חיתוך (גיליוטינה) במיקום מדויק','סימני רגיסטר + Color Bar + Slug',
     'ולידציה בזמן אמת (חריגה/גריפר/חפיפה/מרווח/בליד)','ייצוא PDF דפוס — הטמעת וקטור, boxes מדויקים (Media/Trim/Bleed/Crop), סימנים ב-CMYK',
     'קדמי/אחורי + מספר קונטרסים/גיליונות','מעבודת הלקוח → ריצות מסודרות + פרופר פרוס לאפוגי','קישור העלאה פר-כרטיס',
-    'מד התקדמות ליצירת PDF','מסך מלא + אפליקציית מחשב','אימות קיפול (Round-trip)'
+    'מד התקדמות ליצירת PDF','מסך מלא + אפליקציית מחשב','אימות קיפול (Round-trip)',
+    'מחשבון N-up (כמה נכנס בגיליון) + מילוי אוטומטי','🔎 Preflight — בדיקת מוכנות (מיקום/בליד/תוכן/ניצול)','התאמת חלון — בחירת כלים מועדפים (⚙️)'
   ];
   var plannedCats = [
     { c:'🗂️ סידור ואימפוזיציה', items:[
@@ -22060,7 +22143,7 @@ function pi_showFeatures(){
       'כיסוי דיו (TAC) + Ink zones','Black generation (GCR/UCR)','Trapping'
     ]},
     { c:'🔎 Preflight ו-PDF', items:[
-      'פרופילי Preflight + Auto-Fix','בדיקת רזולוציית תמונות','בדיקת/עיבוי פונטים (embed/outline)',
+      'Preflight מתקדם (פרופילים) + Auto-Fix','בדיקת רזולוציית תמונות','בדיקת/עיבוי פונטים (embed/outline)',
       'Transparency flattening','תאימות PDF/X (X-1a / X-4)','עריכת boxes (Media/Trim/Bleed/Art/Crop)',
       'בליד פר-פריט + יצירת בליד אוטומטית'
     ]},
@@ -22165,21 +22248,10 @@ function pi_renderManualWS(){
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">בליד מ״מ (0=בלי)<input type="number" min="0" step="0.5" value="' + (cur.bleedMm!=null?cur.bleedMm:g.defaultBleedMm) + '" onchange="pi_manualSetBleed(this.value)" style="width:66px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שוליים מ״מ (0=גיליון מלא)<input type="number" min="0" step="0.5" value="' + Math.round((cur.marginMm!=null?cur.marginMm:g.marginLeftMm)*10)/10 + '" onchange="pi_manualSetMargin(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
     '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#3730a3;align-self:center;background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (window._pi.snap!==false?' checked':'') + ' onchange="window._pi.snap=this.checked" style="cursor:pointer"> 🧲 יישור אוטומטי</label>' +
-    '<span style="font-size:.72rem;color:#6b7280;align-self:center">גיליון ' + g.sheetWidthMm + '×' + g.sheetHeightMm + ' מ״מ · הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + '</span>' +
-    '<button onclick="pi_manualAutoArrange()" style="margin-right:auto;padding:7px 14px;border:none;border-radius:8px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">🧮 סדר אוטומטית</button>' +
-    '<button onclick="pi_manualExportPdf()" title="Prototype — PDF בגודל גיליון לבדיקה (לא להפקה)" style="padding:7px 14px;border:none;border-radius:8px;background:#b45309;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">📄 Export PDF Test</button>' +
-    '<button onclick="pi_exportProductionPdf()" title="PDF דפוס: boxes מדויקים + הטמעת תוכן + סימני דפוס (CMYK)" style="padding:7px 14px;border:none;border-radius:8px;background:#065f46;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">🏭 Production PDF</button>' +
+    '<span style="font-size:.72rem;color:#6b7280;align-self:center;margin-right:auto">גיליון ' + g.sheetWidthMm + '×' + g.sheetHeightMm + ' מ״מ · הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + '</span>' +
   '</div>';
-  // ── שורת כלים: מרכוז, צלבי חיתוך, פסי חיתוך ──
-  html += '<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px">' +
-    '<button onclick="pi_nupCalc()" title="מחשבון N-up: כמה נכנס בגיליון + מילוי בקוביות" style="padding:6px 12px;border:none;border-radius:7px;background:#4338ca;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">🧮 מחשבון N-up</button>' +
-    '<button onclick="pi_manualCenterAll()" title="מרכז את כל הקבצים בגיליון" style="padding:6px 12px;border:1px solid #c7d2fe;border-radius:7px;background:#eef2ff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">⊹ מרכז בגיליון</button>' +
-    '<button onclick="pi_manualToggleCrop()" title="הוסף/הסר צלבי חיתוך בייצוא" style="padding:6px 12px;border:1px solid ' + (cur.cropMarks===false?'#fca5a5':'#86efac') + ';border-radius:7px;background:' + (cur.cropMarks===false?'#fef2f2':'#f0fdf4') + ';color:' + (cur.cropMarks===false?'#b91c1c':'#166534') + ';font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">✚ צלבי חיתוך: ' + (cur.cropMarks===false?'כבוי':'פעיל') + '</button>' +
-    '<span style="width:1px;height:20px;background:#e5e7eb"></span>' +
-    '<span style="font-size:.74rem;color:#6b7280">פס חיתוך:</span>' +
-    '<button onclick="pi_manualAddCut(\'v\')" title="קו חיתוך אנכי (יחסית לפריט נבחר אם יש)" style="padding:6px 10px;border:1px solid #fecaca;border-radius:7px;background:#fff5f5;color:#e11d48;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">✂ אנכי ┃</button>' +
-    '<button onclick="pi_manualAddCut(\'h\')" title="קו חיתוך אופקי" style="padding:6px 10px;border:1px solid #fecaca;border-radius:7px;background:#fff5f5;color:#e11d48;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">✂ אופקי ━</button>' +
-  '</div>';
+  // ── שורת כלים ניתנת להתאמה (מועדפים) ──
+  html += pi_toolsRowHtml(cur);
   // ── גוף: סיידבר קבצים | גיליון | פאנל ──
   html += '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">';
   // סיידבר קבצים
