@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783692392';
+window.APP_VERSION = '1783693098';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21843,6 +21843,102 @@ function pi_gangCalc(){
   }
   pi_gangRender();
 }
+// ── Preflight מקצועי (file-level) — MVP: RGB / bleed / גדלים / סיבוב / overprint / annotations ──
+function pi_colorScan(bytes){
+  return new Promise(function(resolve){
+    if (!window.pdfjsLib){ resolve(null); return; }
+    pdfjsLib.getDocument({ data: bytes.slice ? bytes.slice(0) : bytes }).promise.then(function(pdf){
+      var OPS = pdfjsLib.OPS, r = { rgb:false, cmyk:false, spot:false, overprint:false, numPages:pdf.numPages };
+      var maxP = Math.min(pdf.numPages, 25), chain = Promise.resolve();
+      var scan = function(pg){ return pdf.getPage(pg).then(function(page){ return page.getOperatorList().then(function(ol){
+        for (var i=0;i<ol.fnArray.length;i++){ var fn = ol.fnArray[i];
+          if (fn===OPS.setFillRGBColor || fn===OPS.setStrokeRGBColor) r.rgb = true;
+          else if (fn===OPS.setFillCMYKColor || fn===OPS.setStrokeCMYKColor) r.cmyk = true;
+          else if (fn===OPS.setFillColorN || fn===OPS.setStrokeColorN) r.spot = true;
+          else if (fn===OPS.setGState){ var a = ol.argsArray[i] && ol.argsArray[i][0]; if (Array.isArray(a)) a.forEach(function(kv){ if ((kv[0]==='OP'||kv[0]==='op') && kv[1]) r.overprint = true; }); }
+        }
+        try { page.cleanup(); } catch(e){}
+      }); }); };
+      for (var p=1;p<=maxP;p++){ (function(pg){ chain = chain.then(function(){ return scan(pg); }); })(p); }
+      chain.then(function(){ resolve(r); }).catch(function(){ resolve(r); });
+    }).catch(function(){ resolve(null); });
+  });
+}
+function pi_preflightFile(fileId){
+  var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === fileId; });
+  if (!f){ showToast('קובץ לא נמצא'); return; }
+  if (!f.sourceFileUrl){ showToast('לקובץ אין קובץ מקור מוטמע לבדיקה'); return; }
+  var frame = document.getElementById('pi-tpl-frame'), struct = frame && frame.contentWindow && frame.contentWindow.pdfStructReport;
+  var isPdf = /\.pdf(\?|#|$)/i.test(f.sourceFileUrl) || /pdf/i.test(f.name||'') || true;
+  pi_progressShow('🔎 Preflight — מנתח את ' + (f.name || 'הקובץ'));
+  fetch(f.sourceFileUrl).then(function(res){ return res.arrayBuffer(); }).then(function(buf){
+    var bytes = new Uint8Array(buf);
+    var pStruct = (struct && isPdf) ? struct(buf).catch(function(){ return null; }) : Promise.resolve(null);
+    var pColor = pi_colorScan(bytes).catch(function(){ return null; });
+    return Promise.all([pStruct, pColor]);
+  }).then(function(rr){ pi_progressClose(); pi_showPreflightReport(f, rr[0], rr[1]); })
+    .catch(function(e){ pi_progressClose(); console.error('preflight failed', e); showToast('❌ הבדיקה נכשלה: ' + (e && e.message || e)); });
+}
+function pi_showPreflightReport(f, st, col){
+  var g = pi_curGeom(), C = [];
+  if (st){
+    if (st.noBleedPages > 0) C.push({ cat:'block', t:'חסר בליד ב-' + st.noBleedPages + ' עמודים', note:'נדרש קובץ חדש עם בליד ' + (g.defaultBleedMm||3) + ' מ״מ (לא ניתן להוסיף אוטומטית)' });
+    else C.push({ cat:'pass', t:'בליד קיים בכל העמודים' });
+    if (st.differentSizes) C.push({ cat:'warn', t:'גדלי עמודים שונים', note:'ודא שזה מכוון' });
+    else if (st.pages[0]) C.push({ cat:'pass', t:'כל העמודים ' + st.pages[0].trimWmm + '×' + st.pages[0].trimHmm + ' מ״מ' });
+    if (st.rotatedPages > 0) C.push({ cat:'warn', t:st.rotatedPages + ' עמודים עם דגל סיבוב', note:'עלול לשבש פריסה/קיפול' });
+    if (st.hasAnnots) C.push({ cat:'fix', t:'יש הערות/annotations ב-PDF', note:'ניתן להסרה אוטומטית', fix:'annots' });
+    C.push({ cat:'pass', t:st.pageCount + ' עמודים' });
+  } else C.push({ cat:'warn', t:'לא ניתן לנתח מבנה (אולי לא PDF / קובץ מוגן)' });
+  if (col){
+    if (col.rgb) C.push({ cat:'fix', t:'זוהו אובייקטים ב-RGB', note:'נדרש RGB→CMYK — המרה אמיתית דורשת שרת (Ghostscript). מתוכנן.', fix:'rgb' });
+    else if (col.cmyk) C.push({ cat:'pass', t:'צבע CMYK' });
+    if (col.spot) C.push({ cat:'warn', t:'זוהו צבעי ספוט / Separation', note:'אשר המרה ל-CMYK אם נדרש (שרת)' });
+    if (col.overprint) C.push({ cat:'warn', t:'זוהה Overprint', note:'בדוק Overprint על לבן / knockout' });
+  }
+  var block = C.filter(function(c){return c.cat==='block';}).length,
+      warn  = C.filter(function(c){return c.cat==='warn';}).length,
+      fix   = C.filter(function(c){return c.cat==='fix';}).length;
+  var score = Math.max(0, 100 - block*40 - warn*10 - fix*5);
+  var status = block ? '<span style="color:#b91c1c">⛔ חסום — נדרש קובץ חדש</span>'
+    : (warn||fix ? '<span style="color:#b45309">⚠️ עובר עם ' + (warn+fix) + ' הערות</span>' : '<span style="color:#065f46">✓ עובר — מוכן</span>');
+  var scColor = score>=85?'#065f46':(score>=60?'#b45309':'#b91c1c');
+  var ic = { pass:'✓', warn:'⚠️', fix:'🛠️', block:'⛔' }, cl = { pass:'#065f46', warn:'#b45309', fix:'#7c3aed', block:'#b91c1c' };
+  try { f.preflight = { score:score, block:block, warn:warn, fix:fix, at:Date.now() }; window._pi.dirty = true; } catch(e){}
+  var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 288;
+  m.innerHTML = '<div class="modal-box" style="max-width:560px;width:95vw;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div class="modal-header"><span>🔎 Preflight — ' + escHtml(f.name||'קובץ') + '</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:14px 18px;overflow:auto">' +
+      '<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">' +
+        '<div style="width:66px;height:66px;border-radius:50%;border:5px solid ' + scColor + ';display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.3rem;color:' + scColor + '">' + score + '</div>' +
+        '<div><div style="font-weight:800;font-size:1rem">' + status + '</div><div style="font-size:.76rem;color:#6b7280">ציון ' + score + '/100 · ⛔ ' + block + ' · ⚠️ ' + warn + ' · 🛠️ ' + fix + '</div></div>' +
+      '</div>' +
+      C.map(function(c){ return '<div style="display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border:1px solid #f0f0f0;border-radius:8px;margin-bottom:5px">' +
+        '<span>' + ic[c.cat] + '</span><div style="flex:1"><div style="font-size:.84rem;font-weight:700;color:' + cl[c.cat] + '">' + escHtml(c.t) + '</div>' +
+        (c.note ? '<div style="font-size:.74rem;color:#6b7280;margin-top:1px">' + escHtml(c.note) + '</div>' : '') + '</div>' +
+        (c.fix==='annots' ? '<button onclick="pi_autofixAnnots(\'' + f.id + '\');this.closest(\'.modal-overlay\').remove()" style="flex:none;padding:4px 9px;border:none;border-radius:6px;background:#7c3aed;color:#fff;font-weight:700;cursor:pointer;font-size:.72rem;font-family:Heebo">תקן</button>' : '') +
+      '</div>'; }).join('') +
+      '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+        (block ? '<button onclick="showToast(\'📤 בקש מהלקוח קובץ חדש עם בליד/תיקון\');this.closest(\'.modal-overlay\').remove()" style="flex:1;min-width:140px;padding:10px;border:none;border-radius:9px;background:#b91c1c;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">📤 דרוש קובץ חדש</button>' : '') +
+        (!block ? '<button onclick="this.closest(\'.modal-overlay\').remove();showToast(\'✓ ממשיך לאימפוזיציה\')" style="flex:1;min-width:140px;padding:10px;border:none;border-radius:9px;background:#065f46;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">' + (warn||fix?'המשך למרות הערות':'המשך לאימפוזיציה') + '</button>' : '') +
+      '</div>' +
+      '<div style="margin-top:10px;font-size:.74rem;color:#9ca3af;line-height:1.5">ℹ️ בדיקות עמוקות (DPI תמונות, הטמעת פונטים, LAB/ICC, Total Ink) והמרות אמיתיות (RGB→CMYK, flatten, downsample) דורשות שלב שרת (Ghostscript) — מתוכנן. זהו MVP client-side.</div>' +
+    '</div></div>';
+  document.body.appendChild(m);
+}
+function pi_autofixAnnots(fileId){
+  var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === fileId; }); if (!f || !f.sourceFileUrl) return;
+  var frame = document.getElementById('pi-tpl-frame'), strip = frame && frame.contentWindow && frame.contentWindow.pdfStripAnnots;
+  if (!strip){ showToast('מנוע לא זמין'); return; }
+  pi_progressShow('🛠️ מסיר הערות ומעלה גרסה מתוקנת');
+  fetch(f.sourceFileUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){ return strip(buf); }).then(function(bytes){
+    var folder = pi_safeName(cur.name||'manual');
+    var path = 'impositionFiles/' + folder + '/' + cur.id + '/fixed_' + Date.now() + '_' + String(f.name||'file').replace(/[^\w.\-]+/g,'_');
+    var blob = new Blob([bytes], { type:'application/pdf' });
+    return _uploadProofToStorage(path, blob, null).then(function(url){ f.sourceFileUrl = url; f.corrected = true; window._pi.dirty = true; window._pi.previews && (delete window._pi.previews[f.id]); });
+  }).then(function(){ pi_progressClose(); pi_render(); showToast('✓ הערות הוסרו — גרסה מתוקנת נשמרה'); })
+    .catch(function(e){ pi_progressClose(); console.error(e); showToast('❌ התיקון נכשל'); });
+}
 // גרירת קבצים אל חלון האימפוזיציה (מאזין פעם אחת על pi-body)
 function pi_manualBindDrop(){
   var body = document.getElementById('pi-body'); if (!body || body._piDropBound) return; body._piDropBound = true;
@@ -22246,7 +22342,7 @@ function pi_showFeatures(){
     'ולידציה בזמן אמת (חריגה/גריפר/חפיפה/מרווח/בליד)','ייצוא PDF דפוס — הטמעת וקטור, boxes מדויקים (Media/Trim/Bleed/Crop), סימנים ב-CMYK',
     'קדמי/אחורי + מספר קונטרסים/גיליונות','מעבודת הלקוח → ריצות מסודרות + פרופר פרוס לאפוגי','קישור העלאה פר-כרטיס',
     'מד התקדמות ליצירת PDF','מסך מלא + אפליקציית מחשב','אימות קיפול (Round-trip)',
-    'מחשבון N-up (כמה נכנס בגיליון) + מילוי אוטומטי','מחשבון עבודות רב-קבצים (כמות נדרשת → גיליונות + gang אופטימלי)','נקה גיליון','🔎 Preflight — בדיקת מוכנות (מיקום/בליד/תוכן/ניצול)','התאמת חלון — בחירת כלים מועדפים (⚙️)'
+    'מחשבון N-up (כמה נכנס בגיליון) + מילוי אוטומטי','מחשבון עבודות רב-קבצים (כמות נדרשת → גיליונות + gang אופטימלי)','נקה גיליון','🔎 Preflight פריסה — בדיקת מוכנות (מיקום/בליד/תוכן/ניצול)','🔎 Preflight קובץ — RGB / bleed / גדלים / סיבוב / overprint / annotations + ציון','Auto-Fix: הסרת annotations','התאמת חלון — בחירת כלים מועדפים (⚙️)'
   ];
   var plannedCats = [
     { c:'🗂️ סידור ואימפוזיציה', items:[
@@ -22408,6 +22504,8 @@ function pi_renderManualWS(){
           '<span data-file-drag="' + f.id + '" title="גרור לגיליון" style="cursor:grab;color:#94a3b8;font-size:1rem;user-select:none;touch-action:none">⠿</span>' +
           (prev ? '<img src="' + prev + '" style="width:26px;height:26px;object-fit:contain;border:1px solid #e5e7eb;border-radius:3px;background:#fff;flex:none"/>' : '') +
           '<b style="flex:1;min-width:0;font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' + (green?';color:#065f46':'') + '">' + (green?'✓ ':'') + escHtml(f.name) + '</b>' +
+          (f.sourceFileUrl ? '<button onclick="pi_preflightFile(\'' + f.id + '\')" title="Preflight — בדיקת הקובץ" style="flex:none;border:none;background:none;color:#7c3aed;cursor:pointer;font-size:.85rem">🔎</button>' : '') +
+          (f.preflight ? '<span title="ציון Preflight" style="flex:none;font-size:.66rem;font-weight:800;color:' + (f.preflight.block?'#b91c1c':(f.preflight.warn||f.preflight.fix?'#b45309':'#065f46')) + '">' + f.preflight.score + '</span>' : '') +
           '<button onclick="pi_manualDelFile(\'' + f.id + '\')" title="מחק קובץ" style="flex:none;border:none;background:none;color:#b91c1c;cursor:pointer;font-size:.85rem">🗑</button>' +
         '</div>' +
         '<div style="font-size:.7rem;color:' + (green?'#059669':'#6b7280') + ';margin:2px 0 5px">' + f.widthMm + '×' + f.heightMm + ' מ״מ · כמות ' + f.quantity + (used ? ' · על הגיליון: ' + used : '') + '</div>' +

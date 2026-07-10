@@ -94,7 +94,7 @@
 </div>
 
 <script>
-const { PDFDocument, degrees, rgb, cmyk, StandardFonts } = PDFLib;
+const { PDFDocument, degrees, rgb, cmyk, StandardFonts, PDFName } = PDFLib;
 const MM = 72/25.4;
 const COLCX = [125, 375, 625, 875];          // מ"מ — מרכז עמודה (top-left, על שטח פריסה 1000×700)
 const ROWCY = [97.5, 262.5, 437.5, 602.5];   // מ"מ — מרכז שורה (top-left)
@@ -538,6 +538,41 @@ async function imposeRunPdf(srcUrl, segments, opts){
     markMm:opts.markMm!=null?opts.markMm:12, pages, onProgress: opts.onProgress });
 }
 window.imposeRunPdf = imposeRunPdf;
+
+/* Preflight — ניתוח מבנה PDF אמין דרך pdf-lib: boxes, bleed, גדלים, סיבוב, עמודים.
+   (זיהוי צבע/DPI/פונטים נעשה בצד pdf.js; המרות אמיתיות דורשות שרת.) */
+async function pdfStructReport(bytes){
+  const MMc = 25.4/72;
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption:true, updateMetadata:false });
+  const pages = doc.getPages();
+  const out = { pageCount: pages.length, pages: [], hasAnnots:false };
+  const dims = {};
+  pages.forEach(function(p){
+    const mb=p.getMediaBox(), tb=p.getTrimBox(), bb=p.getBleedBox();
+    const hasBleed = (bb.width > tb.width + 1) || (bb.height > tb.height + 1);
+    const bleedMm = hasBleed ? Math.round(((bb.width - tb.width)/2)*MMc*10)/10 : 0;
+    let rot = 0; try { rot = (p.getRotation && p.getRotation().angle) || 0; } catch(e){}
+    let annots = false; try { annots = !!(p.node.Annots && p.node.Annots()); } catch(e){}
+    if (annots) out.hasAnnots = true;
+    const trimWmm = Math.round(tb.width*MMc), trimHmm = Math.round(tb.height*MMc);
+    dims[trimWmm+'x'+trimHmm] = 1;
+    out.pages.push({ mediaWmm:Math.round(mb.width*MMc), mediaHmm:Math.round(mb.height*MMc),
+      trimWmm:trimWmm, trimHmm:trimHmm, hasBleed:hasBleed, bleedMm:bleedMm, rotation:rot, hasAnnots:annots });
+  });
+  out.differentSizes = Object.keys(dims).length > 1;
+  out.rotatedPages = out.pages.filter(function(p){ return p.rotation % 360 !== 0; }).length;
+  out.noBleedPages = out.pages.filter(function(p){ return !p.hasBleed; }).length;
+  return out;
+}
+window.pdfStructReport = pdfStructReport;
+
+// Auto-Fix בטוח: הסרת הערות/annotations (לא משנה מראה הדפוס)
+async function pdfStripAnnots(bytes){
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption:true });
+  doc.getPages().forEach(function(p){ try { p.node.delete(PDFName.of('Annots')); } catch(e){} });
+  return await doc.save();
+}
+window.pdfStripAnnots = pdfStripAnnots;
 
 // חשיפה לבדיקות
 window.fold = fold;
