@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783703737';
+window.APP_VERSION = '1783704353';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1286,10 +1286,30 @@ window._fbSnapshot = {};
       </div>
       <div style="flex:1;min-width:180px">
         <label style="display:block;font-size:.76rem;color:#555;font-weight:700;margin-bottom:3px">קובץ (PDF / תמונה)</label>
-        <input id="pf-file" type="file" accept="application/pdf,image/*" style="font-size:.82rem;width:100%">
+        <input id="pf-file" type="file" accept="application/pdf,image/*" onchange="_pfDetectSize(this)" style="font-size:.82rem;width:100%">
       </div>
       <button class="btn btn-primary" onclick="addPrintFile()" style="white-space:nowrap">➕ הוסף</button>
     </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:10px">
+      <div style="flex:1;min-width:160px">
+        <label style="display:block;font-size:.76rem;color:#555;font-weight:700;margin-bottom:3px">נייר (סוג + משקל)</label>
+        <input class="fi" id="pf-paper" placeholder="לדוגמה: כרומו מט 135 גר" style="margin:0">
+      </div>
+      <div style="width:120px">
+        <label style="display:block;font-size:.76rem;color:#555;font-weight:700;margin-bottom:3px">צדדים</label>
+        <select class="fi" id="pf-sides" style="margin:0"><option value="1">צד אחד</option><option value="2">שני צדדים</option></select>
+      </div>
+      <div style="width:92px">
+        <label style="display:block;font-size:.76rem;color:#555;font-weight:700;margin-bottom:3px">רוחב מ״מ</label>
+        <input class="fi" id="pf-w" type="number" min="1" placeholder="אוט׳" style="margin:0">
+      </div>
+      <div style="width:92px">
+        <label style="display:block;font-size:.76rem;color:#555;font-weight:700;margin-bottom:3px">גובה מ״מ</label>
+        <input class="fi" id="pf-h" type="number" min="1" placeholder="אוט׳" style="margin:0">
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;font-weight:700;color:#166534;white-space:nowrap;padding-bottom:6px"><input type="checkbox" id="pf-approved" style="width:16px;height:16px;cursor:pointer"> ✅ מאושר להפקה</label>
+    </div>
+    <div style="font-size:.72rem;color:#9ca3af;margin-top:5px">המידות מזוהות אוטומטית מה-PDF (אפשר לתקן). שדות אלה משמשים לשילוב "מצא עבודות לחורים" באימפוזיציה — עבודה תשולב רק אם הנייר, הצדדים והמידות תואמים והיא מאושרת.</div>
     <div id="pf-add-status" style="font-size:.82rem;color:var(--press);margin-top:8px;display:none"></div>
   </div>
   <div id="printfiles-list"></div>
@@ -12216,6 +12236,29 @@ function confirmMakeCardWeekly(cardId, day) {
 // ═══════════════════════════════════════════════════════
 function _pfRemaining(p){ return Math.max(0, (parseInt(p.totalQty)||0) - (parseInt(p.printedQty)||0)); }
 function _pfDone(p){ var t=parseInt(p.totalQty)||0; return t>0 && (parseInt(p.printedQty)||0) >= t; }
+// מפרט לשילוב "מצא עבודות לחורים": מידות · נייר · צדדים · מאושר (ניתן לעריכה גם ברשומות ישנות)
+function _pfSpecsHtml(p){
+  var chip='display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:2px 8px;font-size:.72rem;font-weight:700';
+  var chips=[];
+  if (p.widthMm>0 && p.heightMm>0) chips.push('<span style="'+chip+';background:#eef2ff;color:#3730a3">📐 '+p.widthMm+'×'+p.heightMm+' מ״מ</span>');
+  else chips.push('<span style="'+chip+';background:#fef3c7;color:#92400e">📐 מידות חסרות</span>');
+  if (p.paper) chips.push('<span style="'+chip+';background:#f1f5f9;color:#334155">📄 '+escHtml(p.paper)+'</span>');
+  else chips.push('<span style="'+chip+';background:#fef3c7;color:#92400e">📄 נייר חסר</span>');
+  chips.push('<span style="'+chip+';background:#f1f5f9;color:#334155">'+(parseInt(p.sides)===2?'⧉ 2 צדדים':'▭ צד אחד')+'</span>');
+  chips.push(p.approved ? '<span style="'+chip+';background:#dcfce7;color:#166534">✅ מאושר להפקה</span>' : '<span style="'+chip+';background:#fee2e2;color:#b91c1c">⏳ לא מאושר</span>');
+  chips.push('<button onclick="_pfEditSpecs('+p.id+')" title="ערוך מפרט לשילוב" style="'+chip+';background:#fff;border:1px dashed #c7d2fe;color:#4338ca;cursor:pointer;font-family:Heebo">✏️ מפרט</button>');
+  return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">'+chips.join('')+'</div>';
+}
+function _pfEditSpecs(id){
+  var p=(printFiles||[]).find(function(x){ return String(x.id)===String(id); }); if(!p) return;
+  var paper=prompt('נייר (סוג + משקל) — לשילוב מותר רק נייר תואם:', p.paper||''); if(paper===null) return;
+  var sides=prompt('צדדים (1 = צד אחד, 2 = שני צדדים):', p.sides||1); if(sides===null) return;
+  var w=prompt('רוחב מ״מ:', p.widthMm||''); if(w===null) return;
+  var h=prompt('גובה מ״מ:', p.heightMm||''); if(h===null) return;
+  var appr=confirm('האם הקובץ מאושר להפקה?\n(אישור = כן · ביטול = לא)');
+  p.paper=(paper||'').trim(); p.sides=parseInt(sides)===2?2:1; p.widthMm=parseInt(w)||0; p.heightMm=parseInt(h)||0; p.approved=appr;
+  persist(); renderPrintFiles(); showToast('✅ המפרט עודכן');
+}
 
 function renderPrintFiles(){
   var el = document.getElementById('printfiles-list');
@@ -12250,6 +12293,7 @@ function renderPrintFiles(){
       +   '<div style="min-width:0">'
       +     '<div style="font-weight:900;font-size:1.05rem;color:#111">'+(done?'✅ ':'')+escHtml(p.name||'ללא שם')+'</div>'
       +     (p.fileName?'<div style="font-size:.78rem;color:#888;margin-top:2px">📎 '+escHtml(p.fileName)+'</div>':'')
+      +     _pfSpecsHtml(p)
       +   '</div>'
       +   '<div style="display:flex;gap:6px;flex-wrap:wrap">'
       +     (done
@@ -12284,6 +12328,18 @@ function renderPrintFiles(){
   }).join('');
 }
 
+// זיהוי מידות אוטומטי מה-PDF/תמונה שנבחר (ממלא רוחב/גובה אם ריקים) — משתמש ב-pi_detectSizeMm
+function _pfDetectSize(inp){
+  var file = inp && inp.files && inp.files[0]; if (!file) return;
+  if (typeof pi_detectSizeMm !== 'function') return;
+  var wEl=document.getElementById('pf-w'), hEl=document.getElementById('pf-h');
+  if (wEl && wEl.value && hEl && hEl.value) return;   // כבר מולא ידנית — לא לדרוס
+  pi_detectSizeMm(file).then(function(dim){
+    if (!dim) return;
+    if (wEl && !wEl.value && dim.wMm) wEl.value = Math.round(dim.wMm);
+    if (hEl && !hEl.value && dim.hMm) hEl.value = Math.round(dim.hMm);
+  }).catch(function(){});
+}
 function addPrintFile(){
   var name=(document.getElementById('pf-name')||{value:''}).value.trim();
   var qty=parseInt((document.getElementById('pf-qty')||{value:''}).value)||0;
@@ -12292,6 +12348,11 @@ function addPrintFile(){
   if (!name){ showToast('⚠️ חסר שם קובץ'); return; }
   if (!qty || qty<1){ showToast('⚠️ הזן כמות להדפסה'); return; }
   if (!file){ showToast('⚠️ בחר קובץ'); return; }
+  var _pfPaper=((document.getElementById('pf-paper')||{value:''}).value||'').trim();
+  var _pfSides=parseInt((document.getElementById('pf-sides')||{value:'1'}).value)||1;
+  var _pfW=parseInt((document.getElementById('pf-w')||{value:''}).value)||0;
+  var _pfH=parseInt((document.getElementById('pf-h')||{value:''}).value)||0;
+  var _pfApproved=!!(document.getElementById('pf-approved')||{}).checked;
   var id=Date.now();
   var status=document.getElementById('pf-add-status');
   if (status){ status.style.display='block'; status.textContent='⏳ מעלה קובץ… 0%'; }
@@ -12300,10 +12361,16 @@ function addPrintFile(){
   _uploadProofToStorage(spath, file, function(pct){ if(status) status.textContent='⏳ מעלה קובץ… '+pct+'%'; }).then(function(url){
     printFiles.unshift({ id:id, name:name, totalQty:qty, printedQty:0, sessions:[],
       fileName:file.name||'', fileUrl:url, filePath:spath,
+      paper:_pfPaper, sides:_pfSides, widthMm:_pfW, heightMm:_pfH, approved:_pfApproved,
       createdAt:Date.now(), createdBy:(currentUser?currentUser.id:'admin') });
     persist();
     var n=document.getElementById('pf-name'); if(n) n.value='';
     var q=document.getElementById('pf-qty'); if(q) q.value='';
+    var _pp=document.getElementById('pf-paper'); if(_pp) _pp.value='';
+    var _pw=document.getElementById('pf-w'); if(_pw) _pw.value='';
+    var _ph=document.getElementById('pf-h'); if(_ph) _ph.value='';
+    var _ps=document.getElementById('pf-sides'); if(_ps) _ps.value='1';
+    var _pa=document.getElementById('pf-approved'); if(_pa) _pa.checked=false;
     if (fileEl) fileEl.value='';
     if (status){ status.style.display='none'; }
     renderPrintFiles();
