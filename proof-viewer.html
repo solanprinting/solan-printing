@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>צפייה בעיתון — סולן הדפסות</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -30,6 +31,13 @@
   #spread .page { display:inline-flex; flex-direction:column; align-items:center; gap:5px; line-height:0; }
   /* בלי צל פר-עמוד — צל פנימי היה יוצר "תפר" בין שני העמודים */
   #spread img { display:block; height:80vh; width:auto; max-width:48vw; background:#fff; box-shadow:none; }
+  /* תצוגה "נטו": ה-div מציג רק את אזור החיתוך (TrimBox) של העמוד דרך background, כך שהבליד והצלבים לא נראים והעמודים מתחברים נקי */
+  #spread .netcrop { display:block; height:80vh; width:auto; max-width:48vw; background-color:#fff; background-repeat:no-repeat; box-sizing:border-box; border:1.4px dashed #e11d48; }
+  /* מסגרת קו-החיתוך (TrimBox) — מקווקוות; בצד השדרה מדלגים (border:none) כדי שהכפולה תתחבר נקי */
+  #spread .netcrop.tf-r  { border-left:none; }   /* עמוד ימני — השדרה משמאל */
+  #spread .netcrop.tf-l  { border-right:none; }  /* עמוד שמאלי — השדרה מימין */
+  .cutlegend { text-align:center; font-size:.78rem; color:#6b7280; margin-top:2px; }
+  .cutlegend b { color:#e11d48; letter-spacing:2px; }
   /* מספר עמוד — תווית עזר מתחת לעמוד ובשקיפות (לא חלק מהעיתון) */
   #spread .pgnum { line-height:1; color:#6b7280; opacity:.5; font-size:.82rem; font-weight:700; }
   #spread .ph { color:#6b7280; font-size:.95rem; padding:50px; }
@@ -41,6 +49,8 @@
   #viewer:fullscreen #spread { background:#111; flex:1; min-height:0; padding:4px; }
   #viewer:fullscreen #spread img { height:auto; width:auto; max-height:90vh; max-width:48vw; }
   #viewer:fullscreen #spread .page:only-child img { max-width:94vw; max-height:92vh; }
+  #viewer:fullscreen #spread .netcrop { height:88vh; max-height:92vh; max-width:48vw; }
+  #viewer:fullscreen #spread .page:only-child .netcrop { height:90vh; max-width:94vw; }
   #viewer:fullscreen #vlabel { color:#fff; }
   #overlay { position:fixed; inset:0; background:rgba(255,255,255,.95); display:flex; align-items:center;
              justify-content:center; flex-direction:column; gap:12px; z-index:50; text-align:center; padding:24px; white-space:pre-line; }
@@ -49,7 +59,7 @@
   .parts-pick { display:flex; flex-direction:column; gap:10px; max-width:480px; width:100%; }
   .parts-pick a { display:block; padding:14px 18px; background:#fff; border:1.5px solid var(--line); border-radius:10px;
     text-decoration:none; color:var(--press); font-weight:800; font-size:1rem; text-align:center; }
-  @media (max-width:680px){ #spread img{height:auto;max-height:60vh;width:auto;max-width:96vw} }
+  @media (max-width:680px){ #spread img{height:auto;max-height:60vh;width:auto;max-width:96vw} #spread .netcrop{height:56vh;max-width:96vw} }
 </style>
 </head>
 <body>
@@ -120,7 +130,36 @@ const show = (id, on=true) => $(id).classList.toggle('hidden', !on);
 const params = new URLSearchParams(location.search);
 const proofId = params.get('id');
 const partId  = params.get('part');
-let imgs = [], vIndex = 0;
+let imgs = [], metas = [], vIndex = 0;
+let _pdfUrlForBoxes = '';   // כתובת ה-PDF לקריאת TrimBox (גם כשמוצג ממטמון מהיר)
+
+// קריאת תיבות (MediaBox/TrimBox) מ-PDF דרך pdf-lib → אחוזי חיתוך (trimFrac) לכל עמוד
+async function _trimFracsFromPdf(bytes){
+  try {
+    const doc = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption:true });
+    return doc.getPages().map(pg => {
+      let mb, tb;
+      try { mb = pg.getMediaBox(); } catch(e){}
+      try { tb = pg.getTrimBox(); } catch(e){}
+      if (!mb || !tb || !tb.width || !tb.height) return null;
+      const l = (tb.x - mb.x) / mb.width,
+            t = (mb.y + mb.height - (tb.y + tb.height)) / mb.height,
+            w = tb.width / mb.width, h = tb.height / mb.height;
+      if (l > 0.003 || t > 0.003 || w < 0.997 || h < 0.997)
+        return { l: Math.max(0,l), t: Math.max(0,t), w: Math.min(1,w), h: Math.min(1,h), wmm: tb.width*25.4/72, hmm: tb.height*25.4/72 };
+      return null;
+    });
+  } catch(e){ return []; }
+}
+// טוען את תיבות ה-TrimBox ברקע (למסלול מטמון מהיר) ואז מרנדר מחדש עם חיתוך-נטו + מסגרת
+async function _loadTrimsBg(){
+  if (!_pdfUrlForBoxes || (metas && metas.length)) return;
+  try {
+    const buf = await (await fetch(await _au(_pdfUrlForBoxes))).arrayBuffer();
+    const tf = await _trimFracsFromPdf(new Uint8Array(buf));
+    if (tf && tf.length){ metas = tf; renderViewer(); }
+  } catch(e){ /* נשאר בתצוגה רגילה */ }
+}
 
 (async function init(){
   if (!proofId) return fail('לא נמצא מזהה בכתובת.');
@@ -148,6 +187,8 @@ let imgs = [], vIndex = 0;
 
   if (label) $('ttl').textContent = 'צפייה — ' + label;
 
+  _pdfUrlForBoxes = url;   // לקריאת TrimBox (חיתוך-נטו) גם במסלול מטמון מהיר
+
   // ── פתיחה מהירה: אם יש תצוגה מרונדרת שמורה ועדכנית (פחות מ-12 שעות) — טוען אותה מיידית ללא רינדור ──
   var FRESH_MS = 12 * 60 * 60 * 1000;
   if (cacheUrl && cacheAt && (Date.now() - cacheAt) < FRESH_MS) {
@@ -156,6 +197,7 @@ let imgs = [], vIndex = 0;
       imgs = await (await fetch(cacheUrl)).json();
       if (Array.isArray(imgs) && imgs.length) {
         showOverlay('', false); show('viewer', true); renderViewer();
+        _loadTrimsBg();   // מביא TrimBox ברקע → רינדור מחדש עם חיתוך-נטו + מסגרת
         return;
       }
     } catch(e){ console.warn('quick-cache failed, falling back to PDF render:', e); }
@@ -164,6 +206,7 @@ let imgs = [], vIndex = 0;
   try {
     const buf = await (await fetch(url)).arrayBuffer();
     showOverlay('מרנדר עמודים…', true, 0);
+    try { metas = await _trimFracsFromPdf(new Uint8Array(buf.slice(0))); } catch(e){ metas = []; }   // תיבות חיתוך לפני ש-pdf.js "בולע" את ה-buffer
     const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     imgs = new Array(pdf.numPages);
     for (let i = 1; i <= pdf.numPages; i++) {
@@ -201,7 +244,23 @@ function renderViewer(){
   $('vlabel').textContent = `עמוד ${s.map(i=>i+1).join('–')} מתוך ${imgs.length}`;
   $('vprev').disabled = vIndex <= 0;
   $('vnext').disabled = s[s.length-1] >= imgs.length - 1;
-  spread.innerHTML = s.map(i => `<div class="page"><img src="${imgs[i]}" alt=""><div class="pgnum">עמוד ${i+1}</div></div>`).join('');
+  const two = s.length === 2;
+  spread.innerHTML = s.map((i, pos) => {
+    const tf = metas[i];
+    if (tf && (tf.w < 1 || tf.h < 1)) {
+      // תצוגה נטו: חותכים ל-TrimBox דרך background → הבליד והצלבים לא נראים, העמודים מתחברים נקי
+      const ar = (tf.wmm && tf.hmm) ? (tf.wmm / tf.hmm) : (tf.w / tf.h);
+      const posX = tf.w < 1 ? (tf.l / (1 - tf.w) * 100) : 0;
+      const posY = tf.h < 1 ? (tf.t / (1 - tf.h) * 100) : 0;
+      const sizeW = (100 / tf.w).toFixed(3), sizeH = (100 / tf.h).toFixed(3);
+      // מסגרת קו-חיתוך: מדלגים על צד השדרה (בכפולה) כדי שהחיבור יישאר נקי
+      const spineCls = two ? (pos === 0 ? ' tf-r' : ' tf-l') : '';   // עמוד ראשון (ימני) שדרה משמאל, שני (שמאלי) שדרה מימין
+      const st = `aspect-ratio:${ar.toFixed(4)};background-image:url('${imgs[i]}');`
+        + `background-size:${sizeW}% ${sizeH}%;background-position:${posX.toFixed(3)}% ${posY.toFixed(3)}%;`;
+      return `<div class="page"><div class="netcrop${spineCls}" style="${st}"></div><div class="pgnum">עמוד ${i+1}</div></div>`;
+    }
+    return `<div class="page"><img src="${imgs[i]}" alt=""><div class="pgnum">עמוד ${i+1}</div></div>`;
+  }).join('');
 }
 function step(d){
   if (vIndex === 0) vIndex = d > 0 ? 1 : 0;
