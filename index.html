@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783690018';
+window.APP_VERSION = '1783690359';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21863,10 +21863,10 @@ function pi_getApprovedUnits(){
   Object.keys(proofs).forEach(function(pid){
     var p = proofs[pid]; if (!p || typeof p !== 'object') return;
     var title = p.title || p.customer || p.name || pid;
-    if (p.mode === 'full' && p.status === 'approved')
+    if (p.mode === 'full' && p.status === 'approved' && !p.prepressRemoved)
       out.push({ proofId:pid, partId:'', title:title, runName:'מלא', customer:p.customer||'', cardId:p.cardId||'', pages:p.pageCount||0, approvedAt:p.approvedAt||0, fileUrl:p.fileUrl||'' });
     if (p.parts && typeof p.parts === 'object') Object.keys(p.parts).forEach(function(k){
-      var pt = p.parts[k]; if (!pt || pt.status !== 'approved') return;
+      var pt = p.parts[k]; if (!pt || pt.status !== 'approved' || pt.prepressRemoved) return;
       out.push({ proofId:pid, partId:k, title:title + ' — ' + (pt.name||'ריצה'), runName:pt.name||'ריצה', customer:p.customer||'', cardId:p.cardId||'', pages:pt.pageCount||0, approvedAt:pt.approvedAt||0, fileUrl:pt.fileUrl||'' });
     });
   });
@@ -21874,6 +21874,15 @@ function pi_getApprovedUnits(){
   return out;
 }
 function pi_unitBy(proofId, partId){ return pi_getApprovedUnits().find(function(u){ return u.proofId === proofId && (u.partId||'') === (partId||''); }); }
+// הסרת עבודת לקוח מאושרת מרשימת האימפוזיציה (לא מוחק את קובץ הלקוח — רק מסתיר מהתכנון)
+function pi_removeApprovedUnit(proofId, partId){
+  if (!confirm('להסיר עבודה זו מרשימת האימפוזיציה? (הקובץ של הלקוח יישאר; אפשר להחזיר מ-proof-admin)')) return;
+  var proofs = window._pi.proofs || {}, p = proofs[proofId]; if (!p) return;
+  if (partId){ if (p.parts && p.parts[partId]){ p.parts[partId].prepressRemoved = true; try { window._fbPut('customerProofs/' + proofId + '/parts/' + partId + '/prepressRemoved', true); } catch(e){} } }
+  else { p.prepressRemoved = true; try { window._fbPut('customerProofs/' + proofId + '/prepressRemoved', true); } catch(e){} }
+  showToast('🗑 הוסר מרשימת האימפוזיציה');
+  pi_render();
+}
 function pi_downloadProofRun(proofId, partId){
   var u = pi_unitBy(proofId, partId); if (!u || !u.fileUrl){ showToast('אין קובץ לריצה'); return; }
   var a = document.createElement('a'); a.href = u.fileUrl; a.download = pi_safeName(u.title) + '_reading.pdf'; a.target = '_blank';
@@ -21916,7 +21925,8 @@ function pi_proofExportsHtml(){
     var mtxt = card ? ('מכונה: ' + escHtml(card.machine||'—') + ' (מהכרטיס)') : '<span style="color:#b45309">אין כרטיס תואם — פרופיל ברירת מחדל</span>';
     return '<div style="border:1px solid #99f6e4;border-radius:9px;padding:9px 12px;margin-bottom:7px;background:#f0fdfa">' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="flex:1;min-width:0;font-size:.9rem">' + escHtml(u.title) + '</b>' +
-        '<span style="flex:none;font-size:.74rem;color:#0f766e;font-weight:800">' + u.pages + ' עמ\'</span></div>' +
+        '<span style="flex:none;font-size:.74rem;color:#0f766e;font-weight:800">' + u.pages + ' עמ\'</span>' +
+        '<button onclick="pi_removeApprovedUnit(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" title="הסר מרשימת האימפוזיציה" style="flex:none;border:1px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:.8rem">🗑</button></div>' +
       '<div style="font-size:.72rem;color:#6b7280;margin:2px 0 7px">לקוח: ' + escHtml(u.customer||'—') + ' · ' + mtxt + '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
         '<button onclick="pi_downloadProofRun(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" style="flex:1;min-width:130px;padding:8px;border:1px solid #99f6e4;border-radius:7px;background:#fff;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.8rem">⬇️ ריצה (קריאה)</button>' +
@@ -21924,6 +21934,38 @@ function pi_proofExportsHtml(){
       '</div></div>';
   }).join('');
   return html + '<div style="border-top:1px solid #eee;margin:12px 0"></div>';
+}
+// ── טאב תכונות: מה קיים ומה מתוכנן (פאריטי לעורך הטמפלטים של Apogee Prepress) ──
+function pi_showFeatures(){
+  var done = [
+    'גיליון במ״מ + חוקי מכונה (גריפר/שוליים/מרווח)','העלאת קבצים בגרירה/בחירה + זיהוי מידות אוטומטי',
+    'תצוגת הגרפיקה של הקבצים על הגיליון','סידור אוטומטי (Auto-Arrange)','עזרי יישור (Snap) + קווי עזר',
+    'בחירה מרובה + עריכה קבוצתית (גודל/יישור/סיבוב/שכפול/מחיקה/הזזה)','מרכוז בגיליון','FIT — התאמת גודל בשמירת יחס',
+    'בליד לבחירה (כולל 0)','צלבי חיתוך — הוסף/הסר','פסי חיתוך (גיליוטינה) במיקום מדויק','סימני רגיסטר + Color Bar + Slug',
+    'ולידציה בזמן אמת (חריגה/גריפר/חפיפה/מרווח/בליד)','ייצוא PDF דפוס — הטמעת וקטור, boxes מדויקים (Media/Trim/Bleed/Crop), סימנים ב-CMYK',
+    'קדמי/אחורי + מספר קונטרסים/גיליונות','מעבודת הלקוח → ריצות מסודרות + פרופר פרוס לאפוגי','קישור העלאה פר-כרטיס',
+    'מד התקדמות ליצירת PDF','מסך מלא + אפליקציית מחשב','אימות קיפול (Round-trip)'
+  ];
+  var planned = [
+    'בחירת מלבן (Marquee)','Undo / Redo','הזנה מספרית מדויקת X/Y/סיבוב','סיבוב בזווית חופשית',
+    'Step & Repeat (מטריצה + ספירות)','Gutters / Creep / Shingling','Nesting אופטימלי לגדלים מעורבים',
+    'Ganging — כמה עבודות שונות על גיליון','ספריית טמפלטים (שמירה/טעינה של פריסות)','סימנים מותאמים (Marks templates)',
+    'Color bars לפי תקן + טלאי דנסיטומטר','ברקוד / QR על הגיליון','Ink zones / כיסוי דיו','ניהול צבע ICC + המרת RGB→CMYK',
+    'Spot colors / הפרדות','Preflight + Auto-Fix','Trapping','בליד פר-פריט + Mirror/Tumble','גדלי גיליון מותאמים / מכונות נוספות',
+    'JDF / CIP3','סימני כריכה (Fold/Collate)','סרגלים / רשת / מדריכים מותאמים'
+  ];
+  var li = function(t){ return '<li style="margin:3px 0;break-inside:avoid">' + escHtml(t) + '</li>'; };
+  var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 280;
+  m.innerHTML = '<div class="modal-box" style="max-width:720px;width:95vw;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div class="modal-header"><span>📋 תכונות האימפוזיציה — קיים ומתוכנן</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:14px 18px;overflow:auto">' +
+      '<div style="font-weight:800;color:#065f46;margin-bottom:4px">✓ קיים ופעיל (' + done.length + ')</div>' +
+      '<ul style="margin:0 0 16px;padding-inline-start:20px;font-size:.84rem;color:#374151;columns:2;column-gap:26px;line-height:1.5">' + done.map(li).join('') + '</ul>' +
+      '<div style="font-weight:800;color:#b45309;margin-bottom:4px">🔜 מתוכנן — פאריטי לעורך הטמפלטים של Apogee Prepress (' + planned.length + ')</div>' +
+      '<ul style="margin:0;padding-inline-start:20px;font-size:.84rem;color:#374151;columns:2;column-gap:26px;line-height:1.5">' + planned.map(li).join('') + '</ul>' +
+      '<div style="margin-top:14px;font-size:.8rem;color:#6b7280;background:#f6f6f9;border-radius:8px;padding:10px 12px;line-height:1.6">💡 המערכת נבנית בהדרגה לעבר פאריטי עם Apogee. תגיד לי איזו תכונה מהרשימה לבנות הבא — ונבנה אותה בשלב הבא.</div>' +
+    '</div></div>';
+  document.body.appendChild(m);
 }
 // התאמת כרטיס ליחידת פרופר: קודם לפי cardId מפורש (הקישור פר-כרטיס), אחרת לפי שם לקוח
 function pi_matchCardForUnit(u){
@@ -22311,7 +22353,10 @@ function pi_renderList(){
   var body = document.getElementById('pi-body'); if (!body) return;
   var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '760px';
   var pcards = pi_getPlanCards();
-  var html = '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin-bottom:4px">🗂️ עבודות לתכנון לוחות (' + pcards.length + ')</div>' +
+  var html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">' +
+      '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;flex:1;min-width:0">🗂️ עבודות לתכנון לוחות (' + pcards.length + ')</div>' +
+      '<button onclick="pi_showFeatures()" title="רשימת התכונות — קיים ומתוכנן" style="flex:none;padding:6px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6d28d9;font-weight:800;font-size:.78rem;cursor:pointer;font-family:Heebo">📋 תכונות</button>' +
+    '</div>' +
     '<div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px">כרטיס העבודה הוא מקור הנתונים — בחר כרטיס לבניית לוחות הדפסה. או בנה אימפוזיציה ידנית מקבצים.</div>' +
     '<button onclick="pi_newManual()" style="display:block;width:100%;padding:12px;border:none;border-radius:10px;background:#0f766e;color:#fff;font-weight:800;font-size:.92rem;cursor:pointer;font-family:Heebo;margin-bottom:8px">➕ אימפוזיציה ידנית חדשה</button>' +
     '<div style="display:flex;align-items:center;gap:8px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:9px;padding:7px 11px;margin-bottom:14px">' +
