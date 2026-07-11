@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783780936';
+window.APP_VERSION = '1783781849';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21929,7 +21929,33 @@ function pi_manualAddCut(orient){
   cur._edited=true; window._pi.dirty=true; pi_render();
 }
 function pi_manualSetCut(id,v){ var cur=window._pi.cur, b=(cur.cutBars||[]).find(function(x){return x.id===id;}); if(b){ b.posMm=parseFloat(v)||0; window._pi.dirty=true; pi_render(); } }
-function pi_manualDelCut(id){ var cur=window._pi.cur; cur.cutBars=(cur.cutBars||[]).filter(function(x){return x.id!==id;}); window._pi.dirty=true; pi_render(); }
+function pi_manualDelCut(id){ var cur=window._pi.cur; cur.cutBars=(cur.cutBars||[]).filter(function(x){return x.id!==id;}); if(window._pi.selCutBar===id) window._pi.selCutBar=null; window._pi.dirty=true; pi_render(); }
+// בחירת קו חיתוך על הגיליון (לחיצה) — לעריכה/מחיקה; לחיצה חוזרת מבטלת
+function pi_selectCutBar(id){ window._pi.selCutBar = (window._pi.selCutBar === id) ? null : id; pi_render(); }
+function pi_nudgeCutBar(id, delta){ var cur=window._pi.cur, b=(cur.cutBars||[]).find(function(x){return x.id===id;}); if(!b) return; var g=pi_curGeom(); var max = b.orient==='v'?g.sheetWidthMm:g.sheetHeightMm; b.posMm=Math.max(0,Math.min(max,Math.round((b.posMm+delta)*10)/10)); cur._edited=true; window._pi.dirty=true; pi_render(); }
+function pi_clearCutBars(){ var cur=window._pi.cur; if(!cur||!(cur.cutBars||[]).length){ showToast('אין קווי חיתוך'); return; } if(!confirm('למחוק את כל '+cur.cutBars.length+' קווי החיתוך?')) return; cur.cutBars=[]; window._pi.selCutBar=null; cur._edited=true; window._pi.dirty=true; pi_render(); showToast('🧹 קווי החיתוך נמחקו'); }
+// קצוות-חיתוך פנימיים: כל שפת-פריט ייחודית (v=אנכי, h=אופקי), למעט קצוות הגיליון. פונקציה טהורה (נבדקת).
+function pi_cutEdges(items, g){
+  var xs=[], ys=[];
+  (items||[]).forEach(function(it){ xs.push(it.xMm, it.xMm+it.widthMm); ys.push(it.yMm, it.yMm+it.heightMm); });
+  var uniq=function(arr){ arr.sort(function(a,b){return a-b;}); var o=[]; arr.forEach(function(v){ if(!o.length||Math.abs(v-o[o.length-1])>1) o.push(Math.round(v*10)/10); }); return o; };
+  var W=g.sheetWidthMm, H=g.sheetHeightMm;
+  return { v: uniq(xs).filter(function(x){return x>0.5 && x<W-0.5;}), h: uniq(ys).filter(function(y){return y>0.5 && y<H-0.5;}) };
+}
+// יצירת קווי חיתוך אוטומטית בין כל הקבצים (לגיליוטינה) — "צלבים/קווים פנימיים"
+function pi_autoCutLines(){
+  var cur=window._pi.cur; if(!cur||!(cur.items||[]).length){ showToast('אין קבצים על הגיליון'); return; }
+  var g=pi_curGeom(), edges=pi_cutEdges(cur.items, g);
+  cur.cutBars=cur.cutBars||[];
+  var have={}; cur.cutBars.forEach(function(b){ have[b.orient+':'+Math.round(b.posMm)]=1; });
+  var added=0;
+  edges.v.forEach(function(x){ var k='v:'+Math.round(x); if(have[k])return; cur.cutBars.push({id:'cb'+Date.now()+Math.random().toString(36).slice(2,5),orient:'v',posMm:x}); have[k]=1; added++; });
+  edges.h.forEach(function(y){ var k='h:'+Math.round(y); if(have[k])return; cur.cutBars.push({id:'cb'+Date.now()+Math.random().toString(36).slice(2,5),orient:'h',posMm:y}); have[k]=1; added++; });
+  cur._edited=true; window._pi.dirty=true; pi_render();
+  showToast(added?('▦ נוספו '+added+' קווי חיתוך בין הקבצים'):'כל קווי החיתוך כבר קיימים');
+}
+// הצג/הסתר צלבי חיתוך על המסך (תצוגה בלבד; לא משפיע על ה-PDF)
+function pi_toggleScreenMarks(){ window._pi.showMarks = (window._pi.showMarks === false); pi_render(); showToast(window._pi.showMarks!==false ? '✚ צלבים מוצגים על המסך' : '✚ צלבים מוסתרים מהמסך'); }
 // ── מחשבון N-up: כמה פעמים גודל נתון נכנס בגיליון (אופטימלי), + מילוי בקוביות ריקות ──
 function pi_nupFit(iw, ih, W, H, gap){
   gap = gap || 0;
@@ -22051,10 +22077,13 @@ var PI_TOOLS = [
   { id:'addall',    label:'➕ הוסף הכל',        onclick:'pi_manualAddAll()',      bg:'#eef2ff', color:'#3730a3' },
   { id:'center',    label:'⊹ מרכז בגיליון',    onclick:'pi_manualCenterAll()',   bg:'#eef2ff', color:'#3730a3' },
   { id:'align',     label:'📏 יישר לקו',        onclick:'pi_alignFiles()',        bg:'#eef2ff', color:'#3730a3' },
-  { id:'crop',      label:'✚ צלבי חיתוך',      onclick:'pi_manualToggleCrop()',  bg:'#f0fdf4', color:'#166534' },
+  { id:'crop',      label:'✚ מצב צלבים',       onclick:'pi_manualToggleCrop()',  bg:'#f0fdf4', color:'#166534' },
+  { id:'showmarks', label:'✚ צלבים על המסך',    onclick:'pi_toggleScreenMarks()', bg:'#f0fdf4', color:'#166534' },
   { id:'hidegfx',   label:'👁 בלי גרפיקה',      onclick:'pi_manualToggleGfx()',   bg:'#eef2ff', color:'#3730a3' },
+  { id:'autocut',   label:'▦ קווים בין הקבצים', onclick:'pi_autoCutLines()',      bg:'#fff7ed', color:'#9a3412' },
   { id:'cutv',      label:'✂ קו חיתוך אנכי',   onclick:"pi_manualAddCut('v')",   bg:'#fff5f5', color:'#e11d48' },
   { id:'cuth',      label:'✂ קו חיתוך אופקי',  onclick:"pi_manualAddCut('h')",   bg:'#fff5f5', color:'#e11d48' },
+  { id:'clearcut',  label:'🧹 נקה קווי חיתוך',  onclick:'pi_clearCutBars()',      bg:'#fff5f5', color:'#e11d48' },
   { id:'preflight', label:'🔎 Preflight',      onclick:'pi_preflight()',         bg:'#fffbeb', color:'#92400e' },
   { id:'sheetfull', label:'🖼️ גיליון מלא',      onclick:'pi_sheetFullView()',     bg:'#eef2ff', color:'#3730a3' },
   { id:'prodpdf',   label:'🏭 PDF דפוס',        onclick:'pi_exportProductionPdf()', bg:'#065f46', color:'#fff' },
@@ -22062,7 +22091,7 @@ var PI_TOOLS = [
 ];
 function pi_favTools(){
   try { var s = JSON.parse(localStorage.getItem('solanPiTools') || 'null'); if (Array.isArray(s)) return s; } catch(e){}
-  return ['arrange','align','calc','addall','center','clear','crop','hidegfx','cutv','cuth','preflight','sheetfull','prodpdf'];
+  return ['arrange','align','calc','addall','center','showmarks','autocut','crop','hidegfx','cutv','cuth','clearcut','clear','preflight','sheetfull','prodpdf'];
 }
 function pi_toggleFavTool(id){
   var f = pi_favTools(), i = f.indexOf(id); if (i >= 0) f.splice(i,1); else f.push(id);
@@ -23101,11 +23130,43 @@ function pi_drawSheetSvg(g, scale, items, selKey, warnKeys, svgId){
       ((it.rotation===90||it.rotation===270) ? '<text x="3" y="11" font-size="8" fill="#64748b" style="pointer-events:none">⟳</text>' : '') +
     '</g>';
   });
-  // פסי/קווי חיתוך (גיליוטינה)
-  var cbs = (window._pi.cur && window._pi.cur.cutBars) || [];
+  // ── צלבי חיתוך על המסך (תצוגה בלבד) — פינות פר-פריט, בכפוף למצב הצלבים ולדריסות פר-פריט ──
+  var _cur = window._pi.cur;
+  if (_cur && window._pi.showMarks !== false){
+    var mkMode = pi_cropMode(_cur);   // 'item'|'perimeter'|'off'
+    if (mkMode !== 'off'){
+      var arm = Math.max(2.5, 2.4*scale);
+      items.forEach(function(it){
+        var eff = (it.marks === true) || (mkMode !== 'off' && it.noMarks !== true && (mkMode === 'item' || it.marks === true));
+        if (mkMode === 'perimeter' && it.marks !== true) eff = false;   // במצב היקף מציגים רק פר-פריט שנכפה ידנית
+        if (!eff) return;
+        var bl = (it.bleedMm||0)*scale;
+        var x0 = it.xMm*scale + bl, x1 = (it.xMm+it.widthMm)*scale - bl;
+        var y0 = it.yMm*scale + bl, y1 = (it.yMm+it.heightMm)*scale - bl;
+        var gp = Math.max(0.5, bl*0.35);
+        var tk = function(cx, cy, dx, dy){
+          return '<line x1="'+(cx+dx*gp)+'" y1="'+cy+'" x2="'+(cx+dx*(gp+arm))+'" y2="'+cy+'" stroke="#111827" stroke-width="0.6" pointer-events="none"/>'+
+                 '<line x1="'+cx+'" y1="'+(cy+dy*gp)+'" x2="'+cx+'" y2="'+(cy+dy*(gp+arm))+'" stroke="#111827" stroke-width="0.6" pointer-events="none"/>';
+        };
+        s += tk(x0,y0,-1,-1) + tk(x1,y0,1,-1) + tk(x0,y1,-1,1) + tk(x1,y1,1,1);
+      });
+    }
+  }
+  // פסי/קווי חיתוך (גיליוטינה) — לחיצים לבחירה/עריכה; הנבחר מודגש בכחול
+  var cbs = (window._pi.cur && window._pi.cur.cutBars) || [], selCB = window._pi.selCutBar;
   cbs.forEach(function(bar){
-    if (bar.orient === 'v'){ var x = bar.posMm*scale; s += '<line x1="' + x + '" y1="0" x2="' + x + '" y2="' + SH + '" stroke="#e11d48" stroke-width="1.4" stroke-dasharray="9 4" pointer-events="none"/><text x="' + (x+2) + '" y="12" font-size="9" fill="#e11d48" font-family="Heebo" pointer-events="none">✂ ' + Math.round(bar.posMm) + '</text>'; }
-    else { var y = bar.posMm*scale; s += '<line x1="0" y1="' + y + '" x2="' + SW + '" y2="' + y + '" stroke="#e11d48" stroke-width="1.4" stroke-dasharray="9 4" pointer-events="none"/><text x="2" y="' + (y-3) + '" font-size="9" fill="#e11d48" font-family="Heebo" pointer-events="none">✂ ' + Math.round(bar.posMm) + '</text>'; }
+    var isSel = bar.id === selCB, col = isSel ? '#2563eb' : '#e11d48', wdt = isSel ? 2.6 : 1.4;
+    if (bar.orient === 'v'){ var x = bar.posMm*scale;
+      s += '<g style="cursor:pointer" onclick="pi_selectCutBar(\'' + bar.id + '\')">' +
+        '<line x1="' + x + '" y1="0" x2="' + x + '" y2="' + SH + '" stroke="' + col + '" stroke-width="' + wdt + '" stroke-dasharray="9 4"/>' +
+        '<rect x="' + (x-13) + '" y="1" width="26" height="13" rx="3" fill="' + col + '"/>' +
+        '<text x="' + x + '" y="11" text-anchor="middle" font-size="8.5" fill="#fff" font-family="Heebo">✂' + Math.round(bar.posMm) + '</text></g>';
+    } else { var y = bar.posMm*scale;
+      s += '<g style="cursor:pointer" onclick="pi_selectCutBar(\'' + bar.id + '\')">' +
+        '<line x1="0" y1="' + y + '" x2="' + SW + '" y2="' + y + '" stroke="' + col + '" stroke-width="' + wdt + '" stroke-dasharray="9 4"/>' +
+        '<rect x="1" y="' + (y-6.5) + '" width="26" height="13" rx="3" fill="' + col + '"/>' +
+        '<text x="14" y="' + (y+3) + '" text-anchor="middle" font-size="8.5" fill="#fff" font-family="Heebo">✂' + Math.round(bar.posMm) + '</text></g>';
+    }
   });
   s += '</svg>';
   return s;
@@ -23736,6 +23797,8 @@ function pi_renderManualWS(){
       sbtn('pi_manualAutoArrange()', '🧮 סדר אוטומטית', '#eef2ff', '#3730a3', '#c7d2fe') +
       sbtn('pi_alignFiles()', '📏 יישר לקו', '#fff', '#3730a3', '#c7d2fe') +
       sbtn('pi_manualCenterAll()', '⊹ מרכז בגיליון', '#fff', '#374151', '#ddd') +
+      sbtn('pi_toggleScreenMarks()', (window._pi.showMarks===false?'✚ הצג צלבים':'✚ צלבים מוצגים'), (window._pi.showMarks===false?'#fff':'#f0fdf4'), '#166534', '#bbf7d0') +
+      sbtn('pi_autoCutLines()', '▦ קווי חיתוך בין הקבצים', '#fff', '#9a3412', '#fed7aa') +
       sbtn('pi_manualClearSheet()', '🧹 נקה גיליון', '#fff', '#b91c1c', '#fecaca') +
       sbtn('pi_calcHub()', '🧮 מחשבון', '#fff', '#374151', '#ddd') +
     '</div>';
@@ -23824,6 +23887,23 @@ function pi_renderManualWS(){
       (am.rotated ? ' · 🔄 ' + am.rotated + ' סובבו להתאמה' : '') +
       (am.resizedPct ? '<div style="color:#9a3412;font-weight:700;margin-top:3px">🔻 הקבצים הוקטנו ל-' + am.resizedPct + '% כדי להיכנס (Ctrl+Z לביטול)</div>' : '') +
       (am.unplaced.length ? '<div style="color:#b91c1c;font-weight:700;margin-top:4px">⛔ לא נכנסו ' + am.unplaced.length + ': ' + escHtml(am.unplaced.join(', ')) + '<br><span style="font-weight:500;color:#7f1d1d">הסר פריטים, הגדל גיליון, או פצל לכמה גיליונות (➕ גיליון).</span></div>' : '<div style="color:#065f46;font-weight:700;margin-top:3px">✓ כל הפריטים נכנסו</div>') +
+    '</div>';
+  }
+  // ── עריכת קו חיתוך נבחר (נבחר בלחיצה על הגיליון) ──
+  var _selCut = (cur.cutBars||[]).find(function(b){ return b.id === window._pi.selCutBar; });
+  if (_selCut){
+    html += '<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:9px;padding:10px 12px">' +
+      '<div style="font-weight:800;color:#1d4ed8;font-size:.82rem;margin-bottom:7px">✂ קו חיתוך ' + (_selCut.orient==='v'?'אנכי':'אופקי') + ' נבחר</div>' +
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">' +
+        '<span style="font-size:.76rem;color:#374151">מיקום:</span>' +
+        '<button onclick="pi_nudgeCutBar(\'' + _selCut.id + '\',-1)" style="padding:4px 9px;border:1px solid #93c5fd;border-radius:6px;background:#fff;cursor:pointer;font-weight:800">−</button>' +
+        '<input type="number" step="0.5" value="' + _selCut.posMm + '" onchange="pi_manualSetCut(\'' + _selCut.id + '\',this.value)" style="width:70px;padding:4px 6px;border:1px solid #93c5fd;border-radius:6px;text-align:center;font-family:Heebo"> מ״מ' +
+        '<button onclick="pi_nudgeCutBar(\'' + _selCut.id + '\',1)" style="padding:4px 9px;border:1px solid #93c5fd;border-radius:6px;background:#fff;cursor:pointer;font-weight:800">+</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px">' +
+        '<button onclick="pi_manualDelCut(\'' + _selCut.id + '\')" style="flex:1;padding:8px;border:none;border-radius:7px;background:#e11d48;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">🗑 מחק קו זה</button>' +
+        '<button onclick="pi_selectCutBar(\'' + _selCut.id + '\')" style="flex:none;padding:8px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo">בטל בחירה</button>' +
+      '</div>' +
     '</div>';
   }
   if (selArr.length > 1){
