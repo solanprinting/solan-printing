@@ -402,8 +402,8 @@ function _regMark(page, cx, cy, r, color){                 // עיגול + צל�
   page.drawLine({ start:{x:cx-r*1.6,y:cy}, end:{x:cx+r*1.6,y:cy}, thickness:0.4, color:color });
   page.drawLine({ start:{x:cx,y:cy-r*1.6}, end:{x:cx,y:cy+r*1.6}, thickness:0.4, color:color });
 }
-// מצב כריכייה: צלבי חיתוך רק בהיקף — טיק לכל גבול-עמוד, אך ורק בקצוות החיצוניים של בלוק העמודים (כלום בפנים)
-function _bindingPerimeterMarks(page, items, ox, oy, trimH, bleed, color){
+// מצב כריכייה: צלבים בהיקף בלבד. קצוות חיצוניים = חיתוך (מלא); גבולות פנימיים = קיפול (מקווקו, כשfoldMarks)
+function _bindingPerimeterMarks(page, items, ox, oy, trimH, bleed, color, foldMarks){
   if (!items || !items.length) return;
   const rnd = v => Math.round(v*2)/2;   // דדופ קצוות כמעט-זהים ל-0.5מ״מ
   let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
@@ -413,17 +413,26 @@ function _bindingPerimeterMarks(page, items, ox, oy, trimH, bleed, color){
     xs.add(rnd(x0)); xs.add(rnd(x1)); ys.add(rnd(y0)); ys.add(rnd(y1));
     if(x0<minX)minX=x0; if(x1>maxX)maxX=x1; if(y0<minY)minY=y0; if(y1>maxY)maxY=y1;
   });
-  const L=3.5*MM, G=(bleed+0.6)*MM, T=0.5;
+  const L=3.5*MM, LF=2.6*MM, G=(bleed+0.6)*MM, T=0.5, DASH=[1.4*MM,1.1*MM];
+  const rMinX=rnd(minX), rMaxX=rnd(maxX), rMinY=rnd(minY), rMaxY=rnd(maxY);
   const yTop=(oy+(trimH-minY))*MM, yBot=(oy+(trimH-maxY))*MM;   // y-down: minY=קצה עליון
-  xs.forEach(x=>{ const px=(ox+x)*MM;
-    page.drawLine({ start:{x:px,y:yTop+G}, end:{x:px,y:yTop+G+L}, thickness:T, color });   // טיק כלפי מעלה מהקצה העליון
-    page.drawLine({ start:{x:px,y:yBot-G}, end:{x:px,y:yBot-G-L}, thickness:T, color });   // טיק כלפי מטה מהקצה התחתון
+  xs.forEach(x=>{ const px=(ox+x)*MM, outer=(x===rMinX||x===rMaxX), dash=(!outer&&foldMarks)?DASH:undefined, ln=(!outer&&foldMarks)?LF:L;
+    page.drawLine({ start:{x:px,y:yTop+G}, end:{x:px,y:yTop+G+ln}, thickness:T, color, dashArray:dash });   // חיתוך(מלא)/קיפול(מקווקו) — מעלה
+    page.drawLine({ start:{x:px,y:yBot-G}, end:{x:px,y:yBot-G-ln}, thickness:T, color, dashArray:dash });   // מטה
   });
   const xL=(ox+minX)*MM, xR=(ox+maxX)*MM;
-  ys.forEach(y=>{ const py=(oy+(trimH-y))*MM;
-    page.drawLine({ start:{x:xL-G,y:py}, end:{x:xL-G-L,y:py}, thickness:T, color });   // טיק שמאלה מהקצה השמאלי
-    page.drawLine({ start:{x:xR+G,y:py}, end:{x:xR+G+L,y:py}, thickness:T, color });   // טיק ימינה מהקצה הימני
+  ys.forEach(y=>{ const py=(oy+(trimH-y))*MM, outer=(y===rMinY||y===rMaxY), dash=(!outer&&foldMarks)?DASH:undefined, ln=(!outer&&foldMarks)?LF:L;
+    page.drawLine({ start:{x:xL-G,y:py}, end:{x:xL-G-ln,y:py}, thickness:T, color, dashArray:dash });   // שמאלה
+    page.drawLine({ start:{x:xR+G,y:py}, end:{x:xR+G+ln,y:py}, thickness:T, color, dashArray:dash });   // ימינה
   });
+}
+// סימן שדרה מדורג (collation): מלבן שחור באזור הסימנים העליון, זז צעד לכל קונטרס → מדרגות לזיהוי קונטרס חסר/כפול/הפוך
+function _collationMark(page, pg, ox, oy, trimW, trimH, mark, font, color){
+  if (!pg.collationNo) return;
+  const mw=9*MM, mh=3.5*MM, stepX=11, x0=ox+6;
+  const x=(x0 + (pg.collationNo-1)*stepX)*MM, y=(oy + trimH + mark*0.35)*MM;   // מחוץ לגיליון, באזור הסימנים
+  page.drawRectangle({ x, y, width:mw, height:mh, color });
+  try { page.drawText('S'+pg.collationNo+(pg.side!=null?(pg.side?'b':'a'):''), { x:x+mw+2, y:y+0.4*MM, size:5.5, font, color }); } catch(e){}
 }
 async function buildImpositionPdf(spec){
   const doc = await PDFDocument.create();
@@ -486,8 +495,9 @@ async function buildImpositionPdf(spec){
     // ── סימני גיליון: crop לפינות ה-trim + רגיסטר באמצע הצדדים + color bar + slug ──
     const tx0=ox*MM, ty0=oy*MM, tx1=(ox+trimW)*MM, ty1=(oy+trimH)*MM, CL=4*MM, CG=(bleed+1)*MM;
     if (markMode === 'perimeter'){
-      // כריכייה/היקף: צלבי חיתוך רק בהיקף (בכל גבול-עמוד שנוגע בקצה החיצוני), כלום בין העמודים
-      _bindingPerimeterMarks(page, pg.items||[], ox, oy, trimH, bleed, REG);
+      // כריכייה/היקף: חיתוך בהיקף (מלא) + קיפול בגבולות פנימיים (מקווקו, כשfoldMarks) — כלום בין העמודים
+      _bindingPerimeterMarks(page, pg.items||[], ox, oy, trimH, bleed, REG, spec.foldMarks);
+      if (spec.bindingMode) _collationMark(page, pg, ox, oy, trimW, trimH, mark, font, REG);
     } else if (markMode === 'item'){
       _cropTick(page, tx0, ty1, -1, 1, CL, CG, REG); _cropTick(page, tx1, ty1, 1, 1, CL, CG, REG);
       _cropTick(page, tx0, ty0, -1, -1, CL, CG, REG); _cropTick(page, tx1, ty0, 1, -1, CL, CG, REG);
@@ -564,7 +574,7 @@ async function imposeRunPdf(srcUrl, segments, opts){
         const footW = (rot===90||rot===270) ? TRIM_H : TRIM_W, footH = (rot===90||rot===270) ? TRIM_W : TRIM_H;
         items.push({ srcUrl, srcPage, xMm:cxTL-footW/2, yMm:cyTL-footH/2, wMm:footW, hMm:footH, rotation:rot, label:String(srcPage), n:srcPage });
       }}
-      pages.push({ name:'Sig'+sigNo+'_'+(nSides===2?(side===0?'Front':'Back'):'One'), sheetWmm:sheetW, sheetHmm:sheetH, items });
+      pages.push({ name:'Sig'+sigNo+'_'+(nSides===2?(side===0?'Front':'Back'):'One'), sheetWmm:sheetW, sheetHmm:sheetH, items, collationNo:sigNo, side:side });
     }
   }
   return await buildImpositionPdf({ jobName:opts.jobName||'', bleedMm:opts.bleedMm!=null?opts.bleedMm:3,
