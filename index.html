@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783760802';
+window.APP_VERSION = '1783769338';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22655,6 +22655,8 @@ function pi_exportProductionPdf(){
     }
   }
   var g = pi_curGeom();
+  // מסלול כרטיס עם קובץ סדר-קריאה מצורף → גרפיקה אמיתית בגיאומטריה המאומתת (imposeRunPdf)
+  if (!isManual && cur.readingUrl){ pi_exportCardReal(cur, g); return; }
   var spec = { jobName: (cur.name || 'Job'), bleedMm: g.defaultBleedMm, markMm: 12, pages: [],
     markMode: (cur.cropMode || (cur.cropMarks === false ? 'off' : 'item')),   // 'item' | 'perimeter' | 'off'
     cutBars: (cur.cutBars||[]),
@@ -22691,6 +22693,56 @@ function pi_exportProductionPdf(){
     pi_downloadBytes(bytes, String(cur.name || 'Job').replace(/[^\w-]+/g,'_').slice(0,24) + '_Imposition.pdf', 'application/pdf');
     showToast('✓ PDF דפוס הופק · ' + spec.pages.length + ' צדדים');
   }).catch(function(e){ pi_progressClose(); console.error('production pdf failed', e); showToast('❌ יצירת PDF נכשלה: ' + (e && e.message || e)); });
+}
+// signatures → segments ל-imposeRunPdf: pageOffset=folio הראשון-1, maxCount=מס' העמודים האמיתיים (folio = pageOffset+cell)
+function pi_signaturesToSegments(signatures){
+  return (signatures||[]).map(function(sig){
+    return { type: sig.template, pageOffset: (sig.start||1) - 1, maxCount: (sig.pageMap||[]).filter(function(x){ return x != null; }).length };
+  }).filter(function(s){ return s.type; });
+}
+// מסלול כרטיס עם גרפיקה אמיתית: בונה segments מה-signatures ומנתב דרך imposeRunPdf (גיאומטריית קיפול מאומתת + הטמעה)
+function pi_exportCardReal(cur, g){
+  var frame = document.getElementById('pi-tpl-frame');
+  var runFn = frame && frame.contentWindow && frame.contentWindow.imposeRunPdf;
+  var splitFn = frame && frame.contentWindow && frame.contentWindow.splitSpreadsPdf;
+  if (!runFn){ showToast('⏳ מנוע הפריסה נטען — נסה שוב'); pi_loadTemplates(); return; }
+  var segments = pi_signaturesToSegments(cur.signatures);
+  if (!segments.length){ showToast('אין קונטרסים להפקה'); return; }
+  var markMode = cur.cropMode || 'perimeter';
+  pi_progressShow('מייצר PDF דפוס — גרפיקה אמיתית (' + segments.length + ' קונטרסים)');
+  var _blobUrl = null;
+  Promise.resolve().then(function(){
+    if (!splitFn) return cur.readingUrl;
+    return fetch(cur.readingUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){ return splitFn(new Uint8Array(buf)); })
+      .then(function(norm){ if (!norm) return cur.readingUrl; _blobUrl = URL.createObjectURL(new Blob([norm], { type:'application/pdf' })); return _blobUrl; })
+      .catch(function(){ return cur.readingUrl; });
+  }).then(function(srcUrl){
+    return runFn(srcUrl, segments, { sheetWmm:g.sheetWidthMm, sheetHmm:g.sheetHeightMm, bleedMm:g.defaultBleedMm, markMm:12,
+      jobName: cur.name || 'Job', bindingMode:true, markMode:markMode, foldMarks:true, onProgress: pi_progressUpdate });
+  }).then(function(bytes){
+    pi_progressClose(); if (_blobUrl) URL.revokeObjectURL(_blobUrl);
+    pi_downloadBytes(bytes, String(cur.name || 'Job').replace(/[^\w-]+/g,'_').slice(0,24) + '_Imposition.pdf', 'application/pdf');
+    showToast('✓ PDF דפוס עם גרפיקה אמיתית הופק · ' + segments.length + ' קונטרסים');
+  }).catch(function(e){ pi_progressClose(); if (_blobUrl) URL.revokeObjectURL(_blobUrl); console.error('card real pdf failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
+}
+// צירוף/הסרת קובץ סדר-קריאה לטיוטת כרטיס (מפעיל גרפיקה אמיתית ב-PDF הדפוס)
+function pi_attachReadingPdf(fileList){
+  var cur = window._pi.cur; if (!cur) return;
+  var file = fileList && fileList[0]; if (!file) return;
+  if (!/pdf/i.test(file.type) && !/\.pdf$/i.test(file.name||'')){ showToast('רק קובץ PDF בסדר קריאה'); return; }
+  var path = 'impositionReading/' + pi_safeName(cur.name||'job') + '/' + cur.id + '_' + Date.now() + '.pdf';
+  showToast('⏳ מעלה קובץ סדר-קריאה…');
+  _uploadProofToStorage(path, file, null).then(function(url){
+    cur.readingUrl = url; cur.readingName = file.name || 'reading.pdf'; cur.readingPath = path;
+    cur._edited = true; window._pi.dirty = true; pi_render();
+    showToast('✓ צורף — כעת "PDF דפוס" יופק עם הגרפיקה האמיתית');
+  }).catch(function(e){ console.error('attach reading failed', e); showToast('❌ העלאת הקובץ נכשלה'); });
+}
+function pi_clearReadingPdf(){
+  var cur = window._pi.cur; if (!cur) return;
+  delete cur.readingUrl; delete cur.readingName; delete cur.readingPath;
+  cur._edited = true; window._pi.dirty = true; pi_render();
+  showToast('הקובץ הוסר — ה-PDF יופק כתצוגת מספרים (תכנון)');
 }
 // ── Phase 10 — עבודות לקוח מאושרות → ריצות + פרופר פרוס לאפוגי (מונחה customerProofs) ──
 function pi_safeName(s){ return String(s||'Job').replace(/[^\w֐-׿-]+/g,'_').slice(0,30) || 'Job'; }
@@ -23910,6 +23962,14 @@ function pi_renderBuilder(){
     '<label style="display:inline-flex;align-items:center;gap:4px;font-size:.74rem;color:#777;background:#faf7ff;border:1px solid #ede9fe;border-radius:7px;padding:2px 8px">צבעים:' +
       '<select onchange="pi_setColors(this.value)" style="border:none;background:none;font-family:Heebo;font-size:.76rem;font-weight:700;color:#5b21b6;cursor:pointer"><option value="cmyk"' + (cur.colorMode!=='k'?' selected':'') + '>CMYK</option><option value="k"' + (cur.colorMode==='k'?' selected':'') + '>שחור בלבד</option></select></label>' +
     (cur.fromRuns ? '<span style="font-size:.72rem;color:#9ca3af;align-self:center">נבנה ממבנה הריצות בכרטיס</span>' : '') +
+  '</div>';
+  // קובץ סדר-קריאה → גרפיקה אמיתית ב-PDF הדפוס (אחרת: תצוגת מספרים לתכנון)
+  html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:' + (cur.readingUrl?'#f0fdf4':'#fffbeb') + ';border:1px solid ' + (cur.readingUrl?'#bbf7d0':'#fde68a') + ';border-radius:9px;padding:8px 11px;margin-bottom:10px;font-size:.8rem">' +
+    (cur.readingUrl
+      ? '<span style="flex:1;min-width:150px;color:#065f46;font-weight:800">🖼️ גרפיקה אמיתית מחוברת: ' + escHtml(cur.readingName||'קובץ סדר-קריאה') + '</span>' +
+        '<button onclick="pi_clearReadingPdf()" style="border:1px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:Heebo;font-weight:700;font-size:.74rem">הסר</button>'
+      : '<span style="flex:1;min-width:150px;color:#92400e;font-weight:700">🔢 תצוגת מספרים (תכנון). ל-PDF דפוס עם גרפיקה אמיתית — צרף קובץ PDF בסדר קריאה:</span>') +
+    '<label style="border:1px solid #99f6e4;background:#f0fdfa;color:#0f766e;border-radius:6px;padding:4px 11px;cursor:pointer;font-family:Heebo;font-weight:800;font-size:.76rem">📎 ' + (cur.readingUrl?'החלף קובץ':'צרף קובץ') + '<input type="file" accept="application/pdf" onchange="pi_attachReadingPdf(this.files)" style="display:none"></label>' +
   '</div>';
   html += pi_plateListHtml(cur);
   html += pi_replListHtml(cur);
