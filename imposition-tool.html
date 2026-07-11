@@ -582,6 +582,7 @@ async function pdfStructReport(bytes){
   const dims = {};
   pages.forEach(function(p){
     const mb=p.getMediaBox(), tb=p.getTrimBox(), bb=p.getBleedBox();
+    let cb=null; try { cb=p.getCropBox(); } catch(e){}
     const hasBleed = (bb.width > tb.width + 1) || (bb.height > tb.height + 1);
     const bleedMm = hasBleed ? Math.round(((bb.width - tb.width)/2)*MMc*10)/10 : 0;
     let rot = 0; try { rot = (p.getRotation && p.getRotation().angle) || 0; } catch(e){}
@@ -590,11 +591,76 @@ async function pdfStructReport(bytes){
     const trimWmm = Math.round(tb.width*MMc), trimHmm = Math.round(tb.height*MMc);
     dims[trimWmm+'x'+trimHmm] = 1;
     out.pages.push({ mediaWmm:Math.round(mb.width*MMc), mediaHmm:Math.round(mb.height*MMc),
-      trimWmm:trimWmm, trimHmm:trimHmm, hasBleed:hasBleed, bleedMm:bleedMm, rotation:rot, hasAnnots:annots });
+      trimWmm:trimWmm, trimHmm:trimHmm,
+      cropWmm: cb?Math.round(cb.width*MMc):null, cropHmm: cb?Math.round(cb.height*MMc):null,
+      hasCropBox: !!(cb && (Math.abs(cb.width-mb.width)>1 || Math.abs(cb.height-mb.height)>1)),
+      hasBleed:hasBleed, bleedMm:bleedMm, rotation:rot, hasAnnots:annots });
   });
   out.differentSizes = Object.keys(dims).length > 1;
   out.rotatedPages = out.pages.filter(function(p){ return p.rotation % 360 !== 0; }).length;
   out.noBleedPages = out.pages.filter(function(p){ return !p.hasBleed; }).length;
+  out.hasCropBox = out.pages.some(function(p){ return p.hasCropBox; });
+  // ── סריקת אובייקטים: פונטים (הטמעה) / שקיפות / צבע Registration ──
+  const _nm = function(v){ return (v && v.encodedName) ? v.encodedName : (v==null?'':String(v)); };
+  let fontDescr=0, fontEmbedded=0, fontsStandard=0, hasTransparency=false, hasRegistration=false;
+  try {
+    const N = PDFName, objs = doc.context.enumerateIndirectObjects();
+    for (let k=0;k<objs.length;k++){
+      const obj = objs[k][1];
+      if (obj instanceof PDFLib.PDFArray){   // Separation/DeviceN בשם "All" = צבע רגיסטר
+        try {
+          const a0=_nm(obj.get(0));
+          if (a0==='/Separation'){ if (_nm(obj.get(1))==='/All') hasRegistration=true; }
+          else if (a0==='/DeviceN'){ const nm=obj.lookup(1); if (nm && nm.asArray){ nm.asArray().forEach(function(n){ if(_nm(n)==='/All') hasRegistration=true; }); } }
+        } catch(e){}
+        continue;
+      }
+      if (!(obj instanceof PDFLib.PDFDict)) continue;
+      const typeName = _nm(obj.get(N.of('Type')));
+      if (obj.has(N.of('FontName')) && obj.has(N.of('Flags'))){   // FontDescriptor → מוטמע?
+        fontDescr++;
+        if (obj.has(N.of('FontFile'))||obj.has(N.of('FontFile2'))||obj.has(N.of('FontFile3'))) fontEmbedded++;
+      } else if (typeName==='/Font'){
+        const sub=_nm(obj.get(N.of('Subtype')));
+        if (sub==='/Type1' && !obj.has(N.of('FontDescriptor'))) fontsStandard++;   // base-14 סטנדרטי (לא מוטמע)
+      }
+      if (typeName==='/ExtGState'){   // שקיפות: soft mask / blend mode / alpha
+        const sm=obj.get(N.of('SMask')); if (sm && _nm(sm)!=='/None') hasTransparency=true;
+        const bm=obj.get(N.of('BM')); if (bm){ const b=_nm(bm); if (b && b!=='/Normal' && b!=='/Compatible') hasTransparency=true; }
+        const ca=obj.get(N.of('ca')); if (ca && ca.asNumber && ca.asNumber()<1) hasTransparency=true;
+        const CA=obj.get(N.of('CA')); if (CA && CA.asNumber && CA.asNumber()<1) hasTransparency=true;
+      }
+      if (typeName==='/XObject' && obj.has(N.of('SMask'))) hasTransparency=true;
+      if (typeName==='/Page'){ try { const grp=obj.lookup(N.of('Group')); if (grp && grp.get && _nm(grp.get(N.of('S')))==='/Transparency') hasTransparency=true; } catch(e){} }
+    }
+    // סריקת Resources לכל עמוד — תופס ExtGState/XObject שמוטמעים inline (שלא נספרים כאובייקטים עקיפים)
+    const walkGS = function(res){
+      if (!res || !res.lookup) return;
+      try { const gs = res.lookup(N.of('ExtGState'));
+        if (gs && gs.entries) gs.entries().forEach(function(e){ const g = gs.lookup(e[0]); if (g && g.get){
+          const sm=g.get(N.of('SMask')); if (sm && _nm(sm)!=='/None') hasTransparency=true;
+          const bm=g.get(N.of('BM')); if (bm){ const b=_nm(bm); if (b&&b!=='/Normal'&&b!=='/Compatible') hasTransparency=true; }
+          const ca=g.get(N.of('ca')); if (ca && ca.asNumber && ca.asNumber()<1) hasTransparency=true;
+          const CA=g.get(N.of('CA')); if (CA && CA.asNumber && CA.asNumber()<1) hasTransparency=true;
+        } });
+      } catch(e){}
+      try { const xo = res.lookup(N.of('XObject'));
+        if (xo && xo.entries) xo.entries().forEach(function(e){ const x=xo.lookup(e[0]); if (x && x.has && x.has(N.of('SMask'))) hasTransparency=true; });
+      } catch(e){}
+    };
+    pages.forEach(function(p){ try { walkGS(p.node.lookup(N.of('Resources'))); } catch(e){} });
+  } catch(e){}
+  out.fontDescriptors=fontDescr; out.fontsEmbedded=fontEmbedded; out.fontsNotEmbedded=Math.max(0,fontDescr-fontEmbedded); out.fontsStandard=fontsStandard;
+  out.hasTransparency=hasTransparency; out.hasRegistration=hasRegistration;
+  // שכבות מוסתרות (OCG) — Optional Content
+  out.hasLayers=false; out.hasHiddenLayers=false;
+  try {
+    const ocp = doc.catalog.lookup(PDFName.of('OCProperties'));
+    if (ocp){ out.hasLayers=true;
+      const d = ocp.lookup ? ocp.lookup(PDFName.of('D')) : null;
+      if (d && d.lookup){ const off=d.lookup(PDFName.of('OFF')); if (off && off.size && off.size()>0) out.hasHiddenLayers=true; }
+    }
+  } catch(e){}
   return out;
 }
 window.pdfStructReport = pdfStructReport;

@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783711015';
+window.APP_VERSION = '1783757635';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22273,8 +22273,18 @@ function pi_showPreflightReport(f, st, col){
     else if (st.pages[0]) C.push({ cat:'pass', t:'כל העמודים ' + st.pages[0].trimWmm + '×' + st.pages[0].trimHmm + ' מ״מ' });
     if (st.rotatedPages > 0) C.push({ cat:'warn', t:st.rotatedPages + ' עמודים עם דגל סיבוב', note:'עלול לשבש פריסה/קיפול' });
     if (st.hasAnnots) C.push({ cat:'fix', t:'יש הערות/annotations ב-PDF', note:'ניתן להסרה אוטומטית', fix:'annots' });
+    // פונטים
+    if (st.fontsNotEmbedded > 0) C.push({ cat:'block', t:st.fontsNotEmbedded + ' פונטים לא מוטמעים', note:'נדרש קובץ חדש עם פונטים מוטמעים (embedded) — אחרת הטקסט עלול להשתנות בדפוס' });
+    else if (st.fontsStandard > 0) C.push({ cat:'warn', t:st.fontsStandard + ' פונטים סטנדרטיים לא מוטמעים (Helvetica/Times וכו׳)', note:'בד״כ תקין, אך מומלץ להטמיע' });
+    else if (st.fontDescriptors > 0) C.push({ cat:'pass', t:'כל הפונטים מוטמעים' });
+    // שקיפות / שכבות / רגיסטר
+    if (st.hasTransparency) C.push({ cat:'warn', t:'זוהו שקיפויות בקובץ', note:'ודא שיטוח (flatten) לפני דפוס — שקיפות פתוחה עלולה להשתבש' });
+    if (st.hasHiddenLayers) C.push({ cat:'warn', t:'שכבות מוסתרות (OCG כבויות)', note:'ודא שלא חסר/עודף תוכן בגלל שכבה שכבויה' });
+    else if (st.hasLayers) C.push({ cat:'info', t:'הקובץ מכיל שכבות (Optional Content)' });
+    if (st.hasRegistration) C.push({ cat:'warn', t:'זוהה צבע Registration (All)', note:'מיועד לסימני דפוס בלבד — לא לגרפיקה (מודפס בכל הפלטות)' });
+    if (st.hasCropBox) C.push({ cat:'info', t:'CropBox שונה מ-MediaBox — ודא שאזור החיתוך תקין' });
     C.push({ cat:'pass', t:st.pageCount + ' עמודים' });
-  } else C.push({ cat:'warn', t:'לא ניתן לנתח מבנה (אולי לא PDF / קובץ מוגן)' });
+  } else C.push({ cat:'warn', t:'לא ניתן לנתח מבנה (אולי לא PDF / קובץ מוגן / פגום)' });
   if (col){
     if (col.rgb) C.push({ cat:'fix', t:'זוהו אובייקטים ב-RGB', note:'נדרש RGB→CMYK — המרה אמיתית דורשת שרת (Ghostscript). מתוכנן.', fix:'rgb' });
     else if (col.cmyk) C.push({ cat:'pass', t:'צבע CMYK' });
@@ -22288,7 +22298,7 @@ function pi_showPreflightReport(f, st, col){
   var status = block ? '<span style="color:#b91c1c">⛔ חסום — נדרש קובץ חדש</span>'
     : (warn||fix ? '<span style="color:#b45309">⚠️ עובר עם ' + (warn+fix) + ' הערות</span>' : '<span style="color:#065f46">✓ עובר — מוכן</span>');
   var scColor = score>=85?'#065f46':(score>=60?'#b45309':'#b91c1c');
-  var ic = { pass:'✓', warn:'⚠️', fix:'🛠️', block:'⛔' }, cl = { pass:'#065f46', warn:'#b45309', fix:'#7c3aed', block:'#b91c1c' };
+  var ic = { pass:'✓', warn:'⚠️', fix:'🛠️', block:'⛔', info:'ℹ️' }, cl = { pass:'#065f46', warn:'#b45309', fix:'#7c3aed', block:'#b91c1c', info:'#4338ca' };
   try { f.preflight = { score:score, block:block, warn:warn, fix:fix, at:Date.now() }; window._pi.dirty = true; } catch(e){}
   var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 288;
   m.innerHTML = '<div class="modal-box" style="max-width:560px;width:95vw;max-height:88vh;display:flex;flex-direction:column">' +
