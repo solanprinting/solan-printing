@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783793224';
+window.APP_VERSION = '1783793511';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21690,8 +21690,10 @@ function pi_manualUploadFiles(fileList, opts){
         }
         showToast('✓ הועלה ' + done + '/' + total + ' · ' + (file.name||''));
         pi_render();
-        // Stage 4 — זיהוי בליד מהקובץ עצמו (לא חוסם את ההעלאה)
-        file.arrayBuffer().then(function(buf){ nf.type = file.type; return pi_detectFileBleed(nf, buf); }).then(function(r){ if (r) pi_render(); });
+        // Stage 4 — זיהוי בליד + פונטים מהקובץ עצמו (רקע, לא חוסם את ההעלאה)
+        file.arrayBuffer().then(function(buf){ nf.type = file.type;
+          return pi_detectFileBleed(nf, buf).then(function(){ return pi_scanFileFonts(nf, buf); });
+        }).then(function(){ pi_render(); }).catch(function(){});
       });
     }).catch(function(e){ console.error('upload failed', e); showToast('❌ העלאה נכשלה: ' + (file.name||'')); });
   });
@@ -22643,11 +22645,14 @@ function pi_fontRecommendation(f){
   if (f.standard14) return 'מומלץ להטמיע בעת ייצוא PDF';
   return 'ייצא מחדש עם Embed Fonts';
 }
-// סריקת פונטים מהירה לקובץ (מבנה בלבד, בלי רינדור) — למטמון f.fontCheck לשער ההפקה
-function pi_scanFileFonts(f){
+// סריקת פונטים מהירה לקובץ (מבנה בלבד, בלי רינדור) — למטמון f.fontCheck. preBytes=בייטים שכבר נשלפו (חוסך fetch).
+function pi_scanFileFonts(f, preBytes){
   var frame = document.getElementById('pi-tpl-frame'), fontFn = frame && frame.contentWindow && frame.contentWindow.pdfFontReport;
-  if (!fontFn || !f.sourceFileUrl){ f.fontCheck = { overall: 'none', counts: {} }; return Promise.resolve(f.fontCheck); }
-  return fetch(f.sourceFileUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){ return fontFn(new Uint8Array(buf)); })
+  if (!fontFn || (!f.sourceFileUrl && !preBytes)){ f.fontCheck = { overall: 'none', counts: {} }; return Promise.resolve(f.fontCheck); }
+  var isImg = /\.(png|jpe?g|gif|webp|bmp|tiff?)($|\?|#)/i.test(f.name || '') || /^image\//.test(f.type || '');
+  if (isImg){ f.fontCheck = { overall: 'none', counts: {} }; return Promise.resolve(f.fontCheck); }   // תמונה — אין פונטים
+  var pBytes = preBytes ? Promise.resolve(preBytes) : fetch(f.sourceFileUrl).then(function(r){ return r.arrayBuffer(); });
+  return pBytes.then(function(buf){ return fontFn(buf); })
     .then(function(fonts){ var fc = pi_classifyFonts(fonts || []);
       f.fontCheck = { overall: fc.overall, counts: fc.counts,
         strongNames: fc.fonts.filter(function(x){ return x.status==='strong'; }).map(function(x){ return x.name; }),
@@ -24086,6 +24091,13 @@ function pi_renderManualWS(){
               : (f.hasBleed === false ? '<span title="הקובץ בלי בליד — הגרפיקה לא תגלוש מעבר לחיתוך. אין הוספה אוטומטית." style="font-size:.66rem;font-weight:800;color:#b45309;background:#fef3c7;border-radius:5px;padding:1px 7px">⚠️ אין בליד</span>'
                 : '<span style="font-size:.66rem;color:#9ca3af">בליד: תמונה — לא נבדק</span>'))
             : '<span style="font-size:.66rem;color:#9ca3af">בליד: בבדיקה…</span>') +
+          (f.fontCheck ? (function(fo){
+            if (fo === 'block')  return ' <span title="פונטים חסרים/פגומים — יחסום הפקה" style="font-size:.66rem;font-weight:800;color:#b91c1c;background:#fee2e2;border-radius:5px;padding:1px 7px">⛔ פונטים</span>';
+            if (fo === 'strong') return ' <span title="פונטים לא-מוטמעים שאינם סטנדרטיים — מומלץ ייצוא מחדש" style="font-size:.66rem;font-weight:800;color:#c2410c;background:#ffedd5;border-radius:5px;padding:1px 7px">⚠ פונטים</span>';
+            if (fo === 'warn')   return ' <span title="פונטים סטנדרטיים לא מוטמעים (Helvetica וכו׳) — לא חוסם" style="font-size:.66rem;font-weight:700;color:#b45309;background:#fef3c7;border-radius:5px;padding:1px 7px">⚠️ פונטים std</span>';
+            if (fo === 'pass')   return ' <span style="font-size:.66rem;font-weight:700;color:#065f46;background:#dcfce7;border-radius:5px;padding:1px 7px">✓ פונטים</span>';
+            return '';
+          })(f.fontCheck.overall) : '') +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:' + (green?'#059669':'#6b7280') + ';margin:0 0 5px">' +
           '<span>' + f.widthMm + '×' + f.heightMm + ' מ״מ</span>' +
