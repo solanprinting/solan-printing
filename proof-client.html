@@ -695,7 +695,17 @@ $('approve').onclick = async () => {
     for (const p of pages) {
       let lib = cache.get(p.fileId);
       if (!lib) { lib = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); cache.set(p.fileId, lib); }
-      const [cp] = await out.copyPages(lib, [p.pageIndex]); out.addPage(cp);
+      if (p.isSpread) {
+        // כפולה = 2 עמודים: מפצלים את העמוד הרחב לשני עמודים בודדים בסדר קריאה (RTL: החצי הימני = העמוד הנמוך, קודם)
+        const sp = lib.getPage(p.pageIndex);
+        const w = sp.getWidth(), h = sp.getHeight(), half = w / 2;
+        const embR = await out.embedPage(sp, { left: half, bottom: 0, right: w, top: h });   // חצי ימין
+        out.addPage([half, h]).drawPage(embR);
+        const embL = await out.embedPage(sp, { left: 0, bottom: 0, right: half, top: h });    // חצי שמאל
+        out.addPage([half, h]).drawPage(embL);
+      } else {
+        const [cp] = await out.copyPages(lib, [p.pageIndex]); out.addPage(cp);
+      }
     }
     const pdfBytes = await out.save();
     const folder = (record.customer || 'לקוח').replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60) || 'לקוח';
