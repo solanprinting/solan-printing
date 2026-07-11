@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783793511';
+window.APP_VERSION = '1783794261';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22002,31 +22002,63 @@ function pi_nupCalc(){
 }
 // המלצת גיליון אופטימלי לפריט יחיד: הגיליון עם ניצול השטח הכי גבוה (הכי פחות בזבוז)
 function pi_nupBestSheets(w, h, baseG){
+  var topGrip = baseG.gripperBoth ? baseG.gripperMm : 0;
   var out = [];
   pi_sheets().forEach(function(s){
     var best = null;
     [[s.w,s.h],[s.h,s.w]].forEach(function(o){
-      var W = o[0] - baseG.marginLeftMm - baseG.marginRightMm, H = o[1] - baseG.marginTopMm - baseG.marginBottomMm - baseG.gripperMm;
+      var W = o[0] - baseG.marginLeftMm - baseG.marginRightMm, H = o[1] - baseG.marginTopMm - baseG.marginBottomMm - baseG.gripperMm - topGrip;
       if (W<=0 || H<=0) return;
       var fit = pi_nupFit(w, h, W, H, baseG.minGapMm);
       if (!fit.count) return;
       var util = Math.round(fit.count * w * h / (o[0]*o[1]) * 100);
-      var cand = { name:s.name, w:o[0], h:o[1], count:fit.count, util:util };
-      if (!best || cand.util>best.util) best = cand;
+      var shrink = pi_nupShrinkSuggest(w, h, W, H, baseG.minGapMm);   // הצעת הקטנה לגיליון הזה
+      var cand = { name:s.name, w:o[0], h:o[1], count:fit.count, util:util, shrink:shrink };
+      if (!best || cand.count>best.count || (cand.count===best.count && cand.util>best.util)) best = cand;
     });
     if (best) out.push(best);
   });
   out.sort(function(a,b){ return b.util - a.util || b.count - a.count; });
-  return out.slice(0,4);
+  return out;
 }
+// טבלה: לכל גיליון — כמה נכנס בגודל המקורי, הצעת הקטנה, ובחירה (מקורי / הקטן+מלא)
 function pi_nupBestSheetsHtml(w, h, g){
   var best = pi_nupBestSheets(w, h, g); if (!best.length) return '';
-  return '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;padding:8px 10px;margin-top:9px">' +
-    '<div style="font-size:.78rem;font-weight:800;color:#166534;margin-bottom:4px">🏆 גיליון אופטימלי (ניצול שטח מרבי):</div>' +
-    best.map(function(b,i){ var isCur = (Math.round(b.w)===Math.round(g.sheetWidthMm)&&Math.round(b.h)===Math.round(g.sheetHeightMm))||(Math.round(b.h)===Math.round(g.sheetWidthMm)&&Math.round(b.w)===Math.round(g.sheetHeightMm));
-      return '<button onclick="pi_gangApplySheet(' + b.w + ',' + b.h + ')" style="display:inline-flex;gap:5px;align-items:center;margin:2px;padding:5px 10px;border:1px solid ' + (i===0?'#16a34a':'#d1d5db') + ';border-radius:8px;background:' + (i===0?'#dcfce7':'#fff') + ';cursor:pointer;font-family:Heebo;font-size:.76rem;font-weight:700">' +
-        (i===0?'⭐ ':'') + b.name + ' <span style="color:#166534">' + b.count + '×</span> <span style="color:#9ca3af;font-size:.68rem">' + b.util + '%</span>' + (isCur?' ✓':'') + '</button>';
-    }).join('') + '</div>';
+  var cur = window._pi.cur;
+  var rows = best.map(function(b, i){
+    var isCur = (Math.round(b.w)===Math.round(g.sheetWidthMm)&&Math.round(b.h)===Math.round(g.sheetHeightMm))||(Math.round(b.h)===Math.round(g.sheetWidthMm)&&Math.round(b.w)===Math.round(g.sheetHeightMm));
+    var canFill = !!(cur && (cur.sourceType==='manual'||cur.source==='manual'));
+    var chooseBase = canFill
+      ? '<button onclick="pi_gangApplySheet(' + b.w + ',' + b.h + ')" title="בחר גיליון זה בגודל המקורי" style="flex:none;padding:4px 10px;border:1px solid ' + (i===0?'#16a34a':'#d1d5db') + ';border-radius:7px;background:' + (i===0?'#dcfce7':'#fff') + ';cursor:pointer;font-family:Heebo;font-size:.74rem;font-weight:700;color:#166534">בחר' + (isCur?' ✓':'') + '</button>'
+      : '';
+    var shrinkLine = b.shrink
+      ? '<div style="display:flex;align-items:center;gap:6px;margin-top:3px;padding-right:8px;font-size:.72rem;color:#9a3412">💡 בהקטנה ל-<b>' + b.shrink.wMm + '×' + b.shrink.hMm + '</b> מ״מ: <b>' + b.shrink.count + '</b> (+' + b.shrink.gained + ')' +
+          (canFill ? '<button onclick="pi_nupChooseShrink(' + b.w + ',' + b.h + ',' + b.shrink.wMm + ',' + b.shrink.hMm + ')" style="flex:none;padding:3px 9px;border:none;border-radius:6px;background:#c2410c;color:#fff;cursor:pointer;font-family:Heebo;font-size:.72rem;font-weight:700">בחר + הקטן</button>' : '') +
+        '</div>'
+      : '';
+    return '<div style="border-top:1px solid #e5e7eb;padding:6px 0">' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<b style="flex:1;min-width:0;font-size:.78rem">' + (i===0?'⭐ ':'') + b.name + '</b>' +
+        '<span style="font-size:.76rem;color:#166534;font-weight:800">' + b.count + '×</span>' +
+        '<span style="font-size:.68rem;color:#9ca3af">' + b.util + '%</span>' + chooseBase +
+      '</div>' + shrinkLine + '</div>';
+  }).join('');
+  return '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:9px;padding:6px 11px;margin-top:9px;max-height:230px;overflow:auto">' +
+    '<div style="font-size:.78rem;font-weight:800;color:#166534;margin-bottom:2px">🏆 כמה נכנס בכל גיליון (בחר גיליון):</div>' + rows + '</div>';
+}
+// בחירת גיליון + הקטנה + מילוי בבת אחת
+function pi_nupChooseShrink(sw, sh, iw, ih){
+  var cur = window._pi.cur; if (!cur) return;
+  pi_manualSetSheet(sw, sh);
+  var g = pi_curGeom(), fit = pi_nupFit(iw, ih, g.printableWidthMm, g.printableHeightMm, g.minGapMm);
+  cur.items = cur.items || [];
+  fit.boxes.forEach(function(b, i){ cur.items.push({ id:'it'+Date.now()+i+Math.random().toString(36).slice(2,4), fileId:null, empty:true,
+    xMm: Math.round((g.printX+b.x)*10)/10, yMm: Math.round((g.printY+b.y)*10)/10, widthMm: b.w, heightMm: b.h,
+    rotation: (Math.abs(b.w-iw)<0.5?0:90), bleedMm: g.defaultBleedMm, copies:1, sourceType:'manual' }); });
+  cur._edited = true; window._pi.dirty = true; pi_selSet([]);
+  ['pi-gang-modal','pi-nup-modal'].forEach(function(id){ var m=document.getElementById(id); if(m) m.remove(); });
+  pi_render();
+  showToast('✓ גיליון ' + Math.round(sw/10) + '×' + Math.round(sh/10) + ' ס״מ · ' + fit.count + ' עותקים בגודל ' + iw + '×' + ih + ' מ״מ');
 }
 function pi_nupUpdate(){
   var g = pi_curGeom(), gap = g.minGapMm;
@@ -23664,9 +23696,11 @@ function pi_previewApogeeProof(proofId, partId){
     pi_showProofPreview(url, pi_safeName(u.title) + '_Apogee.pdf', { revoke:true, subtitle: 'פרופר פרוס · ' + r.segments.length + ' חתימות · ' + (r.family==='p'?'מתהפך':'פרפקטור') });
   }).catch(function(e){ console.error('apogee preview failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
 }
-// צפייה בקובץ הריצה (סדר קריאה) ישירות באפליקציה
+// צפייה בקובץ הריצה (סדר קריאה) — דרך מנוע הדפדוף (proof-viewer) עם צלבי חיתוך + מסגרת trim + בליד
 function pi_previewProofRun(proofId, partId){
   var u = pi_unitBy(proofId, partId); if (!u || !u.fileUrl){ showToast('אין קובץ לריצה'); return; }
+  if (typeof _opOpenFlipbook === 'function'){ _opOpenFlipbook(proofId, partId || ''); return; }   // דפדוף עם צלבי חיתוך + מסגרת TrimBox
+  // גיבוי — תצוגת PDF גולמית (בלי מנוע הפליפבוק)
   showToast('⏳ טוען תצוגה…');
   fetch(u.fileUrl).then(function(r){ return r.blob(); }).then(function(b){
     pi_showProofPreview(URL.createObjectURL(b), pi_safeName(u.title) + '_reading.pdf', { revoke:true, subtitle: 'סדר קריאה · ' + u.pages + ' עמ\'' });

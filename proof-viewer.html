@@ -36,6 +36,7 @@
   #spread .cropwrap { position:relative; display:inline-block; line-height:0; }
   #spread .mediacrop { display:block; height:80vh; width:auto; max-width:48vw; background-color:#fff; background-repeat:no-repeat; }
   #spread .trimframe { position:absolute; box-sizing:border-box; pointer-events:none; }  /* מסגרת trim מקווקוות (border נקבע inline, מדלג על השדרה) */
+  #spread .cmark { position:absolute; background:#111; pointer-events:none; }  /* צלב חיתוך — טיק שחור בפינת ה-trim */
   /* מספר עמוד — תווית עזר מתחת לעמוד ובשקיפות (לא חלק מהעיתון) */
   #spread .pgnum { line-height:1; color:#6b7280; opacity:.5; font-size:.82rem; font-weight:700; }
   #spread .ph { color:#6b7280; font-size:.95rem; padding:50px; }
@@ -285,7 +286,7 @@ function renderViewer(){
       const fb = `border:1.4px dashed #e11d48;`
         + (f.skip === 'left' ? 'border-left:none;' : '') + (f.skip === 'right' ? 'border-right:none;' : '');
       const fst = `left:${f.left.toFixed(2)}%;top:${f.top.toFixed(2)}%;width:${f.width.toFixed(2)}%;height:${f.height.toFixed(2)}%;${fb}`;
-      return `<div class="page"><div class="cropwrap"><div class="mediacrop" style="${mc}"></div><div class="trimframe" style="${fst}"></div></div><div class="pgnum">עמוד ${i+1}</div></div>`;
+      return `<div class="page"><div class="cropwrap"><div class="mediacrop" style="${mc}"></div><div class="trimframe" style="${fst}"></div>${_cropMarksHtml(f)}</div><div class="pgnum">עמוד ${i+1}</div></div>`;
     }
     return `<div class="page"><img src="${imgs[i]}" alt=""><div class="pgnum">עמוד ${i+1}</div></div>`;
   }).join('');
@@ -303,6 +304,23 @@ function _pageNetSpec(tf, spine){
   const sizeW = 100 / shownW;
   const trimL = (tf.l - shownL) / shownW, trimR = (tf.l + tf.w - shownL) / shownW;
   return { arr, sizeW, posX, frame: { left: trimL*100, top: tf.t*100, width: (trimR-trimL)*100, height: tf.h*100, skip: spine } };
+}
+// צלבי חיתוך — טיקים שחורים בפינות ה-trim (מדלג על צד השדרה). f = frame ב-% מתוך cropwrap.
+function _cropMarksHtml(f){
+  const arm = 9, gap = 1;   // px
+  const r = (f.left + f.width), b = (f.top + f.height);
+  const H = (leftCss, topPct) => `<div class="cmark" style="${leftCss};top:calc(${topPct}% - 0.7px);width:${arm}px;height:1.4px"></div>`;
+  const V = (leftPct, topCss) => `<div class="cmark" style="left:calc(${leftPct}% - 0.7px);${topCss};width:1.4px;height:${arm}px"></div>`;
+  let out = '';
+  if (f.skip !== 'left'){   // פינות שמאל (top-left + bottom-left)
+    out += H(`left:calc(${f.left}% - ${gap+arm}px)`, f.top) + V(f.left, `top:calc(${f.top}% - ${gap+arm}px)`);
+    out += H(`left:calc(${f.left}% - ${gap+arm}px)`, b)     + V(f.left, `top:calc(${b}% + ${gap}px)`);
+  }
+  if (f.skip !== 'right'){  // פינות ימין (top-right + bottom-right)
+    out += H(`left:calc(${r}% + ${gap}px)`, f.top) + V(r, `top:calc(${f.top}% - ${gap+arm}px)`);
+    out += H(`left:calc(${r}% + ${gap}px)`, b)     + V(r, `top:calc(${b}% + ${gap}px)`);
+  }
+  return out;
 }
 function step(d){
   if (vIndex === 0) vIndex = d > 0 ? 1 : 0;
