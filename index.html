@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783783622';
+window.APP_VERSION = '1783790121';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23442,11 +23442,11 @@ function pi_downloadProofRun(proofId, partId){
   document.body.appendChild(a); a.click(); a.remove();
   showToast('⬇️ מוריד ריצה (סדר קריאה)');
 }
-function pi_exportApogeeProof(proofId, partId){
-  var u = pi_unitBy(proofId, partId); if (!u || !u.fileUrl){ showToast('אין קובץ לריצה'); return; }
+// בונה את הפרופר הפרוס לאפוגי ומחזיר bytes (משותף להורדה ולתצוגה מקדימה)
+function pi_buildApogeeProofBytes(u){
   var frame = document.getElementById('pi-tpl-frame');
   var gen = frame && frame.contentWindow && frame.contentWindow.imposeRunPdf;
-  if (!gen){ showToast('⏳ מנוע הפריסה נטען — נסה שוב'); pi_loadTemplates(); return; }
+  if (!gen){ pi_loadTemplates(); return Promise.reject(new Error('מנוע הפריסה עדיין נטען — נסה שוב בעוד רגע')); }
   var card = pi_matchCardForUnit(u);
   var machine = (card && card.machine) || (pi_profilesFor(null)[0] && pi_profilesFor(null)[0].machine) || pi_getMachines()[0];
   var prof = pi_profilesFor(machine)[0] || pi_profilesFor(null)[0] || {};
@@ -23462,24 +23462,69 @@ function pi_exportApogeeProof(proofId, partId){
   pi_progressShow('מייצר פרופר פרוס לאפוגי (' + segments.length + ' חתימות)');
   var _blobUrl = null;
   // נורמליזציה: מפצל כפולות בקובץ סדר-הקריאה (כולל ריצות שאושרו לפני הפיצול-בהעלאה) → מיפוי 1:1 תקין
-  Promise.resolve().then(function(){
+  return Promise.resolve().then(function(){
     var splitFn = frame.contentWindow && frame.contentWindow.splitSpreadsPdf;
-    if (!splitFn) return u.fileUrl;   // ללא מנוע פיצול — משתמש בקובץ כמו שהוא
+    if (!splitFn) return u.fileUrl;
     return fetch(u.fileUrl).then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return splitFn(new Uint8Array(buf)); })
-      .then(function(norm){
-        if (!norm || (norm.byteLength && norm.byteLength === 0)) return u.fileUrl;
-        _blobUrl = URL.createObjectURL(new Blob([norm], { type:'application/pdf' }));
-        return _blobUrl;
-      }).catch(function(){ return u.fileUrl; });
+      .then(function(norm){ if (!norm || (norm.byteLength && norm.byteLength === 0)) return u.fileUrl; _blobUrl = URL.createObjectURL(new Blob([norm], { type:'application/pdf' })); return _blobUrl; })
+      .catch(function(){ return u.fileUrl; });
   }).then(function(srcUrl){
     return gen(srcUrl, segments, { sheetWmm:g.sheetWidthMm, sheetHmm:g.sheetHeightMm, bleedMm:g.defaultBleedMm, markMm:12, jobName:u.title, onProgress: pi_progressUpdate });
   }).then(function(bytes){
     pi_progressClose(); if (_blobUrl) URL.revokeObjectURL(_blobUrl);
-    pi_downloadBytes(bytes, pi_safeName(u.title) + '_Apogee.pdf', 'application/pdf');
-    showToast('✓ פרופר פרוס לאפוגי הופק · ' + segments.length + ' חתימות · ' + (family==='p'?'מתהפך':'פרפקטור'));
-  }).catch(function(e){ pi_progressClose(); if (_blobUrl) URL.revokeObjectURL(_blobUrl); console.error('apogee proof failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
+    return { bytes: bytes, segments: segments, family: family };
+  }).catch(function(e){ pi_progressClose(); if (_blobUrl) URL.revokeObjectURL(_blobUrl); throw e; });
 }
+function pi_exportApogeeProof(proofId, partId){
+  var u = pi_unitBy(proofId, partId); if (!u || !u.fileUrl){ showToast('אין קובץ לריצה'); return; }
+  pi_buildApogeeProofBytes(u).then(function(r){
+    pi_downloadBytes(r.bytes, pi_safeName(u.title) + '_Apogee.pdf', 'application/pdf');
+    showToast('✓ פרופר פרוס לאפוגי הופק · ' + r.segments.length + ' חתימות · ' + (r.family==='p'?'מתהפך':'פרפקטור'));
+  }).catch(function(e){ console.error('apogee proof failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
+}
+// צפייה בפרופר הפרוס ישירות באפליקציה (בלי הורדה)
+function pi_previewApogeeProof(proofId, partId){
+  var u = pi_unitBy(proofId, partId); if (!u || !u.fileUrl){ showToast('אין קובץ לריצה'); return; }
+  pi_buildApogeeProofBytes(u).then(function(r){
+    var url = URL.createObjectURL(new Blob([r.bytes], { type:'application/pdf' }));
+    pi_showProofPreview(url, pi_safeName(u.title) + '_Apogee.pdf', { revoke:true, subtitle: 'פרופר פרוס · ' + r.segments.length + ' חתימות · ' + (r.family==='p'?'מתהפך':'פרפקטור') });
+  }).catch(function(e){ console.error('apogee preview failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
+}
+// צפייה בקובץ הריצה (סדר קריאה) ישירות באפליקציה
+function pi_previewProofRun(proofId, partId){
+  var u = pi_unitBy(proofId, partId); if (!u || !u.fileUrl){ showToast('אין קובץ לריצה'); return; }
+  showToast('⏳ טוען תצוגה…');
+  fetch(u.fileUrl).then(function(r){ return r.blob(); }).then(function(b){
+    pi_showProofPreview(URL.createObjectURL(b), pi_safeName(u.title) + '_reading.pdf', { revoke:true, subtitle: 'סדר קריאה · ' + u.pages + ' עמ\'' });
+  }).catch(function(){ pi_showProofPreview(u.fileUrl, pi_safeName(u.title) + '_reading.pdf', { subtitle: 'סדר קריאה' }); });
+}
+// חלון תצוגה מקדימה של PDF + גרירה ישירה לאפוגי (Chrome/Edge, בלי הורדה מוקדמת)
+function pi_showProofPreview(url, name, opts){
+  opts = opts || {};
+  var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 293;
+  m.innerHTML = '<div class="modal-box" style="max-width:920px;width:96vw;height:90vh;display:flex;flex-direction:column;padding:0;overflow:hidden">' +
+    '<div class="modal-header" style="flex:none"><span>👁 ' + escHtml(name) + (opts.subtitle ? (' <span style="font-weight:500;font-size:.76rem;color:#9ca3af">· ' + escHtml(opts.subtitle) + '</span>') : '') + '</span><button class="modal-close" onclick="pi_closeProofPreview(this)">✕</button></div>' +
+    '<div style="flex:1;min-height:0;background:#525659"><iframe src="' + url + '#toolbar=1" style="width:100%;height:100%;border:none"></iframe></div>' +
+    '<div style="flex:none;display:flex;gap:8px;align-items:center;padding:10px 14px;flex-wrap:wrap;border-top:1px solid #e5e7eb;background:#fff">' +
+      '<div id="pi-proof-drag" draggable="true" title="גרור ישירות לחלון אפוגי או לתיקייה — בלי לשמור קודם (Chrome/Edge)" style="flex:none;display:flex;align-items:center;gap:7px;border:2px dashed #0f766e;border-radius:9px;background:#f0fdfa;color:#0f766e;padding:9px 14px;cursor:grab;font-weight:800;font-family:Heebo">📄 גרור לאפוגי ⇢</div>' +
+      '<span style="font-size:.72rem;color:#9ca3af;flex:1;min-width:120px">גרור את האריח אל חלון אפוגי או לתיקייה שאפוגי מנטר — ללא הורדה מוקדמת.</span>' +
+      '<button onclick="pi_proofPreviewOpenTab()" style="flex:none;padding:9px 13px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700">↗ טאב חדש</button>' +
+      '<button onclick="pi_proofPreviewDownload()" style="flex:none;padding:9px 15px;border:none;border-radius:8px;background:#0f766e;color:#fff;cursor:pointer;font-family:Heebo;font-weight:800">⬇️ הורד</button>' +
+    '</div></div>';
+  document.body.appendChild(m);
+  m._proofUrl = url; m._proofName = name; m._revoke = !!opts.revoke;
+  window._piProofModal = m;
+  var dz = m.querySelector('#pi-proof-drag');
+  if (dz) dz.addEventListener('dragstart', function(e){
+    e.dataTransfer.effectAllowed = 'copy';
+    try { e.dataTransfer.setData('DownloadURL', 'application/pdf:' + name + ':' + url); } catch(err){}
+    try { e.dataTransfer.setData('text/uri-list', url); e.dataTransfer.setData('text/plain', url); } catch(err){}
+  });
+}
+function pi_proofPreviewDownload(){ var m = window._piProofModal; if (!m) return; var a = document.createElement('a'); a.href = m._proofUrl; a.download = m._proofName; document.body.appendChild(a); a.click(); a.remove(); }
+function pi_proofPreviewOpenTab(){ var m = window._piProofModal; if (m) window.open(m._proofUrl, '_blank'); }
+function pi_closeProofPreview(btn){ var m = btn.closest('.modal-overlay'); if (!m) return; try { if (m._revoke && m._proofUrl) URL.revokeObjectURL(m._proofUrl); } catch(e){} if (window._piProofModal === m) window._piProofModal = null; m.remove(); }
 function pi_proofExportsHtml(){
   var units = pi_getApprovedUnits();
   if (!units.length) return '';
@@ -23493,9 +23538,13 @@ function pi_proofExportsHtml(){
         '<span style="flex:none;font-size:.74rem;color:#0f766e;font-weight:800">' + u.pages + ' עמ\'</span>' +
         '<button onclick="pi_removeApprovedUnit(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" title="הסר מרשימת האימפוזיציה" style="flex:none;border:1px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:.8rem">🗑</button></div>' +
       '<div style="font-size:.72rem;color:#6b7280;margin:2px 0 7px">לקוח: ' + escHtml(u.customer||'—') + ' · ' + mtxt + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:5px">' +
+        '<button onclick="pi_previewApogeeProof(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" title="צפה בפרופר הפרוס לפני שליחה" style="flex:2;min-width:150px;padding:8px;border:none;border-radius:7px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.8rem">👁 צפה בפרופר לאפוגי</button>' +
+        '<button onclick="pi_exportApogeeProof(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" title="הורד את הפרופר הפרוס" style="flex:1;min-width:90px;padding:8px;border:1px solid #0f766e;border-radius:7px;background:#fff;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.8rem">🏭 הורד</button>' +
+      '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-        '<button onclick="pi_downloadProofRun(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" style="flex:1;min-width:130px;padding:8px;border:1px solid #99f6e4;border-radius:7px;background:#fff;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.8rem">⬇️ ריצה (קריאה)</button>' +
-        '<button onclick="pi_exportApogeeProof(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" style="flex:1;min-width:130px;padding:8px;border:none;border-radius:7px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.8rem">🏭 פרופר לאפוגי</button>' +
+        '<button onclick="pi_previewProofRun(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" title="צפה בקובץ הריצה (סדר קריאה)" style="flex:2;min-width:150px;padding:7px;border:1px solid #99f6e4;border-radius:7px;background:#fff;color:#0f766e;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">👁 צפה בריצה (קריאה)</button>' +
+        '<button onclick="pi_downloadProofRun(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" title="הורד את קובץ הריצה" style="flex:1;min-width:90px;padding:7px;border:1px solid #99f6e4;border-radius:7px;background:#fff;color:#0f766e;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">⬇️ הורד</button>' +
       '</div></div>';
   }).join('');
   return html + '<div style="border-top:1px solid #eee;margin:12px 0"></div>';
