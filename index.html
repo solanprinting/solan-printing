@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783770642';
+window.APP_VERSION = '1783771105';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23049,10 +23049,13 @@ function pi_showUploadLinkModal(c, link){
 // ── Undo — ביטול הפעולה האחרונה בעורך הידני (מעקב אוטומטי דרך הרינדור) ──
 // בכל רינדור של העורך: אם מצב הטיוטה השתנה מאז הרינדור הקודם — דוחפים את המצב הקודם למחסנית.
 // כך כל פעולה (הוספה/הסרה/גרירה/סידור/בליד/שוליים/כמות…) ניתנת לביטול, בלי לגעת בכל פונקציה בנפרד.
+function pi_undoKey(id){ return 'solanPiUndo_' + id; }
+function pi_persistUndo(){ var cur = window._pi.cur; if (!cur) return; try { localStorage.setItem(pi_undoKey(cur.id), JSON.stringify((window._pi._undo||[]).slice(-12))); } catch(e){} }
 function pi_trackHistory(cur){
   window._pi._undo = window._pi._undo || [];
-  if (window._pi._undoFor !== cur.id){   // טיוטה אחרת נפתחה — אפס את ההיסטוריה
-    window._pi._undo = []; window._pi._undoFor = cur.id; window._pi._lastCommitted = null;
+  if (window._pi._undoFor !== cur.id){   // טיוטה אחרת נפתחה — אפס + שחזר Undo מרענון (localStorage)
+    window._pi._undoFor = cur.id; window._pi._lastCommitted = null; window._pi._undo = [];
+    try { var sv = localStorage.getItem(pi_undoKey(cur.id)); if (sv){ var o = JSON.parse(sv); if (Array.isArray(o)) window._pi._undo = o; } } catch(e){}
   }
   var snap;
   try { snap = JSON.stringify(cur); } catch(e){ return; }
@@ -23060,14 +23063,15 @@ function pi_trackHistory(cur){
   var last = window._pi._lastCommitted;
   if (last != null && last !== snap){
     window._pi._undo.push(last);
-    if (window._pi._undo.length > 50) window._pi._undo.shift();
+    if (window._pi._undo.length > 40) window._pi._undo.shift();
+    pi_persistUndo();   // התמדה — הביטול שורד רענון דף
   }
   window._pi._lastCommitted = snap;
 }
 function pi_undo(){
   var st = window._pi._undo || [];
   if (!st.length){ showToast('אין פעולה לבטל'); return; }
-  var prev = st.pop();
+  var prev = st.pop(); pi_persistUndo();
   window._pi._restoring = true;
   try {
     window._pi.cur = JSON.parse(prev);
@@ -23098,6 +23102,7 @@ function pi_renderManualWS(){
   var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1160px';
   var cur = window._pi.cur; if (!cur){ window._pi.view = 'list'; pi_renderList(); return; }
   pi_trackHistory(cur);   // מעקב היסטוריה לביטול פעולה (Undo) — נקודת חיבור אחת
+  if (window._pi.dirty) pi_autosave();   // שמירה אוטומטית מושהית כשיש שינויים
   pi_ensurePreviews(cur);
   var g = pi_curGeom();
   var items = pi_manualRenderItems(cur);
@@ -23118,7 +23123,7 @@ function pi_renderManualWS(){
     '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
       '<button onclick="pi_backToList()" style="padding:7px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700">→ חזרה</button>' +
       '<b style="font-size:.95rem;flex:1;min-width:0">🧩 ' + escHtml(cur.name||'') + ' <span style="font-size:.68rem;background:#ccfbf1;color:#0f766e;border-radius:6px;padding:2px 7px;font-weight:800">ידני</span></b>' +
-      (window._pi.dirty ? '<span style="font-size:.74rem;color:#b45309;font-weight:800">● לא נשמר</span>' : '<span style="font-size:.74rem;color:#059669;font-weight:700">✓ שמור</span>') +
+      pi_savedLabel() +
       '<button onclick="pi_showFeatures()" title="רשימת התכונות — קיים ומתוכנן" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6d28d9;font-weight:800;cursor:pointer;font-family:Heebo">📋 תכונות</button>' +
       '<button onclick="pi_sheetFullView()" title="ראה את הגיליון עם הקבצים במסך מלא (תצוגה נקייה)" style="padding:8px 12px;border:1px solid #c7d2fe;border-radius:8px;background:#eef2ff;color:#3730a3;font-weight:800;cursor:pointer;font-family:Heebo">🖼️ גיליון מלא</button>' +
       '<button onclick="pi_manualFullscreen()" title="עורך במסך מלא" style="padding:8px 12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo">' + (fs ? '🡼 צא ממסך מלא' : '⛶ עורך מלא') + '</button>' +
@@ -24002,14 +24007,27 @@ function pi_cellClick(sigIdx, local){
   showToast('↔ הוחלף · ' + msg, 6000);
   pi_render();
 }
-function pi_saveDraft(){
+function pi_saveDraft(silent){
   var cur = window._pi.cur; if (!cur) return;
   if (window._pi.templates) pi_buildPlateModel(cur);   // רענון folios במודל המנורמל כשהתבניות זמינות
-  cur.updatedAt = Date.now();
+  cur.updatedAt = Date.now(); window._pi._savedAt = Date.now();
   pi_put('impositions', cur.id, JSON.parse(JSON.stringify(cur)));
   window._pi.dirty = false;
-  showToast('💾 הטיוטה נשמרה');
+  if (!silent) showToast('💾 הטיוטה נשמרה');
   pi_render(); pi_badge();
+}
+// שמירה אוטומטית מושהית — נשמרת ~5 שניות אחרי השינוי האחרון (בלי טוסט)
+function pi_autosave(){
+  if (window._pi._autosaveT) clearTimeout(window._pi._autosaveT);
+  window._pi._autosaveT = setTimeout(function(){
+    var cur = window._pi.cur;
+    if (cur && window._pi.dirty && (window._pi.view === 'manual' || window._pi.view === 'builder')) pi_saveDraft(true);
+  }, 5000);
+}
+function pi_savedLabel(){
+  if (window._pi.dirty) return '<span style="font-size:.74rem;color:#b45309;font-weight:800">● שינויים לא נשמרו</span>';
+  if (window._pi._savedAt){ var d = new Date(window._pi._savedAt); return '<span style="font-size:.74rem;color:#059669;font-weight:700">✓ נשמר ' + ('0'+d.getHours()).slice(-2) + ':' + ('0'+d.getMinutes()).slice(-2) + '</span>'; }
+  return '<span style="font-size:.74rem;color:#059669;font-weight:700">✓ שמור</span>';
 }
 function pi_backToList(){
   if (window._pi.dirty && !confirm('יש שינויים שלא נשמרו — לצאת בלי לשמור?')) return;
@@ -24035,7 +24053,7 @@ function pi_renderBuilder(){
       '<b style="font-size:.95rem;flex:1;min-width:0">' + escHtml(cur.name||'') +
         (cur.status === 'approved' ? ' <span style="font-size:.72rem;color:#065f46;background:#d1fae5;border-radius:6px;padding:2px 7px;font-weight:800">✓ מאושר</span>' : '') + '</b>' +
       (cur.jobCardId ? '<button onclick="pi_openCard(\'' + cur.jobCardId + '\')" title="פתח את כרטיס העבודה" style="padding:7px 10px;border:1px solid #c7d2fe;border-radius:7px;background:#eef2ff;color:#3730a3;cursor:pointer;font-family:Heebo;font-weight:700;font-size:.8rem">📋 כרטיס</button>' : '') +
-      (window._pi.dirty ? '<span style="font-size:.74rem;color:#b45309;font-weight:800">● לא נשמר</span>' : '<span style="font-size:.74rem;color:#059669;font-weight:700">✓ שמור</span>') +
+      pi_savedLabel() +
       '<button onclick="pi_saveDraft()" style="padding:8px 14px;border:none;border-radius:8px;background:#6d28d9;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">💾 שמור</button>' +
       '<button onclick="pi_approve()" style="padding:8px 14px;border:none;border-radius:8px;background:#065f46;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">✅ אשר תוכנית</button>' +
       '<button onclick="pi_exportProductionPdf()" title="PDF דפוס: עמוד לכל קונטרס×צד, boxes מדויקים + סימני דפוס" style="padding:8px 12px;border:none;border-radius:8px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">🏭 PDF</button>' +
@@ -24495,7 +24513,7 @@ function pi_renderCanvas(){
     '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
       '<button onclick="pi_showGrid()" style="padding:7px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700">→ רשת קונטרסים</button>' +
       '<b style="font-size:.95rem;flex:1;min-width:0">📐 גיליון מ״מ — ' + escHtml(cur.name||'') + '</b>' +
-      (window._pi.dirty ? '<span style="font-size:.74rem;color:#b45309;font-weight:800">● לא נשמר</span>' : '<span style="font-size:.74rem;color:#059669;font-weight:700">✓ שמור</span>') +
+      pi_savedLabel() +
     '</div>' +
     '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">' +
       '<div style="flex:none">' + svg + '</div>' + panel +
