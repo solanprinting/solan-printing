@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783771105';
+window.APP_VERSION = '1783771664';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21432,6 +21432,100 @@ function pi_newManual(){
   window._pi.dirty = true; window._pi.canvasSel = null; window._pi.view = 'manual';
   pi_loadTemplates(); pi_render();
 }
+// ── ריבוי גיליונות (עבודה ידנית) — cur.items הוא תמיד הגיליון הפעיל; cur.sheets מחזיק את כל הגיליונות ──
+// כל גיליון = {id,name,items,cutBars}. הרבה פונקציות עושות cur.items=filter(...) (מקצות מערך חדש),
+// לכן לא סומכים על שיתוף-הפניה — מסנכרנים בכל החלפה/שמירה/ייצוא.
+function pi_ensureSheets(cur){
+  if (!cur) return;
+  if (!Array.isArray(cur.sheets) || !cur.sheets.length){
+    cur.sheets = [{ id: 'sh' + Date.now().toString(36), name: 'גיליון 1', items: cur.items || [], cutBars: cur.cutBars || [] }];
+    cur.activeSheetIdx = 0;
+  }
+  if (typeof cur.activeSheetIdx !== 'number' || cur.activeSheetIdx < 0 || cur.activeSheetIdx >= cur.sheets.length) cur.activeSheetIdx = 0;
+  var s = cur.sheets[cur.activeSheetIdx];
+  s.items = s.items || []; s.cutBars = s.cutBars || [];
+  // טוען את הגיליון הפעיל ל-cur.items רק כשמדובר ב-cur חדש (נטען מטיוטה) או בהחלפת גיליון —
+  // בזיהוי לפי זהות-אובייקט, כדי לא לדרוס עריכה חיה (פונקציות רבות מקצות cur.items=filter(...)).
+  if (window._pi._sheetCur !== cur || window._pi._sheetIdx !== cur.activeSheetIdx){
+    cur.items = s.items; cur.cutBars = s.cutBars;
+    window._pi._sheetCur = cur; window._pi._sheetIdx = cur.activeSheetIdx;
+  }
+}
+function pi_syncActiveSheet(cur){
+  if (!cur || !Array.isArray(cur.sheets)) return;
+  var s = cur.sheets[cur.activeSheetIdx]; if (!s) return;
+  s.items = cur.items || []; s.cutBars = cur.cutBars || [];   // מחזיר את המצב הפעיל אל תוך הגיליון
+}
+function pi_loadSheet(cur, idx){
+  var s = cur.sheets[idx]; if (!s) return;
+  cur.activeSheetIdx = idx;
+  s.items = s.items || []; s.cutBars = s.cutBars || [];
+  cur.items = s.items; cur.cutBars = s.cutBars;
+  window._pi._sheetCur = cur; window._pi._sheetIdx = idx;   // מסמן שהגיליון הפעיל נטען
+  window._pi.selIds = []; window._pi.canvasSel = null; window._pi.arrangeMsg = null;
+}
+function pi_switchSheet(idx){
+  var cur = window._pi.cur; if (!cur) return; pi_ensureSheets(cur);
+  if (idx < 0 || idx >= cur.sheets.length || idx === cur.activeSheetIdx) return;
+  pi_syncActiveSheet(cur); pi_loadSheet(cur, idx); pi_render();
+}
+function pi_addSheet(){
+  var cur = window._pi.cur; if (!cur) return; pi_ensureSheets(cur);
+  pi_syncActiveSheet(cur);
+  var n = cur.sheets.length + 1;
+  cur.sheets.push({ id: 'sh' + Date.now().toString(36) + n, name: 'גיליון ' + n, items: [], cutBars: [] });
+  window._pi.dirty = true; pi_loadSheet(cur, cur.sheets.length - 1); pi_render();
+  showToast('➕ נוסף גיליון ' + n);
+}
+function pi_dupSheet(idx){
+  var cur = window._pi.cur; if (!cur) return; pi_ensureSheets(cur);
+  if (idx == null) idx = cur.activeSheetIdx;
+  pi_syncActiveSheet(cur);
+  var src = cur.sheets[idx]; if (!src) return;
+  var copy = JSON.parse(JSON.stringify(src));
+  copy.id = 'sh' + Date.now().toString(36) + 'd';
+  copy.name = (src.name || ('גיליון ' + (idx + 1))) + ' (עותק)';
+  cur.sheets.splice(idx + 1, 0, copy);
+  window._pi.dirty = true; pi_loadSheet(cur, idx + 1); pi_render();
+  showToast('⧉ הגיליון שוכפל');
+}
+function pi_delSheet(idx){
+  var cur = window._pi.cur; if (!cur) return; pi_ensureSheets(cur);
+  if (cur.sheets.length <= 1){ showToast('חייב להישאר לפחות גיליון אחד'); return; }
+  var nm = (cur.sheets[idx] && (cur.sheets[idx].name || ('גיליון ' + (idx + 1)))) || '';
+  var cnt = (cur.sheets[idx] && (cur.sheets[idx].items || []).length) || 0;
+  if (cnt && !confirm('למחוק את "' + nm + '" על ' + cnt + ' הפריטים שבו?')) return;
+  pi_syncActiveSheet(cur);
+  cur.sheets.splice(idx, 1);
+  var newIdx = cur.activeSheetIdx;
+  if (idx < cur.activeSheetIdx) newIdx = cur.activeSheetIdx - 1;
+  else if (idx === cur.activeSheetIdx) newIdx = Math.min(cur.activeSheetIdx, cur.sheets.length - 1);
+  window._pi.dirty = true; pi_loadSheet(cur, newIdx); pi_render();
+}
+function pi_renameSheet(idx){
+  var cur = window._pi.cur; if (!cur || !cur.sheets || !cur.sheets[idx]) return;
+  var nm = prompt('שם הגיליון:', cur.sheets[idx].name || ('גיליון ' + (idx + 1)));
+  if (nm == null) return;
+  cur.sheets[idx].name = String(nm).trim() || ('גיליון ' + (idx + 1));
+  window._pi.dirty = true; pi_render();
+}
+// פס לשוניות הגיליונות — מוצג רק בעבודה ידנית
+function pi_sheetTabsHtml(cur){
+  pi_ensureSheets(cur);
+  var tabs = cur.sheets.map(function(s, i){
+    var active = i === cur.activeSheetIdx, cnt = (s.items || []).length;
+    return '<div style="display:inline-flex;align-items:center;gap:4px;border:1px solid ' + (active ? '#0f766e' : '#d1d5db') + ';border-bottom:none;border-radius:9px 9px 0 0;background:' + (active ? '#fff' : '#f3f4f6') + ';padding:6px 10px 7px;cursor:pointer' + (active ? ';box-shadow:0 -2px 0 #0f766e inset' : '') + '">' +
+      '<span onclick="pi_switchSheet(' + i + ')" ondblclick="pi_renameSheet(' + i + ')" title="לחיצה=מעבר · דאבל-קליק=שם" style="font-weight:' + (active ? '800' : '600') + ';color:' + (active ? '#0f766e' : '#6b7280') + ';font-size:.82rem">' + escHtml(s.name || ('גיליון ' + (i + 1))) + '</span>' +
+      '<span style="font-size:.66rem;background:' + (active ? '#ccfbf1' : '#e5e7eb') + ';color:' + (active ? '#0f766e' : '#9ca3af') + ';border-radius:6px;padding:1px 5px;font-weight:700">' + cnt + '</span>' +
+      (cur.sheets.length > 1 ? '<span onclick="pi_delSheet(' + i + ')" title="מחק גיליון" style="color:#dc2626;font-weight:900;font-size:.8rem;padding:0 2px">×</span>' : '') +
+    '</div>';
+  }).join('');
+  return '<div style="display:flex;align-items:flex-end;gap:4px;flex-wrap:wrap;margin:4px 0 -1px;border-bottom:1px solid #0f766e;padding-bottom:0">' + tabs +
+    '<button onclick="pi_addSheet()" title="הוסף גיליון חדש" style="margin-right:2px;margin-bottom:2px;padding:5px 11px;border:1px dashed #0f766e;border-radius:9px;background:#f0fdfa;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.82rem">➕ גיליון</button>' +
+    '<button onclick="pi_dupSheet()" title="שכפל את הגיליון הנוכחי" style="margin-bottom:2px;padding:5px 10px;border:1px solid #c7d2fe;border-radius:9px;background:#eef2ff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.8rem">⧉ שכפל</button>' +
+    (cur.sheets.length > 1 ? '<span style="margin-right:auto;align-self:center;font-size:.72rem;color:#6b7280">' + cur.sheets.length + ' גיליונות · ה-PDF יופק כ-' + cur.sheets.length + ' עמודים</span>' : '') +
+  '</div>';
+}
 function pi_manualSetMachine(v){
   var cur = window._pi.cur; if (!cur) return;
   cur.machine = v; var profs = pi_profilesFor(v);
@@ -22739,14 +22833,22 @@ function pi_exportProductionPdf(){
     cutBars: (cur.cutBars||[]),
     bindingMode: !isManual, foldMarks: !isManual };   // מסלול כרטיס (קונטרסים) = כריכייה → צמוד + צלבי חיתוך(היקף)+קיפול
   if (isManual){
-    var items = pi_manualRenderItems(cur).map(function(it, i){
-      var f = (cur.files||[]).find(function(x){ return x.id === it.fileId; });
-      var srcB = (f && f.srcBleedMm != null) ? f.srcBleedMm : 0;   // Stage 3 — צלבים על ה-trim לפי הבליד האמיתי של הקובץ
-      return { srcUrl: (f && f.sourceFileUrl) || '', srcPage: 1, xMm: it.xMm, yMm: it.yMm,
-        wMm: it.widthMm, hMm: it.heightMm, rotation: it.rotation, bleedMm: srcB, label: it.label, n: i+1,
-        marks: it.marks === true ? true : undefined, noMarks: it.noMarks === true ? true : undefined };
+    pi_ensureSheets(cur); pi_syncActiveSheet(cur);   // ריבוי גיליונות — עמוד לכל גיליון
+    var fmap = {}; (cur.files||[]).forEach(function(f){ fmap[f.id] = f; });
+    var mkItems = function(itemsArr){
+      return (itemsArr||[]).map(function(rawIt, i){
+        var f = fmap[rawIt.fileId];
+        var it = Object.assign({}, rawIt, { label: (f ? f.name : (rawIt.gangName || (rawIt.empty ? 'ריק' : 'קובץ?'))) });
+        var srcB = (f && f.srcBleedMm != null) ? f.srcBleedMm : 0;   // Stage 3 — צלבים על ה-trim לפי הבליד האמיתי של הקובץ
+        return { srcUrl: (f && f.sourceFileUrl) || '', srcPage: 1, xMm: it.xMm, yMm: it.yMm,
+          wMm: it.widthMm, hMm: it.heightMm, rotation: it.rotation, bleedMm: srcB, label: it.label, n: i+1,
+          marks: it.marks === true ? true : undefined, noMarks: it.noMarks === true ? true : undefined };
+      });
+    };
+    cur.sheets.forEach(function(sh, si){
+      spec.pages.push({ name: 'Sheet' + (si+1), sheetWmm: g.sheetWidthMm, sheetHmm: g.sheetHeightMm,
+        items: mkItems(sh.items), cutBars: sh.cutBars || [] });
     });
-    spec.pages.push({ name: 'Sheet1_Front', sheetWmm: g.sheetWidthMm, sheetHmm: g.sheetHeightMm, items: items });
   } else {
     var T = window._pi.templates || {};
     var gBind = Object.assign({}, g, { minGapMm: 0 });   // כריכייה: עמודים צמודים (בלי רווח בין תאי הקונטרס)
@@ -23101,6 +23203,8 @@ function pi_renderManualWS(){
   pi_piFsStyle();
   var box = document.querySelector('#piModal .modal-box'); if (box) box.style.maxWidth = '1160px';
   var cur = window._pi.cur; if (!cur){ window._pi.view = 'list'; pi_renderList(); return; }
+  pi_ensureSheets(cur);   // ריבוי גיליונות — טוען את הגיליון הפעיל ל-cur.items (ומיגרציה לטיוטות ישנות)
+  pi_syncActiveSheet(cur);// מחזיר עריכה חיה אל cur.sheets → snapshot/שמירה עקביים (מונע "תחיית" פריטים אחרי ניקוי)
   pi_trackHistory(cur);   // מעקב היסטוריה לביטול פעולה (Undo) — נקודת חיבור אחת
   if (window._pi.dirty) pi_autosave();   // שמירה אוטומטית מושהית כשיש שינויים
   pi_ensurePreviews(cur);
@@ -23148,6 +23252,8 @@ function pi_renderManualWS(){
     '</select><button onclick="pi_editSheets()" title="ערוך גדלי גיליון קבועים" style="padding:6px 9px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-size:.85rem">📐</button></span></label>' +
     '<span style="font-size:.72rem;color:#6b7280;align-self:center;margin-right:auto">הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + ' מ״מ</span>' +
   '</div>';
+  // ── פס לשוניות גיליונות (ריבוי גיליונות) ──
+  html += pi_sheetTabsHtml(cur);
   // ── פס-שלבים מנחה: ① קבצים ② סידור ③ בדיקה ④ הפקה ──
   html += (function(){
     var nf = (cur.files||[]).length, ni = (cur.items||[]).length;
@@ -24009,6 +24115,7 @@ function pi_cellClick(sigIdx, local){
 }
 function pi_saveDraft(silent){
   var cur = window._pi.cur; if (!cur) return;
+  if (Array.isArray(cur.sheets)) pi_syncActiveSheet(cur);   // ריבוי גיליונות — לשמור את הגיליון הפעיל אל cur.sheets
   if (window._pi.templates) pi_buildPlateModel(cur);   // רענון folios במודל המנורמל כשהתבניות זמינות
   cur.updatedAt = Date.now(); window._pi._savedAt = Date.now();
   pi_put('impositions', cur.id, JSON.parse(JSON.stringify(cur)));
