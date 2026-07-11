@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783790121';
+window.APP_VERSION = '1783791022';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22440,6 +22440,47 @@ function pi_addHoleJob(pfId){
   if (overrun > 0) msg += ' · ⚠️ עודף ' + overrun.toLocaleString() + ' מעל הנדרש (' + rem.toLocaleString() + ')';
   showToast(msg, 6500);
 }
+// ── בורר קבצים מהתאב "להכניס בחורים" → הוספה ישירה לגיליון (לא רק מילוי-חורים) ──
+function pi_pickPrintFileModal(){
+  var cur = window._pi.cur; if (!cur) return;
+  var list = (printFiles || []).filter(function(p){ return p && !p._deleted; });
+  if (!list.length){ showToast('אין קבצים בתאב "להכניס בחורים"'); return; }
+  var rows = list.map(function(p){
+    var sized = p.widthMm > 0 && p.heightMm > 0;
+    var rem = (typeof _pfRemaining === 'function') ? _pfRemaining(p) : null;
+    var onList = (cur.files || []).some(function(f){ return f.printFileId === p.id; });
+    return '<div style="display:flex;gap:9px;align-items:center;border:1px solid ' + (onList ? '#6ee7b7' : '#e5e7eb') + ';border-radius:9px;padding:8px 11px;margin-bottom:7px;background:' + (onList ? '#ecfdf5' : '#fff') + '">' +
+      '<span style="flex:1;min-width:0"><b style="font-size:.86rem">' + (onList ? '✓ ' : '') + escHtml(p.name || 'קובץ') + '</b>' +
+        '<div style="font-size:.72rem;color:#6b7280">' + (sized ? (Math.round(p.widthMm) + '×' + Math.round(p.heightMm) + ' מ״מ') : '⚠️ בלי מידות') + (p.paper ? (' · ' + escHtml(p.paper)) : '') + (p.sides ? (' · ' + p.sides + ' צד') : '') + (rem != null ? (' · נותר ' + rem.toLocaleString()) : '') + '</div></span>' +
+      (sized
+        ? '<button onclick="pi_addPrintFileToSheet(\'' + p.id + '\',false)" style="flex:none;padding:7px 11px;border:1px solid #99f6e4;border-radius:7px;background:#fff;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">➕ הוסף</button>' +
+          '<button onclick="pi_addPrintFileToSheet(\'' + p.id + '\',true)" title="מלא את הגיליון בקובץ הזה" style="flex:none;padding:7px 11px;border:none;border-radius:7px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">▦ מלא</button>'
+        : '<span style="flex:none;font-size:.72rem;color:#b45309">הגדר מידות בתאב</span>') +
+    '</div>';
+  }).join('');
+  var m = document.createElement('div'); m.id = 'pi-pf-pick'; m.className = 'modal-overlay open'; m.style.zIndex = 284;
+  m.innerHTML = '<div class="modal-box" style="max-width:520px;width:94vw">' +
+    '<div class="modal-header"><span>📥 קבצים מ״להכניס בחורים״ (' + list.length + ')</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:14px 18px;max-height:70vh;overflow:auto">' +
+      '<div style="font-size:.75rem;color:#9ca3af;margin-bottom:9px">בחר קובץ להוספה לגיליון הנוכחי — "הוסף" מוסיף עותק אחד, "מלא" ממלא את הגיליון.</div>' + rows +
+    '</div></div>';
+  document.body.appendChild(m);
+}
+function pi_addPrintFileToSheet(pfId, fill){
+  var cur = window._pi.cur; if (!cur) return;
+  var pf = (printFiles || []).find(function(x){ return String(x.id) === String(pfId); });
+  if (!pf){ showToast('הקובץ לא נמצא'); return; }
+  if (!(pf.widthMm > 0 && pf.heightMm > 0)){ showToast('לקובץ אין מידות — הגדר בתאב "להכניס בחורים"'); return; }
+  var g = pi_curGeom();
+  cur.files = cur.files || [];
+  var fid = 'pf' + pf.id;
+  if (!cur.files.some(function(f){ return f.id === fid; }))
+    cur.files.push({ id: fid, name: pf.name || 'קובץ', widthMm: pf.widthMm, heightMm: pf.heightMm, quantity: 1,
+      bleedMm: g.defaultBleedMm, sourceFileUrl: pf.fileUrl || '', printFileId: pf.id });
+  pi_ensurePreviews(cur);
+  var mm = document.getElementById('pi-pf-pick'); if (mm) mm.remove();
+  if (fill) pi_manualFillSheet(fid); else { pi_manualAddItem(fid); showToast('✓ נוסף "' + (pf.name || '') + '" לגיליון'); }
+}
 // מצב "שכפל ראשית": ממלא את השטח הפנוי בעוד עותקים של הקבצים שכבר על הגיליון
 function pi_holesRepeatMain(){
   var cur = window._pi.cur, g = pi_curGeom();
@@ -23111,7 +23152,7 @@ function pi_printWorksheet(){
     '<h1>🖨️ דף עבודה למכונה — ' + escHtml(d.name || 'עבודה') + '</h1>' +
     '<div class="sub">' + (d.isManual ? 'אימפוזיציה ידנית' : 'מסלול כרטיס (קונטרסים)') + '</div>' +
     head + bodyHtml +
-    '<div class="note">⚠️ גריפר ' + (Math.round((pi_curGeom().gripperMm || 10))) + ' מ״מ בקצה ההזנה · בליד ' + d.bleed + ' מ״מ · בדוק צלבי חיתוך והתאמת נייר לפני הרצה.</div>' +
+    '<div class="note">⚠️ גריפר ' + (Math.round((pi_curGeom().gripperMm || 10))) + ' מ״מ ' + (pi_curGeom().gripperBoth ? 'בשני הקצוות (פרפקטור)' : 'בקצה ההזנה') + ' · בליד ' + d.bleed + ' מ״מ · בדוק צלבי חיתוך והתאמת נייר לפני הרצה.</div>' +
     '<button class="noprint" onclick="window.print()" style="margin-top:18px;padding:10px 22px;font-size:14px;font-weight:700;background:#0f766e;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨️ הדפס</button>' +
     '</body></html>';
   var w = window.open('', '_blank', 'width=820,height=1060');
@@ -23127,6 +23168,10 @@ function pi_drawSheetSvg(g, scale, items, selKey, warnKeys, svgId){
   var gy = (g.sheetHeightMm - g.gripperMm)*scale;
   s += '<rect x="0" y="' + gy + '" width="' + SW + '" height="' + (g.gripperMm*scale) + '" fill="#fecaca" opacity="0.6"/>' +
     '<text x="' + (SW/2) + '" y="' + (gy + g.gripperMm*scale/2 + 3) + '" text-anchor="middle" font-size="9" fill="#991b1b" font-family="Heebo">גריפר ' + g.gripperMm + ' מ״מ</text>';
+  if (g.gripperBoth){   // פרפקטור (8 צבעים) — גריפר גם בקצה העליון
+    s += '<rect x="0" y="0" width="' + SW + '" height="' + (g.gripperMm*scale) + '" fill="#fecaca" opacity="0.6"/>' +
+      '<text x="' + (SW/2) + '" y="' + (g.gripperMm*scale/2 + 3) + '" text-anchor="middle" font-size="9" fill="#991b1b" font-family="Heebo">גריפר ' + g.gripperMm + ' מ״מ (פרפקטור)</text>';
+  }
   s += '<rect x="' + (g.printX*scale) + '" y="' + (g.printY*scale) + '" width="' + (g.printableWidthMm*scale) + '" height="' + (g.printableHeightMm*scale) + '" fill="none" stroke="#2563eb" stroke-width="1" stroke-dasharray="5 3"/>';
   var _isSel = function(k){ return Array.isArray(selKey) ? selKey.indexOf(k) >= 0 : selKey === k; };
   items.forEach(function(it){
@@ -23785,8 +23830,10 @@ function pi_renderManualWS(){
   var errN = warns.filter(function(x){ return x.level === 'error'; }).length;
   var warnKeys = {}; warns.forEach(function(x){ [x.key, x.key2].forEach(function(k){ if (!k) return; if (x.level === 'error' || warnKeys[k] !== 'error') warnKeys[k] = x.level; }); });
   var fs = !!document.fullscreenElement;
-  var maxW = fs ? Math.max(600, (window.innerWidth||1200) - 580) : 520;
-  var maxH = fs ? Math.max(500, (window.innerHeight||800) - 190) : 500;
+  var _vw = window.innerWidth || 1200, _vh = window.innerHeight || 800;
+  // גובה הקאנבס מתאים לגובה החלון (94vh פחות כותרת/סרגלים) → הכל נכנס בלי גלילה. רוחב מתאים לחלון פחות סיידבר+פאנל.
+  var maxW = fs ? Math.max(600, _vw - 580) : Math.max(320, Math.min(560, _vw - 620));
+  var maxH = fs ? Math.max(500, _vh - 190) : Math.max(320, Math.round(_vh * 0.94 - 320));
   var baseScale = Math.min(maxW / g.sheetWidthMm, maxH / g.sheetHeightMm);
   var zoom = Math.max(0.4, Math.min(6, window._pi.zoom || 1));
   var scale = baseScale * zoom;               // זום מוחל על ה-scale הבסיסי (fit)
@@ -23883,6 +23930,7 @@ function pi_renderManualWS(){
       '<div style="font-size:.76rem;color:#0f766e;font-weight:700;margin-top:2px">גרור קבצים לכאן<br>או לחץ לבחירה (PDF/תמונה)</div>' +
       '<input id="pi-file-input" type="file" accept="application/pdf,image/*" multiple style="display:none" onchange="pi_manualUploadFiles(this.files);this.value=\'\'">' +
     '</div>' +
+    '<button onclick="pi_pickPrintFileModal()" title="הוסף קובץ מהתאב ״להכניס בחורים״ ישירות לגיליון" style="width:100%;padding:7px;border:1px solid #fed7aa;border-radius:8px;background:#fff7ed;color:#9a3412;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem;margin-bottom:8px">📥 קובץ מ״להכניס בחורים״</button>' +
     '<details style="margin-bottom:8px"><summary style="font-size:.72rem;color:#9ca3af;cursor:pointer">או הוסף ידני (מידות/קישור)</summary>' +
     '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:9px;padding:9px;margin-top:6px">' +
       '<input id="pi-mf-name" placeholder="שם קובץ" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:6px;font-family:Heebo;font-size:.78rem;margin-bottom:5px">' +
@@ -24123,7 +24171,7 @@ async function pi_seedProfiles(){
   pi_put('machineProfiles', 'roland4', Object.assign({ id:'roland4', name:'Roland — 4 צבעים', machine:'מכונה 4 צבעים',
     sheetW:100, sheetH:70, colors:4, perfecting:false, allowedMethods:['regular','work_turn','work_tumble'], defaultTemplate:'32' }, geo));
   pi_put('machineProfiles', 'heidel8', Object.assign({ id:'heidel8', name:'Heidelberg — 8 צבעים', machine:'מכונה 8 צבעים',
-    sheetW:100, sheetH:70, colors:8, perfecting:true, allowedMethods:['regular','perfecting'], defaultTemplate:'32' }, geo));
+    sheetW:100, sheetH:70, colors:8, perfecting:true, gripperBoth:true, allowedMethods:['regular','perfecting'], defaultTemplate:'32' }, geo));
 }
 // חוקי מכונה מנורמלים במ״מ — משלים ברירות מחדל לפרופילים ישנים (נגזר מ-sheetW/H בס״מ ×10)
 function pi_profileGeom(prof){
@@ -24140,11 +24188,15 @@ function pi_profileGeom(prof){
     minGapMm:       prof.minGapMm       != null ? prof.minGapMm       : 3,
     defaultBleedMm: prof.defaultBleedMm != null ? prof.defaultBleedMm : 3
   };
-  // מלבן ההדפסה הנטו (מתוך שוליים + גריפר בקצה התחתון/הזנה)
+  // גריפר דו-צדדי: פרפקטור (8 צבעים) תופס בשני קצוות ההזנה (קדמי+אחורי) → גריפר למעלה וגם למטה.
+  // מכונת 4 צבעים (לא-פרפקטור) = גריפר בקצה אחד בלבד.
+  g.gripperBoth = prof.gripperBoth != null ? !!prof.gripperBoth : !!prof.perfecting;
+  var topGrip = g.gripperBoth ? g.gripperMm : 0;
+  // מלבן ההדפסה הנטו (מתוך שוליים + גריפר). מחושב תמיד מחדש כדי לשקף גריפר דו-צדדי גם בפרופילים ישנים.
   g.printX = g.marginLeftMm;
-  g.printY = g.marginTopMm;
-  g.printableWidthMm  = prof.printableWidthMm  || (sw - g.marginLeftMm - g.marginRightMm);
-  g.printableHeightMm = prof.printableHeightMm || (sh - g.marginTopMm - g.marginBottomMm - g.gripperMm);
+  g.printY = g.marginTopMm + topGrip;
+  g.printableWidthMm  = sw - g.marginLeftMm - g.marginRightMm;
+  g.printableHeightMm = sh - g.marginTopMm - g.marginBottomMm - g.gripperMm - topGrip;
   return g;
 }
 
@@ -24292,10 +24344,10 @@ function pi_ensureModal(){
   var d = document.createElement('div');
   d.className = 'modal-overlay'; d.id = 'piModal'; d.style.zIndex = 265;
   d.innerHTML =
-    '<div class="modal-box" style="max-width:760px;width:96vw;max-height:90vh;display:flex;flex-direction:column">' +
-      '<div class="modal-header"><span>🖨️ תכנון דפוס — אימפוזיציה</span>' +
+    '<div class="modal-box" style="max-width:760px;width:96vw;max-height:94vh;display:flex;flex-direction:column">' +
+      '<div class="modal-header" style="flex:none"><span>🖨️ תכנון דפוס — אימפוזיציה</span>' +
         '<button class="modal-close" onclick="pi_close()">✕</button></div>' +
-      '<div id="pi-body" style="padding:14px 18px;overflow:auto"></div>' +
+      '<div id="pi-body" style="padding:14px 18px;overflow:auto;flex:1;min-height:0"></div>' +
     '</div>';
   document.body.appendChild(d);
 }
@@ -24973,9 +25025,10 @@ function pi_curGeom(){
   if (cur && cur.sheetWmm > 0 && cur.sheetHmm > 0){ g.sheetWidthMm = cur.sheetWmm; g.sheetHeightMm = cur.sheetHmm; }   // גודל גיליון נבחר
   var mm = (cur && cur.marginMm != null) ? Math.max(0, cur.marginMm) : g.marginLeftMm;   // שוליים
   g.marginTopMm = g.marginBottomMm = g.marginLeftMm = g.marginRightMm = mm;
-  g.printX = mm; g.printY = mm;
+  var topGrip = g.gripperBoth ? g.gripperMm : 0;   // פרפקטור (8 צבעים) — גריפר גם למעלה
+  g.printX = mm; g.printY = mm + topGrip;
   g.printableWidthMm  = g.sheetWidthMm  - 2*mm;
-  g.printableHeightMm = g.sheetHeightMm - 2*mm - g.gripperMm;
+  g.printableHeightMm = g.sheetHeightMm - 2*mm - g.gripperMm - topGrip;
   return g;
 }
 // גדלי גיליון סטנדרטיים (מ״מ) — ברירת מחדל; ניתנים לעריכה ונשמרים אצל המשתמש
@@ -25151,6 +25204,8 @@ function pi_validateItems(items, g){
       w.push({ level:'warn', key:it.key, type:'printable', text:'עמוד ' + pi_pgLabel(it) + ' חורג מאזור ההדפסה' });
     if (y2 > gripTop + E)
       w.push({ level:'error', key:it.key, type:'gripper', text:'עמוד ' + pi_pgLabel(it) + ' נכנס לאזור הגריפר (' + g.gripperMm + ' מ״מ)' });
+    if (g.gripperBoth && y < g.gripperMm - E)
+      w.push({ level:'error', key:it.key, type:'gripper', text:'עמוד ' + pi_pgLabel(it) + ' נכנס לגריפר העליון (פרפקטור, ' + g.gripperMm + ' מ״מ)' });
     if (g.defaultBleedMm > 0 && (it.bleedMm || 0) <= 0)
       w.push({ level:'warn', key:it.key, type:'bleed', text:'עמוד ' + pi_pgLabel(it) + ' ללא בליד' });
   });
