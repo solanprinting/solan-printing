@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783780387';
+window.APP_VERSION = '1783780936';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21663,7 +21663,8 @@ function pi_ensurePreviews(cur){
   });
 }
 // העלאת קבצים אמיתית ל-Storage + מידות מזוהות + תצוגה מקדימה + מיון לפי שם/עמוד
-function pi_manualUploadFiles(fileList){
+function pi_manualUploadFiles(fileList, opts){
+  opts = opts || {};
   var cur = window._pi.cur; if (!cur || !fileList || !fileList.length) return;
   var files = Array.prototype.slice.call(fileList).filter(function(f){ return f.type==='application/pdf' || /^image\//.test(f.type) || /\.pdf$/i.test(f.name||''); });
   if (!files.length){ showToast('רק קובצי PDF או תמונה'); return; }
@@ -21683,6 +21684,10 @@ function pi_manualUploadFiles(fileList){
         cur.files.push(nf);
         cur.files.sort(pi_fileCompare);   // שמירה על סדר לפי שם+עמוד גם כשההעלאות מסתיימות לא בסדר
         cur._edited = true; window._pi.dirty = true; done++;
+        if (opts.place){   // נגרר ישירות לגיליון → הצב על הגיליון מיד (בלי צעד "הוסף")
+          var base = opts.atMm || {}, k = (opts._n = (opts._n || 0) + 1) - 1;
+          pi_manualAddItem(nf.id, base.xMm != null ? base.xMm + k * 8 : undefined, base.yMm != null ? base.yMm + k * 8 : undefined);
+        }
         showToast('✓ הועלה ' + done + '/' + total + ' · ' + (file.name||''));
         pi_render();
         // Stage 4 — זיהוי בליד מהקובץ עצמו (לא חוסם את ההעלאה)
@@ -21870,6 +21875,50 @@ function pi_manualGroupAlign(edge){
   });
   _piGroupCommit();
 }
+// ── יישור קבצים לקו משותף (כפתור נגיש) — פועל על הנבחרים אם יש ≥2, אחרת על כל הגיליון ──
+function pi_alignTargets(){
+  var cur = window._pi.cur; if (!cur) return [];
+  var sel = pi_selArr(), items = cur.items || [];
+  if (sel.length >= 2) return items.filter(function(it){ return sel.indexOf(String(it.id)) >= 0; });
+  return items.slice();
+}
+function pi_alignFiles(){
+  var t = pi_alignTargets();
+  if (t.length < 2){ showToast('צריך לפחות 2 קבצים על הגיליון (או בחר כמה)'); return; }
+  var w0 = t[0].widthMm, h0 = t[0].heightMm;
+  var same = t.every(function(it){ return Math.abs(it.widthMm - w0) < 0.5 && Math.abs(it.heightMm - h0) < 0.5; });
+  var b = function(edge, label){ return '<button onclick="pi_doAlign(\'' + edge + '\')" style="padding:11px 8px;border:1px solid #c7d2fe;border-radius:9px;background:#fff;color:#3730a3;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.86rem">' + label + '</button>'; };
+  var note = same
+    ? '<div style="font-size:.78rem;color:#065f46;background:#ecfdf5;border-radius:8px;padding:9px 11px;margin-bottom:12px">✓ כל הקבצים באותו גודל — כל הקצוות יתיישרו יחד. בחר קו ייחוס:</div>'
+    : '<div style="font-size:.8rem;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:9px 11px;margin-bottom:12px">⚠️ הקבצים <b>לא באותו גודל</b> — אפשר ליישר רק קצה אחד. לאיזה קו ליישר את כולם?</div>';
+  var m = document.createElement('div'); m.id = 'pi-align-modal'; m.className = 'modal-overlay open'; m.style.zIndex = 291;
+  m.innerHTML = '<div class="modal-box" style="max-width:420px;width:92vw">' +
+    '<div class="modal-header"><span>📏 יישור ' + t.length + ' קבצים לקו</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:16px 18px">' + note +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        b('t', '⬆️ קצה עליון') + b('b', '⬇️ קצה תחתון') +
+        b('l', '⬅️ קצה שמאל') + b('r', '➡️ קצה ימין') +
+        b('cy', '↕️ מרכז אופקי') + b('cx', '↔️ מרכז אנכי') +
+      '</div>' +
+    '</div></div>';
+  document.body.appendChild(m);
+}
+function pi_doAlign(edge){
+  var cur = window._pi.cur; if (!cur) return;
+  var t = pi_alignTargets(); if (t.length < 2) return;
+  var minX = Math.min.apply(null, t.map(function(i){ return i.xMm; })), maxX = Math.max.apply(null, t.map(function(i){ return i.xMm + i.widthMm; }));
+  var minY = Math.min.apply(null, t.map(function(i){ return i.yMm; })), maxY = Math.max.apply(null, t.map(function(i){ return i.yMm + i.heightMm; }));
+  var g = pi_curGeom();
+  t.forEach(function(it){
+    if (edge === 'l') it.xMm = minX; else if (edge === 'r') it.xMm = maxX - it.widthMm; else if (edge === 'cx') it.xMm = (minX + maxX) / 2 - it.widthMm / 2;
+    else if (edge === 't') it.yMm = minY; else if (edge === 'b') it.yMm = maxY - it.heightMm; else if (edge === 'cy') it.yMm = (minY + maxY) / 2 - it.heightMm / 2;
+    it.xMm = Math.max(0, Math.min(g.sheetWidthMm - it.widthMm, Math.round(it.xMm * 10) / 10));
+    it.yMm = Math.max(0, Math.min(g.sheetHeightMm - it.heightMm, Math.round(it.yMm * 10) / 10));
+  });
+  var mod = document.getElementById('pi-align-modal'); if (mod) mod.remove();
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
+  showToast('📏 יושרו ' + t.length + ' קבצים');
+}
 // ── פסי/קווי חיתוך (גיליוטינה) — מיקום מדויק במ״מ, אפשר יחסית לקצה פריט נבחר ──
 function pi_manualAddCut(orient){
   var cur=window._pi.cur, g=pi_curGeom(); cur.cutBars=cur.cutBars||[];
@@ -22001,6 +22050,7 @@ var PI_TOOLS = [
   { id:'clear',     label:'🧹 נקה גיליון',      onclick:'pi_manualClearSheet()',  bg:'#fff5f5', color:'#e11d48' },
   { id:'addall',    label:'➕ הוסף הכל',        onclick:'pi_manualAddAll()',      bg:'#eef2ff', color:'#3730a3' },
   { id:'center',    label:'⊹ מרכז בגיליון',    onclick:'pi_manualCenterAll()',   bg:'#eef2ff', color:'#3730a3' },
+  { id:'align',     label:'📏 יישר לקו',        onclick:'pi_alignFiles()',        bg:'#eef2ff', color:'#3730a3' },
   { id:'crop',      label:'✚ צלבי חיתוך',      onclick:'pi_manualToggleCrop()',  bg:'#f0fdf4', color:'#166534' },
   { id:'hidegfx',   label:'👁 בלי גרפיקה',      onclick:'pi_manualToggleGfx()',   bg:'#eef2ff', color:'#3730a3' },
   { id:'cutv',      label:'✂ קו חיתוך אנכי',   onclick:"pi_manualAddCut('v')",   bg:'#fff5f5', color:'#e11d48' },
@@ -22012,7 +22062,7 @@ var PI_TOOLS = [
 ];
 function pi_favTools(){
   try { var s = JSON.parse(localStorage.getItem('solanPiTools') || 'null'); if (Array.isArray(s)) return s; } catch(e){}
-  return ['arrange','calc','addall','center','clear','crop','hidegfx','cutv','cuth','preflight','sheetfull','prodpdf'];
+  return ['arrange','align','calc','addall','center','clear','crop','hidegfx','cutv','cuth','preflight','sheetfull','prodpdf'];
 }
 function pi_toggleFavTool(id){
   var f = pi_favTools(), i = f.indexOf(id); if (i >= 0) f.splice(i,1); else f.push(id);
@@ -22572,7 +22622,20 @@ function pi_manualBindDrop(){
   function stop(e){ e.preventDefault(); e.stopPropagation(); }
   ['dragenter','dragover'].forEach(function(ev){ body.addEventListener(ev, function(e){ if(window._pi.view!=='manual') return; stop(e); var d=document.getElementById('pi-drop'); if(d) d.style.background='#ccfbf1'; }); });
   ['dragleave'].forEach(function(ev){ body.addEventListener(ev, function(e){ if(window._pi.view!=='manual') return; stop(e); var d=document.getElementById('pi-drop'); if(d) d.style.background='#f0fdfa'; }); });
-  body.addEventListener('drop', function(e){ if(window._pi.view!=='manual') return; stop(e); var d=document.getElementById('pi-drop'); if(d) d.style.background='#f0fdfa'; if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) pi_manualUploadFiles(e.dataTransfer.files); });
+  body.addEventListener('drop', function(e){
+    if(window._pi.view!=='manual') return; stop(e);
+    var d=document.getElementById('pi-drop'); if(d) d.style.background='#f0fdfa';
+    if(!(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length)) return;
+    // אם השחרור מעל הגיליון עצמו → הצב את הקבצים ישירות על הגיליון (בלי צעד "הוסף")
+    var opts = {}, svg = document.getElementById('pi-canvas-svg');
+    if (svg){ var r = svg.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom){
+        var sc = window._pi.canvasScale || 1;
+        opts.place = true; opts.atMm = { xMm: Math.max(0, (e.clientX - r.left) / sc), yMm: Math.max(0, (e.clientY - r.top) / sc) };
+      }
+    }
+    pi_manualUploadFiles(e.dataTransfer.files, opts);
+  });
 }
 // מסך מלא לעורך האימפוזיציה הידנית
 function pi_manualFullscreen(){
@@ -23609,10 +23672,9 @@ function pi_renderManualWS(){
       '<button onclick="pi_backToList()" style="padding:7px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700">→ חזרה</button>' +
       '<b style="font-size:.95rem;flex:1;min-width:0">🧩 <span onclick="pi_renameManual()" title="לחץ לשינוי שם העבודה" style="cursor:pointer;border-bottom:1px dashed #99f6e4">' + escHtml(cur.name||'') + ' ✏️</span> <span style="font-size:.68rem;background:#ccfbf1;color:#0f766e;border-radius:6px;padding:2px 7px;font-weight:800">ידני</span></b>' +
       pi_savedLabel() +
-      (simple ? '' :
-        '<button onclick="pi_showFeatures()" title="רשימת התכונות — קיים ומתוכנן" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6d28d9;font-weight:800;cursor:pointer;font-family:Heebo">📋 תכונות</button>' +
-        '<button onclick="pi_sheetFullView()" title="ראה את הגיליון עם הקבצים במסך מלא (תצוגה נקייה)" style="padding:8px 12px;border:1px solid #c7d2fe;border-radius:8px;background:#eef2ff;color:#3730a3;font-weight:800;cursor:pointer;font-family:Heebo">🖼️ גיליון מלא</button>' +
-        '<button onclick="pi_manualFullscreen()" title="עורך במסך מלא" style="padding:8px 12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo">' + (fs ? '🡼 צא ממסך מלא' : '⛶ עורך מלא') + '</button>') +
+      (simple ? '' : '<button onclick="pi_showFeatures()" title="רשימת התכונות — קיים ומתוכנן" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6d28d9;font-weight:800;cursor:pointer;font-family:Heebo">📋 תכונות</button>') +
+      '<button onclick="pi_sheetFullView()" title="ראה את הגיליון עם הקבצים במסך מלא (תצוגה נקייה)" style="padding:8px 12px;border:1px solid #c7d2fe;border-radius:8px;background:#eef2ff;color:#3730a3;font-weight:800;cursor:pointer;font-family:Heebo">🖼️ גיליון מלא</button>' +
+      '<button onclick="pi_manualFullscreen()" title="עורך במסך מלא" style="padding:8px 12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo">' + (fs ? '🡼 צא ממסך מלא' : '⛶ עורך מלא') + '</button>' +
       '<button onclick="pi_shortcutsHelp()" title="קיצורי מקלדת" style="padding:8px 11px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6b7280;font-weight:800;cursor:pointer;font-family:Heebo">⌨️</button>' +
       '<button onclick="pi_printWorksheet()" title="דף עבודה מודפס למכונה — נייר/גיליונות/קבצים" style="padding:8px 12px;border:1px solid #fde68a;border-radius:8px;background:#fffbeb;color:#92400e;font-weight:800;cursor:pointer;font-family:Heebo">🖨️ דף עבודה</button>' +
       modeBtn +
@@ -23672,6 +23734,7 @@ function pi_renderManualWS(){
     var sbtn = function(onclick, label, bg, col, bd){ return '<button onclick="' + onclick + '" style="padding:9px 14px;border:1px solid ' + bd + ';border-radius:9px;background:' + bg + ';color:' + col + ';font-weight:800;cursor:pointer;font-family:Heebo;font-size:.86rem">' + label + '</button>'; };
     html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
       sbtn('pi_manualAutoArrange()', '🧮 סדר אוטומטית', '#eef2ff', '#3730a3', '#c7d2fe') +
+      sbtn('pi_alignFiles()', '📏 יישר לקו', '#fff', '#3730a3', '#c7d2fe') +
       sbtn('pi_manualCenterAll()', '⊹ מרכז בגיליון', '#fff', '#374151', '#ddd') +
       sbtn('pi_manualClearSheet()', '🧹 נקה גיליון', '#fff', '#b91c1c', '#fecaca') +
       sbtn('pi_calcHub()', '🧮 מחשבון', '#fff', '#374151', '#ddd') +
