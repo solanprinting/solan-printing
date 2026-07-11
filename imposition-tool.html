@@ -703,6 +703,64 @@ async function pdfStructReport(bytes){
 }
 window.pdfStructReport = pdfStructReport;
 
+/* דוח פונטים מפורט (פר-פונט) — לסיווג מקצועי ל-4 קטגוריות בצד הלקוח.
+   מחזיר [{name, baseFont, subtype, embedded, subset, standard14, blocking, blockingReason, pages[]}].
+   לא מזהה החלפת-פונט/glyph בזמן RIP (זה תפקיד אפוגי) — רק מבנה + הטמעה. */
+async function pdfFontReport(bytes){
+  const STD14 = { 'Helvetica':1,'Helvetica-Bold':1,'Helvetica-Oblique':1,'Helvetica-BoldOblique':1,
+    'Courier':1,'Courier-Bold':1,'Courier-Oblique':1,'Courier-BoldOblique':1,
+    'Times-Roman':1,'Times-Bold':1,'Times-Italic':1,'Times-BoldItalic':1,'Symbol':1,'ZapfDingbats':1 };
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption:true, updateMetadata:false });
+  const N = PDFName, pages = doc.getPages();
+  const _nm = v => (v && v.encodedName) ? v.encodedName : (v==null?'':String(v));
+  const strip = s => (s && s[0]==='/') ? s.slice(1) : (s||'');
+  const fonts = new Map();
+  function hasFontFile(fd){ return !!(fd && fd.has && (fd.has(N.of('FontFile'))||fd.has(N.of('FontFile2'))||fd.has(N.of('FontFile3')))); }
+  function isEmbedded(fontDict){
+    try {
+      const sub = _nm(fontDict.get(N.of('Subtype')));
+      if (sub === '/Type0'){
+        const dd = fontDict.lookup(N.of('DescendantFonts'));
+        let cid = null; if (dd && dd.lookup) cid = dd.lookup(0); else if (dd && dd.get) cid = dd;
+        if (cid && cid.lookup) return hasFontFile(cid.lookup(N.of('FontDescriptor')));
+        return false;
+      }
+      if (sub === '/Type3') return true;   // Type3 = glyphs מוגדרים בתוך ה-PDF עצמו → נחשב "מוטמע"
+      return hasFontFile(fontDict.lookup ? fontDict.lookup(N.of('FontDescriptor')) : null);
+    } catch(e){ return false; }
+  }
+  function addFont(fontDict, pageNum){
+    if (!fontDict || !fontDict.get) return;
+    let typeName; try { typeName = _nm(fontDict.get(N.of('Type'))); } catch(e){ typeName=''; }
+    if (typeName && typeName !== '/Font') return;   // לא פונט
+    const baseRaw = strip(_nm(fontDict.get(N.of('BaseFont')))) || strip(_nm(fontDict.get(N.of('Name')))) || 'Unknown';
+    const subset = /^[A-Z]{6}\+/.test(baseRaw);
+    const name = subset ? baseRaw.slice(7) : baseRaw;
+    const subtype = strip(_nm(fontDict.get(N.of('Subtype'))));
+    const emb = isEmbedded(fontDict);
+    const std = !!STD14[name];
+    let blocking = false, breason = '';
+    if (!subtype){ blocking = true; breason = 'פונט ללא Subtype (מבנה פגום / לא ניתן לפענוח)'; }
+    else if (subtype === 'Type0'){ let dd=null; try { dd = fontDict.lookup(N.of('DescendantFonts')); } catch(e){} if (!dd){ blocking = true; breason = 'Type0 ללא DescendantFonts (מבנה פגום)'; } }
+    const key = name + '|' + subtype + '|' + emb + '|' + std + '|' + blocking;
+    if (!fonts.has(key)) fonts.set(key, { name, baseFont: baseRaw, subtype, embedded: emb, subset, standard14: std, blocking, blockingReason: breason, pages: [] });
+    const info = fonts.get(key);
+    if (pageNum && info.pages.indexOf(pageNum) < 0) info.pages.push(pageNum);
+  }
+  function walk(res, pageNum, seen){
+    if (!res || !res.lookup) return;
+    try { const fd = res.lookup(N.of('Font')); if (fd && fd.entries) fd.entries().forEach(function(e){ addFont(fd.lookup(e[0]), pageNum); }); } catch(e){}
+    try { const xo = res.lookup(N.of('XObject'));
+      if (xo && xo.entries) xo.entries().forEach(function(e){ const x = xo.lookup(e[0]);
+        if (x && x.lookup){ let xr=null; try { xr = x.lookup(N.of('Resources')); } catch(_){}
+          const rk = (xr && xr.toString) ? xr.toString() : ('x'+pageNum+e[0]); if (xr && !seen[rk]){ seen[rk]=1; walk(xr, pageNum, seen); } } });
+    } catch(e){}
+  }
+  pages.forEach(function(p, pi){ try { walk(p.node.lookup(N.of('Resources')), pi+1, {}); } catch(e){} });
+  return Array.from(fonts.values());
+}
+window.pdfFontReport = pdfFontReport;
+
 // Auto-Fix בטוח: הסרת הערות/annotations (לא משנה מראה הדפוס)
 async function pdfStripAnnots(bytes){
   const doc = await PDFDocument.load(bytes, { ignoreEncryption:true });

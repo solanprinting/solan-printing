@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783791022';
+window.APP_VERSION = '1783792225';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22034,8 +22034,14 @@ function pi_nupUpdate(){
   var fit = pi_nupFit(w, h, g.printableWidthMm, g.printableHeightMm, gap);
   var portrait = Math.max(0,Math.floor((g.printableWidthMm+gap)/(w+gap))) * Math.max(0,Math.floor((g.printableHeightMm+gap)/(h+gap)));
   var land = Math.max(0,Math.floor((g.printableWidthMm+gap)/(h+gap))) * Math.max(0,Math.floor((g.printableHeightMm+gap)/(w+gap)));
+  var sug = (fit.count > 0) ? pi_nupShrinkSuggest(w, h, g.printableWidthMm, g.printableHeightMm, gap) : null;
+  var sugHtml = sug ? ('<div style="margin-top:9px;background:#fff7ed;border:1px solid #fed7aa;border-radius:9px;padding:9px 11px">' +
+      '<div style="font-size:.8rem;color:#9a3412;font-weight:700;line-height:1.5">💡 בהקטנה קלה ל-<b>' + sug.wMm + '×' + sug.hMm + '</b> מ״מ (' + sug.pct + '%) נכנס <b>' + sug.count + '</b> פעמים (+' + sug.gained + ' לעומת ' + sug.base + ')</div>' +
+      '<button onclick="pi_nupApplyShrink(' + sug.wMm + ',' + sug.hMm + ')" style="margin-top:7px;padding:6px 13px;border:none;border-radius:7px;background:#c2410c;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">▦ מלא בגודל המוקטן (' + sug.count + ')</button>' +
+    '</div>') : '';
   el.innerHTML = 'נכנס אופטימלית: <b style="font-size:1.3rem;color:#4338ca">' + fit.count + '</b> פעמים על הגיליון' +
     '<br><span style="color:#6b7280;font-size:.78rem">לאורך: ' + portrait + ' · לרוחב: ' + land + ' · אזור הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + ' מ״מ · מרווח ' + gap + ' מ״מ</span>' +
+    sugHtml +
     pi_nupBestSheetsHtml(w, h, g);
   var fb = document.getElementById('pi-nup-fill'); if (fb) fb.textContent = '▦ מלא גיליון (' + fit.count + ')';
 }
@@ -22065,6 +22071,23 @@ function pi_nupFillSheet(){
   var mm = document.getElementById('pi-nup-modal'); if (mm) mm.remove();
   pi_render();
   showToast('✓ מולא הגיליון — ' + fit.count + ' פעמים');
+}
+// הצעת הקטנה קלה (עד 10%) שמכניסה יותר פעמים בגיליון. מחזיר null אם אין שיפור. פונקציה טהורה (נבדקת).
+function pi_nupShrinkSuggest(w, h, W, H, gap){
+  var base = pi_nupFit(w, h, W, H, gap).count;
+  for (var s = 0.995; s >= 0.90 - 1e-9; s -= 0.005){
+    var wf = Math.floor(w * s * 10) / 10, hf = Math.floor(h * s * 10) / 10;
+    if (wf <= 0 || hf <= 0) break;
+    var c = pi_nupFit(wf, hf, W, H, gap).count;
+    if (c > base){ return { wMm: wf, hMm: hf, count: c, pct: Math.floor(Math.min(wf / w, hf / h) * 100), gained: c - base, base: base }; }
+  }
+  return null;
+}
+function pi_nupApplyShrink(wf, hf){
+  var wi = document.getElementById('pi-nup-w'), hi = document.getElementById('pi-nup-h');
+  if (wi) wi.value = wf; if (hi) hi.value = hf;
+  pi_nupUpdate();
+  pi_nupFillSheet();
 }
 // ── התאמת חלון: רישום כלים + מועדפים (נשמר ב-localStorage) ──
 var PI_TOOLS = [
@@ -22594,24 +22617,52 @@ function pi_dpiScan(bytes){
     }).catch(function(){ resolve(null); });
   });
 }
+// ── סיווג פונטים מקצועי ל-4 קטגוריות (בלי False Positives; לא מחליף את אפוגי) ──
+// pass=מוטמע · warn=סטנדרטי base-14 לא מוטמע · strong=לא-סטנדרטי לא מוטמע · block=מבנה פגום/חסר
+function pi_fontStatus(fnt){
+  if (fnt.blocking) return 'block';
+  if (fnt.embedded) return 'pass';
+  if (fnt.standard14) return 'warn';
+  return 'strong';
+}
+function pi_classifyFonts(fonts){
+  var out = (fonts || []).map(function(f){ return Object.assign({}, f, { status: pi_fontStatus(f) }); });
+  var order = { pass:0, warn:1, strong:2, block:3 };
+  var overall = out.length ? 'pass' : 'none';
+  out.forEach(function(f){ if (order[f.status] > order[overall]) overall = f.status; });
+  return { fonts: out, overall: overall, counts: {
+    pass:   out.filter(function(f){ return f.status==='pass';  }).length,
+    warn:   out.filter(function(f){ return f.status==='warn';  }).length,
+    strong: out.filter(function(f){ return f.status==='strong';}).length,
+    block:  out.filter(function(f){ return f.status==='block'; }).length } };
+}
+function pi_fontStatusLabel(s){ return s==='pass'?'PASS':(s==='warn'?'WARNING':(s==='strong'?'STRONG WARNING':(s==='block'?'BLOCKING':'—'))); }
+function pi_fontRecommendation(f){
+  if (f.blocking) return 'ייצא מחדש PDF / העלה קובץ תקין';
+  if (f.embedded) return '—';
+  if (f.standard14) return 'מומלץ להטמיע בעת ייצוא PDF';
+  return 'ייצא מחדש עם Embed Fonts';
+}
 function pi_preflightFile(fileId){
   var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === fileId; });
   if (!f){ showToast('קובץ לא נמצא'); return; }
   if (!f.sourceFileUrl){ showToast('לקובץ אין קובץ מקור מוטמע לבדיקה'); return; }
-  var frame = document.getElementById('pi-tpl-frame'), struct = frame && frame.contentWindow && frame.contentWindow.pdfStructReport;
+  var frame = document.getElementById('pi-tpl-frame'), cw = frame && frame.contentWindow;
+  var struct = cw && cw.pdfStructReport, fontFn = cw && cw.pdfFontReport;
   var isPdf = /\.pdf(\?|#|$)/i.test(f.sourceFileUrl) || /pdf/i.test(f.name||'') || true;
   pi_progressShow('🔎 Preflight — מנתח את ' + (f.name || 'הקובץ'));
   fetch(f.sourceFileUrl).then(function(res){ return res.arrayBuffer(); }).then(function(buf){
     var bytes = new Uint8Array(buf);
     var pStruct = (struct && isPdf) ? struct(buf).catch(function(){ return null; }) : Promise.resolve(null);
+    var pFonts  = (fontFn && isPdf) ? fontFn(bytes).catch(function(){ return null; }) : Promise.resolve(null);
     var pColor = pi_colorScan(bytes).catch(function(){ return null; });
     var pDpi = pi_dpiScan(bytes).catch(function(){ return null; });
-    return Promise.all([pStruct, pColor, pDpi]);
-  }).then(function(rr){ pi_progressClose(); pi_showPreflightReport(f, rr[0], rr[1], rr[2]); })
+    return Promise.all([pStruct, pColor, pDpi, pFonts]);
+  }).then(function(rr){ pi_progressClose(); pi_showPreflightReport(f, rr[0], rr[1], rr[2], rr[3]); })
     .catch(function(e){ pi_progressClose(); console.error('preflight failed', e); showToast('❌ הבדיקה נכשלה: ' + (e && e.message || e)); });
 }
-function pi_showPreflightReport(f, st, col, dpi){
-  var g = pi_curGeom(), C = [];
+function pi_showPreflightReport(f, st, col, dpi, fonts){
+  var g = pi_curGeom(), C = [], fontRows = '';
   if (st){
     if (st.noBleedPages > 0) C.push({ cat:'block', t:'חסר בליד ב-' + st.noBleedPages + ' עמודים', note:'נדרש קובץ חדש עם בליד ' + (g.defaultBleedMm||3) + ' מ״מ (לא ניתן להוסיף אוטומטית)' });
     else C.push({ cat:'pass', t:'בליד קיים בכל העמודים' });
@@ -22619,10 +22670,30 @@ function pi_showPreflightReport(f, st, col, dpi){
     else if (st.pages[0]) C.push({ cat:'pass', t:'כל העמודים ' + st.pages[0].trimWmm + '×' + st.pages[0].trimHmm + ' מ״מ' });
     if (st.rotatedPages > 0) C.push({ cat:'warn', t:st.rotatedPages + ' עמודים עם דגל סיבוב', note:'עלול לשבש פריסה/קיפול' });
     if (st.hasAnnots) C.push({ cat:'fix', t:'יש הערות/annotations ב-PDF', note:'ניתן להסרה אוטומטית', fix:'annots' });
-    // פונטים
-    if (st.fontsNotEmbedded > 0) C.push({ cat:'block', t:st.fontsNotEmbedded + ' פונטים לא מוטמעים', note:'נדרש קובץ חדש עם פונטים מוטמעים (embedded) — אחרת הטקסט עלול להשתנות בדפוס' });
-    else if (st.fontsStandard > 0) C.push({ cat:'warn', t:st.fontsStandard + ' פונטים סטנדרטיים לא מוטמעים (Helvetica/Times וכו׳)', note:'בד״כ תקין, אך מומלץ להטמיע' });
-    else if (st.fontDescriptors > 0) C.push({ cat:'pass', t:'כל הפונטים מוטמעים' });
+    // ── פונטים: סיווג מקצועי ל-4 קטגוריות (בלי False Positives) ──
+    if (fonts && fonts.length){
+      var fc = pi_classifyFonts(fonts), cc = fc.counts;
+      if (cc.block) C.push({ cat:'block', t:'⛔ נמצאו פונטים חסרים או פגומים (' + cc.block + ')', note:'לא ניתן להבטיח שהקובץ יודפס בצורה תקינה — נדרש קובץ חדש / ייצוא מחדש של ה-PDF' });
+      if (cc.strong) C.push({ cat:'strong', t:'נמצאו פונטים לא מוטמעים (' + cc.strong + ') — לא סטנדרטיים', note:'ייתכן שהטקסט ישתנה בהפקה. מומלץ לייצא מחדש עם Embed Fonts: ' + fc.fonts.filter(function(x){return x.status==='strong';}).map(function(x){return x.name;}).slice(0,6).join(', ') });
+      if (cc.warn) C.push({ cat:'warn', t:'פונטים סטנדרטיים לא מוטמעים (' + cc.warn + ') — Helvetica/Times וכו׳', note:'ברוב מערכות ה-RIP אין לכך משמעות, אך מומלץ להטמיע בעת ייצוא PDF' });
+      if (fc.overall === 'pass') C.push({ cat:'pass', t:'✓ כל הפונטים מוטמעים בקובץ (' + cc.pass + ')' });
+      // טבלת פירוט פר-פונט
+      var fic = { pass:'✓', warn:'⚠', strong:'⚠', block:'⛔' }, fcl = { pass:'#065f46', warn:'#b45309', strong:'#c2410c', block:'#b91c1c' };
+      fontRows = '<div style="margin:6px 0 10px;border:1px solid #eee;border-radius:9px;overflow:hidden">' +
+        '<div style="background:#f9fafb;padding:6px 10px;font-weight:800;font-size:.78rem;color:#374151">פירוט פונטים (' + fc.fonts.length + ')</div>' +
+        fc.fonts.map(function(x){ return '<div style="padding:6px 10px;border-top:1px solid #f3f4f6;font-size:.76rem">' +
+          '<div style="display:flex;gap:6px;align-items:center"><span style="color:' + fcl[x.status] + '">' + fic[x.status] + '</span>' +
+            '<b style="flex:1;min-width:0">' + escHtml(x.name) + '</b>' +
+            '<span style="font-weight:800;color:' + fcl[x.status] + ';font-size:.68rem">' + pi_fontStatusLabel(x.status) + '</span></div>' +
+          '<div style="color:#9ca3af;font-size:.68rem;margin-top:1px">' + (x.subtype||'?') + ' · ' + (x.embedded?'מוטמע':'לא מוטמע') + (x.subset?' · subset':'') + (x.standard14?' · base-14':'') + ' · עמ׳ ' + (x.pages||[]).join(',') + (x.blocking?(' · '+escHtml(x.blockingReason)):'') + '</div>' +
+          '<div style="color:#6b7280;font-size:.68rem">המלצה: ' + escHtml(pi_fontRecommendation(x)) + '</div>' +
+        '</div>'; }).join('') + '</div>';
+    } else if (st.fontDescriptors > 0 || st.fontsStandard > 0){
+      // גיבוי (מנוע הפונטים לא זמין) — לפי ספירה מצטברת, בלי חסימה שגויה
+      if (st.fontsNotEmbedded > 0) C.push({ cat:'strong', t:st.fontsNotEmbedded + ' פונטים ייתכן שאינם מוטמעים', note:'מומלץ לוודא הטמעה / לייצא מחדש עם Embed Fonts' });
+      else if (st.fontsStandard > 0) C.push({ cat:'warn', t:st.fontsStandard + ' פונטים סטנדרטיים לא מוטמעים', note:'בד״כ תקין, מומלץ להטמיע' });
+      else C.push({ cat:'pass', t:'כל הפונטים מוטמעים' });
+    }
     // שקיפות / שכבות / רגיסטר
     if (st.hasTransparency) C.push({ cat:'warn', t:'זוהו שקיפויות בקובץ', note:'ודא שיטוח (flatten) לפני דפוס — שקיפות פתוחה עלולה להשתבש' });
     if (st.hasHiddenLayers) C.push({ cat:'warn', t:'שכבות מוסתרות (OCG כבויות)', note:'ודא שלא חסר/עודף תוכן בגלל שכבה שכבויה' });
@@ -22644,31 +22715,35 @@ function pi_showPreflightReport(f, st, col, dpi){
     if (col.overprint) C.push({ cat:'warn', t:'זוהה Overprint', note:'בדוק Overprint על לבן / knockout' });
   }
   var block = C.filter(function(c){return c.cat==='block';}).length,
+      strong= C.filter(function(c){return c.cat==='strong';}).length,
       warn  = C.filter(function(c){return c.cat==='warn';}).length,
       fix   = C.filter(function(c){return c.cat==='fix';}).length;
-  var score = Math.max(0, 100 - block*40 - warn*10 - fix*5);
+  var score = Math.max(0, 100 - block*40 - strong*20 - warn*10 - fix*5);
   var status = block ? '<span style="color:#b91c1c">⛔ חסום — נדרש קובץ חדש</span>'
-    : (warn||fix ? '<span style="color:#b45309">⚠️ עובר עם ' + (warn+fix) + ' הערות</span>' : '<span style="color:#065f46">✓ עובר — מוכן</span>');
+    : (strong ? '<span style="color:#c2410c">⚠ אזהרה חזקה — מומלץ קובץ מתוקן</span>'
+    : (warn||fix ? '<span style="color:#b45309">⚠️ עובר עם ' + (warn+fix) + ' הערות</span>' : '<span style="color:#065f46">✓ עובר — מוכן</span>'));
   var scColor = score>=85?'#065f46':(score>=60?'#b45309':'#b91c1c');
-  var ic = { pass:'✓', warn:'⚠️', fix:'🛠️', block:'⛔', info:'ℹ️' }, cl = { pass:'#065f46', warn:'#b45309', fix:'#7c3aed', block:'#b91c1c', info:'#4338ca' };
-  try { f.preflight = { score:score, block:block, warn:warn, fix:fix, at:Date.now() }; window._pi.dirty = true; } catch(e){}
+  var ic = { pass:'✓', warn:'⚠️', strong:'⚠', fix:'🛠️', block:'⛔', info:'ℹ️' }, cl = { pass:'#065f46', warn:'#b45309', strong:'#c2410c', fix:'#7c3aed', block:'#b91c1c', info:'#4338ca' };
+  try { f.preflight = { score:score, block:block, strong:strong, warn:warn, fix:fix, at:Date.now() }; window._pi.dirty = true; } catch(e){}
   var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 288;
   m.innerHTML = '<div class="modal-box" style="max-width:560px;width:95vw;max-height:88vh;display:flex;flex-direction:column">' +
     '<div class="modal-header"><span>🔎 Preflight — ' + escHtml(f.name||'קובץ') + '</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
     '<div style="padding:14px 18px;overflow:auto">' +
       '<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">' +
         '<div style="width:66px;height:66px;border-radius:50%;border:5px solid ' + scColor + ';display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.3rem;color:' + scColor + '">' + score + '</div>' +
-        '<div><div style="font-weight:800;font-size:1rem">' + status + '</div><div style="font-size:.76rem;color:#6b7280">ציון ' + score + '/100 · ⛔ ' + block + ' · ⚠️ ' + warn + ' · 🛠️ ' + fix + '</div></div>' +
+        '<div><div style="font-weight:800;font-size:1rem">' + status + '</div><div style="font-size:.76rem;color:#6b7280">ציון ' + score + '/100 · ⛔ ' + block + ' · ⚠ ' + strong + ' · ⚠️ ' + warn + ' · 🛠️ ' + fix + '</div></div>' +
       '</div>' +
       C.map(function(c){ return '<div style="display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border:1px solid #f0f0f0;border-radius:8px;margin-bottom:5px">' +
         '<span>' + ic[c.cat] + '</span><div style="flex:1"><div style="font-size:.84rem;font-weight:700;color:' + cl[c.cat] + '">' + escHtml(c.t) + '</div>' +
         (c.note ? '<div style="font-size:.74rem;color:#6b7280;margin-top:1px">' + escHtml(c.note) + '</div>' : '') + '</div>' +
         (c.fix==='annots' ? '<button onclick="pi_autofixAnnots(\'' + f.id + '\');this.closest(\'.modal-overlay\').remove()" style="flex:none;padding:4px 9px;border:none;border-radius:6px;background:#7c3aed;color:#fff;font-weight:700;cursor:pointer;font-size:.72rem;font-family:Heebo">תקן</button>' : '') +
       '</div>'; }).join('') +
+      fontRows +
       '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
-        (block ? '<button onclick="showToast(\'📤 בקש מהלקוח קובץ חדש עם בליד/תיקון\');this.closest(\'.modal-overlay\').remove()" style="flex:1;min-width:140px;padding:10px;border:none;border-radius:9px;background:#b91c1c;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">📤 דרוש קובץ חדש</button>' : '') +
-        (!block ? '<button onclick="this.closest(\'.modal-overlay\').remove();showToast(\'✓ ממשיך לאימפוזיציה\')" style="flex:1;min-width:140px;padding:10px;border:none;border-radius:9px;background:#065f46;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">' + (warn||fix?'המשך למרות הערות':'המשך לאימפוזיציה') + '</button>' : '') +
+        (block ? '<button onclick="showToast(\'📤 בקש מהלקוח קובץ חדש / ייצוא מחדש\');this.closest(\'.modal-overlay\').remove()" style="flex:1;min-width:140px;padding:10px;border:none;border-radius:9px;background:#b91c1c;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">📤 דרוש קובץ חדש</button>' : '') +
+        (!block ? '<button onclick="this.closest(\'.modal-overlay\').remove();showToast(\'✓ ממשיך לאימפוזיציה\')" style="flex:1;min-width:140px;padding:10px;border:none;border-radius:9px;background:' + (strong?'#c2410c':'#065f46') + ';color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">' + (strong?'המשך למרות אזהרה חזקה':(warn||fix?'המשך למרות הערות':'המשך לאימפוזיציה')) + '</button>' : '') +
       '</div>' +
+      (strong && !block ? '<div style="margin-top:8px;font-size:.74rem;color:#c2410c;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px;line-height:1.5">⚠ יש פונטים לא-מוטמעים שאינם סטנדרטיים — <b>מומלץ</b> לבקש מהלקוח ייצוא מחדש עם Embed Fonts כדי למנוע הפתעות. לא נחסם (אפוגי יבצע Preflight PDF/X סופי).</div>' : '') +
       '<div style="margin-top:10px;font-size:.74rem;color:#9ca3af;line-height:1.5">ℹ️ בדיקות עמוקות (DPI תמונות, הטמעת פונטים, LAB/ICC, Total Ink) והמרות אמיתיות (RGB→CMYK, flatten, downsample) דורשות שלב שרת (Ghostscript) — מתוכנן. זהו MVP client-side.</div>' +
     '</div></div>';
   document.body.appendChild(m);
