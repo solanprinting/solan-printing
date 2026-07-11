@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783781849';
+window.APP_VERSION = '1783783622';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22732,7 +22732,7 @@ function pi_manualAddItem(fileId, xMm, yMm){
   cur._edited = true; window._pi.dirty = true; pi_selSet([id]); window._pi.arrangeMsg = null; pi_render();
 }
 // שינוי כמות עותקים של קובץ על הגיליון — מוסיף/מסיר עותקים כדי להגיע למספר שנבחר (ומסדר מחדש בהוספה)
-function pi_manualSetFileQty(fileId, v){
+function pi_manualSetFileQty(fileId, v, skipCap){
   var cur = window._pi.cur; if (!cur) return;
   var f = (cur.files||[]).find(function(x){ return x.id === fileId; }); if (!f) return;
   var target = Math.max(0, parseInt(v) || 0);
@@ -22742,6 +22742,14 @@ function pi_manualSetFileQty(fileId, v){
   if (target === have){ f.quantity = Math.max(1, target); pi_render(); return; }
   if (target > have){
     var g = pi_curGeom();
+    // הגנת QA: כמות גדולה בהרבה מקיבולת הגיליון = כנראה בלבול עם כמות ההזמנה הכוללת
+    var otherItems = cur.items.filter(function(it){ return it.fileId !== fileId; }).length;
+    var maxFit = (pi_nupFit(f.widthMm, f.heightMm, g.printableWidthMm, g.printableHeightMm, g.minGapMm).count || 1) - otherItems;
+    if (maxFit < 1) maxFit = 1;
+    if (target > maxFit && !skipCap){
+      if (!confirm('בגיליון נכנסים עד ' + maxFit + ' עותקים בגודל מלא, והזנת ' + target + '.\n\nלמלא את הגיליון ב-' + maxFit + ' עותקים?\n(את כמות ההזמנה הכוללת — "🖨️ דף עבודה" מחשב לכמה גיליונות להדפיס.)')){ pi_render(); return; }
+      target = maxFit;
+    }
     for (var i = have; i < target; i++){
       cur.items.push({ id: 'it' + Date.now() + i + Math.random().toString(36).slice(2,4), fileId: f.id,
         xMm: g.printX + 6, yMm: g.printY + 6, widthMm: f.widthMm, heightMm: f.heightMm,
@@ -22756,6 +22764,17 @@ function pi_manualSetFileQty(fileId, v){
   cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null;
   if (target > have) pi_manualAutoArrange();   // הוספה → סידור אוטומטי כדי שלא יחפפו
   else pi_render();
+}
+// מילוי הגיליון במקסימום עותקים של קובץ אחד (הפעולה היומיומית הכי נפוצה — כרטיסים/פליירים)
+function pi_manualFillSheet(fileId){
+  var cur = window._pi.cur; if (!cur) return;
+  var f = (cur.files||[]).find(function(x){ return x.id === fileId; }); if (!f) return;
+  var g = pi_curGeom();
+  var other = (cur.items||[]).filter(function(it){ return it.fileId !== fileId; }).length;
+  var maxN = (pi_nupFit(f.widthMm, f.heightMm, g.printableWidthMm, g.printableHeightMm, g.minGapMm).count || 0) - other;
+  if (maxN < 1){ showToast(other ? 'אין מספיק מקום פנוי בגיליון' : 'הקובץ גדול מדי לגיליון'); return; }
+  pi_manualSetFileQty(fileId, maxN, true);   // skipCap — זו בקשת מילוי מכוונת
+  showToast('▦ מולא הגיליון · ' + maxN + ' עותקים');
 }
 function pi_manualDupItem(id){
   var cur = window._pi.cur, it = (cur.items||[]).find(function(x){ return String(x.id) === String(id); }); if (!it) return;
@@ -23853,7 +23872,10 @@ function pi_renderManualWS(){
           '<span style="margin-right:auto">כמות בגיליון</span>' +
           '<input type="number" min="0" value="' + (used || f.quantity || 1) + '" onchange="pi_manualSetFileQty(\'' + f.id + '\',this.value)" title="כמה עותקים מהקובץ יהיו על הגיליון (המערכת תוסיף/תסיר ותסדר)" style="width:52px;padding:3px 5px;border:1px solid #94a3b8;border-radius:5px;font-family:Heebo;text-align:center;font-size:.76rem;font-weight:700">' +
         '</div>' +
-        '<button onclick="pi_manualSetFileQty(\'' + f.id + '\',' + (green ? (used+1) : (f.quantity||1)) + ')" style="width:100%;padding:5px;border:1px solid ' + (green?'#6ee7b7':'#99f6e4') + ';border-radius:6px;background:' + (green?'#d1fae5':'#f0fdfa') + ';color:#0f766e;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.76rem">' + (green?'➕ הוסף עוד':'➕ הוסף לגיליון' + ((f.quantity||1)>1?(' ('+(f.quantity)+')'):'')) + '</button>' +
+        '<div style="display:flex;gap:5px">' +
+          '<button onclick="pi_manualSetFileQty(\'' + f.id + '\',' + (green ? (used+1) : (f.quantity||1)) + ')" style="flex:1;padding:5px;border:1px solid ' + (green?'#6ee7b7':'#99f6e4') + ';border-radius:6px;background:' + (green?'#d1fae5':'#f0fdfa') + ';color:#0f766e;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.76rem">' + (green?'➕ הוסף עוד':'➕ הוסף לגיליון' + ((f.quantity||1)>1?(' ('+(f.quantity)+')'):'')) + '</button>' +
+          '<button onclick="pi_manualFillSheet(\'' + f.id + '\')" title="מלא את הגיליון במקסימום עותקים של הקובץ הזה" style="flex:none;padding:5px 9px;border:1px solid #c7d2fe;border-radius:6px;background:#eef2ff;color:#3730a3;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.76rem">▦ מלא</button>' +
+        '</div>' +
       '</div>';
     }).join('');
   }
