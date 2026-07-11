@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783769737';
+window.APP_VERSION = '1783770047';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22249,6 +22249,36 @@ function pi_colorScan(bytes){
     }).catch(function(){ resolve(null); });
   });
 }
+// זיהוי רזולוציה נמוכה (Low DPI): מעקב מטריצת CTM ב-pdf.js → גודל הצבה בפועל מול פיקסלי התמונה
+function pi_dpiScan(bytes){
+  return new Promise(function(resolve){
+    if (!window.pdfjsLib){ resolve(null); return; }
+    pdfjsLib.getDocument({ data: bytes.slice ? bytes.slice(0) : bytes }).promise.then(function(pdf){
+      var OPS = pdfjsLib.OPS, minDpi = Infinity, imgs = 0, maxP = Math.min(pdf.numPages, 15);
+      function mul(a, b){ return [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]]; }
+      function scanPage(pg){ return pdf.getPage(pg).then(function(page){ return page.getOperatorList().then(function(ol){
+        var ctm = [1,0,0,1,0,0], stack = [];
+        var getImg = function(id){ try { return page.objs.get(id); } catch(e){ try { return page.commonObjs.get(id); } catch(e2){ return null; } } };
+        for (var i=0;i<ol.fnArray.length;i++){ var fn=ol.fnArray[i], a=ol.argsArray[i];
+          if (fn===OPS.save) stack.push(ctm.slice());
+          else if (fn===OPS.restore) ctm = stack.pop() || [1,0,0,1,0,0];
+          else if (fn===OPS.transform) ctm = mul(ctm, a);
+          else if (fn===OPS.paintImageXObject || fn===OPS.paintJpegXObject || fn===OPS.paintImageMaskXObject){
+            var img = getImg(a && a[0]); if (!img || !img.width || !img.height) continue;
+            var pw = Math.hypot(ctm[0], ctm[1]), ph = Math.hypot(ctm[2], ctm[3]);   // גודל הצבה (pt): ריבוע-יחידה × CTM
+            if (pw < 57 || ph < 57) continue;   // < ~20 מ״מ — כנראה אייקון/קו, לא לדגום
+            var dx = img.width/(pw/72), dy = img.height/(ph/72);
+            var d = Math.min(dx, dy); if (d > 0 && d < minDpi) minDpi = d; imgs++;
+          }
+        }
+        try { page.cleanup(); } catch(e){}
+      }); }); }
+      var chain = Promise.resolve();
+      for (var p=1;p<=maxP;p++){ (function(pg){ chain = chain.then(function(){ return scanPage(pg); }); })(p); }
+      chain.then(function(){ resolve({ minDpi: isFinite(minDpi) ? Math.round(minDpi) : null, images: imgs }); }).catch(function(){ resolve({ minDpi:null, images:imgs }); });
+    }).catch(function(){ resolve(null); });
+  });
+}
 function pi_preflightFile(fileId){
   var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === fileId; });
   if (!f){ showToast('קובץ לא נמצא'); return; }
@@ -22260,11 +22290,12 @@ function pi_preflightFile(fileId){
     var bytes = new Uint8Array(buf);
     var pStruct = (struct && isPdf) ? struct(buf).catch(function(){ return null; }) : Promise.resolve(null);
     var pColor = pi_colorScan(bytes).catch(function(){ return null; });
-    return Promise.all([pStruct, pColor]);
-  }).then(function(rr){ pi_progressClose(); pi_showPreflightReport(f, rr[0], rr[1]); })
+    var pDpi = pi_dpiScan(bytes).catch(function(){ return null; });
+    return Promise.all([pStruct, pColor, pDpi]);
+  }).then(function(rr){ pi_progressClose(); pi_showPreflightReport(f, rr[0], rr[1], rr[2]); })
     .catch(function(e){ pi_progressClose(); console.error('preflight failed', e); showToast('❌ הבדיקה נכשלה: ' + (e && e.message || e)); });
 }
-function pi_showPreflightReport(f, st, col){
+function pi_showPreflightReport(f, st, col, dpi){
   var g = pi_curGeom(), C = [];
   if (st){
     if (st.noBleedPages > 0) C.push({ cat:'block', t:'חסר בליד ב-' + st.noBleedPages + ' עמודים', note:'נדרש קובץ חדש עם בליד ' + (g.defaultBleedMm||3) + ' מ״מ (לא ניתן להוסיף אוטומטית)' });
@@ -22285,6 +22316,12 @@ function pi_showPreflightReport(f, st, col){
     if (st.hasCropBox) C.push({ cat:'info', t:'CropBox שונה מ-MediaBox — ודא שאזור החיתוך תקין' });
     C.push({ cat:'pass', t:st.pageCount + ' עמודים' });
   } else C.push({ cat:'warn', t:'לא ניתן לנתח מבנה (אולי לא PDF / קובץ מוגן / פגום)' });
+  // רזולוציית תמונות (Low DPI)
+  if (dpi && dpi.minDpi != null && dpi.images > 0){
+    if (dpi.minDpi < 100) C.push({ cat:'block', t:'רזולוציה נמוכה מאוד — תמונה ב-' + dpi.minDpi + ' DPI', note:'לדפוס נדרש ~300 DPI. הגרפיקה תצא מטושטשת/מפוקסלת — נדרש קובץ ברזולוציה גבוהה' });
+    else if (dpi.minDpi < 200) C.push({ cat:'warn', t:'רזולוציה גבולית — תמונה ב-' + dpi.minDpi + ' DPI', note:'מומלץ ~300 DPI לדפוס איכותי' });
+    else C.push({ cat:'pass', t:'רזולוציית תמונות תקינה (' + dpi.minDpi + ' DPI ומעלה)' });
+  }
   if (col){
     if (col.rgb) C.push({ cat:'fix', t:'זוהו אובייקטים ב-RGB', note:'נדרש RGB→CMYK — המרה אמיתית דורשת שרת (Ghostscript). מתוכנן.', fix:'rgb' });
     else if (col.cmyk) C.push({ cat:'pass', t:'צבע CMYK' });
