@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783774170';
+window.APP_VERSION = '1783777313';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23455,15 +23455,59 @@ function pi_undo(){
 function pi_installUndoKey(){
   if (window._pi._undoKeyInstalled) return; window._pi._undoKeyInstalled = true;
   document.addEventListener('keydown', function(e){
-    if (!(e.ctrlKey || e.metaKey) || e.shiftKey) return;
-    if (String(e.key).toLowerCase() !== 'z') return;
     var m = document.getElementById('piModal');
     if (!m || !m.classList.contains('open') || window._pi.view !== 'manual') return;
     var tag = e.target && e.target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;   // אל תחטוף undo של שדות טקסט
-    e.preventDefault(); pi_undo();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;   // אל תפריע לשדות טקסט
+    var k = String(e.key).toLowerCase(), ctrl = e.ctrlKey || e.metaKey, sel = pi_selArr();
+    if (ctrl && !e.shiftKey && k === 'z'){ e.preventDefault(); pi_undo(); return; }
+    if (ctrl && k === 's'){ e.preventDefault(); pi_manualSave(); return; }
+    if (ctrl) return;   // שאר הקיצורים ללא Ctrl
+    if (k === 'a'){ e.preventDefault(); pi_manualAutoArrange(); return; }
+    if (k === '?'){ e.preventDefault(); pi_shortcutsHelp(); return; }
+    if (k === 'r' && sel.length){ e.preventDefault(); pi_manualGroupRotate(); return; }
+    if ((k === 'delete' || k === 'backspace') && sel.length){ e.preventDefault(); pi_manualGroupDel(); return; }
+    if (sel.length && (k === 'arrowleft' || k === 'arrowright' || k === 'arrowup' || k === 'arrowdown')){
+      e.preventDefault();
+      var step = e.shiftKey ? 5 : 1;
+      pi_nudgeSelected(k === 'arrowleft' ? -step : (k === 'arrowright' ? step : 0), k === 'arrowup' ? -step : (k === 'arrowdown' ? step : 0));
+    }
   });
 }
+// הזזת הפריטים הנבחרים ב-dx/dy מ״מ (חצי מקלדת), עם clamp לגבולות הגיליון
+function pi_nudgeSelected(dx, dy){
+  var cur = window._pi.cur; if (!cur) return;
+  var ids = pi_selArr(); if (!ids.length) return;
+  var g = pi_curGeom();
+  (cur.items || []).forEach(function(it){
+    if (ids.indexOf(String(it.id)) < 0) return;
+    it.xMm = Math.max(0, Math.min(g.sheetWidthMm - it.widthMm, Math.round((it.xMm + dx) * 10) / 10));
+    it.yMm = Math.max(0, Math.min(g.sheetHeightMm - it.heightMm, Math.round((it.yMm + dy) * 10) / 10));
+  });
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
+}
+// מקרא קיצורי מקלדת (מחשב + עכבר)
+function pi_shortcutsHelp(){
+  var rows = [
+    ['Ctrl + S', 'שמור טיוטה'], ['Ctrl + Z', 'בטל פעולה אחרונה'], ['A', 'סדר אוטומטית'],
+    ['חצים', 'הזז פריט נבחר (1 מ״מ)'], ['Shift + חצים', 'הזז פריט נבחר (5 מ״מ)'],
+    ['R', 'סובב פריט נבחר 90°'], ['Delete', 'מחק פריט נבחר'],
+    ['לחיצה', 'בחר פריט'], ['Ctrl/Shift + לחיצה', 'בחירה מרובה'], ['גלגלת', 'זום · גרירת רקע = הזזה'], ['?', 'מסך זה']
+  ];
+  var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 291;
+  m.innerHTML = '<div class="modal-box" style="max-width:420px;width:92vw">' +
+    '<div class="modal-header"><span>⌨️ קיצורי מקלדת</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:14px 18px">' + rows.map(function(r){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f3f4f6"><kbd style="background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;padding:2px 9px;font-family:monospace;font-size:.82rem;color:#374151">' + r[0] + '</kbd><span style="font-size:.86rem;color:#374151">' + r[1] + '</span></div>';
+    }).join('') + '</div></div>';
+  document.body.appendChild(m);
+}
+// ── מצב פשוט (לעובד רצפת ייצור) — מסתיר בקרות מתקדמות. נשמר לכל משתמש; ברירת מחדל: פשוט. ──
+function pi_isSimple(){
+  if (window._pi.simpleMode == null){ try { window._pi.simpleMode = localStorage.getItem('solanPiSimple') !== '0'; } catch(e){ window._pi.simpleMode = true; } }
+  return window._pi.simpleMode;
+}
+function pi_setSimpleMode(on){ window._pi.simpleMode = !!on; try { localStorage.setItem('solanPiSimple', on ? '1' : '0'); } catch(e){} showToast(on ? '🔰 מצב פשוט' : '🛠️ מצב מתקדם'); pi_render(); }
 function pi_renderManualWS(){
   var body = document.getElementById('pi-body'); if (!body) return;
   pi_installUndoKey();
@@ -23489,36 +23533,42 @@ function pi_renderManualWS(){
   window._pi.canvasScale = scale; window._pi._canvasViewport = { w: maxW, h: maxH };
   var selArr = pi_selArr(), sel = selArr, selItem = selArr.length === 1 ? items.find(function(x){ return x.key === selArr[0]; }) : null;
   var profs = pi_profilesFor(cur.machine);
+  var simple = pi_isSimple();
+  var modeBtn = '<button onclick="pi_setSimpleMode(' + (simple ? 'false' : 'true') + ')" title="' + (simple ? 'מצב מתקדם — כל הבקרות והכלים' : 'מצב פשוט — רק מה שצריך') + '" style="padding:8px 12px;border:1px solid ' + (simple ? '#fcd34d' : '#c7d2fe') + ';border-radius:8px;background:' + (simple ? '#fffbeb' : '#eef2ff') + ';color:' + (simple ? '#92400e' : '#3730a3') + ';font-weight:800;cursor:pointer;font-family:Heebo">' + (simple ? '🛠️ מתקדם' : '🔰 מצב פשוט') + '</button>';
   // ── header ──
   var html =
     '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
       '<button onclick="pi_backToList()" style="padding:7px 12px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-family:Heebo;font-weight:700">→ חזרה</button>' +
       '<b style="font-size:.95rem;flex:1;min-width:0">🧩 ' + escHtml(cur.name||'') + ' <span style="font-size:.68rem;background:#ccfbf1;color:#0f766e;border-radius:6px;padding:2px 7px;font-weight:800">ידני</span></b>' +
       pi_savedLabel() +
-      '<button onclick="pi_showFeatures()" title="רשימת התכונות — קיים ומתוכנן" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6d28d9;font-weight:800;cursor:pointer;font-family:Heebo">📋 תכונות</button>' +
-      '<button onclick="pi_sheetFullView()" title="ראה את הגיליון עם הקבצים במסך מלא (תצוגה נקייה)" style="padding:8px 12px;border:1px solid #c7d2fe;border-radius:8px;background:#eef2ff;color:#3730a3;font-weight:800;cursor:pointer;font-family:Heebo">🖼️ גיליון מלא</button>' +
-      '<button onclick="pi_manualFullscreen()" title="עורך במסך מלא" style="padding:8px 12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo">' + (fs ? '🡼 צא ממסך מלא' : '⛶ עורך מלא') + '</button>' +
+      (simple ? '' :
+        '<button onclick="pi_showFeatures()" title="רשימת התכונות — קיים ומתוכנן" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6d28d9;font-weight:800;cursor:pointer;font-family:Heebo">📋 תכונות</button>' +
+        '<button onclick="pi_sheetFullView()" title="ראה את הגיליון עם הקבצים במסך מלא (תצוגה נקייה)" style="padding:8px 12px;border:1px solid #c7d2fe;border-radius:8px;background:#eef2ff;color:#3730a3;font-weight:800;cursor:pointer;font-family:Heebo">🖼️ גיליון מלא</button>' +
+        '<button onclick="pi_manualFullscreen()" title="עורך במסך מלא" style="padding:8px 12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo">' + (fs ? '🡼 צא ממסך מלא' : '⛶ עורך מלא') + '</button>') +
+      '<button onclick="pi_shortcutsHelp()" title="קיצורי מקלדת" style="padding:8px 11px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6b7280;font-weight:800;cursor:pointer;font-family:Heebo">⌨️</button>' +
       '<button onclick="pi_printWorksheet()" title="דף עבודה מודפס למכונה — נייר/גיליונות/קבצים" style="padding:8px 12px;border:1px solid #fde68a;border-radius:8px;background:#fffbeb;color:#92400e;font-weight:800;cursor:pointer;font-family:Heebo">🖨️ דף עבודה</button>' +
+      modeBtn +
       '<button onclick="pi_manualSave()" style="padding:8px 14px;border:none;border-radius:8px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">💾 שמור טיוטה</button>' +
     '</div>';
-  // ── toolbar: מכונה + פרופיל ──
+  // ── toolbar: מכונה + פרופיל (בקרות מתקדמות מוסתרות במצב פשוט) ──
   html += '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;padding:9px 12px;margin-bottom:12px">' +
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">מכונה<select onchange="pi_manualSetMachine(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
       pi_getMachines().map(function(m){ return '<option value="' + escHtml(m) + '"' + (m===cur.machine?' selected':'') + '>' + escHtml(m) + '</option>'; }).join('') + '</select></label>' +
-    (profs.length > 1 ? '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">פרופיל<select onchange="pi_manualSetProfile(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
+    (!simple && profs.length > 1 ? '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">פרופיל<select onchange="pi_manualSetProfile(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
       profs.map(function(pr){ return '<option value="' + pr.id + '"' + (pr.id===cur.profileId?' selected':'') + '>' + escHtml(pr.name) + '</option>'; }).join('') + '</select></label>' : '') +
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">בליד מ״מ (0=בלי)<input type="number" min="0" step="0.5" value="' + (cur.bleedMm!=null?cur.bleedMm:g.defaultBleedMm) + '" onchange="pi_manualSetBleed(this.value)" style="width:66px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
-    '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שוליים מ״מ (0=גיליון מלא)<input type="number" min="0" step="0.5" value="' + Math.round((cur.marginMm!=null?cur.marginMm:g.marginLeftMm)*10)/10 + '" onchange="pi_manualSetMargin(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
-    '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#3730a3;align-self:center;background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (window._pi.snap!==false?' checked':'') + ' onchange="window._pi.snap=this.checked" style="cursor:pointer"> 🧲 יישור אוטומטי</label>' +
-    '<label title="עבודה שטוחה (לא כריכייה): עם רווח מינימלי בין הקבצים או צמודים" style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#166534;align-self:center;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (cur.gangGaps!==false?' checked':'') + ' onchange="pi_manualSetGaps(this.checked)" style="cursor:pointer"> ▭ רווחים בין קבצים</label>' +
-    '<label title="חיתוך משותף: הקבצים מוצבים כך שקווי החיתוך מתלכדים והבליד חופף (2×בליד) — סכין אחת בין העבודות, חוסך נייר. דורש בליד > 0 וקבצים בגודל זהה." style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#9a3412;align-self:center;background:#fff7ed;border:1px solid #fed7aa;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (cur.trimShared?' checked':'') + ' onchange="pi_manualSetTrimShared(this.checked)" style="cursor:pointer"> ✂️ חיתוך משותף</label>' +
+    (simple ? '' :
+      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שוליים מ״מ (0=גיליון מלא)<input type="number" min="0" step="0.5" value="' + Math.round((cur.marginMm!=null?cur.marginMm:g.marginLeftMm)*10)/10 + '" onchange="pi_manualSetMargin(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
+      '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#3730a3;align-self:center;background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (window._pi.snap!==false?' checked':'') + ' onchange="window._pi.snap=this.checked" style="cursor:pointer"> 🧲 יישור אוטומטי</label>' +
+      '<label title="עבודה שטוחה (לא כריכייה): עם רווח מינימלי בין הקבצים או צמודים" style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#166534;align-self:center;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (cur.gangGaps!==false?' checked':'') + ' onchange="pi_manualSetGaps(this.checked)" style="cursor:pointer"> ▭ רווחים בין קבצים</label>' +
+      '<label title="חיתוך משותף: הקבצים מוצבים כך שקווי החיתוך מתלכדים והבליד חופף (2×בליד) — סכין אחת בין העבודות, חוסך נייר. דורש בליד > 0 וקבצים בגודל זהה." style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#9a3412;align-self:center;background:#fff7ed;border:1px solid #fed7aa;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (cur.trimShared?' checked':'') + ' onchange="pi_manualSetTrimShared(this.checked)" style="cursor:pointer"> ✂️ חיתוך משותף</label>') +
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">גודל גיליון<span style="display:flex;gap:4px"><select onchange="pi_manualSetSheetSel(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
       (cur.sheetWmm>0 ? '' : '<option value="machine" selected>לפי מכונה (' + g.sheetWidthMm + '×' + g.sheetHeightMm + ')</option>') +
       pi_sheets().map(function(s){ var sel = (cur.sheetWmm===s.w && cur.sheetHmm===s.h); return '<option value="' + s.w + 'x' + s.h + '"' + (sel?' selected':'') + '>' + escHtml(s.name) + '</option>'; }).join('') +
       (cur.sheetWmm>0 && !pi_sheets().some(function(s){return cur.sheetWmm===s.w&&cur.sheetHmm===s.h;}) ? '<option value="' + cur.sheetWmm + 'x' + cur.sheetHmm + '" selected>' + Math.round(cur.sheetWmm/10) + '×' + Math.round(cur.sheetHmm/10) + '</option>' : '') +
       '<option value="custom">מותאם…</option>' +
       (cur.sheetWmm>0 ? '<option value="machine">↺ לפי מכונה</option>' : '') +
-    '</select><button onclick="pi_editSheets()" title="ערוך גדלי גיליון קבועים" style="padding:6px 9px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-size:.85rem">📐</button></span></label>' +
+    '</select>' + (simple ? '' : '<button onclick="pi_editSheets()" title="ערוך גדלי גיליון קבועים" style="padding:6px 9px;border:1px solid #ddd;border-radius:7px;background:#fff;cursor:pointer;font-size:.85rem">📐</button>') + '</span></label>' +
     '<span style="font-size:.72rem;color:#6b7280;align-self:center;margin-right:auto">הדפסה ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + ' מ״מ</span>' +
   '</div>';
   // ── פס לשוניות גיליונות (ריבוי גיליונות) ──
@@ -23549,8 +23599,18 @@ function pi_renderManualWS(){
       box(4,'הפקה',s4,'pi_exportProductionPdf()', errN?'תקן בעיות קודם':'PDF דפוס') +
     '</div>';
   })();
-  // ── שורת כלים ניתנת להתאמה (מועדפים) ──
-  html += pi_toolsRowHtml(cur);
+  // ── שורת כלים: מצומצמת במצב פשוט, ניתנת להתאמה (מועדפים) במתקדם ──
+  if (simple){
+    var sbtn = function(onclick, label, bg, col, bd){ return '<button onclick="' + onclick + '" style="padding:9px 14px;border:1px solid ' + bd + ';border-radius:9px;background:' + bg + ';color:' + col + ';font-weight:800;cursor:pointer;font-family:Heebo;font-size:.86rem">' + label + '</button>'; };
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
+      sbtn('pi_manualAutoArrange()', '🧮 סדר אוטומטית', '#eef2ff', '#3730a3', '#c7d2fe') +
+      sbtn('pi_manualCenterAll()', '⊹ מרכז בגיליון', '#fff', '#374151', '#ddd') +
+      sbtn('pi_manualClearSheet()', '🧹 נקה גיליון', '#fff', '#b91c1c', '#fecaca') +
+      sbtn('pi_calcHub()', '🧮 מחשבון', '#fff', '#374151', '#ddd') +
+    '</div>';
+  } else {
+    html += pi_toolsRowHtml(cur);
+  }
   // ── גוף: סיידבר קבצים | גיליון | פאנל ──
   html += '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">';
   // סיידבר קבצים
