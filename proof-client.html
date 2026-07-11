@@ -314,6 +314,7 @@ async function addFiles(fileList) {
   }
   $('file').value = '';
   renderAll(); showOverlay('', false);
+  _pcAnomalyCheck();   // שאל את הלקוח על עמודים בגודל לא רגיל (כפולה / גלישות)
 }
 // ── הערות דרישות קבצים (סטטי, ללא בדיקת הקובץ) + הערת סטיית צבע מסך↔הדפסה ──
 function buildPreflight(){
@@ -390,10 +391,64 @@ function detectSpreads() {
     if (best) { const kp = best.split('x'); baseW = +kp[0]; baseH = +kp[1]; }
   }
   pages.forEach(p => {
-    p.isSpread = !!(baseW && baseH && p.wmm != null &&
+    const autoSpread = !!(baseW && baseH && p.wmm != null &&
       Math.abs(p.wmm - 2 * baseW) <= tol * 2 && Math.abs(p.hmm - baseH) <= tol);
+    p._autoSpread = autoSpread;
+    // אישור מפורש של הלקוח גובר על הזיהוי האוטומטי (אם ענה בחלון האישור)
+    p.isSpread = (p.spreadConfirmed != null) ? p.spreadConfirmed : autoSpread;
   });
+  detectSpreads._baseW = baseW; detectSpreads._baseH = baseH;   // לשימוש בבדיקת האנומליות
 }
+// ── אישור אינטראקטיבי בהעלאה: עמוד שלא בגודל הנדרש → שואל את הלקוח מה לעשות ──
+function _pcAnomalyCheck() {
+  const baseW = detectSpreads._baseW, baseH = detectSpreads._baseH;
+  if (!baseW || !baseH) return;
+  const tol = 2, dblTol = 14, items = [];
+  pages.forEach((p, idx) => {
+    if (p.wmm == null || p._asked) return;
+    const looksDouble = p._autoSpread || (Math.abs(p.wmm - 2*baseW) <= dblTol && Math.abs(p.hmm - baseH) <= 8);
+    if (looksDouble) { items.push({ uid:p.uid, type:'spread', w:Math.round(p.wmm), h:Math.round(p.hmm) }); return; }
+    const exact = (Math.abs(p.wmm-baseW)<=tol && Math.abs(p.hmm-baseH)<=tol) || (Math.abs(p.wmm-baseH)<=tol && Math.abs(p.hmm-baseW)<=tol);
+    if (!exact) items.push({ uid:p.uid, type:'size', w:Math.round(p.wmm), h:Math.round(p.hmm), bigger:(p.wmm>baseW+tol||p.hmm>baseH+tol) });
+  });
+  if (items.length) _pcShowAnomalyModal(items, Math.round(baseW), Math.round(baseH));
+}
+function _pcShowAnomalyModal(items, baseW, baseH) {
+  let m = document.getElementById('pc-anomaly');
+  if (!m) { m = document.createElement('div'); m.id = 'pc-anomaly'; document.body.appendChild(m); }
+  m.style.cssText = 'position:fixed;inset:0;z-index:120;background:rgba(15,23,42,.62);display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
+  m._items = items;
+  const rowStyle = 'display:flex;gap:10px;align-items:center;border:1px solid #eee;border-radius:10px;padding:9px 11px;margin-bottom:8px;flex-wrap:wrap';
+  const btn = (c) => 'padding:7px 13px;border:none;border-radius:8px;font-weight:800;cursor:pointer;font-family:inherit;font-size:.82rem;background:'+c;
+  m._draw = function() {
+    const left = items.filter(it => !it._done);
+    if (!left.length) { m.remove(); renderAll(); return; }
+    m.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:620px;width:96vw;max-height:88vh;overflow:auto;padding:18px 20px;font-family:Heebo,Arial,sans-serif">' +
+      '<div style="font-size:1.1rem;font-weight:900;color:#b45309;margin-bottom:4px">🔎 עמודים בגודל לא רגיל — נא לאשר</div>' +
+      '<div style="font-size:.84rem;color:#555;margin-bottom:12px">כדי שהעיתון יסודר וימוספר נכון, אשרו מה לעשות עם העמודים הבאים (הגודל הנדרש: <b>' + baseW + '×' + baseH + ' מ״מ</b>):</div>' +
+      left.map(function(it){ var p = pages.find(function(x){ return x.uid===it.uid; }); var thumb = p?p.src:'';
+        var q, y, n;
+        if (it.type==='spread'){ q = 'עמוד <b>'+it.w+'×'+it.h+' מ״מ</b> — רוחב <b>כפול</b> מהנדרש. האם זו כפולה (עמוד שנפרס על שני עמודים)?'; y = '📖 כן, כפולה'; n = '✂ לא, עמוד רגיל'; }
+        else if (it.bigger){ q = 'עמוד <b>'+it.w+'×'+it.h+' מ״מ</b> — גדול מהנדרש. האם זה בכוונה לצורך <b>גלישות/רקע</b>?'; y = '✓ כן, לגלישות'; n = '⚠️ לא, אתקן'; }
+        else { q = 'עמוד <b>'+it.w+'×'+it.h+' מ״מ</b> — <b>קטן</b> מהנדרש. ייתכן שחסר בו שוליים. בכוונה?'; y = '✓ כן, בכוונה'; n = '⚠️ לא, אתקן'; }
+        return '<div style="'+rowStyle+'">' +
+          (thumb?'<img src="'+thumb+'" style="width:54px;height:auto;border:1px solid #ddd;border-radius:4px;flex:none">':'') +
+          '<div style="flex:1;min-width:150px;font-size:.85rem;color:#374151;line-height:1.5">'+q+'</div>' +
+          '<button style="'+btn('#16a34a')+';color:#fff" onclick="_pcAnomalyAns('+it.uid+',\''+it.type+'\',true)">'+y+'</button>' +
+          '<button style="'+btn('#f3f4f6')+';color:#b91c1c" onclick="_pcAnomalyAns('+it.uid+',\''+it.type+'\',false)">'+n+'</button>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  };
+  m._draw();
+}
+window._pcAnomalyAns = function(uid, type, yes) {
+  const m = document.getElementById('pc-anomaly'); if (!m) return;
+  const it = (m._items||[]).find(function(x){ return x.uid===uid; }); if (it) it._done = true;
+  const p = pages.find(function(x){ return x.uid===uid; });
+  if (p) { if (type==='spread') p.spreadConfirmed = yes; else p.sizeConfirmed = yes; p._asked = true; }
+  if (m._draw) m._draw();
+};
 // ספירת עמודים אפקטיבית — כפולה = 2 עמודים
 function effPageCount() { return pages.reduce((s, p) => s + (p.isSpread ? 2 : 1), 0); }
 function spreadCount()  { return pages.filter(p => p.isSpread).length; }
@@ -414,6 +469,7 @@ function buildWarnings() {
   pages.forEach((p, idx) => {
     if (p.wmm == null) return;
     if (p.isSpread) return;   // כפולה: רוחב כפול הוא תקין בכוונה — לא "גודל שגוי"
+    if (p.sizeConfirmed) return;   // הלקוח אישר שהגודל בכוונה (גלישות) — לא להתריע
     const ok = (Math.abs(p.wmm - reqW) <= tol && Math.abs(p.hmm - reqH) <= tol) ||
                (Math.abs(p.wmm - reqH) <= tol && Math.abs(p.hmm - reqW) <= tol);
     if (!ok) bad.push(`עמ' ${labels[idx]} (${Math.round(p.wmm)}×${Math.round(p.hmm)})`);
