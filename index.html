@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783779138';
+window.APP_VERSION = '1783780387';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22789,10 +22789,40 @@ function pi_arrangeShelf(items, g){
   });
   return { res: res, unplaced: unplaced };
 }
+// מציאת קנה-המידה הגדול ביותר (≤1) שבו כל הפריטים נכנסים לגיליון (סידור אוטומטי, כולל סיבוב).
+// מחזיר {scale,out} או null אם גם בהקטנה של 50% לא נכנס (יותר מדי פריטים / גיליון קטן מדי).
+function pi_scaleItemsForFit(items, g){
+  var atFull = pi_autoArrange(items, g);
+  if (!atFull.unplaced.length) return { scale: 1, out: atFull };
+  var scaledAt = function(s){ return items.map(function(it){ return Object.assign({}, it, { widthMm: it.widthMm * s, heightMm: it.heightMm * s }); }); };
+  var atLo = pi_autoArrange(scaledAt(0.5), g);
+  if (atLo.unplaced.length) return null;   // גם ב-50% לא נכנס
+  var lo = 0.5, hi = 1, best = { scale: 0.5, out: atLo };
+  for (var i = 0; i < 18; i++){
+    var mid = (lo + hi) / 2, r = pi_autoArrange(scaledAt(mid), g);
+    if (r.unplaced.length){ hi = mid; } else { lo = mid; best = { scale: mid, out: r }; }
+  }
+  return best;
+}
 function pi_manualAutoArrange(){
   var cur = window._pi.cur; if (!cur) return;
   if (!(cur.items||[]).length){ showToast('אין פריטים לסדר'); return; }
-  var g = pi_curGeom(), out = pi_autoArrange(pi_manualRenderItems(cur), g);
+  var g = pi_curGeom(), out = pi_autoArrange(pi_manualRenderItems(cur), g), resizedPct = null;
+  // אם יש פריטים שלא נכנסו — הצע הקטנה קלה כדי שכולם ייכנסו (רק באישור המשתמש)
+  if (out.unplaced.length){
+    var items0 = pi_manualRenderItems(cur), fit = pi_scaleItemsForFit(items0, g);
+    if (fit && fit.scale < 0.999){
+      var pct = Math.floor(fit.scale * 100), s0 = items0[0];
+      var ex = s0 ? ('\n(דוגמה: ' + Math.round(s0.widthMm) + '×' + Math.round(s0.heightMm) + ' ← ' + Math.round(s0.widthMm * fit.scale) + '×' + Math.round(s0.heightMm * fit.scale) + ' מ״מ)') : '';
+      if (confirm('⚠️ ' + out.unplaced.length + ' קבצים לא נכנסים בגודל המקורי (גם עם סיבוב).\n\nלהקטין את כל הקבצים ל-' + pct + '% כדי שכולם ייכנסו לגיליון?' + ex + '\n\n(שים לב: זה משנה את גודל המוצר הסופי. אפשר לבטל עם Ctrl+Z.)')){
+        var sc = fit.scale;
+        // עיגול כלפי מטה (floor) כדי להבטיח שהגודל המוקטן באמת נכנס (עיגול מעלה עלול להוציא פריט)
+        (cur.items||[]).forEach(function(it){ it.widthMm = Math.floor(it.widthMm * sc * 10) / 10; it.heightMm = Math.floor(it.heightMm * sc * 10) / 10; if (it.bleedMm) it.bleedMm = Math.round(it.bleedMm * sc * 100) / 100; });
+        out = pi_autoArrange(pi_manualRenderItems(cur), g);   // סדר מחדש בגודל החדש
+        resizedPct = pct;
+      }
+    }
+  }
   (cur.items||[]).forEach(function(it){
     var r = out.res[String(it.id)];
     if (r){ it.xMm = r.xMm; it.yMm = r.yMm; it.widthMm = r.widthMm; it.heightMm = r.heightMm; it.rotation = r.rotation; }
@@ -22800,12 +22830,13 @@ function pi_manualAutoArrange(){
   var rendered = pi_manualRenderItems(cur);
   var placed = rendered.filter(function(x){ return out.unplaced.indexOf(x.key) < 0; });
   var util = pi_utilization(placed, g);
+  var rotated = placed.filter(function(x){ return (x.rotation || 0) % 180 !== 0; }).length;
   cur.warnings = pi_validateItems(rendered, g);
   var unNames = out.unplaced.map(function(id){ var it = (cur.items||[]).find(function(x){ return String(x.id) === id; }); var f = it && (cur.files||[]).find(function(ff){ return ff.id === it.fileId; }); return f ? f.name : id; });
-  window._pi.arrangeMsg = { placed: placed.length, unplaced: unNames, util: util };
+  window._pi.arrangeMsg = { placed: placed.length, unplaced: unNames, util: util, rotated: rotated, resizedPct: resizedPct };
   cur._edited = true; window._pi.dirty = true; window._pi.canvasSel = null; pi_render();
-  if (out.unplaced.length) showToast('⚠️ סודרו ' + placed.length + ' · ' + out.unplaced.length + ' לא נכנסו — הקטן/הסר או הגדל גיליון', 6500);
-  else showToast('✓ סודרו ' + placed.length + ' פריטים · ניצול ' + util + '%');
+  if (out.unplaced.length) showToast('⚠️ סודרו ' + placed.length + ' · ' + out.unplaced.length + ' לא נכנסו — הסר/הגדל גיליון או פצל לכמה גיליונות', 6500);
+  else showToast('✓ סודרו ' + placed.length + ' פריטים' + (resizedPct ? ' · הוקטנו ל-' + resizedPct + '%' : '') + (rotated ? ' · ' + rotated + ' סובבו' : '') + ' · ניצול ' + util + '%');
 }
 // סדר אוטומטית את כל הגיליונות (ריבוי גיליונות) — תיקון בלחיצה אחת לפני הפקה. מחזיר כמה פריטים לא נכנסו.
 function pi_autoArrangeAllSheets(){
@@ -23727,7 +23758,9 @@ function pi_renderManualWS(){
   if (am){
     html += '<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:9px;padding:8px 11px;font-size:.78rem;color:#3730a3">' +
       '<b>🧮 סידור אוטומטי:</b> נכנסו ' + am.placed + ' פריטים · ניצול ' + am.util + '%' +
-      (am.unplaced.length ? '<div style="color:#b91c1c;font-weight:700;margin-top:4px">⛔ לא נכנסו ' + am.unplaced.length + ': ' + escHtml(am.unplaced.join(', ')) + '<br><span style="font-weight:500;color:#7f1d1d">הקטן/סובב/הסר פריטים או הגדל את הגיליון.</span></div>' : '<div style="color:#065f46;font-weight:700;margin-top:3px">✓ כל הפריטים נכנסו</div>') +
+      (am.rotated ? ' · 🔄 ' + am.rotated + ' סובבו להתאמה' : '') +
+      (am.resizedPct ? '<div style="color:#9a3412;font-weight:700;margin-top:3px">🔻 הקבצים הוקטנו ל-' + am.resizedPct + '% כדי להיכנס (Ctrl+Z לביטול)</div>' : '') +
+      (am.unplaced.length ? '<div style="color:#b91c1c;font-weight:700;margin-top:4px">⛔ לא נכנסו ' + am.unplaced.length + ': ' + escHtml(am.unplaced.join(', ')) + '<br><span style="font-weight:500;color:#7f1d1d">הסר פריטים, הגדל גיליון, או פצל לכמה גיליונות (➕ גיליון).</span></div>' : '<div style="color:#065f46;font-weight:700;margin-top:3px">✓ כל הפריטים נכנסו</div>') +
     '</div>';
   }
   if (selArr.length > 1){
