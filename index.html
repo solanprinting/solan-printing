@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783792225';
+window.APP_VERSION = '1783793224';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22643,6 +22643,35 @@ function pi_fontRecommendation(f){
   if (f.standard14) return 'מומלץ להטמיע בעת ייצוא PDF';
   return 'ייצא מחדש עם Embed Fonts';
 }
+// סריקת פונטים מהירה לקובץ (מבנה בלבד, בלי רינדור) — למטמון f.fontCheck לשער ההפקה
+function pi_scanFileFonts(f){
+  var frame = document.getElementById('pi-tpl-frame'), fontFn = frame && frame.contentWindow && frame.contentWindow.pdfFontReport;
+  if (!fontFn || !f.sourceFileUrl){ f.fontCheck = { overall: 'none', counts: {} }; return Promise.resolve(f.fontCheck); }
+  return fetch(f.sourceFileUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){ return fontFn(new Uint8Array(buf)); })
+    .then(function(fonts){ var fc = pi_classifyFonts(fonts || []);
+      f.fontCheck = { overall: fc.overall, counts: fc.counts,
+        strongNames: fc.fonts.filter(function(x){ return x.status==='strong'; }).map(function(x){ return x.name; }),
+        blockNames:  fc.fonts.filter(function(x){ return x.status==='block';  }).map(function(x){ return x.name; }) };
+      return f.fontCheck; })
+    .catch(function(){ f.fontCheck = { overall: 'none', counts: {} }; return f.fontCheck; });
+}
+// מודל חוסם: פונטים חסרים/פגומים בקבצים — לא מפיקים עד תיקון
+function pi_showFontBlock(files){
+  var rows = files.map(function(f){
+    return '<div style="border:1px solid #fecaca;border-radius:9px;padding:9px 11px;margin-bottom:7px;background:#fff">' +
+      '<div style="font-weight:800;color:#991b1b;font-size:.86rem">' + escHtml(f.name || 'קובץ') + '</div>' +
+      '<div style="font-size:.76rem;color:#b91c1c;margin-top:2px">⛔ פונטים חסרים/פגומים: ' + escHtml((f.fontCheck.blockNames||[]).slice(0,5).join(', ') || '—') + '</div>' +
+      '<button onclick="this.closest(\'.modal-overlay\').remove();pi_preflightFile(\'' + f.id + '\')" style="margin-top:6px;padding:5px 11px;border:1px solid #c7d2fe;border-radius:7px;background:#eef2ff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.76rem">🔎 פתח Preflight</button>' +
+    '</div>';
+  }).join('');
+  var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 290;
+  m.innerHTML = '<div class="modal-box" style="max-width:520px;width:94vw">' +
+    '<div class="modal-header" style="background:#fef2f2;color:#991b1b"><span>⛔ לא ניתן להפיק — פונטים חסרים/פגומים</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:16px 18px">' +
+      '<div style="font-size:.88rem;color:#374151;margin-bottom:12px;line-height:1.6">לא ניתן להבטיח שהטקסט יודפס נכון. נדרש קובץ חדש / ייצוא מחדש של ה-PDF עם הטמעת פונטים.</div>' + rows +
+    '</div></div>';
+  document.body.appendChild(m);
+}
 function pi_preflightFile(fileId){
   var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === fileId; });
   if (!f){ showToast('קובץ לא נמצא'); return; }
@@ -22673,6 +22702,9 @@ function pi_showPreflightReport(f, st, col, dpi, fonts){
     // ── פונטים: סיווג מקצועי ל-4 קטגוריות (בלי False Positives) ──
     if (fonts && fonts.length){
       var fc = pi_classifyFonts(fonts), cc = fc.counts;
+      try { f.fontCheck = { overall: fc.overall, counts: cc,   // מטמון לשער ההפקה (עקבי עם 🔎)
+        strongNames: fc.fonts.filter(function(x){ return x.status==='strong'; }).map(function(x){ return x.name; }),
+        blockNames:  fc.fonts.filter(function(x){ return x.status==='block';  }).map(function(x){ return x.name; }) }; } catch(e){}
       if (cc.block) C.push({ cat:'block', t:'⛔ נמצאו פונטים חסרים או פגומים (' + cc.block + ')', note:'לא ניתן להבטיח שהקובץ יודפס בצורה תקינה — נדרש קובץ חדש / ייצוא מחדש של ה-PDF' });
       if (cc.strong) C.push({ cat:'strong', t:'נמצאו פונטים לא מוטמעים (' + cc.strong + ') — לא סטנדרטיים', note:'ייתכן שהטקסט ישתנה בהפקה. מומלץ לייצא מחדש עם Embed Fonts: ' + fc.fonts.filter(function(x){return x.status==='strong';}).map(function(x){return x.name;}).slice(0,6).join(', ') });
       if (cc.warn) C.push({ cat:'warn', t:'פונטים סטנדרטיים לא מוטמעים (' + cc.warn + ') — Helvetica/Times וכו׳', note:'ברוב מערכות ה-RIP אין לכך משמעות, אך מומלץ להטמיע בעת ייצוא PDF' });
@@ -22757,7 +22789,7 @@ function pi_autofixAnnots(fileId){
     var folder = pi_safeName(cur.name||'manual');
     var path = 'impositionFiles/' + folder + '/' + cur.id + '/fixed_' + Date.now() + '_' + String(f.name||'file').replace(/[^\w.\-]+/g,'_');
     var blob = new Blob([bytes], { type:'application/pdf' });
-    return _uploadProofToStorage(path, blob, null).then(function(url){ f.sourceFileUrl = url; f.corrected = true; window._pi.dirty = true; window._pi.previews && (delete window._pi.previews[f.id]); });
+    return _uploadProofToStorage(path, blob, null).then(function(url){ f.sourceFileUrl = url; f.corrected = true; f.bleedChecked = false; delete f.fontCheck; delete f.preflight; window._pi.dirty = true; window._pi.previews && (delete window._pi.previews[f.id]); });
   }).then(function(){ pi_progressClose(); pi_render(); showToast('✓ הערות הוסרו — גרסה מתוקנת נשמרה'); })
     .catch(function(e){ pi_progressClose(); console.error(e); showToast('❌ התיקון נכשל'); });
 }
@@ -23393,6 +23425,22 @@ function pi_exportProductionPdf(){
       var names = noBleed.map(function(f){ return f.name || 'קובץ'; }).slice(0,4).join(', ');
       if (!confirm('⚠️ זוהו ' + noBleed.length + ' קבצים ללא בליד (' + names + (noBleed.length>4?' …':'') + ').\nהמערכת לא מוסיפה בליד אוטומטית — הגרפיקה לא תגלוש מעבר לקו החיתוך.\nלהמשיך בכל זאת?')) return;
       cur._bleedWarned = true;   // לא לשאול שוב באותה עבודה
+    }
+    // ── בדיקת פונטים לפני הפקה: block=חסום · strong=אזהרה (confirm) · warn/base-14=עובר בשקט ──
+    var placedF = (cur.files||[]).filter(function(f){ return f.sourceFileUrl && (cur.items||[]).some(function(it){ return it.fileId === f.id; }); });
+    var uncheckedF = placedF.filter(function(f){ return !f.fontCheck; });
+    if (uncheckedF.length){
+      showToast('🔤 בודק פונטים ב-' + uncheckedF.length + ' קבצים…');
+      Promise.all(uncheckedF.map(pi_scanFileFonts)).then(function(){ pi_exportProductionPdf(); });
+      return;
+    }
+    var blockF = placedF.filter(function(f){ return f.fontCheck && f.fontCheck.overall === 'block'; });
+    if (blockF.length){ pi_showFontBlock(blockF); return; }
+    var strongF = placedF.filter(function(f){ return f.fontCheck && f.fontCheck.overall === 'strong'; });
+    if (strongF.length && !cur._fontWarned){
+      var snm = strongF.map(function(f){ return f.name || 'קובץ'; }).slice(0,4).join(', ');
+      if (!confirm('⚠ ב-' + strongF.length + ' קבצים יש פונטים לא-מוטמעים שאינם סטנדרטיים (' + snm + (strongF.length>4?' …':'') + ').\n\nייתכן שהטקסט ישתנה בהפקה. מומלץ לבקש מהלקוח ייצוא מחדש עם Embed Fonts.\n\nלהמשיך בכל זאת?')) return;
+      cur._fontWarned = true;
     }
   }
   var g = pi_curGeom();
