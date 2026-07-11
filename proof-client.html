@@ -71,9 +71,9 @@
   #spread .page { position:relative; display:inline-block; line-height:0; }
   #spread .page.drop-on { outline:4px dashed var(--press); outline-offset:-2px; }
   #spread img { display:block; height:78vh; width:auto; max-width:48vw; background:#fff; box-shadow:none; }
-  /* תצוגה "נטו": ה-div מציג רק את אזור החיתוך (TrimBox) של העמוד דרך background, כך שהבלידs לא נראה והעמודים מתחברים */
-  #spread .page.netcrop { display:block; height:78vh; width:auto; max-width:48vw; background-color:#fff; background-repeat:no-repeat; }
-  #spread .trim { position:absolute; border:1.5px dashed #e11d48; box-sizing:border-box; pointer-events:none; }
+  /* תצוגת "גלישות": חיתוך נטו רק בצד השדרה (חיבור נקי); בצדדים החיצוניים בליד + צלבי חיתוך + מסגרת trim — כדי לבדוק שיש מספיק גלישות */
+  #spread .mediacrop { display:block; height:78vh; width:auto; max-width:48vw; background-color:#fff; background-repeat:no-repeat; }
+  #spread .trimframe { position:absolute; box-sizing:border-box; pointer-events:none; }
   #spread .pgdel { position:absolute; top:8px; left:8px; width:34px; height:34px; border:none; border-radius:50%;
     background:rgba(220,38,38,.92); color:#fff; font-size:1.05rem; font-weight:800; cursor:pointer; line-height:1;
     box-shadow:0 2px 6px rgba(0,0,0,.35); z-index:3; }
@@ -97,6 +97,8 @@
   #viewer:fullscreen #spread img { height:auto; width:auto; max-height:90vh; max-width:48vw; }
   /* עמוד בודד (שער/אחרון) — מנצל כמעט את כל רוחב המסך */
   #viewer:fullscreen #spread .page:only-child img { max-width:94vw; max-height:92vh; }
+  #viewer:fullscreen #spread .mediacrop { height:86vh; max-height:90vh; max-width:48vw; }
+  #viewer:fullscreen #spread .page:only-child .mediacrop { height:90vh; max-width:94vw; }
   #viewer:fullscreen #vnav { margin-top:6px; }
   #viewer:fullscreen #vlabel { color:#fff; }
 
@@ -522,6 +524,20 @@ function alignSpread(idx) {
   return 0;
 }
 
+// חישוב אזור התצוגה (חיתוך שדרה בלבד) + מיקום מסגרת ה-trim, לפי TrimBox — זהה ל-proof-viewer
+function _pageNetSpec(tf, spine){
+  const mediaHmm = tf.hmm / tf.h, mediaWmm = tf.wmm / tf.w;
+  let shownL, shownR;
+  if (spine === 'left'){ shownL = tf.l; shownR = 1; }
+  else if (spine === 'right'){ shownL = 0; shownR = tf.l + tf.w; }
+  else { shownL = 0; shownR = 1; }
+  const shownW = shownR - shownL;
+  const arr = (shownW * mediaWmm) / mediaHmm;
+  const posX = shownW < 1 ? (shownL / (1 - shownW) * 100) : 0;
+  const sizeW = 100 / shownW;
+  const trimL = (tf.l - shownL) / shownW, trimR = (tf.l + tf.w - shownL) / shownW;
+  return { arr, sizeW, posX, frame: { left: trimL*100, top: tf.t*100, width: (trimR-trimL)*100, height: tf.h*100, skip: spine } };
+}
 function renderViewer() {
   const spread = $('spread');
   if (!pages.length) { spread.innerHTML = '<div class="ph">העלו קבצים כדי לצפות ולדפדף</div>'; $('vlabel').textContent=''; return; }
@@ -534,20 +550,23 @@ function renderViewer() {
   $('vprev').disabled = vIndex <= 0;
   $('vnext').disabled = vIndex >= _views.length - 1;
   // dir rtl: עמוד נמוך מימין. עוטף ב-.page עם קו חיתוך (TrimBox), כפתור מחיקה, ויעד גרירה.
-  spread.innerHTML = s.map(i => {
+  const two = s.length === 2;
+  spread.innerHTML = s.map((i, pos) => {
     const p = pages[i];
     const tf = p.trimFrac;
     if (tf && (tf.w < 1 || tf.h < 1)) {
-      // תצוגה נטו: חותכים ל-TrimBox דרך background, כדי שכפולה תתחבר גם כשיש בליד
-      const ar = (p.wmm && p.hmm) ? (p.wmm / p.hmm) : (tf.w / tf.h);
-      const posX = tf.w < 1 ? (tf.l / (1 - tf.w) * 100) : 0;
-      const posY = tf.h < 1 ? (tf.t / (1 - tf.h) * 100) : 0;
-      const sizeW = (100 / tf.w).toFixed(3);
-      const sizeH = (100 / tf.h).toFixed(3);
-      const st = `aspect-ratio:${ar.toFixed(4)};background-image:url('${p.src}');`
-        + `background-size:${sizeW}% ${sizeH}%;background-position:${posX.toFixed(3)}% ${posY.toFixed(3)}%;`;
+      // חיתוך נטו רק בשדרה; בצדדים החיצוניים בליד + צלבים + מסגרת trim (אותה תצוגה שהמדפיס רואה)
+      const spine = two ? (pos === 0 ? 'left' : 'right') : 'left';
+      const sp = _pageNetSpec({ l:tf.l, t:tf.t, w:tf.w, h:tf.h, wmm:p.wmm, hmm:p.hmm }, spine);
+      const mc = `aspect-ratio:${sp.arr.toFixed(4)};background-image:url('${p.src}');`
+        + `background-size:${sp.sizeW.toFixed(3)}% 100%;background-position:${sp.posX.toFixed(3)}% 0%;`;
+      const f = sp.frame;
+      const fb = `border:1.4px dashed #e11d48;`
+        + (f.skip === 'left' ? 'border-left:none;' : '') + (f.skip === 'right' ? 'border-right:none;' : '');
+      const fst = `left:${f.left.toFixed(2)}%;top:${f.top.toFixed(2)}%;width:${f.width.toFixed(2)}%;height:${f.height.toFixed(2)}%;${fb}`;
       return `<div class="pagewrap">`
-        + `<div class="page netcrop" data-idx="${i}" data-uid="${p.uid}" style="${st}">`
+        + `<div class="page" data-idx="${i}" data-uid="${p.uid}">`
+        + `<div class="mediacrop" style="${mc}"></div><div class="trimframe" style="${fst}"></div>`
         + `<button class="pgdel" title="מחק עמוד זה" data-uid="${p.uid}">✕</button></div>`
         + `<div class="pgnum">${p.isSpread ? '📖 כפולה — עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
     }
