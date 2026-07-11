@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783771664';
+window.APP_VERSION = '1783772237';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21771,8 +21771,41 @@ function pi_calcHub(){
       opt('🔢','גודל אחד — כמה נכנס בגיליון','פריט בודד: כמה עותקים נכנסים + גיליון אופטימלי','pi_nupCalc()') +
       opt('🧩','כמה קבצים/גדלים יחד (גנג)','ריבוי עבודות: כמה מכל אחד וכמה גיליונות לכמות','pi_gangCalc()') +
       opt('🕳️','מלא חורים בשטח פנוי','שלב עבודות מ״להכניס בחורים״ בשטח שנשאר','pi_findHolesModal()') +
+      opt('📐','פיצוי זחילה (creep)','חוברת תפר-אוכף: כמה להזיז דפים פנימיים לכיוון השדרה','pi_creepCalc()') +
     '</div></div>';
   document.body.appendChild(m);
+}
+// מחשבון פיצוי זחילה (creep/push-out) לחוברת תפר-אוכף — ייעוצי. מציג הזזה לכל דף ופרופיל מדורג.
+// הערה: אם ההפקה עוברת דרך Apogee שמפעיל creep משלו — אין להפעיל פיצוי כפול.
+function pi_creepCalc(){
+  var cur = window._pi.cur;
+  var pg0 = (cur && cur.signatures ? (cur.signatures.reduce(function(s,x){ return s + ((x.pageMap||[]).filter(function(v){return v!=null;}).length); }, 0)) : 0) || 32;
+  var m = document.createElement('div'); m.id = 'pi-creep-modal'; m.className = 'modal-overlay open'; m.style.zIndex = 284;
+  m.innerHTML = '<div class="modal-box" style="max-width:480px;width:94vw">' +
+    '<div class="modal-header"><span>📐 פיצוי זחילה (creep) — תפר-אוכף</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>' +
+    '<div style="padding:16px 18px">' +
+      '<div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:12px">' +
+        '<label style="flex:1;font-size:.78rem;color:#555">עמודי החוברת<input id="pi-creep-pg" type="number" min="4" step="4" value="' + pg0 + '" oninput="pi_creepUpdate()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;font-family:Heebo;text-align:center;font-size:1rem"></label>' +
+        '<label style="flex:1;font-size:.78rem;color:#555">עובי נייר מ״מ (caliper)<input id="pi-creep-cal" type="number" min="0" step="0.005" value="0.1" oninput="pi_creepUpdate()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;font-family:Heebo;text-align:center;font-size:1rem"></label>' +
+      '</div>' +
+      '<div style="font-size:.7rem;color:#9ca3af;margin-bottom:10px">עובי לדוגמה: 80גר׳ ≈ 0.10 · 130גר׳ ≈ 0.14 · 170גר׳ ≈ 0.18 מ״מ</div>' +
+      '<div id="pi-creep-result" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:9px;padding:12px 14px;font-size:.85rem;color:#374151;line-height:1.7"></div>' +
+      '<div style="font-size:.72rem;color:#9a3412;background:#fffbeb;border-radius:8px;padding:9px 11px;margin-top:11px;line-height:1.5">ℹ️ ייעוצי בלבד — הזזת הדפים הפנימיים לכיוון השדרה. אם ההפקה עוברת דרך Apogee עם creep משלו, אין להפעיל פיצוי כפול.</div>' +
+    '</div></div>';
+  document.body.appendChild(m);
+  pi_creepUpdate();
+}
+function pi_creepUpdate(){
+  var pg = parseInt((document.getElementById('pi-creep-pg')||{}).value) || 0;
+  var cal = parseFloat((document.getElementById('pi-creep-cal')||{}).value) || 0;
+  var r = pi_creepPushout(pg, cal);
+  var box = document.getElementById('pi-creep-result'); if (!box) return;
+  var rows = '';
+  for (var i = 0; i < r.sheets; i++){
+    var shift = Math.round((r.sheets - 1 - i) * cal * 100) / 100;   // גיליון 0 = חיצוני (זז הכי הרבה), פנימי = 0
+    rows += '<div style="display:flex;justify-content:space-between;border-top:1px dashed #fde68a;padding:2px 0"><span>גיליון ' + (i+1) + (i===0?' (חיצוני)':(i===r.sheets-1?' (פנימי)':'')) + '</span><b>' + shift.toFixed(2) + ' מ״מ לכיוון השדרה</b></div>';
+  }
+  box.innerHTML = '<div style="margin-bottom:6px"><b>' + r.sheets + '</b> גיליונות מקוננים · הזזה מקסימלית <b>' + r.maxShiftMm.toFixed(2) + ' מ״מ</b></div>' + rows;
 }
 // ── בחירה מרובה ──
 function pi_selArr(){ return (window._pi.selIds && window._pi.selIds.length) ? window._pi.selIds.slice() : (window._pi.canvasSel ? [String(window._pi.canvasSel)] : []); }
@@ -22633,8 +22666,47 @@ function pi_manualRenderItems(cur){
 }
 // ── Phase 7 — Auto Arrange (בוחר בין אריזת-רשת אופטימלית לפריטים זהים לבין shelf-packing לגדלים מעורבים) ──
 // שומר minGap, בלי גריפר/חריגה/חפיפה, מנסה סיבוב 90°. פריט שלא נכנס → unplaced.
+// חיתוך משותף (trim-adjacent): פריטים זהים מוצבים כך שקווי החיתוך מתלכדים והבליד חופף (2×בליד).
+// חוסך נייר ומאפשר חיתוך בסכין אחת בין העבודות. רלוונטי רק עם בליד וכשכל הפריטים באותו גודל.
+function pi_arrangeTrimShared(items, g){
+  if (!items.length) return null;
+  var bleed = g.defaultBleedMm || 0; if (bleed <= 0) return null;
+  var w0 = items[0].widthMm, h0 = items[0].heightMm;
+  var uniform = items.every(function(it){ return Math.abs(it.widthMm - w0) < 0.5 && Math.abs(it.heightMm - h0) < 0.5; });
+  if (!uniform) return null;
+  var W = g.printableWidthMm, H = g.printableHeightMm;
+  function grid(mw, mh){                          // mw×mh = footprint מלא (media, כולל בליד); הצעד = trim (חפיפת בליד)
+    var stepX = mw - 2 * bleed, stepY = mh - 2 * bleed;    // trim step
+    if (stepX <= 0 || stepY <= 0) return { count: 0, boxes: [] };
+    var cols = Math.max(0, Math.floor((W - 2 * bleed) / stepX + 1e-6));   // +2×בליד חיצוני נכנס לתקציב הרוחב
+    var rows = Math.max(0, Math.floor((H - 2 * bleed) / stepY + 1e-6));
+    var boxes = [];
+    for (var r = 0; r < rows; r++) for (var c = 0; c < cols; c++) boxes.push({ x: c * stepX, y: r * stepY, w: mw, h: mh });
+    return { count: cols * rows, boxes: boxes };
+  }
+  var a = grid(w0, h0), b = grid(h0, w0);         // מנסה גם 90°
+  var best = b.count > a.count ? b : a;
+  if (!best.count) return null;
+  var res = {}, unplaced = [];
+  items.forEach(function(it, i){
+    if (i < best.boxes.length){ var bx = best.boxes[i], sameFootprint = Math.abs(bx.w - w0) < 0.5;
+      res[String(it.id)] = { xMm: g.printX + bx.x, yMm: g.printY + bx.y, widthMm: bx.w, heightMm: bx.h,
+        rotation: sameFootprint ? (it.rotation || 0) : (((it.rotation || 0) + 90) % 360) };
+    } else unplaced.push(String(it.id));
+  });
+  return { res: res, unplaced: unplaced };
+}
+// פיצוי זחילה (creep/push-out) — חישוב-עזר לחוברות תפר-אוכף: כמה מזיזים כל דף פנימי לכיוון השדרה.
+// caliperMm = עובי גיליון בודד (מ״מ). pages = סה״כ עמודי החוברת. מחזיר push-out מקסימלי + הזזה לכל דף.
+function pi_creepPushout(pages, caliperMm){
+  pages = Math.max(4, Math.round(pages/4)*4); caliperMm = Math.max(0, caliperMm || 0);
+  var sheets = pages / 4;                          // מס' גיליונות מקוננים (תפר-אוכף)
+  var maxShift = (sheets - 1) * caliperMm;         // הדף הפנימי ביותר זז הכי הרבה לכיוון השדרה
+  return { sheets: sheets, maxShiftMm: Math.round(maxShift * 100) / 100, caliperMm: caliperMm };
+}
 function pi_autoArrange(items, g){
   var cands = [];
+  if (g.trimShared){ var ts = pi_arrangeTrimShared(items, g); if (ts) cands.push(ts); }   // חיתוך משותף מועדף כשהופעל
   var grid = pi_arrangeUniformGrid(items, g);   // פריטים בגודל זהה → רשת אופטימלית (4×2 וכו')
   if (grid) cands.push(grid);
   cands.push(pi_arrangeShelf(items, g));         // גדלים מעורבים / גיבוי
@@ -23243,6 +23315,7 @@ function pi_renderManualWS(){
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">שוליים מ״מ (0=גיליון מלא)<input type="number" min="0" step="0.5" value="' + Math.round((cur.marginMm!=null?cur.marginMm:g.marginLeftMm)*10)/10 + '" onchange="pi_manualSetMargin(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
     '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#3730a3;align-self:center;background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (window._pi.snap!==false?' checked':'') + ' onchange="window._pi.snap=this.checked" style="cursor:pointer"> 🧲 יישור אוטומטי</label>' +
     '<label title="עבודה שטוחה (לא כריכייה): עם רווח מינימלי בין הקבצים או צמודים" style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#166534;align-self:center;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (cur.gangGaps!==false?' checked':'') + ' onchange="pi_manualSetGaps(this.checked)" style="cursor:pointer"> ▭ רווחים בין קבצים</label>' +
+    '<label title="חיתוך משותף: הקבצים מוצבים כך שקווי החיתוך מתלכדים והבליד חופף (2×בליד) — סכין אחת בין העבודות, חוסך נייר. דורש בליד > 0 וקבצים בגודל זהה." style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:#9a3412;align-self:center;background:#fff7ed;border:1px solid #fed7aa;border-radius:7px;padding:6px 10px;cursor:pointer"><input type="checkbox"' + (cur.trimShared?' checked':'') + ' onchange="pi_manualSetTrimShared(this.checked)" style="cursor:pointer"> ✂️ חיתוך משותף</label>' +
     '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">גודל גיליון<span style="display:flex;gap:4px"><select onchange="pi_manualSetSheetSel(this.value)" style="padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo">' +
       (cur.sheetWmm>0 ? '' : '<option value="machine" selected>לפי מכונה (' + g.sheetWidthMm + '×' + g.sheetHeightMm + ')</option>') +
       pi_sheets().map(function(s){ var sel = (cur.sheetWmm===s.w && cur.sheetHmm===s.h); return '<option value="' + s.w + 'x' + s.h + '"' + (sel?' selected':'') + '>' + escHtml(s.name) + '</option>'; }).join('') +
@@ -24330,6 +24403,7 @@ function pi_curGeom(){
   if (cur && cur.bleedMm != null) g.defaultBleedMm = Math.max(0, cur.bleedMm);
   if (g.defaultBleedMm <= 0) g.minGapMm = 0;   // בלי בליד → אין צורך במרווח; הפריטים יכולים להיצמד אחד לשני
   if (cur && cur.gangGaps === false) g.minGapMm = 0;   // בחירת המשתמש: בלי רווחים בין הקבצים (עבודה שטוחה)
+  if (cur && cur.trimShared && g.defaultBleedMm > 0){ g.minGapMm = 0; g.trimShared = true; }   // חיתוך משותף: חפיפת בליד → קווי החיתוך מתלכדים
   if (cur && cur.sheetWmm > 0 && cur.sheetHmm > 0){ g.sheetWidthMm = cur.sheetWmm; g.sheetHeightMm = cur.sheetHmm; }   // גודל גיליון נבחר
   var mm = (cur && cur.marginMm != null) ? Math.max(0, cur.marginMm) : g.marginLeftMm;   // שוליים
   g.marginTopMm = g.marginBottomMm = g.marginLeftMm = g.marginRightMm = mm;
@@ -24440,6 +24514,16 @@ function pi_manualSetBleed(v){
 function pi_manualSetGaps(withGaps){
   var cur = window._pi.cur; if (!cur) return;
   cur.gangGaps = !!withGaps;   // true = מרווח מינימלי בין קבצים ; false = צמודים
+  if (withGaps) cur.trimShared = false;   // רווחים וחיתוך-משותף סותרים
+  cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null;
+  if ((cur.items||[]).length) pi_manualAutoArrange(); else pi_render();
+}
+function pi_manualSetTrimShared(on){
+  var cur = window._pi.cur; if (!cur) return;
+  cur.trimShared = !!on;                  // true = קווי חיתוך מתלכדים (חפיפת בליד)
+  if (on) cur.gangGaps = false;           // חיתוך משותף = צמוד, בלי רווחים
+  var g = pi_curGeom();
+  if (on && g.defaultBleedMm <= 0){ showToast('⚠️ חיתוך משותף דורש בליד — הגדר בליד > 0'); cur.trimShared = false; }
   cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null;
   if ((cur.items||[]).length) pi_manualAutoArrange(); else pi_render();
 }
@@ -24508,7 +24592,12 @@ function pi_validateItems(items, g){
     var a = items[i], b = items[j];
     var ox = Math.min(a.xMm+a.widthMm, b.xMm+b.widthMm) - Math.max(a.xMm, b.xMm);
     var oy = Math.min(a.yMm+a.heightMm, b.yMm+b.heightMm) - Math.max(a.yMm, b.yMm);
-    if (ox > E && oy > E){ w.push({ level:'error', key:a.key, key2:b.key, type:'overlap', text:'עמודים ' + pi_pgLabel(a) + ' ו-' + pi_pgLabel(b) + ' חופפים' }); continue; }
+    if (ox > E && oy > E){
+      // חיתוך משותף: חפיפה בגודל ~2×בליד בציר הצר היא מכוונת (קווי החיתוך מתלכדים) — לא שגיאה
+      var sharedOK = g.trimShared && Math.min(ox, oy) <= 2*(g.defaultBleedMm||0) + 0.6;
+      if (!sharedOK) w.push({ level:'error', key:a.key, key2:b.key, type:'overlap', text:'עמודים ' + pi_pgLabel(a) + ' ו-' + pi_pgLabel(b) + ' חופפים' });
+      continue;
+    }
     var dx = ox < 0 ? -ox : 0, dy = oy < 0 ? -oy : 0;
     if ((oy > E && dx > E && dx < g.minGapMm - E) || (ox > E && dy > E && dy < g.minGapMm - E))
       w.push({ level:'warn', key:a.key, key2:b.key, type:'gap', text:'מרווח קטן מ-' + g.minGapMm + ' מ״מ בין ' + pi_pgLabel(a) + ' ו-' + pi_pgLabel(b) });
