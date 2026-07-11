@@ -572,6 +572,33 @@ async function imposeRunPdf(srcUrl, segments, opts){
 }
 window.imposeRunPdf = imposeRunPdf;
 
+/* נורמליזציה: מפצל עמודי "כפולה" (רוחב ≈ פי-2 מהחציון) לשני עמודים בודדים בסדר קריאה (RTL: חצי ימין קודם).
+   כך פרופר לאפוגי ממפה עמוד-PDF ↔ folio ב-1:1 גם לריצות שאושרו לפני הפיצול-בהעלאה. אידמפוטנטי (בלי כפולות → מחזיר כמו שהוא). */
+async function splitSpreadsPdf(bytes){
+  try {
+    const src = await PDFDocument.load(bytes, { ignoreEncryption:true });
+    const pages = src.getPages();
+    if (!pages.length) return bytes;
+    const ws = pages.map(p=>p.getWidth()).slice().sort((a,b)=>a-b);
+    const med = ws[Math.floor(ws.length/2)] || 0;
+    const isDbl = p => med>0 && p.getWidth() > med*1.5;
+    if (!pages.some(isDbl)) return bytes;   // אין כפולות → ללא שינוי
+    const out = await PDFDocument.create();
+    for (let i=0;i<pages.length;i++){
+      const sp = pages[i], w=sp.getWidth(), h=sp.getHeight();
+      if (isDbl(sp)){
+        const half=w/2;
+        const embR = await out.embedPage(sp, { left:half, bottom:0, right:w, top:h }); out.addPage([half,h]).drawPage(embR);   // חצי ימין
+        const embL = await out.embedPage(sp, { left:0,    bottom:0, right:half, top:h }); out.addPage([half,h]).drawPage(embL);   // חצי שמאל
+      } else {
+        const [cp] = await out.copyPages(src, [i]); out.addPage(cp);
+      }
+    }
+    return await out.save();
+  } catch(e){ console.warn('splitSpreadsPdf failed', e); return bytes; }
+}
+window.splitSpreadsPdf = splitSpreadsPdf;
+
 /* Preflight — ניתוח מבנה PDF אמין דרך pdf-lib: boxes, bleed, גדלים, סיבוב, עמודים.
    (זיהוי צבע/DPI/פונטים נעשה בצד pdf.js; המרות אמיתיות דורשות שרת.) */
 async function pdfStructReport(bytes){

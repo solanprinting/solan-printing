@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783759518';
+window.APP_VERSION = '1783759907';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22779,13 +22779,25 @@ function pi_exportApogeeProof(proofId, partId){
     off += size;
   });
   pi_progressShow('מייצר פרופר פרוס לאפוגי (' + segments.length + ' חתימות)');
+  var _blobUrl = null;
+  // נורמליזציה: מפצל כפולות בקובץ סדר-הקריאה (כולל ריצות שאושרו לפני הפיצול-בהעלאה) → מיפוי 1:1 תקין
   Promise.resolve().then(function(){
-    return gen(u.fileUrl, segments, { sheetWmm:g.sheetWidthMm, sheetHmm:g.sheetHeightMm, bleedMm:g.defaultBleedMm, markMm:12, jobName:u.title, onProgress: pi_progressUpdate });
+    var splitFn = frame.contentWindow && frame.contentWindow.splitSpreadsPdf;
+    if (!splitFn) return u.fileUrl;   // ללא מנוע פיצול — משתמש בקובץ כמו שהוא
+    return fetch(u.fileUrl).then(function(r){ return r.arrayBuffer(); })
+      .then(function(buf){ return splitFn(new Uint8Array(buf)); })
+      .then(function(norm){
+        if (!norm || (norm.byteLength && norm.byteLength === 0)) return u.fileUrl;
+        _blobUrl = URL.createObjectURL(new Blob([norm], { type:'application/pdf' }));
+        return _blobUrl;
+      }).catch(function(){ return u.fileUrl; });
+  }).then(function(srcUrl){
+    return gen(srcUrl, segments, { sheetWmm:g.sheetWidthMm, sheetHmm:g.sheetHeightMm, bleedMm:g.defaultBleedMm, markMm:12, jobName:u.title, onProgress: pi_progressUpdate });
   }).then(function(bytes){
-    pi_progressClose();
+    pi_progressClose(); if (_blobUrl) URL.revokeObjectURL(_blobUrl);
     pi_downloadBytes(bytes, pi_safeName(u.title) + '_Apogee.pdf', 'application/pdf');
     showToast('✓ פרופר פרוס לאפוגי הופק · ' + segments.length + ' חתימות · ' + (family==='p'?'מתהפך':'פרפקטור'));
-  }).catch(function(e){ pi_progressClose(); console.error('apogee proof failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
+  }).catch(function(e){ pi_progressClose(); if (_blobUrl) URL.revokeObjectURL(_blobUrl); console.error('apogee proof failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
 }
 function pi_proofExportsHtml(){
   var units = pi_getApprovedUnits();
