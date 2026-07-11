@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783770047';
+window.APP_VERSION = '1783770377';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21641,6 +21641,30 @@ function pi_manualToggleGfx(){
   window._pi.dirty = true; pi_render();
   showToast(cur.hideGfx ? '👁 תצוגה ללא גרפיקה — רק מסגרות וצלבים' : '🖼️ תצוגה עם גרפיקה');
 }
+// ── זום + pan בקאנבס הגיליון ──
+function pi_canvasZoom(factor){
+  var wrap = document.getElementById('pi-canvas-wrap'), fx = 0.5, fy = 0.5;
+  if (wrap && wrap.scrollWidth > 0){ fx = (wrap.scrollLeft + wrap.clientWidth/2) / wrap.scrollWidth; fy = (wrap.scrollTop + wrap.clientHeight/2) / wrap.scrollHeight; }
+  window._pi.zoom = Math.max(0.4, Math.min(6, (window._pi.zoom || 1) * factor));
+  pi_render();
+  var w2 = document.getElementById('pi-canvas-wrap');
+  if (w2 && w2.scrollWidth > 0){ w2.scrollLeft = fx * w2.scrollWidth - w2.clientWidth/2; w2.scrollTop = fy * w2.scrollHeight - w2.clientHeight/2; }
+}
+function pi_zoomReset(){ window._pi.zoom = 1; pi_render(); }
+function pi_canvasWheel(e){ if (!e) return; e.preventDefault(); pi_canvasZoom(e.deltaY < 0 ? 1.15 : 0.87); }
+// גרירת רקע (לא על פריט) = הזזה (pan) של הגיליון המוגדל
+function pi_canvasPanStart(e){
+  var wrap = document.getElementById('pi-canvas-wrap'); if (!wrap) return;
+  var t = e.target;
+  if (t && (t.closest && (t.closest('[data-item]') || t.closest('[data-file-drag]')))) return;   // על פריט → לא pan
+  var pt = e.touches ? e.touches[0] : e;
+  var st = { sx: pt.clientX, sy: pt.clientY, l: wrap.scrollLeft, t: wrap.scrollTop };
+  wrap.style.cursor = 'grabbing';
+  function move(ev){ var p = ev.touches ? ev.touches[0] : ev; wrap.scrollLeft = st.l - (p.clientX - st.sx); wrap.scrollTop = st.t - (p.clientY - st.sy); if (ev.cancelable) ev.preventDefault(); }
+  function end(){ wrap.style.cursor = ''; document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', end); document.removeEventListener('touchmove', move); document.removeEventListener('touchend', end); }
+  document.addEventListener('mousemove', move); document.addEventListener('mouseup', end);
+  document.addEventListener('touchmove', move, { passive:false }); document.addEventListener('touchend', end);
+}
 // ── בחירה מרובה ──
 function pi_selArr(){ return (window._pi.selIds && window._pi.selIds.length) ? window._pi.selIds.slice() : (window._pi.canvasSel ? [String(window._pi.canvasSel)] : []); }
 function pi_selHas(id){ return pi_selArr().indexOf(String(id)) >= 0; }
@@ -23067,8 +23091,10 @@ function pi_renderManualWS(){
   var fs = !!document.fullscreenElement;
   var maxW = fs ? Math.max(600, (window.innerWidth||1200) - 580) : 520;
   var maxH = fs ? Math.max(500, (window.innerHeight||800) - 190) : 500;
-  var scale = Math.min(maxW / g.sheetWidthMm, maxH / g.sheetHeightMm);
-  window._pi.canvasScale = scale;
+  var baseScale = Math.min(maxW / g.sheetWidthMm, maxH / g.sheetHeightMm);
+  var zoom = Math.max(0.4, Math.min(6, window._pi.zoom || 1));
+  var scale = baseScale * zoom;               // זום מוחל על ה-scale הבסיסי (fit)
+  window._pi.canvasScale = scale; window._pi._canvasViewport = { w: maxW, h: maxH };
   var selArr = pi_selArr(), sel = selArr, selItem = selArr.length === 1 ? items.find(function(x){ return x.key === selArr[0]; }) : null;
   var profs = pi_profilesFor(cur.machine);
   // ── header ──
@@ -23156,8 +23182,18 @@ function pi_renderManualWS(){
     }).join('');
   }
   html += '</div>';
-  // גיליון
-  html += '<div style="flex:none">' + pi_drawSheetSvg(g, scale, items, sel, warnKeys, 'pi-canvas-svg') +
+  // גיליון — עם זום (גלגלת/כפתורים) ו-pan (גלילה כשמוגדל)
+  html += '<div style="flex:none">' +
+    '<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px;font-size:.72rem;color:#6b7280">' +
+      '<button onclick="pi_canvasZoom(0.83)" title="הקטן" style="width:26px;height:24px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;font-weight:800">−</button>' +
+      '<span style="min-width:44px;text-align:center;font-weight:700;color:#374151">' + Math.round(zoom*100) + '%</span>' +
+      '<button onclick="pi_canvasZoom(1.2)" title="הגדל" style="width:26px;height:24px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;font-weight:800">+</button>' +
+      '<button onclick="pi_zoomReset()" title="התאם לגיליון" style="height:24px;padding:0 8px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;font-weight:700;font-size:.7rem">⤢ התאם</button>' +
+      '<span style="margin-right:auto">גלגלת = זום · גרור רקע = הזזה</span>' +
+    '</div>' +
+    '<div id="pi-canvas-wrap" onwheel="pi_canvasWheel(event)" onmousedown="pi_canvasPanStart(event)" style="overflow:auto;max-width:100%;max-height:' + (maxH+6) + 'px;border:1px solid #eef2f7;border-radius:8px;background:#f1f5f9;cursor:grab">' +
+      pi_drawSheetSvg(g, scale, items, sel, warnKeys, 'pi-canvas-svg') +
+    '</div>' +
     '<div style="font-size:.7rem;color:#9ca3af;margin-top:4px;text-align:center">גרור ⠿ קובץ לגיליון · גרור פריט להזזה · 1 מ״מ = ' + scale.toFixed(2) + ' px</div></div>';
   // פאנל
   html += '<div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:9px">';
