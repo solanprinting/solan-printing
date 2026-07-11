@@ -149,6 +149,28 @@ async function _trimFracsFromPdf(bytes){
     });
   } catch(e){ return []; }
 }
+// מפצל עמודי "כפולה" (רוחב ≈ פי-2 מהחציון) לשני עמודים בודדים לתצוגה תקינה (RTL: חצי ימין קודם). אידמפוטנטי.
+async function splitSpreadsPdf(bytes){
+  try {
+    const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption:true });
+    const pages = src.getPages();
+    if (!pages.length) return bytes;
+    const ws = pages.map(p=>p.getWidth()).slice().sort((a,b)=>a-b);
+    const med = ws[Math.floor(ws.length/2)] || 0;
+    const isDbl = p => med>0 && p.getWidth() > med*1.5;
+    if (!pages.some(isDbl)) return bytes;
+    const out = await PDFLib.PDFDocument.create();
+    for (let i=0;i<pages.length;i++){
+      const sp = pages[i], w=sp.getWidth(), h=sp.getHeight();
+      if (isDbl(sp)){
+        const half=w/2;
+        const embR = await out.embedPage(sp, { left:half, bottom:0, right:w, top:h }); out.addPage([half,h]).drawPage(embR);
+        const embL = await out.embedPage(sp, { left:0, bottom:0, right:half, top:h }); out.addPage([half,h]).drawPage(embL);
+      } else { const [cp] = await out.copyPages(src, [i]); out.addPage(cp); }
+    }
+    return await out.save();
+  } catch(e){ console.warn('splitSpreadsPdf failed', e); return bytes; }
+}
 // טוען את תיבות ה-TrimBox ברקע (למסלול מטמון מהיר) ואז מרנדר מחדש עם חיתוך-נטו + מסגרת
 async function _loadTrimsBg(){
   if (!_pdfUrlForBoxes || (metas && metas.length)) return;
@@ -187,9 +209,12 @@ async function _loadTrimsBg(){
 
   _pdfUrlForBoxes = url;   // לקריאת TrimBox (חיתוך-נטו) גם במסלול מטמון מהיר
 
-  // ── פתיחה מהירה: אם יש תצוגה מרונדרת שמורה ועדכנית (פחות מ-12 שעות) — טוען אותה מיידית ללא רינדור ──
+  // כמה כפולות בריצה (נשמר באישור) — קובע אם צריך לפצל אותן לתצוגה
+  var _sprCount = ((partId && rec.parts && rec.parts[partId]) ? rec.parts[partId].spreadCount : rec.spreadCount) || 0;
+
+  // ── פתיחה מהירה: מטמון מרונדר עדכני — רק כשאין כפולות (עם כפולות צריך לפצל ולרנדר מחדש) ──
   var FRESH_MS = 12 * 60 * 60 * 1000;
-  if (cacheUrl && cacheAt && (Date.now() - cacheAt) < FRESH_MS) {
+  if (_sprCount === 0 && cacheUrl && cacheAt && (Date.now() - cacheAt) < FRESH_MS) {
     try {
       showOverlay('טוען תצוגה מהירה…', true, 0);
       imgs = await (await fetch(cacheUrl)).json();
@@ -202,10 +227,14 @@ async function _loadTrimsBg(){
   }
 
   try {
-    const buf = await (await fetch(url)).arrayBuffer();
+    showOverlay('טוען עיתון…', true, 0);
+    const rawBuf = await (await fetch(url)).arrayBuffer();
+    const orig = new Uint8Array(rawBuf);
+    let norm = orig;
+    try { norm = await splitSpreadsPdf(orig); } catch(e){ norm = orig; }   // כפולה → 2 עמודים בודדים
     showOverlay('מרנדר עמודים…', true, 0);
-    try { metas = await _trimFracsFromPdf(new Uint8Array(buf.slice(0))); } catch(e){ metas = []; }   // תיבות חיתוך לפני ש-pdf.js "בולע" את ה-buffer
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    try { metas = await _trimFracsFromPdf(norm.slice(0)); } catch(e){ metas = []; }   // תיבות חיתוך לפני ש-pdf.js "בולע" את ה-buffer
+    const pdf = await pdfjsLib.getDocument({ data: norm }).promise;
     imgs = new Array(pdf.numPages);
     for (let i = 1; i <= pdf.numPages; i++) {
       imgs[i-1] = await renderPage(pdf, i);
