@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783855578';
+window.APP_VERSION = '1783859982';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23514,6 +23514,67 @@ function pi_autofixAnnots(fileId){
   }).then(function(){ pi_progressClose(); pi_render(); showToast('✓ הערות הוסרו — גרסה מתוקנת נשמרה'); })
     .catch(function(e){ pi_progressClose(); console.error(e); showToast('❌ התיקון נכשל'); });
 }
+// ── עריכת קובץ שהעלה הלקוח: חיתוך לגודל נטו / הסרת צלבי חיתוך ─────────────
+function pi_editFileCrop(fileId){
+  var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === fileId; });
+  if (!f || !f.sourceFileUrl){ showToast('אין קובץ לערוך'); return; }
+  var ex = document.getElementById('pi-crop-modal'); if (ex) ex.remove();
+  var hasTrim = !!(f.trimWmm && f.widthMm && f.trimWmm < f.widthMm - 1);
+  var w0 = (f.trimWmm && f.trimWmm < (f.widthMm||1e9)) ? f.trimWmm : (f.widthMm || 0);
+  var h0 = (f.trimHmm && f.trimHmm < (f.heightMm||1e9)) ? f.trimHmm : (f.heightMm || 0);
+  var ov = document.createElement('div'); ov.id = 'pi-crop-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100010;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
+  ov.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:470px;width:100%;font-family:Heebo,sans-serif;overflow:hidden">'
+    + '<div style="background:var(--press);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center"><b>✂️ ערוך קובץ — חתוך והסר צלבים</b>'
+    + '<button onclick="document.getElementById(\'pi-crop-modal\').remove()" style="background:none;border:none;color:#fff;font-size:1.2rem;cursor:pointer">×</button></div>'
+    + '<div style="padding:14px 16px">'
+    + '<div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.5">חותך כל עמוד לגודל הנטו שתגדיר, ממורכז — כך צלבי חיתוך/רגיסטר וכל מה שמחוץ לגבול נעלמים. הקובץ המקורי נשמר בענן, אפשר להעלות שוב.</div>'
+    + '<div style="font-size:.78rem;color:#374151;margin-bottom:8px">גודל נוכחי: <b>' + (f.widthMm||'?') + '×' + (f.heightMm||'?') + ' מ״מ</b>' + (hasTrim ? (' · TrimBox בקובץ: <b>' + f.trimWmm + '×' + f.trimHmm + '</b>') : '') + '</div>'
+    + '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">'
+    +   '<label style="font-size:.74rem;color:#555">רוחב נטו מ״מ<br><input id="pi-crop-w" class="fi" type="number" min="1" value="' + (w0||'') + '" style="margin:0;width:92px"></label>'
+    +   '<label style="font-size:.74rem;color:#555">גובה נטו מ״מ<br><input id="pi-crop-h" class="fi" type="number" min="1" value="' + (h0||'') + '" style="margin:0;width:92px"></label>'
+    +   '<label style="font-size:.74rem;color:#555">השאר בליד מ״מ<br><input id="pi-crop-bleed" class="fi" type="number" min="0" value="0" style="margin:0;width:82px"></label>'
+    + '</div>'
+    + (hasTrim ? '<label style="display:flex;align-items:center;gap:6px;font-size:.78rem;color:#0f766e;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="pi-crop-trimbox"> חתוך לפי ה-TrimBox שבקובץ (אוטומטי — מתעלם מהשדות)</label>' : '')
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    +   '<button onclick="document.getElementById(\'pi-crop-modal\').remove()" style="padding:8px 14px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-family:Heebo">ביטול</button>'
+    +   '<button onclick="pi_applyFileCrop(\'' + fileId + '\')" style="padding:8px 16px;border:none;border-radius:8px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo">✂️ חתוך והסר צלבים</button>'
+    + '</div></div></div>';
+  document.body.appendChild(ov);
+}
+function pi_applyFileCrop(fileId){
+  var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === fileId; });
+  if (!f || !f.sourceFileUrl) return;
+  var frame = document.getElementById('pi-tpl-frame'), cropFn = frame && frame.contentWindow && frame.contentWindow.pdfCropToBox;
+  if (!cropFn){ showToast('מנוע לא זמין — נסה שוב'); return; }
+  var useTrim = !!(document.getElementById('pi-crop-trimbox') && document.getElementById('pi-crop-trimbox').checked);
+  var wMm = parseFloat((document.getElementById('pi-crop-w')||{}).value) || 0;
+  var hMm = parseFloat((document.getElementById('pi-crop-h')||{}).value) || 0;
+  var bleed = parseFloat((document.getElementById('pi-crop-bleed')||{}).value) || 0;
+  var opts;
+  if (useTrim) opts = {};
+  else {
+    if (!(wMm > 0 && hMm > 0)){ showToast('⚠️ הזן רוחב וגובה נטו'); return; }
+    opts = { wMm: wMm + 2*bleed, hMm: hMm + 2*bleed };
+  }
+  var m = document.getElementById('pi-crop-modal'); if (m) m.remove();
+  pi_progressShow('✂️ חותך ומסיר צלבים ומעלה גרסה נטו');
+  fetch(f.sourceFileUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){ return cropFn(buf, opts); }).then(function(bytes){
+    var folder = pi_safeName(cur.name||'manual');
+    var path = 'impositionFiles/' + folder + '/' + cur.id + '/cropped_' + Date.now() + '_' + String(f.name||'file').replace(/[^\w.\-]+/g,'_');
+    var blob = new Blob([bytes], { type:'application/pdf' });
+    return _uploadProofToStorage(path, blob, null).then(function(url){
+      if (!f._origFileUrl) f._origFileUrl = f.sourceFileUrl;   // שמור מקור לשחזור
+      f.sourceFileUrl = url; f.cropped = true; f.bleedChecked = false;
+      delete f.fontCheck; delete f.preflight;
+      if (opts.wMm){ f.widthMm = Math.round(opts.wMm); f.heightMm = Math.round(opts.hMm); }
+      delete f.trimWmm; delete f.trimHmm;
+      window._pi.dirty = true;
+      if (window._pi.previews) delete window._pi.previews[f.id];
+    });
+  }).then(function(){ pi_progressClose(); pi_ensurePreviews(cur); pi_render(); showToast('✂️ הצלבים הוסרו — גרסה נטו נשמרה'); })
+    .catch(function(e){ pi_progressClose(); console.error(e); showToast('❌ החיתוך נכשל'); });
+}
 // גרירת קבצים אל חלון האימפוזיציה (מאזין פעם אחת על pi-body)
 function pi_manualBindDrop(){
   var body = document.getElementById('pi-body'); if (!body || body._piDropBound) return; body._piDropBound = true;
@@ -24864,6 +24925,7 @@ function pi_renderManualWS(){
           '<span data-file-drag="' + f.id + '" title="גרור לגיליון" style="cursor:grab;color:#94a3b8;font-size:1rem;user-select:none;touch-action:none">⠿</span>' +
           (prev ? '<img src="' + prev + '" style="width:26px;height:26px;object-fit:contain;border:1px solid #e5e7eb;border-radius:3px;background:#fff;flex:none"/>' : '') +
           '<b style="flex:1;min-width:0;font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' + (green?';color:#065f46':'') + '">' + (green?'✓ ':'') + escHtml(f.name) + '</b>' +
+          (f.sourceFileUrl ? '<button onclick="pi_editFileCrop(\'' + f.id + '\')" title="ערוך קובץ — חתוך לגודל נטו / הסר צלבי חיתוך" style="flex:none;border:none;background:none;color:#0f766e;cursor:pointer;font-size:.85rem">✂️</button>' : '') +
           (f.sourceFileUrl ? '<button onclick="pi_preflightFile(\'' + f.id + '\')" title="Preflight — בדיקת הקובץ" style="flex:none;border:none;background:none;color:#7c3aed;cursor:pointer;font-size:.85rem">🔎</button>' : '') +
           (f.preflight ? '<span title="ציון Preflight" style="flex:none;font-size:.66rem;font-weight:800;color:' + (f.preflight.block?'#b91c1c':(f.preflight.warn||f.preflight.fix?'#b45309':'#065f46')) + '">' + f.preflight.score + '</span>' : '') +
           '<button onclick="pi_manualDelFile(\'' + f.id + '\')" title="מחק קובץ" style="flex:none;border:none;background:none;color:#b91c1c;cursor:pointer;font-size:.85rem">🗑</button>' +

@@ -773,6 +773,43 @@ async function pdfStripAnnots(bytes){
 }
 window.pdfStripAnnots = pdfStripAnnots;
 
+// חיתוך כל עמוד לגודל נטו (מסיר צלבי חיתוך/רגיסטר וכל מה שמחוץ לתיבה) ע"י קביעת כל תיבות ה-PDF.
+// opts: { wMm, hMm } — גודל מבוקש ממורכז; או { marginMm } — הסרת שוליים מכל צד; אחרת — לפי TrimBox של כל עמוד.
+// גם מסיר Annotations (חלק מהצלבים מגיעים כהערות).
+async function pdfCropToBox(bytes, opts){
+  if (!(bytes instanceof Uint8Array)) { try { bytes = new Uint8Array(bytes); } catch(e){} }
+  opts = opts || {};
+  const PT = 72/25.4;
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption:true });
+  doc.getPages().forEach(function(p){
+    var mb = p.getMediaBox();   // {x,y,width,height}
+    var rx, ry, rw, rh;
+    if (opts.wMm > 0 && opts.hMm > 0){
+      rw = opts.wMm*PT; rh = opts.hMm*PT;
+      rx = mb.x + (mb.width - rw)/2; ry = mb.y + (mb.height - rh)/2;
+    } else if (opts.marginMm != null && opts.marginMm > 0){
+      var m = opts.marginMm*PT;
+      rx = mb.x + m; ry = mb.y + m; rw = mb.width - 2*m; rh = mb.height - 2*m;
+    } else {
+      var tb=null; try { tb = p.getTrimBox(); } catch(e){}
+      if (tb && (tb.width < mb.width - 1 || tb.height < mb.height - 1)){ rx=tb.x; ry=tb.y; rw=tb.width; rh=tb.height; }
+      else { rx=mb.x; ry=mb.y; rw=mb.width; rh=mb.height; }   // אין TrimBox — לא חותכים
+    }
+    if (!(rw > 0 && rh > 0)) return;
+    // תוחם לתוך המדיה כדי לא לחרוג
+    rx = Math.max(mb.x, rx); ry = Math.max(mb.y, ry);
+    rw = Math.min(rw, mb.x + mb.width - rx); rh = Math.min(rh, mb.y + mb.height - ry);
+    try { p.node.delete(PDFName.of('Annots')); } catch(e){}
+    try { p.setMediaBox(rx, ry, rw, rh); } catch(e){}
+    try { p.setCropBox(rx, ry, rw, rh); } catch(e){}
+    try { p.setBleedBox(rx, ry, rw, rh); } catch(e){}
+    try { p.setTrimBox(rx, ry, rw, rh); } catch(e){}
+    try { p.setArtBox(rx, ry, rw, rh); } catch(e){}
+  });
+  return await doc.save();
+}
+window.pdfCropToBox = pdfCropToBox;
+
 // חשיפה לבדיקות
 window.fold = fold;
 window.TEMPLATES = TEMPLATES;
