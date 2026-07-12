@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783855174';
+window.APP_VERSION = '1783855578';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -18766,20 +18766,24 @@ function renderDashPipeline(){
     if (st === 'done'){ if (c.printedAt && c.printedAt.slice(0,10) === today) byStage.done.push(c); }
     else byStage[st].push(c);
   });
-  // "נשלח להדפסה" — עומס העבודה של כל מכונה (כמו רשימת הדפס בלוח הייצור): כל הריצות/עבודות
-  // המשויכות למכונה שטרם הודפסו, פר-מכונה, למעט מה שמודפס כרגע (מוצג ב"בהדפסה").
+  // "נשלח להדפסה" — זהה בדיוק לרשימת הדפס בלוח הייצור ולתור שהדפס רואה: לכל מכונה, רשומות התור
+  // שלא הודפסו (machineQueue, e.machine===machine, !done) בסדר התור, פר-רשומה, למעט מה שמודפס כרגע.
   var _wm = (typeof WORKLIST_MACHINES !== 'undefined' && WORKLIST_MACHINES.length) ? WORKLIST_MACHINES : ['מכונה 4 צבעים','מכונה 8 צבעים'];
-  var _sentSeen = {}, _sentItems = [];
+  var _printingQids = {};
+  if (window._opPrintingState) for (var _pk in window._opPrintingState){ var _pq = window._opPrintingState[_pk] && window._opPrintingState[_pk].qid; if(_pq) _printingQids[String(_pq)] = 1; }
+  var _sentItems = [];
   _wm.forEach(function(m){
     var mg = /8/.test(m) ? '8' : '4';
-    (typeof _machinePendingJobs === 'function' ? _machinePendingJobs(m) : []).forEach(function(j){
-      var c = j.card; if (!c) return;
-      if (_cardPrintingNow(c)) return;                 // מודפס כרגע → מופיע ב"בהדפסה"
-      var runTxt = j.runLabel || (j.runNum != null ? ('ריצה ' + j.runNum) : '');
-      var key = String(c.id) + '|' + runTxt + '|' + mg;
-      if (_sentSeen[key]) return; _sentSeen[key] = 1;
-      _sentItems.push({ id: c.id, name: (c.name || 'עבודה') + (runTxt ? (' · ' + runTxt) : ''), machine: m, customer: c.customer || '', _mg: mg });
-    });
+    (machineQueue||[]).filter(function(e){ return e && e.machine === m && !e.done; })
+      .sort(function(a,b){ return (a.order!=null?a.order:0) - (b.order!=null?b.order:0); })
+      .forEach(function(e){
+        if (_printingQids[String(e.qid)]) return;   // מודפס כרגע → מופיע ב"בהדפסה"
+        var c = (cards||[]).find(function(x){ return String(x.id) === String(e.cardId); });
+        var run = (c && e.runIdx >= 0 && c.runs && c.runs[e.runIdx]) ? c.runs[e.runIdx] : null;
+        var runLabel = run ? (run.label || ('ריצה ' + (run.num || (e.runIdx + 1)))) : '';
+        var nm = (c ? (c.name || c.customer || 'ללא שם') : ('עבודה ' + e.cardId)) + (runLabel ? (' · ' + runLabel) : '');
+        _sentItems.push({ id: (c ? c.id : e.cardId), name: nm, machine: m, customer: (c && c.customer) || '', _mg: mg });
+      });
   });
   byStage.sent = _sentItems;
   var CAP = 18;
