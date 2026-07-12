@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783849722';
+window.APP_VERSION = '1783850096';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -18606,9 +18606,11 @@ var _PIPE_STAGES = [
   { key:'finishing', icon:'🎨', label:'בגימורים',     type:'pipe_finishing', tone:'#0369a1', bg:'#e0f2fe', bd:'#bae6fd' },
   { key:'done',      icon:'✅', label:'הושלם היום',   type:'pipe_done',      tone:'#15803d', bg:'#f0fdf4', bd:'#bbf7d0' }
 ];
-// קבוצת מכונה של כרטיס: '8' / '4' / '' (לפי הכרטיס או הריצות)
+// קבוצת מכונה של כרטיס: '8' / '4' / '' — לפי המכונה שעליה מודפסת בפועל
+// (קודם רשומת התור הפעילה = מה שהדפס רואה, ואז הכרטיס / הריצות)
 function _pipeMachineGroup(c){
-  var m = c.machine || ((c.runs||[]).find(function(r){ return r.machine; })||{}).machine || '';
+  var qe = (machineQueue||[]).find(function(e){ return String(e.cardId)===String(c.id) && !e.done && e.machine; });
+  var m = (qe && qe.machine) || c.machine || ((c.runs||[]).find(function(r){ return r.machine; })||{}).machine || '';
   if (/8/.test(m)) return '8';
   if (/4/.test(m)) return '4';
   return '';
@@ -18683,11 +18685,20 @@ function renderDashPipeline(){
     var list = byStage[s.key], n = list.length;
     var body;
     if (s.key === 'printing'){
-      // פיצול ל-2 טבלאות: 4 צבעים / 8 צבעים
+      // 2 שורות — מכונה לכל אחת: 4 צבעים / 8 צבעים
       var g4 = list.filter(function(c){ return _pipeMachineGroup(c)!=='8'; });   // 4 או לא-ידוע
       var g8 = list.filter(function(c){ return _pipeMachineGroup(c)==='8'; });
-      var sub = function(lbl, arr){ return '<div style="margin-top:6px"><div style="font-size:.62rem;font-weight:800;color:'+s.tone+';text-align:right;border-bottom:1px solid '+s.bd+';padding-bottom:2px">'+lbl+' ('+arr.length+')</div>'+(arr.length?namesListHtml(arr,'printing'):'<div style="font-size:.62rem;color:#cbd5e1;text-align:center;padding:2px">—</div>')+'</div>'; };
-      body = '<div style="margin-top:5px">' + sub('🖨️ 4 צבעים', g4) + sub('🖨️ 8 צבעים', g8) + '</div>';
+      var sub = function(lbl, arr){
+        return '<div style="margin-top:6px;border:1px solid '+s.bd+';border-radius:8px;overflow:hidden">'
+          + '<div style="display:flex;align-items:center;justify-content:space-between;background:#fff;padding:3px 7px;border-bottom:1px solid '+s.bd+'">'
+          +   '<span style="font-size:.66rem;font-weight:800;color:'+s.tone+'">'+lbl+'</span>'
+          +   '<span style="font-size:.72rem;font-weight:900;color:'+s.tone+'">'+arr.length+'</span>'
+          + '</div>'
+          + '<div style="padding:3px 4px;max-height:110px;overflow-y:auto">'
+          +   (arr.length ? namesListHtml(arr,'printing') : '<div style="font-size:.62rem;color:#cbd5e1;text-align:center;padding:2px">—</div>')
+          + '</div></div>';
+      };
+      body = '<div style="margin-top:5px">' + sub('🖨️ מכונה 4 צבעים', g4) + sub('🖨️ מכונה 8 צבעים', g8) + '</div>';
     } else {
       body = n
         ? '<div style="margin-top:7px;border-top:1px dashed '+s.bd+';padding-top:5px;max-height:150px;overflow-y:auto">'+namesListHtml(list, s.key)+'</div>'
