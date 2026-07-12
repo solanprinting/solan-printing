@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783794261';
+window.APP_VERSION = '1783833875';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22692,13 +22692,14 @@ function pi_scanFileFonts(f, preBytes){
       return f.fontCheck; })
     .catch(function(){ f.fontCheck = { overall: 'none', counts: {} }; return f.fontCheck; });
 }
-// מודל חוסם: פונטים חסרים/פגומים בקבצים — לא מפיקים עד תיקון
+// מודל חוסם: פונטים חסרים/פגומים בקבצים — לא מפיקים עד תיקון. f._noPreflight=בלי כפתור Preflight (קובץ ריצה/לקוח).
 function pi_showFontBlock(files){
   var rows = files.map(function(f){
     return '<div style="border:1px solid #fecaca;border-radius:9px;padding:9px 11px;margin-bottom:7px;background:#fff">' +
       '<div style="font-weight:800;color:#991b1b;font-size:.86rem">' + escHtml(f.name || 'קובץ') + '</div>' +
-      '<div style="font-size:.76rem;color:#b91c1c;margin-top:2px">⛔ פונטים חסרים/פגומים: ' + escHtml((f.fontCheck.blockNames||[]).slice(0,5).join(', ') || '—') + '</div>' +
-      '<button onclick="this.closest(\'.modal-overlay\').remove();pi_preflightFile(\'' + f.id + '\')" style="margin-top:6px;padding:5px 11px;border:1px solid #c7d2fe;border-radius:7px;background:#eef2ff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.76rem">🔎 פתח Preflight</button>' +
+      '<div style="font-size:.76rem;color:#b91c1c;margin-top:2px">⛔ פונטים חסרים/פגומים: ' + escHtml(((f.fontCheck && f.fontCheck.blockNames)||[]).slice(0,5).join(', ') || '—') + '</div>' +
+      (f._noPreflight ? '<div style="font-size:.74rem;color:#7f1d1d;margin-top:4px">בקש מהלקוח לייצא מחדש את הקובץ עם הטמעת פונטים (Embed Fonts).</div>'
+        : '<button onclick="this.closest(\'.modal-overlay\').remove();pi_preflightFile(\'' + f.id + '\')" style="margin-top:6px;padding:5px 11px;border:1px solid #c7d2fe;border-radius:7px;background:#eef2ff;color:#3730a3;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.76rem">🔎 פתח Preflight</button>') +
     '</div>';
   }).join('');
   var m = document.createElement('div'); m.className = 'modal-overlay open'; m.style.zIndex = 290;
@@ -23681,12 +23682,56 @@ function pi_buildApogeeProofBytes(u){
     return { bytes: bytes, segments: segments, family: family };
   }).catch(function(e){ pi_progressClose(); if (_blobUrl) URL.revokeObjectURL(_blobUrl); throw e; });
 }
+// ── שער פונטים למסלול הכרטיס: בודק את קובץ הריצה לפני שמייצרים פרופר לאפוגי ──
+function pi_unitFontKey(u){ return (u.proofId || '') + '|' + (u.partId || ''); }
+function pi_unitFontSummary(fonts){
+  var c = pi_classifyFonts(fonts || []);
+  return { overall: c.overall, counts: c.counts,
+    strongNames: c.fonts.filter(function(x){ return x.status==='strong'; }).map(function(x){ return x.name; }),
+    blockNames:  c.fonts.filter(function(x){ return x.status==='block';  }).map(function(x){ return x.name; }) };
+}
+function pi_apogeeFontGate(u, proceed){
+  window._pi._unitFontChecks = window._pi._unitFontChecks || {};
+  var key = pi_unitFontKey(u);
+  var evaluate = function(fc){
+    if (fc && fc.overall === 'block'){ pi_showFontBlock([{ id: '__unit__', name: u.title || 'קובץ הריצה', fontCheck: fc, _noPreflight: true }]); return; }
+    if (fc && fc.overall === 'strong' && !window._pi._unitFontWarned){
+      var snm = (fc.strongNames || []).slice(0, 4).join(', ');
+      if (!confirm('⚠ בקובץ הריצה של הלקוח יש פונטים לא-מוטמעים שאינם סטנדרטיים (' + snm + ').\n\nייתכן שהטקסט ישתנה בהפקה. מומלץ לבקש ייצוא מחדש עם Embed Fonts.\n\nלהמשיך ולייצר פרופר בכל זאת?')) return;
+      window._pi._unitFontWarned = true;
+    }
+    proceed();
+  };
+  if (window._pi._unitFontChecks[key]){ evaluate(window._pi._unitFontChecks[key]); return; }
+  var frame = document.getElementById('pi-tpl-frame'), fontFn = frame && frame.contentWindow && frame.contentWindow.pdfFontReport;
+  if (!fontFn || !u.fileUrl){ evaluate({ overall: 'none', counts: {} }); return; }
+  showToast('🔤 בודק פונטים בקובץ הריצה…');
+  fetch(u.fileUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){ return fontFn(buf); })
+    .then(function(fonts){ var fc = pi_unitFontSummary(fonts); window._pi._unitFontChecks[key] = fc; evaluate(fc); })
+    .catch(function(){ evaluate({ overall: 'none', counts: {} }); });
+}
+// סריקת פונטים ברקע לרשימת עבודות-הלקוח (badge לפני הפקה) — פעם אחת לכל יחידה, מוגבל
+function pi_kickUnitFontScans(units){
+  window._pi._unitFontChecks = window._pi._unitFontChecks || {}; window._pi._unitScanDone = window._pi._unitScanDone || {};
+  var frame = document.getElementById('pi-tpl-frame'), fontFn = frame && frame.contentWindow && frame.contentWindow.pdfFontReport;
+  if (!fontFn) return;
+  var toScan = (units || []).filter(function(u){ var k = pi_unitFontKey(u); return u.fileUrl && !window._pi._unitFontChecks[k] && !window._pi._unitScanDone[k]; }).slice(0, 12);
+  if (!toScan.length) return;
+  toScan.forEach(function(u){ window._pi._unitScanDone[pi_unitFontKey(u)] = true; });
+  Promise.all(toScan.map(function(u){
+    return fetch(u.fileUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){ return fontFn(buf); })
+      .then(function(fonts){ window._pi._unitFontChecks[pi_unitFontKey(u)] = pi_unitFontSummary(fonts); })
+      .catch(function(){ window._pi._unitFontChecks[pi_unitFontKey(u)] = { overall: 'none' }; });
+  })).then(function(){ if (window._pi.view === 'list') pi_render(); });
+}
 function pi_exportApogeeProof(proofId, partId){
   var u = pi_unitBy(proofId, partId); if (!u || !u.fileUrl){ showToast('אין קובץ לריצה'); return; }
-  pi_buildApogeeProofBytes(u).then(function(r){
-    pi_downloadBytes(r.bytes, pi_safeName(u.title) + '_Apogee.pdf', 'application/pdf');
-    showToast('✓ פרופר פרוס לאפוגי הופק · ' + r.segments.length + ' חתימות · ' + (r.family==='p'?'מתהפך':'פרפקטור'));
-  }).catch(function(e){ console.error('apogee proof failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
+  pi_apogeeFontGate(u, function(){
+    pi_buildApogeeProofBytes(u).then(function(r){
+      pi_downloadBytes(r.bytes, pi_safeName(u.title) + '_Apogee.pdf', 'application/pdf');
+      showToast('✓ פרופר פרוס לאפוגי הופק · ' + r.segments.length + ' חתימות · ' + (r.family==='p'?'מתהפך':'פרפקטור'));
+    }).catch(function(e){ console.error('apogee proof failed', e); showToast('❌ נכשל: ' + (e && e.message || e)); });
+  });
 }
 // צפייה בפרופר הפרוס ישירות באפליקציה (בלי הורדה)
 function pi_previewApogeeProof(proofId, partId){
@@ -23735,6 +23780,15 @@ function pi_closeProofPreview(btn){ var m = btn.closest('.modal-overlay'); if (!
 function pi_proofExportsHtml(){
   var units = pi_getApprovedUnits();
   if (!units.length) return '';
+  pi_kickUnitFontScans(units);   // סריקת פונטים ברקע → badge לכל עבודה
+  var fbadge = function(u){
+    var fc = (window._pi._unitFontChecks || {})[pi_unitFontKey(u)]; if (!fc) return '';
+    if (fc.overall === 'block')  return '<span title="פונטים חסרים/פגומים — יחסום הפקה" style="flex:none;font-size:.66rem;font-weight:800;color:#b91c1c;background:#fee2e2;border-radius:5px;padding:1px 7px">⛔ פונטים</span>';
+    if (fc.overall === 'strong') return '<span title="פונטים לא-מוטמעים שאינם סטנדרטיים — מומלץ ייצוא מחדש" style="flex:none;font-size:.66rem;font-weight:800;color:#c2410c;background:#ffedd5;border-radius:5px;padding:1px 7px">⚠ פונטים</span>';
+    if (fc.overall === 'warn')   return '<span title="פונטים סטנדרטיים לא מוטמעים (Helvetica וכו׳) — לא חוסם" style="flex:none;font-size:.66rem;font-weight:700;color:#b45309;background:#fef3c7;border-radius:5px;padding:1px 7px">⚠️ std</span>';
+    if (fc.overall === 'pass')   return '<span style="flex:none;font-size:.66rem;font-weight:700;color:#065f46;background:#dcfce7;border-radius:5px;padding:1px 7px">✓ פונטים</span>';
+    return '';
+  };
   var html = '<div style="font-weight:800;color:#0f766e;font-size:.95rem;margin:2px 0 4px">📰 עבודות לקוח מאושרות (' + units.length + ')</div>' +
     '<div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px">מה שהלקוח העלה ואישר — הורד ריצה (סדר קריאה) או פרופר פרוס מוכן להעלאה לאפוגי.</div>';
   html += units.map(function(u){
@@ -23742,6 +23796,7 @@ function pi_proofExportsHtml(){
     var mtxt = card ? ('מכונה: ' + escHtml(card.machine||'—') + ' (מהכרטיס)') : '<span style="color:#b45309">אין כרטיס תואם — פרופיל ברירת מחדל</span>';
     return '<div style="border:1px solid #99f6e4;border-radius:9px;padding:9px 12px;margin-bottom:7px;background:#f0fdfa">' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="flex:1;min-width:0;font-size:.9rem">' + escHtml(u.title) + '</b>' +
+        fbadge(u) +
         '<span style="flex:none;font-size:.74rem;color:#0f766e;font-weight:800">' + u.pages + ' עמ\'</span>' +
         '<button onclick="pi_removeApprovedUnit(\'' + u.proofId + '\',\'' + (u.partId||'') + '\')" title="הסר מרשימת האימפוזיציה" style="flex:none;border:1px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:.8rem">🗑</button></div>' +
       '<div style="font-size:.72rem;color:#6b7280;margin:2px 0 7px">לקוח: ' + escHtml(u.customer||'—') + ' · ' + mtxt + '</div>' +
