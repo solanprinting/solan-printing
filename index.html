@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783859982';
+window.APP_VERSION = '1783860405';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23610,10 +23610,33 @@ function pi_piFsStyle(){
     '#piModal .modal-box:fullscreen #pi-body{max-height:calc(100vh - 54px)!important}';
   document.head.appendChild(st);
   document.addEventListener('fullscreenchange', function(){
+    // כשהעורך במסך מלא — מודלים/חלונות שנפתחים (מחשבון וכו') חייבים להיות בתוך אלמנט המסך-המלא,
+    // אחרת הם נפתחים "מאחוריו" ולא נראים עד יציאה ממסך מלא. מעתיקים אותם פנימה אוטומטית.
+    var fe = document.fullscreenElement;
+    if (fe && fe.querySelector && fe.querySelector('#pi-body')) _piStartOverlayRelocator();
+    else _piStopOverlayRelocator();
     if (window._pi && (window._pi.view === 'manual' || window._pi.view === 'canvas')) pi_render();
     if (window._piFSDraw) setTimeout(window._piFSDraw, 60);   // רענון תצוגת הגיליון המלאה בכניסה/יציאה ממסך מלא
   });
 }
+// בזמן שהעורך במסך מלא — מעביר כל שכבה צפה (modal / toast / progress) שנוספה ל-body אל תוך אלמנט המסך-המלא
+function _piStartOverlayRelocator(){
+  if (window._piOverlayObs) return;
+  var relocate = function(n){
+    var fe = document.fullscreenElement; if (!fe || n.nodeType !== 1) return;
+    if (n === fe || fe.contains(n)) return;
+    var isOverlay = (n.classList && n.classList.contains('modal-overlay')) ||
+                    (n.id && /^(pi-|toast|_)/.test(n.id)) ||
+                    (n.style && (n.style.position === 'fixed'));
+    if (isOverlay) { try { fe.appendChild(n); } catch(e){} }
+  };
+  var obs = new MutationObserver(function(muts){
+    muts.forEach(function(mu){ Array.prototype.forEach.call(mu.addedNodes||[], relocate); });
+  });
+  obs.observe(document.body, { childList: true });
+  window._piOverlayObs = obs;
+}
+function _piStopOverlayRelocator(){ if (window._piOverlayObs){ try { window._piOverlayObs.disconnect(); } catch(e){} window._piOverlayObs = null; } }
 // תצוגת גיליון נקייה במסך מלא — רק הטמפלט עם הגרפיקות, גדול ככל האפשר
 function pi_sheetFullView(){
   var cur = window._pi.cur; if (!cur) return;
