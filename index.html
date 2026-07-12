@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783846900';
+window.APP_VERSION = '1783847329';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -9978,8 +9978,10 @@ function _applyAutoDeptFlags(card) {
   var hay = ((card.type||'') + ' ' + (card.name||'') + ' ' + (card.size||'') + ' ' + (card.notes||'')).toLowerCase();
   var isPlacement = hay.indexOf('פלייסמנט') >= 0;
   var noFold = hay.indexOf('ללא קיפול') >= 0;
+  // פוסטר / חצי גיליון — לא מקפלים, גימורם חיתוך בגיליוטינה
+  var isPoster = hay.indexOf('פוסטר') >= 0 || hay.indexOf('חצי גיליון') >= 0 || /50[\s×x*]?70|70[\s×x*]?50/.test(hay);
   var pages = parseInt(card.pages) || 0;
-  if (!isPlacement && !noFold) card.needsFolding = true;
+  if (!isPlacement && !noFold && !isPoster) card.needsFolding = true;
   if (pages > 4) card.needsBinding = true;
   // שיוך חד-פעמי לסידור המחלקות (רק ביצירה — _syncDeptOrder כבר לא מוסיף אוטומטית)
   if (typeof _enrollCardInDepts === 'function') _enrollCardInDepts(card);
@@ -11785,8 +11787,18 @@ function renderTemplates() {
   el.innerHTML = html;
 }
 
-// עבודה נחשבת "בגימורים" אחרי סיום ההדפסה אם דורשת קיפול/כריכה
-function _cardNeedsFinishing(c){ return !!(c && (c.needsFolding || c.needsBinding)); }
+// סוג הגימור של עבודה: כריכה / קיפול / חיתוך בגיליוטינה (פריט שטוח — פלייסמנט/פוסטר/עלון בלי קיפול)
+function _finishingKind(c){
+  if (!c) return '';
+  if (c.needsFolding && c.needsBinding) return 'קיפול + כריכה';
+  if (c.needsBinding) return 'כריכה';
+  if (c.needsFolding) return 'קיפול';
+  return 'חיתוך בגיליוטינה';
+}
+// פריט שטוח (בלי קיפול/כריכה) — הגימור שלו הוא חיתוך בגיליוטינה
+function _cardNeedsCutting(c){ return !!(c && !c.needsFolding && !c.needsBinding); }
+// כל עבודה עוברת גימור: קיפול / כריכה, ולפריט שטוח לפחות חיתוך בגיליוטינה
+function _cardNeedsFinishing(c){ return !!(c && (c.needsFolding || c.needsBinding || _cardNeedsCutting(c))); }
 // סיום הדפסה: עבודה עם גימור → 'finishing' (ממתינה ל"סיים גימור"); אחרת → 'done'. מחזיר את הסטטוס שנקבע.
 function _completePrinting(c){
   c.printedAt = new Date().toISOString();
@@ -13173,7 +13185,7 @@ function _jobCardHtml(c) {
         <div style="display:flex;align-items:center;gap:8px">
           ${c.type?'<span class="jc-type">'+c.type+'</span>':''}
           ${statusLabel(c.status)}
-          ${c.status==='finishing' ? '<button onclick="event.stopPropagation();_finishCard('+c.id+')" title="סמן שהגימור (קיפול/כריכה) הושלם" style="background:#0369a1;color:#fff;border:none;border-radius:20px;padding:3px 11px;font-size:.72rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">✓ סיים גימור</button>' : ''}
+          ${c.status==='finishing' ? '<span title="סוג הגימור" style="font-size:.68rem;font-weight:800;color:#0369a1;background:#e0f2fe;border-radius:20px;padding:2px 9px">'+_finishingKind(c)+'</span><button onclick="event.stopPropagation();_finishCard('+c.id+')" title="סמן שהגימור הושלם" style="background:#0369a1;color:#fff;border:none;border-radius:20px;padding:3px 11px;font-size:.72rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">✓ '+(_cardNeedsCutting(c)?'סיים חיתוך':'סיים גימור')+'</button>' : ''}
           ${(function(){
             if (!c.hasProof) return '';
             var cnt = c.runProofs ? Object.keys(c.runProofs).length : 0;
