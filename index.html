@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783862493';
+window.APP_VERSION = '1783862946';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22303,10 +22303,13 @@ function pi_pdfThumb(buf){
   return pdfjsLib.getDocument({ data: buf.slice ? buf.slice(0) : buf }).promise
     .then(function(pdf){ return pdf.getPage(1); })
     .then(function(page){
-      var v1 = page.getViewport({ scale:1 }), scale = Math.min(2, 240 / Math.max(v1.width, v1.height));
+      // רזולוציה גבוהה כדי שהגרפיקה על הגיליון תיראה חדה גם בזום (עד ~2000px בצד הארוך)
+      var v1 = page.getViewport({ scale:1 }), scale = Math.min(6, 2000 / Math.max(v1.width, v1.height, 1));
       var vp = page.getViewport({ scale: scale }), c = document.createElement('canvas');
       c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
-      return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function(){ return c.toDataURL('image/jpeg', 0.72); });
+      var ctx = c.getContext('2d');
+      try { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; } catch(e){}
+      return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function(){ return c.toDataURL('image/jpeg', 0.92); });
     }).catch(function(){ return null; });
 }
 function pi_previewFromFile(file){
