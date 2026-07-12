@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783838170';
+window.APP_VERSION = '1783839457';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21726,7 +21726,18 @@ function pi_manualUploadFiles(fileList, opts){
         cur.files.push(nf);
         cur.files.sort(pi_fileCompare);   // שמירה על סדר לפי שם+עמוד גם כשההעלאות מסתיימות לא בסדר
         cur._edited = true; window._pi.dirty = true; done++;
-        if (opts.place){   // נגרר ישירות לגיליון → הצב על הגיליון מיד (בלי צעד "הוסף")
+        if (opts.attachToKey){   // שיוך הקובץ לקוביה קיימת — שומר מיקום+גודל הקוביה
+          var tgt = (cur.items||[]).find(function(x){ return String(x.id) === String(opts.attachToKey); });
+          if (tgt){
+            tgt.fileId = nf.id; delete tgt.empty; tgt.gangName = '';
+            if (tgt.bleedMm == null) tgt.bleedMm = nf.bleedMm;
+            var _fa = (dim.wMm||nf.widthMm) / (dim.hMm||nf.heightMm||1), _ba = tgt.widthMm / (tgt.heightMm||1);
+            if (_fa > 0 && _ba > 0 && Math.abs(_fa - _ba) / _ba > 0.03)
+              showToast('ℹ️ יחס הקובץ שונה מהקוביה — הקובץ יימתח לגודל הקוביה. אפשר "התאם (FIT)" בפאנל.');
+            pi_selSet([String(tgt.id)]);
+          }
+          opts.attachToKey = null;   // רק הקובץ הראשון משויך לקוביה; היתר נשארים ברשימת הקבצים
+        } else if (opts.place){   // נגרר ישירות לגיליון → הצב על הגיליון מיד (בלי צעד "הוסף")
           var base = opts.atMm || {}, k = (opts._n = (opts._n || 0) + 1) - 1;
           pi_manualAddItem(nf.id, base.xMm != null ? base.xMm + k * 8 : undefined, base.yMm != null ? base.yMm + k * 8 : undefined);
         }
@@ -21748,6 +21759,31 @@ function pi_manualFitItem(id, dim, v){
   if (dim === 'w'){ it.widthMm = Math.round(val); it.heightMm = Math.max(1, Math.round(val / aspect)); }
   else { it.heightMm = Math.round(val); it.widthMm = Math.max(1, Math.round(val * aspect)); }
   cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
+}
+// שיוך קובץ לקוביה שנבנתה ידנית — בוחר קובץ, מעלה, ומצמיד אותו לקוביה תוך שמירת גודלה
+function pi_itemAttachFile(key){
+  var cur = window._pi.cur; if (!cur) return;
+  var it = (cur.items||[]).find(function(x){ return String(x.id) === String(key); });
+  if (!it){ showToast('בחר קוביה קודם'); return; }
+  var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf,image/*';
+  inp.onchange = function(){ if (inp.files && inp.files.length) pi_manualUploadFiles([inp.files[0]], { attachToKey: String(key) }); };
+  inp.click();
+}
+// ניתוק הקובץ מהקוביה — הקוביה (המידות/המיקום) נשארת ריקה
+function pi_itemDetachFile(key){
+  var cur = window._pi.cur; if (!cur) return;
+  var it = (cur.items||[]).find(function(x){ return String(x.id) === String(key); }); if (!it) return;
+  it.empty = true; it.fileId = null;
+  cur._edited = true; window._pi.dirty = true; pi_render();
+  showToast('הקובץ נותק — הקוביה נשארה');
+}
+// בחירת צד אחד / שני צדדים לפריט (מטא-דאטה להפעלה + דף עבודה)
+function pi_itemSetSides(key, n){
+  var cur = window._pi.cur; if (!cur) return;
+  var it = (cur.items||[]).find(function(x){ return String(x.id) === String(key); }); if (!it) return;
+  it.sides = (parseInt(n) === 2) ? 2 : 1;
+  cur._edited = true; window._pi.dirty = true; pi_render();
+  showToast(it.sides === 2 ? '📑 שני צדדים' : '📄 צד אחד');
 }
 // הכנסת כל הקבצים לגיליון בלחיצה אחת + סידור אוטומטי
 function pi_manualAddAll(){
@@ -23265,12 +23301,14 @@ function pi_focusWarnItem(keys){
 // ── דף עבודה למכונה (operator worksheet) — הדפסה פיזית שהמפעיל לוקח לרצפת הייצור ──
 // שורות קבצים לגיליון: כמה עותקים על הגיליון, כמות דרושה, וכמה גיליונות להדפיס. פונקציה טהורה (נבדקת).
 function pi_worksheetRows(items, files){
-  var perFile = {};
-  (items || []).forEach(function(it){ if (it.fileId) perFile[it.fileId] = (perFile[it.fileId] || 0) + 1; });
+  var perFile = {}, sidesFor = {};
+  (items || []).forEach(function(it){ if (it.fileId){ perFile[it.fileId] = (perFile[it.fileId] || 0) + 1;
+    sidesFor[it.fileId] = Math.max(sidesFor[it.fileId] || 1, it.sides === 2 ? 2 : 1); } });
   return Object.keys(perFile).map(function(fid){
     var f = (files || []).find(function(x){ return x.id === fid; }) || {};
     var onSheet = perFile[fid], req = f.quantity || 0;
     return { fileId: fid, name: f.name || 'קובץ', wMm: f.widthMm, hMm: f.heightMm, onSheet: onSheet, required: req,
+      sides: sidesFor[fid] || 1,
       sheetsNeeded: (onSheet > 0 && req > 0) ? Math.ceil(req / onSheet) : null };
   });
 }
@@ -23310,10 +23348,10 @@ function pi_printWorksheet(){
   if (d.isManual){
     bodyHtml = d.sheets.map(function(sh){
       var rows = sh.files.map(function(r){
-        return '<tr><td>' + escHtml(r.name) + '</td><td>' + (r.wMm ? Math.round(r.wMm) + '×' + Math.round(r.hMm) : '—') + '</td><td>' + r.onSheet + '</td><td>' + (r.required || '—') + '</td><td><b>' + (r.sheetsNeeded != null ? r.sheetsNeeded : '—') + '</b></td></tr>';
-      }).join('') || '<tr><td colspan="5" style="color:#888">אין קבצים על הגיליון</td></tr>';
+        return '<tr><td>' + escHtml(r.name) + '</td><td>' + (r.wMm ? Math.round(r.wMm) + '×' + Math.round(r.hMm) : '—') + '</td><td>' + (r.sides === 2 ? '2 צדדים' : 'צד אחד') + '</td><td>' + r.onSheet + '</td><td>' + (r.required || '—') + '</td><td><b>' + (r.sheetsNeeded != null ? r.sheetsNeeded : '—') + '</b></td></tr>';
+      }).join('') || '<tr><td colspan="6" style="color:#888">אין קבצים על הגיליון</td></tr>';
       return '<h3>' + escHtml(sh.name) + ' — ' + sh.itemCount + ' פריטים' + (sh.runSheets ? ' · להדפיס ~' + sh.runSheets + ' גיליונות' : '') + '</h3>' +
-        '<table><thead><tr><th>קובץ</th><th>גודל</th><th>על הגיליון</th><th>כמות דרושה</th><th>גיליונות</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        '<table><thead><tr><th>קובץ</th><th>גודל</th><th>צדדים</th><th>על הגיליון</th><th>כמות דרושה</th><th>גיליונות</th></tr></thead><tbody>' + rows + '</tbody></table>';
     }).join('');
     if (d.totalSheets) bodyHtml += '<div class="total">סה״כ גיליונות להדפסה: <b>~' + d.totalSheets + '</b></div>';
   } else {
@@ -24326,6 +24364,19 @@ function pi_renderManualWS(){
       'מיקום: X ' + Math.round(selItem.xMm) + ' · Y ' + Math.round(selItem.yMm) + ' מ״מ · מידות ' + Math.round(selItem.widthMm) + '×' + Math.round(selItem.heightMm) + '<br>' +
       'סיבוב: ' + selItem.rotation + '° · בליד: ' + selItem.bleedMm + ' · ' +
       'כמות: <input type="number" min="1" value="' + (selItem.copies||1) + '" onchange="pi_manualSetCopies(\'' + selItem.key + '\',this.value)" style="width:52px;padding:2px 5px;border:1px solid #ddd;border-radius:5px;font-family:Heebo;text-align:center">' +
+      // שיוך / החלפת קובץ לקוביה
+      '<div style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap">' +
+        (selItem.empty
+          ? '<button onclick="pi_itemAttachFile(\'' + selItem.key + '\')" style="flex:1;min-width:150px;padding:8px;border:none;border-radius:7px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">➕ שייך קובץ לקוביה</button>'
+          : '<button onclick="pi_itemAttachFile(\'' + selItem.key + '\')" style="flex:1;padding:7px;border:1px solid #99f6e4;border-radius:7px;background:#f0fdfa;color:#0f766e;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.76rem">🔄 החלף קובץ</button>' +
+            '<button onclick="pi_itemDetachFile(\'' + selItem.key + '\')" style="flex:none;padding:7px 11px;border:1px solid #fecaca;border-radius:7px;background:#fff;color:#b91c1c;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.76rem">✖ נתק</button>') +
+      '</div>' +
+      // צד אחד / שני צדדים
+      '<div style="display:flex;gap:6px;align-items:center;margin-top:6px">' +
+        '<b style="font-size:.72rem;color:#92400e;flex:none">הדפסה:</b>' +
+        (function(){ var sd = (selItem.sides===2)?2:1; var b = function(v,lbl){ return '<button onclick="pi_itemSetSides(\'' + selItem.key + '\',' + v + ')" style="flex:1;padding:7px;border:1px solid ' + (sd===v?'#4338ca':'#e5e7eb') + ';border-radius:7px;background:' + (sd===v?'#4338ca':'#fff') + ';color:' + (sd===v?'#fff':'#374151') + ';cursor:pointer;font-family:Heebo;font-weight:700;font-size:.76rem">' + lbl + '</button>'; };
+          return b(1,'📄 צד אחד') + b(2,'📑 שני צדדים'); })() +
+      '</div>' +
       '<div style="display:flex;gap:5px;align-items:center;margin-top:8px;background:#fff;border:1px solid #fde68a;border-radius:7px;padding:5px 7px">' +
         '<b style="font-size:.72rem;color:#92400e">התאם (FIT):</b>' +
         'רוחב <input type="number" min="1" value="' + Math.round(selItem.widthMm) + '" onchange="pi_manualFitItem(\'' + selItem.key + '\',\'w\',this.value)" style="width:56px;padding:2px 5px;border:1px solid #ddd;border-radius:5px;font-family:Heebo;text-align:center">' +
