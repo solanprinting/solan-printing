@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783848502';
+window.APP_VERSION = '1783849381';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1591,6 +1591,12 @@ window._fbSnapshot = {};
         </label>
       </div>
 
+      <div class="field full" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <label style="font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:6px">🔐 בקש אישור מ:</label>
+        <select class="fi" id="f-approval-from" style="margin:0;max-width:240px"><option value="">— ללא בקשת אישור —</option></select>
+        <span style="font-size:.76rem;color:#6b7280">הכרטיס יסומן "ממתין לאישור" עד שהמאשר יאשר</span>
+      </div>
+
       <div class="field full" id="manual-runs-field">
         <label>ריצות ידניות <span style="font-weight:400;text-transform:none;font-size:.78rem;color:#aaa">(אם אין חישוב אוטומטי, או להוסיף בעצמך)</span></label>
         <div id="manual-runs-list" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
@@ -2766,6 +2772,39 @@ function _userName(id) {
   if (!id) return null;
   var u = (solanUsers||[]).find(function(x){ return x.id===id; });
   return u ? u.name : id;
+}
+
+// ── אישור כרטיס ע"י מנהל / עובד אחר ────────────────────────
+function _cardApprovalState(c){
+  if (!c || !c.approvalFrom) return 'none';
+  return c.approvedBy ? 'approved' : 'pending';
+}
+function _canApproveCard(c){
+  if (!c || _cardApprovalState(c) !== 'pending' || !currentUser) return false;
+  return !!currentUser.isAdmin || String(c.approvalFrom) === String(currentUser.id);
+}
+function _approveCard(id){
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(id); });
+  if (!c || _cardApprovalState(c) !== 'pending') return;
+  if (!_canApproveCard(c)) { showToast('🔒 רק ' + (_userName(c.approvalFrom)||'המאשר') + ' או מנהל יכולים לאשר'); return; }
+  c.approvedBy = currentUser ? currentUser.id : 'admin';
+  c.approvedAt = new Date().toISOString();
+  c._upd = Date.now();
+  persist();
+  if (typeof renderCards === 'function') renderCards();
+  if (typeof renderDashboard === 'function') renderDashboard();
+  if (typeof _logActivity === 'function') _logActivity('✔️', 'כרטיס "' + (c.name||'') + '" אושר ע"י ' + (_userName(c.approvedBy)||''), c.id);
+  showToast('✔️ הכרטיס אושר');
+}
+function _populateApproverOptions(selId){
+  var sel = document.getElementById('f-approval-from'); if (!sel) return;
+  var cur = (selId != null) ? selId : sel.value;
+  var opts = '<option value="">— ללא בקשת אישור —</option>';
+  (solanUsers||[]).forEach(function(u){
+    if (!u || (currentUser && u.id === currentUser.id)) return;   // לא מבקשים אישור מעצמנו
+    opts += '<option value="' + u.id + '"' + (String(cur)===String(u.id)?' selected':'') + '>' + escHtml(u.name || u.id) + (u.isAdmin?' (מנהל)':'') + '</option>';
+  });
+  sel.innerHTML = opts;
 }
 
 // ── מעקב "מי צפה בכרטיס" ──────────────────────────────────
@@ -6525,6 +6564,7 @@ function editCard(id) {
   // checkboxes
   if (document.getElementById('f-needs-folding')) document.getElementById('f-needs-folding').checked = !!c.needsFolding;
   if (document.getElementById('f-needs-binding')) document.getElementById('f-needs-binding').checked = !!c.needsBinding;
+  _populateApproverOptions(c.approvalFrom || '');
   // כרטיס משולב — טען לקוחות
   combinedRows = (c.combined||[]).map(function(x){ return { id: Date.now()+'_'+Math.random().toString(36).slice(2,6), customer:x.customer||'', desc:x.desc||'', qty:x.qty||'', size:x.size||'', paper:x.paper||'', notes:x.notes||'' }; });
   var _ctog = document.getElementById('f-combined-toggle'), _cwrp = document.getElementById('combined-wrap');
@@ -6596,6 +6636,7 @@ function clearForm() {
   var _tc=document.getElementById('f-tumble'); if(_tc) _tc.checked=false;
   var _bwp=document.getElementById('f-bw-process'); if(_bwp) _bwp.checked=false;
   _setBwSide('A'); _updBwSideWrap();
+  _populateApproverOptions('');
   var _a4p=document.getElementById('a4a5-per-sheet-picker'); if(_a4p) _a4p.style.display='none';
   currentRuns=[];
   manualRuns=[];
@@ -7440,6 +7481,8 @@ function saveCard() {
       updated.proofName = existing.proofName;
       updated.proofType = existing.proofType;
       updated.runProofs = existing.runProofs;
+      // אישור: אם המאשר שונה (או בוטל) — מאפסים את האישור הקודם; אחרת נשמר
+      if ((updated.approvalFrom||'') !== (existing.approvalFrom||'')) { existing.approvedBy = null; existing.approvedAt = null; }
       Object.assign(existing, updated);
       // פרופר חדש שנבחר בזמן עריכה — שמור עכשיו (לא מוקדם יותר כדי לא לאפס טופס)
       if (window._formProof) {
@@ -7603,6 +7646,8 @@ function buildTempCard() {
     perSheet:     parseInt((document.getElementById('f-per-sheet')||{value:'1'}).value)||1,
     needsFolding: document.getElementById('f-needs-folding')?document.getElementById('f-needs-folding').checked:false,
     needsBinding: document.getElementById('f-needs-binding')?document.getElementById('f-needs-binding').checked:false,
+    approvalFrom: (document.getElementById('f-approval-from')||{value:''}).value || '',
+    approvalReqBy: ((document.getElementById('f-approval-from')||{value:''}).value) ? (currentUser?currentUser.id:'admin') : null,
     combined:     _combinedClean(),
     createdAt:    new Date().toLocaleDateString('he-IL'),
     runs:         getEffectiveRuns()
@@ -7811,9 +7856,13 @@ function buildPrintCard(c) {
     : '';
   const _bwSideLbl = (c.bwSide === 'B') ? { bw: 'צד B (2)', proc: 'צד A (1)' } : { bw: 'צד A (1)', proc: 'צד B (2)' };
   const _bwProcessNote = c.bwProcess ? ('🎨 <strong>' + _bwSideLbl.bw + ': ש/ל (K)</strong> · <strong>' + _bwSideLbl.proc + ': פרוצס (CMYK)</strong>') : '';
+  const _apprState = (typeof _cardApprovalState==='function') ? _cardApprovalState(c) : 'none';
+  const _approvalNote = _apprState==='approved'
+      ? ('✔ <strong>אושר ע״י ' + escHtml(_userName(c.approvedBy)||'') + '</strong>' + (c.approvedAt ? ' · ' + new Date(c.approvedAt).toLocaleDateString('he-IL') : ''))
+      : (_apprState==='pending' ? ('⏳ <strong>ממתין לאישור ' + escHtml(_userName(c.approvalFrom)||'') + '</strong>') : '');
   // הערות המשתמש: משמרים ירידות שורה (\n → <br>) כדי שהכרטיס יראה בדיוק כמו שהוקלד
   const _userNotesHtml = (c.notes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
-  const _notesVal = [_combinedNote, _copiesMultNote, _bwProcessNote, _userNotesHtml,
+  const _notesVal = [_combinedNote, _copiesMultNote, _bwProcessNote, _approvalNote, _userNotesHtml,
       _copiesLine ? 'מספר עותקים: <strong>'+_copiesLine+'</strong>' : '',
       _sheetsTotalLine]
     .filter(Boolean).join('<br>');
@@ -13199,6 +13248,10 @@ function _jobCardHtml(c) {
           ${c.type?'<span class="jc-type">'+c.type+'</span>':''}
           ${statusLabel(c.status)}
           ${c.status==='finishing' ? '<span title="סוג הגימור" style="font-size:.68rem;font-weight:800;color:#0369a1;background:#e0f2fe;border-radius:20px;padding:2px 9px">'+_finishingKind(c)+'</span><button onclick="event.stopPropagation();_finishCard('+c.id+')" title="סמן שהגימור הושלם" style="background:#0369a1;color:#fff;border:none;border-radius:20px;padding:3px 11px;font-size:.72rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">✓ '+(_cardNeedsCutting(c)?'סיים חיתוך':'סיים גימור')+'</button>' : ''}
+          ${(function(){ var st=_cardApprovalState(c); if(st==='none') return '';
+            if(st==='approved') return '<span title="אושר '+(c.approvedAt?new Date(c.approvedAt).toLocaleDateString("he-IL"):"")+'" style="background:#dcfce7;color:#166534;border-radius:20px;padding:2px 9px;font-size:.72rem;font-weight:800;white-space:nowrap">✔ אושר ע״י '+escHtml(_userName(c.approvedBy)||'')+'</span>';
+            return '<span style="background:#fef3c7;color:#92400e;border-radius:20px;padding:2px 9px;font-size:.72rem;font-weight:800;white-space:nowrap">⏳ ממתין לאישור '+escHtml(_userName(c.approvalFrom)||'')+'</span>'+(_canApproveCard(c)?'<button onclick="event.stopPropagation();_approveCard('+c.id+')" style="background:#16a34a;color:#fff;border:none;border-radius:20px;padding:3px 11px;font-size:.72rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">✔ אשר</button>':'');
+          })()}
           ${(function(){
             if (!c.hasProof) return '';
             var cnt = c.runProofs ? Object.keys(c.runProofs).length : 0;
@@ -18537,7 +18590,7 @@ function renderDashTodayWeekly() {
 // ── זרימת עבודה (pipeline) ────────────────────────────────
 // שלב של כרטיס בזרימה: נוצר → נשלח → בהדפסה → בגימורים → הושלם
 function _pipelineStageOf(c){
-  if (!c || c.status === 'trash') return null;
+  if (!c || c.status === 'trash' || c.status === 'done_hidden' || c.status === 'archived') return null;
   if (c.status === 'done') return 'done';
   if (c.status === 'finishing') return 'finishing';
   if (c.status === 'inprogress') return 'printing';
@@ -18553,6 +18606,50 @@ var _PIPE_STAGES = [
   { key:'finishing', icon:'🎨', label:'בגימורים',     type:'pipe_finishing', tone:'#0369a1', bg:'#e0f2fe', bd:'#bae6fd' },
   { key:'done',      icon:'✅', label:'הושלם היום',   type:'pipe_done',      tone:'#15803d', bg:'#f0fdf4', bd:'#bbf7d0' }
 ];
+// קבוצת מכונה של כרטיס: '8' / '4' / '' (לפי הכרטיס או הריצות)
+function _pipeMachineGroup(c){
+  var m = c.machine || ((c.runs||[]).find(function(r){ return r.machine; })||{}).machine || '';
+  if (/8/.test(m)) return '8';
+  if (/4/.test(m)) return '4';
+  return '';
+}
+// פתיחת כרטיס מהפס
+function _pipeOpen(id){ var c=(cards||[]).find(function(x){ return String(x.id)===String(id); }); if(c && typeof showPrintModal==='function') showPrintModal(c); }
+// גרירה בין שלבים
+function _pipeDragStart(ev, id){ window._pipeDragId = String(id); try{ ev.dataTransfer.setData('text/plain', String(id)); ev.dataTransfer.effectAllowed='move'; }catch(e){} }
+function _pipeDrop(ev, stage){ if(ev&&ev.preventDefault)ev.preventDefault(); var id = window._pipeDragId || (ev.dataTransfer && ev.dataTransfer.getData('text/plain')); window._pipeDragId=null; if(id) _pipeMoveStage(id, stage); }
+// שורת שם עבודה (נגררת + לחיצה לפתיחה + חיווי אישור)
+function _pipeNameHtml(c, stageKey){
+  var idq = "'" + String(c.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'") + "'";
+  var nm = c.name || 'ללא שם';
+  var extra = (stageKey==='finishing') ? (' · '+_finishingKind(c)) : (c.customer ? (' · '+c.customer) : '');
+  var appr = _cardApprovalState(c);
+  var mark = appr==='approved' ? '<span title="אושר ע״י '+escHtml(_userName(c.approvedBy)||'')+'" style="color:#16a34a">✔</span> '
+           : appr==='pending'  ? '<span title="ממתין לאישור '+escHtml(_userName(c.approvalFrom)||'')+'" style="color:#d97706">⏳</span> ' : '• ';
+  return '<div draggable="true" ondragstart="_pipeDragStart(event,'+idq+')" onclick="event.stopPropagation();_pipeOpen('+idq+')" '
+    + 'title="'+escHtml(nm+extra)+'" '
+    + 'style="font-size:.66rem;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:2px 4px;border-radius:4px;cursor:grab;text-align:right" '
+    + 'onmouseover="this.style.background=\'rgba(0,0,0,.05)\'" onmouseout="this.style.background=\'\'">'+mark+escHtml(nm)+'</div>';
+}
+// ניקוי הושלמו — מעביר את שהושלם היום לארכיון (ניתן לשחזור)
+function _pipeClearDone(){
+  var today=_todayStr();
+  var doneToday=(cards||[]).filter(function(c){ return c && c.status==='done' && c.printedAt && c.printedAt.slice(0,10)===today; });
+  if(!doneToday.length){ showToast('אין "הושלם היום" לניקוי'); return; }
+  if(!confirm('להעביר '+doneToday.length+' עבודות שהושלמו היום לארכיון?\n(ניתן לשחזר דרך 🗄️ ארכיון כרטיסים / 🔎 מצא כרטיס אבוד)')) return;
+  Promise.all(doneToday.map(function(c){
+    return (window._fbPut ? window._fbPut('cardsArchive/'+c.id, c) : Promise.resolve(true)).then(function(ok){ return ok!==false ? c.id : null; }).catch(function(){ return null; });
+  })).then(function(ids){
+    ids = ids.filter(function(x){ return x!=null; });
+    if(!ids.length){ showToast('❌ הניקוי נכשל — נסה שוב'); return; }
+    ids.forEach(function(id){ _markDeleted('cards', id); });
+    cards=(cards||[]).filter(function(c){ return ids.indexOf(c.id)<0; });
+    persist();
+    if(typeof renderDashboard==='function') renderDashboard();
+    if(typeof renderCards==='function') renderCards();
+    showToast('🗄️ '+ids.length+' הושלמו הועברו לארכיון');
+  });
+}
 function renderDashPipeline(){
   var el = document.getElementById('dash-pipeline'); if (!el) return;
   var today = _todayStr();
@@ -18562,36 +18659,83 @@ function renderDashPipeline(){
     if (st === 'done'){ if (c.printedAt && c.printedAt.slice(0,10) === today) byStage.done.push(c); }
     else byStage[st].push(c);
   });
-  var head = '<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--d-line,#e2e8f0)">'
+  // "נשלח להדפסה" — לפי סדר תור המכונות (מה שהדפסים רואים)
+  var qOrder = {}; (machineQueue||[]).forEach(function(e, i){ var k=String(e.cardId); if(qOrder[k]==null) qOrder[k]=(e.order!=null?e.order:i); });
+  byStage.sent.sort(function(a,b){ return (qOrder[String(a.id)]==null?9e9:qOrder[String(a.id)]) - (qOrder[String(b.id)]==null?9e9:qOrder[String(b.id)]); });
+  var CAP = 18;
+  var head = '<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--d-line,#e2e8f0);gap:8px;flex-wrap:wrap">'
     + '<div style="font-size:1rem;font-weight:900;color:var(--d-text,#1e293b)">🔄 זרימת עבודה</div>'
-    + '<span style="font-size:.72rem;color:var(--d-sub,#94a3b8)">לחץ שם עבודה לפתיחה · שלב לסינון</span></div>';
-  var CAP = 18;   // תקרת שמות מוצגים לכל שלב
+    + '<div style="display:flex;align-items:center;gap:10px">'
+    + '<span style="font-size:.7rem;color:var(--d-sub,#94a3b8)">גרור עבודה בין שלבים · לחץ שם לפתיחה</span>'
+    + '<button onclick="_pipeClearDone()" title="העבר את ההושלמו של היום לארכיון" style="font-size:.72rem;font-weight:700;color:#15803d;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:Heebo,sans-serif">🧹 נקה הושלמו</button>'
+    + '</div></div>';
+  var namesListHtml = function(arr, stageKey){
+    var h = arr.slice(0, CAP).map(function(c){ return _pipeNameHtml(c, stageKey); }).join('');
+    if (arr.length > CAP) h += '<div style="font-size:.64rem;color:#94a3b8;padding:2px 4px;text-align:right">+' + (arr.length - CAP) + ' נוספות…</div>';
+    return h;
+  };
   var flow = '';
   _PIPE_STAGES.forEach(function(s, i){
     if (i > 0) flow += '<div style="flex:none;color:#cbd5e1;font-size:1.1rem;font-weight:800;user-select:none;align-self:center">‹</div>';
     var list = byStage[s.key], n = list.length;
-    var names = list.slice(0, CAP).map(function(c){
-      var nm = c.name || 'ללא שם';
-      var extra = (s.key === 'finishing') ? (' · ' + _finishingKind(c)) : (c.customer ? (' · ' + c.customer) : '');
-      return '<div onclick="event.stopPropagation();showPrintModal(cards.find(function(x){return String(x.id)===' + JSON.stringify(String(c.id)) + '}))" '
-        + 'title="' + escHtml(nm + extra) + '" '
-        + 'style="font-size:.66rem;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:2px 4px;border-radius:4px;cursor:pointer;text-align:right" '
-        + 'onmouseover="this.style.background=\'rgba(0,0,0,.05)\'" onmouseout="this.style.background=\'\'">• ' + escHtml(nm) + '</div>';
-    }).join('');
-    if (n > CAP) names += '<div style="font-size:.64rem;color:#94a3b8;padding:2px 4px;text-align:right">+' + (n - CAP) + ' נוספות…</div>';
-    var namesBlock = n
-      ? '<div style="margin-top:7px;border-top:1px dashed ' + s.bd + ';padding-top:5px;max-height:150px;overflow-y:auto">' + names + '</div>'
-      : '<div style="margin-top:7px;border-top:1px dashed ' + s.bd + ';padding-top:6px;font-size:.66rem;color:#cbd5e1;text-align:center">—</div>';
-    flow += '<button onclick="openDashFilter(\'' + s.type + '\',\'' + s.label + '\')" '
-      + 'style="flex:1;min-width:130px;background:' + s.bg + ';border:1.5px solid ' + s.bd + ';border-radius:12px;padding:11px 8px;cursor:pointer;font-family:Heebo,sans-serif;align-self:stretch;display:flex;flex-direction:column;transition:box-shadow .1s" '
-      + 'onmouseover="this.style.boxShadow=\'0 2px 10px rgba(0,0,0,.08)\'" onmouseout="this.style.boxShadow=\'\'">'
-      + '<div style="text-align:center"><div style="font-size:1.25rem;line-height:1">' + s.icon + '</div>'
-      + '<div style="font-size:1.6rem;font-weight:900;color:' + s.tone + ';line-height:1.2">' + n + '</div>'
-      + '<div style="font-size:.72rem;font-weight:700;color:#475569;white-space:nowrap">' + s.label + '</div></div>'
-      + namesBlock
+    var body;
+    if (s.key === 'printing'){
+      // פיצול ל-2 טבלאות: 4 צבעים / 8 צבעים
+      var g4 = list.filter(function(c){ return _pipeMachineGroup(c)!=='8'; });   // 4 או לא-ידוע
+      var g8 = list.filter(function(c){ return _pipeMachineGroup(c)==='8'; });
+      var sub = function(lbl, arr){ return '<div style="margin-top:6px"><div style="font-size:.62rem;font-weight:800;color:'+s.tone+';text-align:right;border-bottom:1px solid '+s.bd+';padding-bottom:2px">'+lbl+' ('+arr.length+')</div>'+(arr.length?namesListHtml(arr,'printing'):'<div style="font-size:.62rem;color:#cbd5e1;text-align:center;padding:2px">—</div>')+'</div>'; };
+      body = '<div style="margin-top:5px">' + sub('🖨️ 4 צבעים', g4) + sub('🖨️ 8 צבעים', g8) + '</div>';
+    } else {
+      body = n
+        ? '<div style="margin-top:7px;border-top:1px dashed '+s.bd+';padding-top:5px;max-height:150px;overflow-y:auto">'+namesListHtml(list, s.key)+'</div>'
+        : '<div style="margin-top:7px;border-top:1px dashed '+s.bd+';padding-top:6px;font-size:.66rem;color:#cbd5e1;text-align:center">—</div>';
+    }
+    flow += '<button onclick="openDashFilter(\''+s.type+'\',\''+s.label+'\')" '
+      + 'ondragover="event.preventDefault();this.style.boxShadow=\'inset 0 0 0 2px #6366f1\'" ondragleave="this.style.boxShadow=\'\'" ondrop="this.style.boxShadow=\'\';_pipeDrop(event,\''+s.key+'\')" '
+      + 'style="flex:1;min-width:132px;background:'+s.bg+';border:1.5px solid '+s.bd+';border-radius:12px;padding:11px 8px;cursor:pointer;font-family:Heebo,sans-serif;align-self:stretch;display:flex;flex-direction:column;transition:box-shadow .1s">'
+      + '<div style="text-align:center"><div style="font-size:1.25rem;line-height:1">'+s.icon+'</div>'
+      + '<div style="font-size:1.6rem;font-weight:900;color:'+s.tone+';line-height:1.2">'+n+'</div>'
+      + '<div style="font-size:.72rem;font-weight:700;color:#475569;white-space:nowrap">'+s.label+'</div></div>'
+      + body
       + '</button>';
   });
   el.innerHTML = head + '<div style="display:flex;align-items:flex-start;gap:6px;padding:14px 16px;overflow-x:auto">' + flow + '</div>';
+}
+// העברת עבודה בין שלבי הזרימה (גרירה)
+function _pipeMoveStage(cardId, toStage){
+  var c = (cards||[]).find(function(x){ return String(x.id)===String(cardId); });
+  if (!c) return;
+  var from = _pipelineStageOf(c);
+  if (from === toStage) return;
+  if (toStage === 'created'){
+    c.status='pending'; delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
+    (c.runs||[]).forEach(function(r){ r.done=false; });
+    machineQueue = (machineQueue||[]).filter(function(e){ return String(e.cardId)!==String(cardId); });
+  } else if (toStage === 'sent'){
+    c.status='pending'; delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
+    (c.runs||[]).forEach(function(r){ r.done=false; });
+    if (!(machineQueue||[]).some(function(e){ return String(e.cardId)===String(cardId); })){
+      if (typeof _queueAddEntry==='function') _queueAddEntry(c.id, -1, c.machine || 'מכונה 4 צבעים');
+    }
+  } else if (toStage === 'printing'){
+    c.status='inprogress'; delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
+  } else if (toStage === 'finishing'){
+    if (!c.printedAt) c.printedAt = new Date().toISOString();
+    c.status='finishing'; delete c.finishedAt;
+  } else if (toStage === 'done'){
+    if (c.status==='finishing') { _finishCard(c.id); return; }
+    c.printedAt = c.printedAt || new Date().toISOString();
+    c.status='done';
+    if (typeof _csApplyRefillOnDone==='function') _csApplyRefillOnDone(c);
+  }
+  c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+  c._upd = Date.now();
+  persist();
+  if (typeof renderDashboard==='function') renderDashboard();
+  if (typeof renderCards==='function') renderCards();
+  if (typeof renderMachineQueue==='function') renderMachineQueue();
+  var lbl = { created:'נוצר', sent:'נשלח להדפסה', printing:'בהדפסה', finishing:'בגימורים', done:'הושלם' };
+  showToast('↔ "'+(c.name||'')+'" → '+(lbl[toStage]||toStage));
 }
 // ── פס דק "עבודות להיום" (למעלה בדאשבורד) ──────────────────
 function renderDashTodayStrip(){
