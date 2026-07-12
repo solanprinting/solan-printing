@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783862946';
+window.APP_VERSION = '1783869859';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23757,19 +23757,26 @@ function pi_manualFillRemaining(key){
   var cur = window._pi.cur, g = pi_curGeom();
   var base = (cur.items||[]).find(function(x){ return String(x.id) === String(key); });
   if (!base){ showToast('בחר פריט קודם'); return; }
-  var w = base.widthMm, h = base.heightMm, gap = g.minGapMm || 3;
+  var w = base.widthMm, h = base.heightMm;
+  var gap = (typeof g.minGapMm === 'number') ? g.minGapMm : 3;   // בלי בליד → 0 (לא לכפות 3)
   if (!(w > 0 && h > 0)) return;
+  var stepX = w + gap, stepY = h + gap, E = 0.01;
   var existing = (cur.items||[]).slice();
   var overlaps = function(x, y){
     return existing.some(function(it){
-      return !(x + w + gap <= it.xMm || it.xMm + it.widthMm + gap <= x ||
-               y + h + gap <= it.yMm || it.yMm + it.heightMm + gap <= y);
+      return !(x + w + gap <= it.xMm + E || it.xMm + it.widthMm + gap <= x + E ||
+               y + h + gap <= it.yMm + E || it.yMm + it.heightMm + gap <= y + E);
     });
   };
   var X0 = g.printX, Y0 = g.printY, X1 = g.printX + g.printableWidthMm, Y1 = g.printY + g.printableHeightMm;
+  // מיישרים את הרשת לפריט הנבחר (כדי שהעותקים יתלכדו איתו ועם השורות הקיימות), ומתחילים בתוך אזור ההדפסה
+  var ax = base.xMm - Math.floor((base.xMm - X0) / stepX + E) * stepX;
+  var ay = base.yMm - Math.floor((base.yMm - Y0) / stepY + E) * stepY;
+  if (ax < X0 - E) ax += stepX;
+  if (ay < Y0 - E) ay += stepY;
   var added = [], n = 0, guard = 0;
-  for (var y = Y0; y + h <= Y1 + 0.01 && guard < 5000; y += h + gap){
-    for (var x = X0; x + w <= X1 + 0.01 && guard < 5000; x += w + gap){
+  for (var y = ay; y + h <= Y1 + E && guard < 20000; y += stepY){
+    for (var x = ax; x + w <= X1 + E && guard < 20000; x += stepX){
       guard++;
       if (overlaps(x, y)) continue;
       var copy = Object.assign({}, base, { id: 'it' + Date.now() + n + Math.random().toString(36).slice(2,4),
@@ -23854,7 +23861,9 @@ function pi_autoArrange(items, g){
   if (g.trimShared){ var ts = pi_arrangeTrimShared(items, g); if (ts) cands.push(ts); }   // חיתוך משותף מועדף כשהופעל
   var grid = pi_arrangeUniformGrid(items, g);   // פריטים בגודל זהה → רשת אופטימלית (4×2 וכו')
   if (grid) cands.push(grid);
-  cands.push(pi_arrangeShelf(items, g));         // גדלים מעורבים / גיבוי
+  // אריזת מדפים — מנסים כמה אסטרטגיות מיון/כיוון ובוחרים את הטובה ביותר (פחות פריטים "לא נכנסו")
+  [{sort:'area',tall:false},{sort:'area',tall:true},{sort:'height',tall:false},{sort:'width',tall:false},{sort:'height',tall:true}]
+    .forEach(function(o){ cands.push(pi_arrangeShelf(items, g, o)); });
   // בוחר את התוצאה שמציבה הכי הרבה פריטים; שוויון → ניצול שטח גבוה יותר
   cands.sort(function(a, b){
     var pa = Object.keys(a.res).length, pb = Object.keys(b.res).length;
@@ -23883,15 +23892,21 @@ function pi_arrangeUniformGrid(items, g){
   return { res: res, unplaced: unplaced };
 }
 // אריזת מדפים (shelf-packing): גדול→קטן, שורות משמאל-לימין, מנסה סיבוב 90°
-function pi_arrangeShelf(items, g){
+function pi_arrangeShelf(items, g, opt){
+  opt = opt || {};
   var gap = g.minGapMm, x0 = g.printX, y0 = g.printY, W = g.printableWidthMm, H = g.printableHeightMm, E = 0.01;
   var work = items.map(function(it){ return { id: String(it.id), w: it.widthMm, h: it.heightMm, rot: it.rotation || 0 }; });
-  work.sort(function(a, b){ var aa = a.w*a.h, ab = b.w*b.h; if (ab !== aa) return ab - aa; return Math.max(b.w,b.h) - Math.max(a.w,a.h); });
+  var sm = opt.sort || 'area';
+  work.sort(function(a, b){
+    if (sm === 'height') return (Math.max(b.w,b.h) - Math.max(a.w,a.h)) || (b.w*b.h - a.w*a.h);
+    if (sm === 'width')  return (b.w - a.w) || (b.w*b.h - a.w*a.h);
+    var aa = a.w*a.h, ab = b.w*b.h; if (ab !== aa) return ab - aa; return Math.max(b.w,b.h) - Math.max(a.w,a.h);
+  });
   var cx = x0, cy = y0, rowH = 0, res = {}, unplaced = [];
   work.forEach(function(w){
     var o1 = { w: w.w, h: w.h, rot: w.rot }, o2 = { w: w.h, h: w.w, rot: (w.rot + 90) % 360 };
     var opts = [o1, o2].filter(function(o){ return o.w <= W + E && o.h <= H + E; });   // חייב להיכנס לאזור ההדפסה בכלל
-    opts.sort(function(a, b){ return a.h - b.h; });   // מעדיף כיוון "רחב ונמוך" → מדפים קצרים, פחות בזבוז
+    opts.sort(function(a, b){ return opt.tall ? (a.w - b.w) : (a.h - b.h); });   // רחב-נמוך (ברירת מחדל) או צר-גבוה
     // ניסיון מיקום בלי תופעות-לוואי בכישלון
     var applied = null, chosen = null;
     for (var k = 0; k < opts.length && !applied; k++){
