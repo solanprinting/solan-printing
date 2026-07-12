@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783850454';
+window.APP_VERSION = '1783850699';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -18624,9 +18624,16 @@ var _PIPE_STAGES = [
   { key:'finishing', icon:'🎨', label:'בגימורים',     type:'pipe_finishing', tone:'#0369a1', bg:'#e0f2fe', bd:'#bae6fd' },
   { key:'done',      icon:'✅', label:'הושלם היום',   type:'pipe_done',      tone:'#15803d', bg:'#f0fdf4', bd:'#bbf7d0' }
 ];
-// קבוצת מכונה של כרטיס: '8' / '4' / '' — לפי המכונה שעליה מודפסת בפועל
-// (קודם רשומת התור הפעילה = מה שהדפס רואה, ואז הכרטיס / הריצות)
+// קבוצת מכונה של כרטיס: '8' / '4' / '' — לפי המכונה שעליה מודפסת בפועל.
+// עדיפות: (1) printingState — מפתח המכונה שמדפיס כרגע את העבודה, (2) רשומת התור הפעילה, (3) הכרטיס/הריצות.
 function _pipeMachineGroup(c){
+  if (window._opPrintingState){
+    for (var k in window._opPrintingState){
+      var qid = window._opPrintingState[k] && window._opPrintingState[k].qid; if(!qid) continue;
+      var pe = (machineQueue||[]).find(function(x){ return String(x.qid)===String(qid); });
+      if (pe && String(pe.cardId)===String(c.id)){ if(/8/.test(k)) return '8'; if(/4/.test(k)) return '4'; }
+    }
+  }
   var qe = (machineQueue||[]).find(function(e){ return String(e.cardId)===String(c.id) && !e.done && e.machine; });
   var m = (qe && qe.machine) || c.machine || ((c.runs||[]).find(function(r){ return r.machine; })||{}).machine || '';
   if (/8/.test(m)) return '8';
@@ -18712,26 +18719,30 @@ function renderDashPipeline(){
     if (arr.length > CAP) h += '<div style="font-size:.64rem;color:#94a3b8;padding:2px 4px;text-align:right">+' + (arr.length - CAP) + ' נוספות…</div>';
     return h;
   };
+  // גוף מפוצל לפי מכונה (4 / 8) — משמש את "נשלח להדפסה" ואת "בהדפסה"
+  var machineSplitBody = function(list, stageKey, tone, bd){
+    var g4 = list.filter(function(c){ return _pipeMachineGroup(c)!=='8'; });   // 4 או לא-ידוע
+    var g8 = list.filter(function(c){ return _pipeMachineGroup(c)==='8'; });
+    var sub = function(lbl, arr){
+      return '<div style="margin-top:6px;border:1px solid '+bd+';border-radius:8px;overflow:hidden">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;background:#fff;padding:3px 7px;border-bottom:1px solid '+bd+'">'
+        +   '<span style="font-size:.66rem;font-weight:800;color:'+tone+'">'+lbl+'</span>'
+        +   '<span style="font-size:.72rem;font-weight:900;color:'+tone+'">'+arr.length+'</span>'
+        + '</div>'
+        + '<div style="padding:3px 4px;max-height:110px;overflow-y:auto">'
+        +   (arr.length ? namesListHtml(arr, stageKey) : '<div style="font-size:.62rem;color:#cbd5e1;text-align:center;padding:2px">—</div>')
+        + '</div></div>';
+    };
+    return '<div style="margin-top:5px">' + sub('🖨️ מכונה 4 צבעים', g4) + sub('🖨️ מכונה 8 צבעים', g8) + '</div>';
+  };
   var flow = '';
   _PIPE_STAGES.forEach(function(s, i){
     if (i > 0) flow += '<div style="flex:none;color:#cbd5e1;font-size:1.1rem;font-weight:800;user-select:none;align-self:center">‹</div>';
     var list = byStage[s.key], n = list.length;
     var body;
-    if (s.key === 'printing'){
-      // 2 שורות — מכונה לכל אחת: 4 צבעים / 8 צבעים
-      var g4 = list.filter(function(c){ return _pipeMachineGroup(c)!=='8'; });   // 4 או לא-ידוע
-      var g8 = list.filter(function(c){ return _pipeMachineGroup(c)==='8'; });
-      var sub = function(lbl, arr){
-        return '<div style="margin-top:6px;border:1px solid '+s.bd+';border-radius:8px;overflow:hidden">'
-          + '<div style="display:flex;align-items:center;justify-content:space-between;background:#fff;padding:3px 7px;border-bottom:1px solid '+s.bd+'">'
-          +   '<span style="font-size:.66rem;font-weight:800;color:'+s.tone+'">'+lbl+'</span>'
-          +   '<span style="font-size:.72rem;font-weight:900;color:'+s.tone+'">'+arr.length+'</span>'
-          + '</div>'
-          + '<div style="padding:3px 4px;max-height:110px;overflow-y:auto">'
-          +   (arr.length ? namesListHtml(arr,'printing') : '<div style="font-size:.62rem;color:#cbd5e1;text-align:center;padding:2px">—</div>')
-          + '</div></div>';
-      };
-      body = '<div style="margin-top:5px">' + sub('🖨️ מכונה 4 צבעים', g4) + sub('🖨️ מכונה 8 צבעים', g8) + '</div>';
+    if (s.key === 'printing' || s.key === 'sent'){
+      // 2 שורות — עבודה לכל מכונה (4 / 8)
+      body = machineSplitBody(list, s.key, s.tone, s.bd);
     } else {
       body = n
         ? '<div style="margin-top:7px;border-top:1px dashed '+s.bd+';padding-top:5px;max-height:150px;overflow-y:auto">'+namesListHtml(list, s.key)+'</div>'
