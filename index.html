@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783847329';
+window.APP_VERSION = '1783848082';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -18543,28 +18543,42 @@ var _PIPE_STAGES = [
 function renderDashPipeline(){
   var el = document.getElementById('dash-pipeline'); if (!el) return;
   var today = _todayStr();
-  var counts = { created:0, sent:0, printing:0, finishing:0, done:0 };
+  var byStage = { created:[], sent:[], printing:[], finishing:[], done:[] };
   (cards||[]).forEach(function(c){
-    var st = _pipelineStageOf(c); if (!st) return;
-    if (st === 'done'){ if (c.printedAt && c.printedAt.slice(0,10) === today) counts.done++; }
-    else counts[st]++;
+    var st = _pipelineStageOf(c); if (!st || !byStage[st]) return;
+    if (st === 'done'){ if (c.printedAt && c.printedAt.slice(0,10) === today) byStage.done.push(c); }
+    else byStage[st].push(c);
   });
   var head = '<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--d-line,#e2e8f0)">'
     + '<div style="font-size:1rem;font-weight:900;color:var(--d-text,#1e293b)">🔄 זרימת עבודה</div>'
-    + '<span style="font-size:.72rem;color:var(--d-sub,#94a3b8)">לחץ שלב לסינון הכרטיסים</span></div>';
+    + '<span style="font-size:.72rem;color:var(--d-sub,#94a3b8)">לחץ שם עבודה לפתיחה · שלב לסינון</span></div>';
+  var CAP = 18;   // תקרת שמות מוצגים לכל שלב
   var flow = '';
   _PIPE_STAGES.forEach(function(s, i){
-    if (i > 0) flow += '<div style="flex:none;color:#cbd5e1;font-size:1.1rem;font-weight:800;user-select:none">‹</div>';
-    var n = counts[s.key];
+    if (i > 0) flow += '<div style="flex:none;color:#cbd5e1;font-size:1.1rem;font-weight:800;user-select:none;align-self:center">‹</div>';
+    var list = byStage[s.key], n = list.length;
+    var names = list.slice(0, CAP).map(function(c){
+      var nm = c.name || 'ללא שם';
+      var extra = (s.key === 'finishing') ? (' · ' + _finishingKind(c)) : (c.customer ? (' · ' + c.customer) : '');
+      return '<div onclick="event.stopPropagation();showPrintModal(cards.find(function(x){return String(x.id)===' + JSON.stringify(String(c.id)) + '}))" '
+        + 'title="' + escHtml(nm + extra) + '" '
+        + 'style="font-size:.66rem;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:2px 4px;border-radius:4px;cursor:pointer;text-align:right" '
+        + 'onmouseover="this.style.background=\'rgba(0,0,0,.05)\'" onmouseout="this.style.background=\'\'">• ' + escHtml(nm) + '</div>';
+    }).join('');
+    if (n > CAP) names += '<div style="font-size:.64rem;color:#94a3b8;padding:2px 4px;text-align:right">+' + (n - CAP) + ' נוספות…</div>';
+    var namesBlock = n
+      ? '<div style="margin-top:7px;border-top:1px dashed ' + s.bd + ';padding-top:5px;max-height:150px;overflow-y:auto">' + names + '</div>'
+      : '<div style="margin-top:7px;border-top:1px dashed ' + s.bd + ';padding-top:6px;font-size:.66rem;color:#cbd5e1;text-align:center">—</div>';
     flow += '<button onclick="openDashFilter(\'' + s.type + '\',\'' + s.label + '\')" '
-      + 'style="flex:1;min-width:96px;background:' + s.bg + ';border:1.5px solid ' + s.bd + ';border-radius:12px;padding:11px 8px;cursor:pointer;font-family:Heebo,sans-serif;text-align:center;transition:transform .1s" '
-      + 'onmouseover="this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'\'">'
-      + '<div style="font-size:1.25rem;line-height:1">' + s.icon + '</div>'
+      + 'style="flex:1;min-width:130px;background:' + s.bg + ';border:1.5px solid ' + s.bd + ';border-radius:12px;padding:11px 8px;cursor:pointer;font-family:Heebo,sans-serif;align-self:stretch;display:flex;flex-direction:column;transition:box-shadow .1s" '
+      + 'onmouseover="this.style.boxShadow=\'0 2px 10px rgba(0,0,0,.08)\'" onmouseout="this.style.boxShadow=\'\'">'
+      + '<div style="text-align:center"><div style="font-size:1.25rem;line-height:1">' + s.icon + '</div>'
       + '<div style="font-size:1.6rem;font-weight:900;color:' + s.tone + ';line-height:1.2">' + n + '</div>'
-      + '<div style="font-size:.72rem;font-weight:700;color:#475569;white-space:nowrap">' + s.label + '</div>'
+      + '<div style="font-size:.72rem;font-weight:700;color:#475569;white-space:nowrap">' + s.label + '</div></div>'
+      + namesBlock
       + '</button>';
   });
-  el.innerHTML = head + '<div style="display:flex;align-items:center;gap:6px;padding:14px 16px;overflow-x:auto">' + flow + '</div>';
+  el.innerHTML = head + '<div style="display:flex;align-items:flex-start;gap:6px;padding:14px 16px;overflow-x:auto">' + flow + '</div>';
 }
 // ── פס דק "עבודות להיום" (למעלה בדאשבורד) ──────────────────
 function renderDashTodayStrip(){
