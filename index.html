@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783854727';
+window.APP_VERSION = '1783855174';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -18295,6 +18295,11 @@ function toggleDashTheme() {
 function _todayStr() { return new Date().toISOString().slice(0,10); }
 
 function _dashTick() {
+  // רענון פס הזרימה — כדי שפס ההתקדמות והזמן שנותר ב"בהדפסה" יתעדכנו
+  try {
+    if (document.getElementById('dash-pipeline') && document.getElementById('view-dashboard') &&
+        document.getElementById('view-dashboard').style.display !== 'none' && typeof renderDashPipeline === 'function') renderDashPipeline();
+  } catch(e){}
   var d = document.getElementById('dash-date');
   var t = document.getElementById('dash-time');
   if (!d || !t) return;
@@ -18660,6 +18665,32 @@ function _pipeMachineGroup(c){
 }
 // פתיחת כרטיס מהפס
 function _pipeOpen(id){ var c=(cards||[]).find(function(x){ return String(x.id)===String(id); }); if(c && typeof showPrintModal==='function') showPrintModal(c); }
+// פורמט זמן שנותר
+function _fmtRemain(min){ min=Math.max(0,Math.round(min)); if(min<60) return min+' ד׳'; var h=Math.floor(min/60), m=min%60; return h+':'+(m<10?'0':'')+m+' ש׳'; }
+// התקדמות עבודה שמודפסת כרגע: אחוז + זמן שנותר, לפי startAt מ-printingState + זמן משוער
+function _printingProgress(c){
+  if (!c || !window._opPrintingState) return null;
+  var startAt=null, qid=null, machine=null;
+  for (var k in window._opPrintingState){
+    var st=window._opPrintingState[k]; if(!st||!st.qid) continue;
+    var e=(machineQueue||[]).find(function(x){ return String(x.qid)===String(st.qid); });
+    if(e && String(e.cardId)===String(c.id)){ startAt=st.startAt; qid=st.qid; machine=e.machine; break; }
+  }
+  if(!startAt) return null;
+  var e=(machineQueue||[]).find(function(x){ return String(x.qid)===String(qid); });
+  var estMin=null;
+  if(e && e.estMinutes) estMin=parseInt(e.estMinutes,10)||null;
+  if(estMin==null){
+    var run=(e && e.runIdx>=0 && c.runs && c.runs[e.runIdx]) ? c.runs[e.runIdx] : null;
+    var sheets=parseInt((run&&(run.sheets||run.papers||run.copies)) || c.sheets || c.copies || 0)||0;
+    var customT = (run && run.customTime!=null) ? parseFloat(run.customTime) : null;
+    var hrs = (customT!=null) ? customT : ((typeof _calcMachineTime==='function') ? _calcMachineTime(machine,sheets) : null);
+    if(hrs!=null && hrs>0) estMin=Math.round(hrs*60);
+  }
+  var elapsedMin=(Date.now()-startAt)/60000;
+  if(!estMin || estMin<=0) return { pct:null, elapsedMin:Math.round(elapsedMin), remainingMin:null };
+  return { pct:Math.min(100,Math.round(elapsedMin/estMin*100)), elapsedMin:Math.round(elapsedMin), remainingMin:Math.max(0,Math.round(estMin-elapsedMin)), estMin:estMin };
+}
 // גרירה בין שלבים
 function _pipeDragStart(ev, id){ window._pipeDragId = String(id); try{ ev.dataTransfer.setData('text/plain', String(id)); ev.dataTransfer.effectAllowed='move'; }catch(e){} }
 function _pipeDrop(ev, stage){ if(ev&&ev.preventDefault)ev.preventDefault(); var id = window._pipeDragId || (ev.dataTransfer && ev.dataTransfer.getData('text/plain')); window._pipeDragId=null; if(id) _pipeMoveStage(id, stage); }
@@ -18671,7 +18702,7 @@ function _pipeNameHtml(c, stageKey){
   var appr = _cardApprovalState(c);
   var mark = appr==='approved' ? '<span title="אושר ע״י '+escHtml(_userName(c.approvedBy)||'')+'" style="color:#16a34a">✔</span> '
            : appr==='pending'  ? '<span title="ממתין לאישור '+escHtml(_userName(c.approvalFrom)||'')+'" style="color:#d97706">⏳</span> ' : '';
-  return '<div style="display:flex;align-items:center;gap:3px;padding:1px 2px;border-radius:4px" '
+  var row = '<div style="display:flex;align-items:center;gap:3px;padding:1px 2px;border-radius:4px" '
       + 'onmouseover="this.style.background=\'rgba(0,0,0,.05)\'" onmouseout="this.style.background=\'\'">'
     + '<span draggable="true" ondragstart="_pipeDragStart(event,'+idq+')" title="גרור לשלב אחר" '
       + 'style="cursor:grab;color:#94a3b8;font-size:.72rem;flex:none;user-select:none;line-height:1">⠿</span>'
@@ -18679,6 +18710,19 @@ function _pipeNameHtml(c, stageKey){
       + 'style="flex:1;min-width:0;font-size:.66rem;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;text-align:right">'+mark+escHtml(nm)+'</span>'
     + (stageKey==='done' ? '<span onclick="event.stopPropagation();_pipeClearOne('+idq+')" title="נקה עבודה זו מהרשימה (לארכיון)" style="flex:none;cursor:pointer;color:#cbd5e1;font-size:.72rem;padding:0 3px;line-height:1" onmouseover="this.style.color=\'#ef4444\'" onmouseout="this.style.color=\'#cbd5e1\'">✕</span>' : '')
     + '</div>';
+  // פס התקדמות לעבודה שמודפסת כרגע
+  if (stageKey==='printing'){
+    var pr = _printingProgress(c);
+    if (pr){
+      var barW = (pr.pct!=null) ? pr.pct : 8;
+      var pctTxt = (pr.pct!=null) ? (pr.pct+'%') : '';
+      var remTxt = (pr.remainingMin!=null) ? ('נותר ~'+_fmtRemain(pr.remainingMin)) : ('רץ '+_fmtRemain(pr.elapsedMin));
+      row += '<div style="margin:1px 20px 4px 4px">'
+        + '<div style="height:5px;background:#fde3c8;border-radius:3px;overflow:hidden"><div style="height:100%;width:'+barW+'%;background:#ea580c;border-radius:3px;transition:width .5s"></div></div>'
+        + '<div style="font-size:.6rem;color:#9a3412;text-align:right;margin-top:1px">'+pctTxt+(pctTxt&&remTxt?' · ':'')+remTxt+'</div></div>';
+    }
+  }
+  return row;
 }
 // ניקוי עבודה ספציפית מ"הושלם" — לארכיון (ניתן לשחזור)
 function _pipeClearOne(id){
@@ -19196,12 +19240,11 @@ function _autoCompleteWeeklyJobs() {
     var dayAfterIdx = (schedIdx + 1) % 7;
     if (todayIdx !== dayAfterIdx) return; // פועל רק ביום שאחרי יום ההדפסה הקבוע
     var c = (cards||[]).find(function(x){ return x.id === w.cardCreated; });
-    if (!c || c.status === 'done') return;
-    c.status = 'done';
-    c.printedAt = c.printedAt || new Date().toISOString();
-    if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);
+    if (!c || c.status === 'done' || c.status === 'finishing') return;
+    // עבודה עם גימור (קיפול/כריכה/חיתוך) → 'בגימורים'; אחרת → 'הושלם'
+    var _st = _completePrinting(c);
     persist();
-    if (typeof _logActivity === 'function') _logActivity('✅', 'עבודה שבועית "'+(c.name||'')+'" סווגה אוטומטית כהושלמה');
+    if (typeof _logActivity === 'function') _logActivity(_st==='finishing'?'🎨':'✅', 'עבודה שבועית "'+(c.name||'')+'" ' + (_st==='finishing'?'הודפסה — עברה לגימורים':'סווגה אוטומטית כהושלמה'));
     if (document.getElementById('view-saved') && document.getElementById('view-saved').style.display!=='none' && typeof renderCards==='function') renderCards();
     if (document.getElementById('view-week') && document.getElementById('view-week').style.display!=='none' && typeof renderWeek==='function') renderWeek();
     if (document.getElementById('view-dashboard') && document.getElementById('view-dashboard').style.display!=='none' && typeof renderDashboard==='function') renderDashboard();
