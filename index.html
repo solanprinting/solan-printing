@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783837827';
+window.APP_VERSION = '1783838170';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1286,7 +1286,7 @@ window._fbSnapshot = {};
       </div>
       <div style="flex:1;min-width:180px">
         <label style="display:block;font-size:.76rem;color:#555;font-weight:700;margin-bottom:3px">קובץ (PDF / תמונה)</label>
-        <input id="pf-file" type="file" accept="application/pdf,image/*" onchange="_pfDetectSize(this)" style="font-size:.82rem;width:100%">
+        <input id="pf-file" type="file" onchange="_pfDetectSize(this)" style="font-size:.82rem;width:100%">
       </div>
       <button class="btn btn-primary" onclick="addPrintFile()" style="white-space:nowrap">➕ הוסף</button>
     </div>
@@ -6469,7 +6469,7 @@ function editCard(id) {
   clearForm();
   window._editingCardId = id;
   var _upBtn = document.getElementById('card-uplink-btn');
-  if (_upBtn) _upBtn.style.display = (window.PI_ENABLED && typeof pi_isAdmin === 'function' && pi_isAdmin()) ? '' : 'none';
+  if (_upBtn) _upBtn.style.display = window.PI_ENABLED ? '' : 'none';
   // fill all fields
   var setVal = function(elId, val){ var e=document.getElementById(elId); if(e) e.value=val||''; };
   setVal('f-name',          c.name);
@@ -12410,9 +12410,16 @@ function addPrintFile(){
     renderPrintFiles();
     _logActivity('📥', 'קובץ הדפסה "' + name + '" נוסף (' + qty.toLocaleString() + ' עותקים)');
     showToast('✅ הקובץ נוסף');
-  }).catch(function(){
-    if (status){ status.textContent='❌ העלאת הקובץ נכשלה — נסה שוב'; }
-    showToast('❌ העלאת הקובץ נכשלה');
+  }).catch(function(err){
+    var _msg = (err && err.message) ? String(err.message) : '';
+    var _why = _msg==='network' ? 'אין חיבור לרשת' :
+               _msg==='timeout' ? 'העלאה איטית מדי (timeout)' :
+               _msg==='stalled' ? 'ההעלאה נתקעה' :
+               /^storage-40[13]$/.test(_msg) ? 'אין הרשאת העלאה (Storage) — פנה למנהל' :
+               /^storage-/.test(_msg) ? ('שגיאת שרת '+_msg.replace('storage-','')) : '';
+    if (status){ status.style.display='block'; status.textContent='❌ העלאת הקובץ נכשלה'+(_why?(' — '+_why):'')+' · נסה שוב'; }
+    showToast('❌ העלאת הקובץ נכשלה'+(_why?(' — '+_why):''));
+    try{ console.warn('addPrintFile upload failed:', err); }catch(e){}
   });
 }
 
