@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783869859';
+window.APP_VERSION = '1783870083';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -26521,10 +26521,13 @@ function pi_canvasDragMove(e){
     if (hd.indexOf('s') >= 0){ rh = Math.max(minMm, dr.oh + dyMm); }
     if (hd.indexOf('w') >= 0){ rw = Math.max(minMm, dr.ow - dxMm); rx = dr.ox + (dr.ow - rw); }
     if (hd.indexOf('n') >= 0){ rh = Math.max(minMm, dr.oh - dyMm); ry = dr.oy + (dr.oh - rh); }
+    var _gx = null, _gy = null;
+    if (window._pi.snap !== false){ var sn = pi_snapResize(dr, rx, ry, rw, rh); rx = sn.rx; ry = sn.ry; rw = sn.rw; rh = sn.rh; _gx = sn.gx; _gy = sn.gy; }
     var it0 = (window._pi.cur.items||[]).find(function(x){ return String(x.id) === dr.id; });
     if (it0){ it0.xMm = Math.round(rx*10)/10; it0.yMm = Math.round(ry*10)/10; it0.widthMm = Math.round(rw*10)/10; it0.heightMm = Math.round(rh*10)/10; }
     dr.nx = rx; dr.ny = ry; dr.nw = rw; dr.nh = rh;
     pi_redrawSheetOnly();
+    pi_drawGuides(_gx, _gy, scale);   // קווי עזר: הקצה שזז נצמד לשוליים/מרכז/קצוות של פריטים אחרים
     if (e.cancelable) e.preventDefault();
     return;
   }
@@ -26563,6 +26566,23 @@ function pi_snapManual(dr, nx0, ny0){
     yLines.forEach(function(L){ var d = Math.abs(pt.p - L); if (d < bY){ bY = d; bestDY = (L - pt.o) - ny0; gy = L; } });
   });
   return { nx: nx0 + (bestDX||0), ny: ny0 + (bestDY||0), gx: (bestDX!=null?gx:null), gy: (bestDY!=null?gy:null) };
+}
+// snap לשינוי-גודל: מצמיד את הקצה שזז (לפי הידית) לשוליי/מרכז אזור ההדפסה ולקצוות פריטים אחרים
+function pi_snapResize(dr, rx, ry, rw, rh){
+  var cur = window._pi.cur, g = dr.g, hd = dr.handle, THR = 3, MIN = 5;
+  var xLines = [g.printX, g.printX + g.printableWidthMm, g.printX + g.printableWidthMm/2, g.sheetWidthMm/2];
+  var yLines = [g.printY, g.printY + g.printableHeightMm, g.printY + g.printableHeightMm/2, g.sheetHeightMm/2];
+  (cur.items||[]).forEach(function(it){
+    if (String(it.id) === dr.id) return;
+    xLines.push(it.xMm, it.xMm + it.widthMm); yLines.push(it.yMm, it.yMm + it.heightMm);
+  });
+  var nearest = function(v, lines){ var best = THR + 0.001, snap = null; lines.forEach(function(L){ var d = Math.abs(v - L); if (d < best){ best = d; snap = L; } }); return snap; };
+  var gx = null, gy = null;
+  if (hd.indexOf('e') >= 0){ var sR = nearest(rx + rw, xLines); if (sR != null){ rw = Math.max(MIN, sR - rx); gx = sR; } }
+  else if (hd.indexOf('w') >= 0){ var right = rx + rw, sL = nearest(rx, xLines); if (sL != null){ rx = sL; rw = Math.max(MIN, right - rx); gx = sL; } }
+  if (hd.indexOf('s') >= 0){ var sB = nearest(ry + rh, yLines); if (sB != null){ rh = Math.max(MIN, sB - ry); gy = sB; } }
+  else if (hd.indexOf('n') >= 0){ var bottom = ry + rh, sT = nearest(ry, yLines); if (sT != null){ ry = sT; rh = Math.max(MIN, bottom - ry); gy = sT; } }
+  return { rx: rx, ry: ry, rw: rw, rh: rh, gx: gx, gy: gy };
 }
 function pi_drawGuides(gx, gy, scale){
   var svg = document.getElementById('pi-canvas-svg'); if (!svg) return;
