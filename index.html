@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783833875';
+window.APP_VERSION = '1783834780';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23690,38 +23690,43 @@ function pi_unitFontSummary(fonts){
     strongNames: c.fonts.filter(function(x){ return x.status==='strong'; }).map(function(x){ return x.name; }),
     blockNames:  c.fonts.filter(function(x){ return x.status==='block';  }).map(function(x){ return x.name; }) };
 }
+// מטמון תקף רק כשכתובת הקובץ לא השתנתה (הלקוח העלה קובץ מתוקן → סריקה מחדש)
+function pi_unitFontCached(u){ var c = (window._pi._unitFontChecks || {})[pi_unitFontKey(u)]; return (c && c._url === (u.fileUrl || '')) ? c : null; }
 function pi_apogeeFontGate(u, proceed){
-  window._pi._unitFontChecks = window._pi._unitFontChecks || {};
+  window._pi._unitFontChecks = window._pi._unitFontChecks || {}; window._pi._unitFontWarned = window._pi._unitFontWarned || {};
   var key = pi_unitFontKey(u);
   var evaluate = function(fc){
     if (fc && fc.overall === 'block'){ pi_showFontBlock([{ id: '__unit__', name: u.title || 'קובץ הריצה', fontCheck: fc, _noPreflight: true }]); return; }
-    if (fc && fc.overall === 'strong' && !window._pi._unitFontWarned){
+    if (fc && fc.overall === 'strong' && !window._pi._unitFontWarned[key]){   // אזהרה פעם אחת *לכל עבודה* (לא גלובלי)
       var snm = (fc.strongNames || []).slice(0, 4).join(', ');
       if (!confirm('⚠ בקובץ הריצה של הלקוח יש פונטים לא-מוטמעים שאינם סטנדרטיים (' + snm + ').\n\nייתכן שהטקסט ישתנה בהפקה. מומלץ לבקש ייצוא מחדש עם Embed Fonts.\n\nלהמשיך ולייצר פרופר בכל זאת?')) return;
-      window._pi._unitFontWarned = true;
+      window._pi._unitFontWarned[key] = true;
     }
     proceed();
   };
-  if (window._pi._unitFontChecks[key]){ evaluate(window._pi._unitFontChecks[key]); return; }
+  var cached = pi_unitFontCached(u);
+  if (cached){ evaluate(cached); return; }
   var frame = document.getElementById('pi-tpl-frame'), fontFn = frame && frame.contentWindow && frame.contentWindow.pdfFontReport;
   if (!fontFn || !u.fileUrl){ evaluate({ overall: 'none', counts: {} }); return; }
   showToast('🔤 בודק פונטים בקובץ הריצה…');
   fetch(u.fileUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){ return fontFn(buf); })
-    .then(function(fonts){ var fc = pi_unitFontSummary(fonts); window._pi._unitFontChecks[key] = fc; evaluate(fc); })
+    .then(function(fonts){ var fc = pi_unitFontSummary(fonts); fc._url = u.fileUrl; window._pi._unitFontChecks[key] = fc; evaluate(fc); })
     .catch(function(){ evaluate({ overall: 'none', counts: {} }); });
 }
-// סריקת פונטים ברקע לרשימת עבודות-הלקוח (badge לפני הפקה) — פעם אחת לכל יחידה, מוגבל
+// סריקת פונטים ברקע לרשימת עבודות-הלקוח (badge לפני הפקה) — לכל יחידה פעם אחת, מוגבל, מתרענן אם הקובץ השתנה
 function pi_kickUnitFontScans(units){
-  window._pi._unitFontChecks = window._pi._unitFontChecks || {}; window._pi._unitScanDone = window._pi._unitScanDone || {};
+  window._pi._unitFontChecks = window._pi._unitFontChecks || {}; window._pi._unitScanInFlight = window._pi._unitScanInFlight || {};
   var frame = document.getElementById('pi-tpl-frame'), fontFn = frame && frame.contentWindow && frame.contentWindow.pdfFontReport;
   if (!fontFn) return;
-  var toScan = (units || []).filter(function(u){ var k = pi_unitFontKey(u); return u.fileUrl && !window._pi._unitFontChecks[k] && !window._pi._unitScanDone[k]; }).slice(0, 12);
+  var toScan = (units || []).filter(function(u){ var k = pi_unitFontKey(u); return u.fileUrl && !pi_unitFontCached(u) && !window._pi._unitScanInFlight[k]; }).slice(0, 12);
   if (!toScan.length) return;
-  toScan.forEach(function(u){ window._pi._unitScanDone[pi_unitFontKey(u)] = true; });
+  toScan.forEach(function(u){ window._pi._unitScanInFlight[pi_unitFontKey(u)] = u.fileUrl; });
   Promise.all(toScan.map(function(u){
-    return fetch(u.fileUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){ return fontFn(buf); })
-      .then(function(fonts){ window._pi._unitFontChecks[pi_unitFontKey(u)] = pi_unitFontSummary(fonts); })
-      .catch(function(){ window._pi._unitFontChecks[pi_unitFontKey(u)] = { overall: 'none' }; });
+    var k = pi_unitFontKey(u), url = u.fileUrl;
+    return fetch(url).then(function(r){ return r.arrayBuffer(); }).then(function(buf){ return fontFn(buf); })
+      .then(function(fonts){ var fc = pi_unitFontSummary(fonts); fc._url = url; window._pi._unitFontChecks[k] = fc; })
+      .catch(function(){ window._pi._unitFontChecks[k] = { overall: 'none', _url: url }; })
+      .then(function(){ delete window._pi._unitScanInFlight[k]; });
   })).then(function(){ if (window._pi.view === 'list') pi_render(); });
 }
 function pi_exportApogeeProof(proofId, partId){
@@ -23782,7 +23787,7 @@ function pi_proofExportsHtml(){
   if (!units.length) return '';
   pi_kickUnitFontScans(units);   // סריקת פונטים ברקע → badge לכל עבודה
   var fbadge = function(u){
-    var fc = (window._pi._unitFontChecks || {})[pi_unitFontKey(u)]; if (!fc) return '';
+    var fc = pi_unitFontCached(u); if (!fc) return '';
     if (fc.overall === 'block')  return '<span title="פונטים חסרים/פגומים — יחסום הפקה" style="flex:none;font-size:.66rem;font-weight:800;color:#b91c1c;background:#fee2e2;border-radius:5px;padding:1px 7px">⛔ פונטים</span>';
     if (fc.overall === 'strong') return '<span title="פונטים לא-מוטמעים שאינם סטנדרטיים — מומלץ ייצוא מחדש" style="flex:none;font-size:.66rem;font-weight:800;color:#c2410c;background:#ffedd5;border-radius:5px;padding:1px 7px">⚠ פונטים</span>';
     if (fc.overall === 'warn')   return '<span title="פונטים סטנדרטיים לא מוטמעים (Helvetica וכו׳) — לא חוסם" style="flex:none;font-size:.66rem;font-weight:700;color:#b45309;background:#fef3c7;border-radius:5px;padding:1px 7px">⚠️ std</span>';
