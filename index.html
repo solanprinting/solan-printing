@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783839457';
+window.APP_VERSION = '1783840233';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1522,10 +1522,17 @@ window._fbSnapshot = {};
           </label>
         </div>
         <div style="margin-top:6px">
-          <label title="צד קדמי מודפס ש/ל (פלטה אחת K), צד אחורי פרוצס (CMYK). משפיע על ספירת הפלטות באימפוזיציה." style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.85rem;font-weight:700;color:#6d28d9;background:#f6f1ff;border:1.5px solid #ddd6fe;border-radius:7px;padding:5px 12px">
-            <input type="checkbox" id="f-bw-process" style="accent-color:#7c3aed;width:15px;height:15px">
+          <label title="צד אחד מודפס ש/ל (פלטה אחת K), הצד השני פרוצס (CMYK). משפיע על ספירת הפלטות באימפוזיציה." style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.85rem;font-weight:700;color:#6d28d9;background:#f6f1ff;border:1.5px solid #ddd6fe;border-radius:7px;padding:5px 12px">
+            <input type="checkbox" id="f-bw-process" onchange="_updBwSideWrap()" style="accent-color:#7c3aed;width:15px;height:15px">
             🎨 צד אחד ש/ל · צד שני פרוצס
           </label>
+          <div id="f-bw-side-wrap" style="display:none;margin-top:6px;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:.82rem;font-weight:700;color:#6d28d9">איזה צד ש/ל (K)?</span>
+            <label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:.82rem;font-weight:700;color:#4c1d95;background:#faf5ff;border:1.5px solid #ddd6fe;border-radius:7px;padding:4px 10px">
+              <input type="radio" name="f-bw-side" value="A" checked style="accent-color:#7c3aed"> צד A (1)</label>
+            <label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:.82rem;font-weight:700;color:#4c1d95;background:#faf5ff;border:1.5px solid #ddd6fe;border-radius:7px;padding:4px 10px">
+              <input type="radio" name="f-bw-side" value="B" style="accent-color:#7c3aed"> צד B (2)</label>
+          </div>
         </div>
       </div>
 
@@ -5274,6 +5281,21 @@ function _updCopiesMult(){
   var el = document.getElementById('f-copies-mult-info'); if (!el) return;
   el.textContent = (mult > 1 && base > 0) ? ('= ' + (base*mult).toLocaleString() + ' סה״כ (למידע · החישוב לפי ' + base.toLocaleString() + ')') : '';
 }
+// מציג/מסתיר את בורר הצד (A/B) של ה-ש/ל לפי מצב הצ'קבוקס
+function _updBwSideWrap(){
+  var cb = document.getElementById('f-bw-process');
+  var wrap = document.getElementById('f-bw-side-wrap');
+  if (wrap) wrap.style.display = (cb && cb.checked) ? 'flex' : 'none';
+}
+// הצד שבו מודפס ה-ש/ל (K): 'A' (=צד 1) או 'B' (=צד 2)
+function _getBwSide(){
+  var r = document.querySelector('input[name="f-bw-side"]:checked');
+  return (r && r.value === 'B') ? 'B' : 'A';
+}
+function _setBwSide(v){
+  var r = document.querySelector('input[name="f-bw-side"][value="' + (v === 'B' ? 'B' : 'A') + '"]');
+  if (r) r.checked = true;
+}
 function _fullSheetForSize(size) {
   size = (size||'').trim().toLowerCase();
   var is32 = /70[\s×x*]?100|100[\s×x*]?70|16[.,]5[\s×x*]?24|24[\s×x*]?16|^a5$|עיתון\s*a5/.test(size);
@@ -6516,6 +6538,7 @@ function editCard(id) {
   var _tumbleEdit = document.getElementById('f-tumble');
   if (_tumbleEdit) _tumbleEdit.checked = !!c.tumble;
   var _bwpEdit = document.getElementById('f-bw-process'); if (_bwpEdit) _bwpEdit.checked = !!c.bwProcess;
+  _setBwSide(c.bwSide === 'B' ? 'B' : 'A'); _updBwSideWrap();
   setTimeout(updateSheetsCalc, 0);
   // color radio
   if (c.color) {
@@ -6561,6 +6584,7 @@ function clearForm() {
   var _tw=document.getElementById('f-tumble-wrap'); if(_tw) _tw.style.display='none';
   var _tc=document.getElementById('f-tumble'); if(_tc) _tc.checked=false;
   var _bwp=document.getElementById('f-bw-process'); if(_bwp) _bwp.checked=false;
+  _setBwSide('A'); _updBwSideWrap();
   var _a4p=document.getElementById('a4a5-per-sheet-picker'); if(_a4p) _a4p.style.display='none';
   currentRuns=[];
   manualRuns=[];
@@ -7496,6 +7520,7 @@ function _saveCardNew() {
     machine:      document.getElementById('f-machine').value,
     tumble:       !!(document.getElementById('f-tumble')&&document.getElementById('f-tumble').checked),
     bwProcess:    !!(document.getElementById('f-bw-process')&&document.getElementById('f-bw-process').checked),
+    bwSide:       _getBwSide(),
     singleSheet:  !!(document.getElementById('f-single-sheet')&&document.getElementById('f-single-sheet').checked),
     perSheet:     parseInt((document.getElementById('f-per-sheet')||{value:'1'}).value)||1,
     needsFolding: document.getElementById('f-needs-folding')?document.getElementById('f-needs-folding').checked:false,
@@ -7562,6 +7587,7 @@ function buildTempCard() {
     machine:      document.getElementById('f-machine').value,
     tumble:       !!(document.getElementById('f-tumble')&&document.getElementById('f-tumble').checked),
     bwProcess:    !!(document.getElementById('f-bw-process')&&document.getElementById('f-bw-process').checked),
+    bwSide:       _getBwSide(),
     singleSheet:  !!(document.getElementById('f-single-sheet')&&document.getElementById('f-single-sheet').checked),
     perSheet:     parseInt((document.getElementById('f-per-sheet')||{value:'1'}).value)||1,
     needsFolding: document.getElementById('f-needs-folding')?document.getElementById('f-needs-folding').checked:false,
@@ -7772,7 +7798,8 @@ function buildPrintCard(c) {
   const _copiesMultNote = (c.copiesMult && c.copiesMult>1 && _copiesNum)
     ? ('✖️ <strong>' + c.copiesMult + ' סוגים</strong> · סה״כ ' + (_copiesNum*c.copiesMult).toLocaleString() + ' עותקים')
     : '';
-  const _bwProcessNote = c.bwProcess ? '🎨 <strong>צד 1: ש/ל (K)</strong> · <strong>צד 2: פרוצס (CMYK)</strong>' : '';
+  const _bwSideLbl = (c.bwSide === 'B') ? { bw: 'צד B (2)', proc: 'צד A (1)' } : { bw: 'צד A (1)', proc: 'צד B (2)' };
+  const _bwProcessNote = c.bwProcess ? ('🎨 <strong>' + _bwSideLbl.bw + ': ש/ל (K)</strong> · <strong>' + _bwSideLbl.proc + ': פרוצס (CMYK)</strong>') : '';
   // הערות המשתמש: משמרים ירידות שורה (\n → <br>) כדי שהכרטיס יראה בדיוק כמו שהוקלד
   const _userNotesHtml = (c.notes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
   const _notesVal = [_combinedNote, _copiesMultNote, _bwProcessNote, _userNotesHtml,
@@ -21448,7 +21475,8 @@ function pi_newDraftFromCard(card){
     jobCardId: String(card.id), name: card.name || 'עבודה', customer: card.name || '',
     machine: prof ? prof.machine : wantMachine, profileId: prof ? prof.id : '',
     method: method, colors: colors, colorMode: colors.length === 1 ? 'k' : 'cmyk',
-    bwProcess: !!(card && card.bwProcess),   // צד קדמי ש/ל (K) · צד אחורי פרוצס (CMYK)
+    bwProcess: !!(card && card.bwProcess),   // צד אחד ש/ל (K) · הצד השני פרוצס (CMYK)
+    bwSide: (card && card.bwSide === 'B') ? 'B' : 'A',   // איזה צד הוא ה-ש/ל
     sheet: { w: prof ? (prof.sheetW||100) : 100, h: prof ? (prof.sheetH||70) : 70 }
   };
   var runs = (card.runs||[]).filter(function(r){ return (parseInt(r.pages)||0) > 0; });
@@ -24941,8 +24969,10 @@ function pi_numberPlates(d){
     sig.plateSets = [];
     var sigPlates = 0;
     for (var s = 0; s < sides; s++){
-      // צד קדמי ש/ל (K, פלטה אחת) + צד אחורי פרוצס (CMYK) — רק בפרפקטור (2 צדדים פיזיים נפרדים)
-      var sideColors = (d.bwProcess && sides === 2) ? (s === 0 ? ['K'] : ['C','M','Y','K']) : colors;
+      // צד אחד ש/ל (K, פלטה אחת) + הצד השני פרוצס (CMYK) — רק בפרפקטור (2 צדדים פיזיים נפרדים).
+      // bwSide בוחר איזה צד הוא ה-ש/ל: 'B' → צד 2 (s===1), אחרת 'A' → צד 1 (s===0).
+      var _bwSideIdx = (d.bwSide === 'B') ? 1 : 0;
+      var sideColors = (d.bwProcess && sides === 2) ? (s === _bwSideIdx ? ['K'] : ['C','M','Y','K']) : colors;
       var ps = { side: s, colors: sideColors.slice(), plates: [] };
       sideColors.forEach(function(col){ ps.plates.push({ color: col, plateNo: plateNo }); plateNo++; sigPlates++; });
       sig.plateSets.push(ps);
