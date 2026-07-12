@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783850699';
+window.APP_VERSION = '1783851315';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -18610,9 +18610,10 @@ function _pipelineStageOf(c){
   if (!c || c.status === 'trash' || c.status === 'done_hidden' || c.status === 'archived') return null;
   if (c.status === 'done') return 'done';
   if (c.status === 'finishing') return 'finishing';
-  if (c.status === 'inprogress') return 'printing';
-  if (_cardPrintingNow(c)) return 'printing';   // מודפס כרגע לפי מסך הדפס (גם אם הסטטוס עוד pending)
-  // pending — נבדל בין "נשלח להדפסה" (בתור מכונה / התחילה ריצה) לבין "נוצר"
+  if (_cardPrintingNow(c)) return 'printing';   // מודפס כרגע בפועל לפי מסך הדפס (רשומה אחת פר-מכונה)
+  // בתור וטרם הודפס → "נשלח" — כך הרשימה זהה לזו של הדפס (גם עבודה שסומנה בהדפסה/ריצה חלקית עדיין ממתינה בתור)
+  if ((machineQueue||[]).some(function(e){ return String(e.cardId) === String(c.id) && !e.done; })) return 'sent';
+  if (c.status === 'inprogress') return 'printing';   // סומן בהדפסה ואינו בתור — גיבוי
   if ((c.runs||[]).some(function(r){ return r.done; })) return 'printing';
   if ((machineQueue||[]).some(function(e){ return String(e.cardId) === String(c.id); })) return 'sent';
   return 'created';
@@ -18704,9 +18705,26 @@ function renderDashPipeline(){
     if (st === 'done'){ if (c.printedAt && c.printedAt.slice(0,10) === today) byStage.done.push(c); }
     else byStage[st].push(c);
   });
-  // "נשלח להדפסה" — לפי סדר תור המכונות (מה שהדפסים רואים)
-  var qOrder = {}; (machineQueue||[]).forEach(function(e, i){ var k=String(e.cardId); if(qOrder[k]==null) qOrder[k]=(e.order!=null?e.order:i); });
-  byStage.sent.sort(function(a,b){ return (qOrder[String(a.id)]==null?9e9:qOrder[String(a.id)]) - (qOrder[String(b.id)]==null?9e9:qOrder[String(b.id)]); });
+  // "נשלח להדפסה" — נגזר ישירות מתור המכונות (בדיוק מה שהדפסים רואים): כל רשומה שלא הודפסה
+  // ואינה מודפסת כרגע, בסדר התור, פר-כרטיס. כרטיס שאין לו רשומה במשרד עדיין מוצג (queue-only).
+  var _printingQids = {};
+  if (window._opPrintingState) for (var _pk in window._opPrintingState){ var _pq = window._opPrintingState[_pk] && window._opPrintingState[_pk].qid; if(_pq) _printingQids[String(_pq)] = 1; }
+  var _printingIds = {}; byStage.printing.forEach(function(c){ _printingIds[String(c.id)] = 1; });
+  var _sentSeen = {}, _sentCards = [];
+  (machineQueue||[]).slice().sort(function(a,b){ return (a.order!=null?a.order:0) - (b.order!=null?b.order:0); }).forEach(function(e){
+    if (!e || e.done || _printingQids[String(e.qid)]) return;
+    if (_sentSeen[String(e.cardId)]) return;
+    var c = (cards||[]).find(function(x){ return String(x.id) === String(e.cardId); });
+    if (c){
+      if (c.status==='done' || c.status==='finishing' || c.status==='trash') return;
+      if (_printingIds[String(c.id)]) return;   // כבר מוצג ב"בהדפסה"
+      _sentCards.push(c);
+    } else {
+      _sentCards.push({ id:e.cardId, name:(e.name||e.label||('עבודה '+e.cardId)), machine:e.machine, _queueOnly:true });
+    }
+    _sentSeen[String(e.cardId)] = 1;
+  });
+  byStage.sent = _sentCards;
   var CAP = 18;
   var head = '<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--d-line,#e2e8f0);gap:8px;flex-wrap:wrap">'
     + '<div style="font-size:1rem;font-weight:900;color:var(--d-text,#1e293b)">🔄 זרימת עבודה</div>'
