@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783848082';
+window.APP_VERSION = '1783848502';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -11795,9 +11795,23 @@ function _finishingKind(c){
   if (c.needsFolding) return 'קיפול';
   return 'חיתוך בגיליוטינה';
 }
-// פריט שטוח (בלי קיפול/כריכה) — הגימור שלו הוא חיתוך בגיליוטינה
-function _cardNeedsCutting(c){ return !!(c && !c.needsFolding && !c.needsBinding); }
-// כל עבודה עוברת גימור: קיפול / כריכה, ולפריט שטוח לפחות חיתוך בגיליוטינה
+// גיליון מלא — פוסטר גיליון / גיליון שלם שאין בו חיתוך (נמסר כמו שהוא)
+function _isFullSheetItem(c){
+  if (!c) return false;
+  var hay = ((c.size||'') + ' ' + (c.name||'') + ' ' + (c.type||'') + ' ' + (c.notes||'')).toLowerCase();
+  if (/חצי\s*גיליון/.test(hay)) return false;                 // חצי גיליון — כן חותכים
+  if (/70[\s×x*]?100|100[\s×x*]?70/.test(hay)) return true;    // גיליון מלא 70×100
+  if (/פוסטר\s*גיליון|גיליון\s*מלא/.test(hay)) return true;
+  if (/\bגיליון\b/.test(hay) && !/חצי/.test(hay)) return true;
+  return false;
+}
+// פריט שטוח שדורש חיתוך בגיליוטינה. גיליון מלא / פוסטר גיליון / סומן "ללא חיתוך" → לא דורש.
+function _cardNeedsCutting(c){
+  if (!c || c.needsFolding || c.needsBinding) return false;
+  if (c.noCut || c.noFinishing) return false;
+  return !_isFullSheetItem(c);
+}
+// גימור = קיפול / כריכה / חיתוך. גיליון מלא ללא חיתוך → אין גימור → ישר ל"הושלם".
 function _cardNeedsFinishing(c){ return !!(c && (c.needsFolding || c.needsBinding || _cardNeedsCutting(c))); }
 // סיום הדפסה: עבודה עם גימור → 'finishing' (ממתינה ל"סיים גימור"); אחרת → 'done'. מחזיר את הסטטוס שנקבע.
 function _completePrinting(c){
@@ -12076,17 +12090,16 @@ function _syncCardStatusFromQueue(cardId) {
   var anyDone = entries.some(function(e){ return e.done; });
   var changed = false;
   if (allDone) {
-    if (c.status !== 'done') {
-      c.status = 'done';
-      c.printedAt = c.printedAt || new Date().toISOString();
+    if (c.status !== 'done' && c.status !== 'finishing') {
       c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
-      if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);   // עדכן מלאי לקוחות מהכרטיס שהודפס
+      // עבודה עם גימור (קיפול/כריכה/חיתוך) → 'finishing'; גיליון מלא ללא חיתוך → ישר 'done'
+      _completePrinting(c);
       changed = true;
     }
-  } else if (c.status === 'done') {
+  } else if (c.status === 'done' || c.status === 'finishing') {
     // בוטל סימון ההדפסה — החזר לסטטוס מתאים (בהדפסה אם חלק הודפס, אחרת ממתין)
     c.status = anyDone ? 'inprogress' : 'pending';
-    delete c.printedAt;
+    delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
     c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
     changed = true;
   }
@@ -19214,6 +19227,17 @@ function _opStartPrinting(qid) {
   var machine = _machineViewMachine;
   var cur = _opGetPrinting(machine);
   _opSetPrinting(machine, qid);
+  // סמן את הכרטיס שמתחיל להדפיס כ"בהדפסה" — כך פס הזרימה בדאשבורד מסונכרן עם מסך הדפס
+  var _newE = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
+  if (_newE) {
+    var _nc = (cards||[]).find(function(x){ return String(x.id) === String(_newE.cardId); });
+    if (_nc && _nc.status !== 'inprogress' && _nc.status !== 'done' && _nc.status !== 'finishing') {
+      _nc.status = 'inprogress';
+      _nc.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+      try { localStorage.setItem('solanCards', JSON.stringify(cards)); } catch(e){}
+      _opPushCardsMerged(_nc.id);
+    }
+  }
   if (cur && cur.qid) {
     var curStartAt = cur.startAt;
     // סימון העבודה הקודמת כהודפסה — דרך עדכון ממוזג (לא דורסים תור ישן)
