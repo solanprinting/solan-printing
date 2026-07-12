@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783834780';
+window.APP_VERSION = '1783835261';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23458,14 +23458,18 @@ function pi_exportProductionPdf(){
       Promise.all(undet.map(function(f){ return pi_detectFileBleed(f); })).then(function(){ pi_render(); pi_exportProductionPdf(); });
       return;
     }
-    var noBleed = (cur.files||[]).filter(function(f){ return f.bleedChecked && f.hasBleed === false && (cur.items||[]).some(function(it){ return it.fileId === f.id; }); });
+    // קבצים המונחים על *כל* הגיליונות (לא רק הפעיל) — ריבוי גיליונות: כל הגיליונות מופקים
+    pi_ensureSheets(cur); pi_syncActiveSheet(cur);
+    var allItems = Array.isArray(cur.sheets) ? cur.sheets.reduce(function(a, sh){ return a.concat(sh.items || []); }, []) : (cur.items || []);
+    var placedIds = {}; allItems.forEach(function(it){ if (it.fileId) placedIds[it.fileId] = 1; });
+    var noBleed = (cur.files||[]).filter(function(f){ return f.bleedChecked && f.hasBleed === false && placedIds[f.id]; });
     if (noBleed.length && !cur._bleedWarned){
       var names = noBleed.map(function(f){ return f.name || 'קובץ'; }).slice(0,4).join(', ');
       if (!confirm('⚠️ זוהו ' + noBleed.length + ' קבצים ללא בליד (' + names + (noBleed.length>4?' …':'') + ').\nהמערכת לא מוסיפה בליד אוטומטית — הגרפיקה לא תגלוש מעבר לקו החיתוך.\nלהמשיך בכל זאת?')) return;
       cur._bleedWarned = true;   // לא לשאול שוב באותה עבודה
     }
     // ── בדיקת פונטים לפני הפקה: block=חסום · strong=אזהרה (confirm) · warn/base-14=עובר בשקט ──
-    var placedF = (cur.files||[]).filter(function(f){ return f.sourceFileUrl && (cur.items||[]).some(function(it){ return it.fileId === f.id; }); });
+    var placedF = (cur.files||[]).filter(function(f){ return f.sourceFileUrl && placedIds[f.id]; });
     var uncheckedF = placedF.filter(function(f){ return !f.fontCheck; });
     if (uncheckedF.length){
       showToast('🔤 בודק פונטים ב-' + uncheckedF.length + ' קבצים…');
