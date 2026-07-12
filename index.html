@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783844904';
+window.APP_VERSION = '1783846900';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1328,8 +1328,9 @@ window._fbSnapshot = {};
 
 <!-- ===== DASHBOARD VIEW ===== -->
 <div id="view-dashboard">
+  <div id="dash-today-strip"></div>
   <div class="dash" id="dash-root">
-    <div class="dash-card" id="dash-today-weekly"></div>
+    <div class="dash-card" id="dash-pipeline"></div>
     <div class="dash-card" id="dash-worklist" style="padding:0;overflow:hidden"></div>
     <div class="dash-card" id="dash-dept-schedule"></div>
     <div class="dash-card" id="dash-activity"></div>
@@ -11784,18 +11785,50 @@ function renderTemplates() {
   el.innerHTML = html;
 }
 
+// עבודה נחשבת "בגימורים" אחרי סיום ההדפסה אם דורשת קיפול/כריכה
+function _cardNeedsFinishing(c){ return !!(c && (c.needsFolding || c.needsBinding)); }
+// סיום הדפסה: עבודה עם גימור → 'finishing' (ממתינה ל"סיים גימור"); אחרת → 'done'. מחזיר את הסטטוס שנקבע.
+function _completePrinting(c){
+  c.printedAt = new Date().toISOString();
+  if (_cardNeedsFinishing(c)){
+    c.status = 'finishing';
+    c.finishStartAt = c.printedAt;
+  } else {
+    c.status = 'done';
+    if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);   // עדכן מלאי לקוחות
+  }
+  return c.status;
+}
+// "סיים גימור" — מעביר עבודה מ'בגימורים' ל'הושלם'
+function _finishCard(cardId){
+  var c = cards.find(function(x){ return String(x.id) === String(cardId); });
+  if (!c || c.status !== 'finishing') return;
+  c.status = 'done';
+  c.finishedAt = new Date().toISOString();
+  if (!c.printedAt) c.printedAt = c.finishedAt;
+  c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+  if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);
+  persist();
+  if (typeof renderCards === 'function') renderCards();
+  if (typeof renderDashboard === 'function') renderDashboard();
+  _logActivity('🎁', 'עבודה "'+(c.name||'')+'" סיימה גימור — הושלמה', c.id);
+  showToast('✅ הגימור הושלם — העבודה עברה ל"הושלם"');
+}
 function markJobPrinted(cardId) {
   var c = cards.find(function(x){ return String(x.id) === String(cardId); });
   if (!c) return;
-  c.status = 'done';
-  c.printedAt = new Date().toISOString();
   c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
-  if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);   // עדכן מלאי לקוחות מהכרטיס שהודפס
+  var _st = _completePrinting(c);
   persist();
   renderMachineQueue();
   renderCards();
-  _logActivity('✅', 'עבודה "'+(c.name||'')+'" הושלמה', c.id);
-  showToast('✅ עבודה הועברה לסטטוס הודפס');
+  if (_st === 'finishing'){
+    _logActivity('🎨', 'עבודה "'+(c.name||'')+'" הודפסה — עברה לגימורים', c.id);
+    showToast('🎨 ההדפסה הסתיימה — העבודה עברה ל"בגימורים"');
+  } else {
+    _logActivity('✅', 'עבודה "'+(c.name||'')+'" הושלמה', c.id);
+    showToast('✅ העבודה הושלמה');
+  }
 }
 
 function editRunTime(cardId, runIdx, machine) {
@@ -11851,12 +11884,15 @@ function markRunDone(cardId, runIdx, machine) {
   // If ALL runs for this card (across all machines) are done → mark card done
   var allDone = c.runs.every(function(r){ return !!r.done; });
   if (allDone) {
-    c.status = 'done';
-    c.printedAt = new Date().toISOString();
-    if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);   // עדכן מלאי לקוחות מהכרטיס שהודפס
+    var _st = _completePrinting(c);
     persist(); renderMachineQueue(); renderCards();
-    _logActivity('✅', 'עבודה "'+(c.name||'')+'" הושלמה', c.id);
-    showToast('✅ כל הריצות הסתיימו — עבודה הועברה להושלם');
+    if (_st === 'finishing'){
+      _logActivity('🎨', 'עבודה "'+(c.name||'')+'" הודפסה — עברה לגימורים', c.id);
+      showToast('🎨 כל הריצות הסתיימו — העבודה עברה ל"בגימורים"');
+    } else {
+      _logActivity('✅', 'עבודה "'+(c.name||'')+'" הושלמה', c.id);
+      showToast('✅ כל הריצות הסתיימו — העבודה הושלמה');
+    }
   } else {
     persist(); renderMachineQueue();
     _logActivity('🖨️', 'ריצה בעבודה "'+(c.name||'')+'" הודפסה', c.id);
@@ -11869,10 +11905,10 @@ function unmarkRunDone(cardId, runIdx, machine) {
   if (!c || !c.runs || !c.runs[runIdx]) return;
   c.runs[runIdx].done = false;
   c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
-  // If card was marked done, re-open it
-  if (c.status === 'done') {
+  // If card was marked done/finishing, re-open it
+  if (c.status === 'done' || c.status === 'finishing') {
     c.status = 'inprogress';
-    delete c.printedAt;
+    delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
     renderCards();
   }
   persist(); renderMachineQueue();
@@ -11921,7 +11957,7 @@ function _queueEntriesForCard(cardId) {
 function _runIsDone(cardId, runIdx) {
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
   if (c && c._wlDone) return true;                                                 // סומן ידנית "הושלם"
-  if (c && (runIdx == null || runIdx < 0) && c.status === 'done') return true;     // כרטיס חד-ריצה שהושלם
+  if (c && (runIdx == null || runIdx < 0) && (c.status === 'done' || c.status === 'finishing')) return true;   // כרטיס חד-ריצה שהודפס (כולל בגימורים)
   if (c && c.runs && runIdx >= 0 && c.runs[runIdx] && c.runs[runIdx].done) return true;  // סומן על הריצה עצמה
   return (machineQueue||[]).some(function(e){
     return String(e.cardId) === String(cardId) && e.done &&
@@ -12963,6 +12999,7 @@ function setStatus(id,s) {
 function statusLabel(s) {
   if(s==='pending')    return '<span class="status-badge status-pending">ממתין</span>';
   if(s==='inprogress') return '<span class="status-badge status-inprogress">בדפוס</span>';
+  if(s==='finishing')  return '<span class="status-badge" style="background:#e0f2fe;color:#0369a1">🎨 בגימורים</span>';
   if(s==='done')       return '<span class="status-badge status-done">✓ הושלם</span>';
   return '';
 }
@@ -13136,6 +13173,7 @@ function _jobCardHtml(c) {
         <div style="display:flex;align-items:center;gap:8px">
           ${c.type?'<span class="jc-type">'+c.type+'</span>':''}
           ${statusLabel(c.status)}
+          ${c.status==='finishing' ? '<button onclick="event.stopPropagation();_finishCard('+c.id+')" title="סמן שהגימור (קיפול/כריכה) הושלם" style="background:#0369a1;color:#fff;border:none;border-radius:20px;padding:3px 11px;font-size:.72rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">✓ סיים גימור</button>' : ''}
           ${(function(){
             if (!c.hasProof) return '';
             var cnt = c.runProofs ? Object.keys(c.runProofs).length : 0;
@@ -13255,6 +13293,11 @@ function renderCards() {
         case 'doneToday': return c.status === 'done' && c.printedAt && c.printedAt.slice(0,10) === today2;
         case 'activeAll': return c.status !== 'done';
         case 'overdue':   return c.status !== 'done' && c.deliveryDate && c.deliveryDate < today2;
+        case 'pipe_created':   return _pipelineStageOf(c) === 'created';
+        case 'pipe_sent':      return _pipelineStageOf(c) === 'sent';
+        case 'pipe_printing':  return _pipelineStageOf(c) === 'printing';
+        case 'pipe_finishing': return _pipelineStageOf(c) === 'finishing';
+        case 'pipe_done':      return _pipelineStageOf(c) === 'done' && c.printedAt && c.printedAt.slice(0,10) === today2;
         default: return true;
       }
     });
@@ -18185,7 +18228,8 @@ function renderDashboard() {
   function _safe(name, fn) {
     try { fn(); } catch (e) { console.error('renderDashboard: שגיאה ב-' + name, e); }
   }
-  _safe('renderDashTodayWeekly', renderDashTodayWeekly);
+  _safe('renderDashTodayStrip', renderDashTodayStrip);
+  _safe('renderDashPipeline', renderDashPipeline);
   _safe('renderWorkList', renderWorkList);
   _safe('renderDeptSchedule', function(){ DEPARTMENTS.forEach(function(d){ renderDeptSchedule(d); }); });
   _safe('renderActivityFeed', renderActivityFeed);
@@ -18195,7 +18239,7 @@ function renderDashboard() {
 function _machinePendingHours(machine) {
   var hrs = 0;
   (cards||[]).forEach(function(c){
-    if (c.status === 'done') return;
+    if (c.status === 'done' || c.status === 'finishing') return;
     var runs = c.runs || [];
     var matched = runs.filter(function(r){ return r.machine === machine || (!r.machine && c.machine === machine); });
     if (matched.length) {
@@ -18219,7 +18263,7 @@ function _machinePendingHours(machine) {
 function _machinePendingCount(machine) {
   var n = 0;
   (cards||[]).forEach(function(c){
-    if (c.status === 'done') return;
+    if (c.status === 'done' || c.status === 'finishing') return;
     var runs = c.runs || [];
     var matched = runs.filter(function(r){ return (r.machine === machine || (!r.machine && c.machine === machine)) && !r.done; });
     if (matched.length) n += matched.length;
@@ -18231,7 +18275,7 @@ function _machinePendingCount(machine) {
 function _machinePendingJobs(machine) {
   var jobs = [];
   (cards||[]).forEach(function(c){
-    if (c.status === 'done') return;
+    if (c.status === 'done' || c.status === 'finishing') return;
     var runs = c.runs || [];
     var matched = runs.filter(function(r){ return (r.machine === machine || (!r.machine && c.machine === machine)) && !r.done; });
     if (matched.length) {
@@ -18465,6 +18509,78 @@ function renderDashTodayWeekly() {
     + tiles + '</div>';
 }
 
+// ── זרימת עבודה (pipeline) ────────────────────────────────
+// שלב של כרטיס בזרימה: נוצר → נשלח → בהדפסה → בגימורים → הושלם
+function _pipelineStageOf(c){
+  if (!c || c.status === 'trash') return null;
+  if (c.status === 'done') return 'done';
+  if (c.status === 'finishing') return 'finishing';
+  if (c.status === 'inprogress') return 'printing';
+  // pending — נבדל בין "נשלח להדפסה" (בתור מכונה / התחילה ריצה) לבין "נוצר"
+  if ((c.runs||[]).some(function(r){ return r.done; })) return 'printing';
+  if ((machineQueue||[]).some(function(e){ return String(e.cardId) === String(c.id); })) return 'sent';
+  return 'created';
+}
+var _PIPE_STAGES = [
+  { key:'created',   icon:'📝', label:'נוצר כרטיס',   type:'pipe_created',   tone:'#475569', bg:'#f1f5f9', bd:'#cbd5e1' },
+  { key:'sent',      icon:'📤', label:'נשלח להדפסה',  type:'pipe_sent',      tone:'#6d28d9', bg:'#f5f3ff', bd:'#ddd6fe' },
+  { key:'printing',  icon:'🖨️', label:'בהדפסה',       type:'pipe_printing',  tone:'#c2410c', bg:'#fff7ed', bd:'#fed7aa' },
+  { key:'finishing', icon:'🎨', label:'בגימורים',     type:'pipe_finishing', tone:'#0369a1', bg:'#e0f2fe', bd:'#bae6fd' },
+  { key:'done',      icon:'✅', label:'הושלם היום',   type:'pipe_done',      tone:'#15803d', bg:'#f0fdf4', bd:'#bbf7d0' }
+];
+function renderDashPipeline(){
+  var el = document.getElementById('dash-pipeline'); if (!el) return;
+  var today = _todayStr();
+  var counts = { created:0, sent:0, printing:0, finishing:0, done:0 };
+  (cards||[]).forEach(function(c){
+    var st = _pipelineStageOf(c); if (!st) return;
+    if (st === 'done'){ if (c.printedAt && c.printedAt.slice(0,10) === today) counts.done++; }
+    else counts[st]++;
+  });
+  var head = '<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--d-line,#e2e8f0)">'
+    + '<div style="font-size:1rem;font-weight:900;color:var(--d-text,#1e293b)">🔄 זרימת עבודה</div>'
+    + '<span style="font-size:.72rem;color:var(--d-sub,#94a3b8)">לחץ שלב לסינון הכרטיסים</span></div>';
+  var flow = '';
+  _PIPE_STAGES.forEach(function(s, i){
+    if (i > 0) flow += '<div style="flex:none;color:#cbd5e1;font-size:1.1rem;font-weight:800;user-select:none">‹</div>';
+    var n = counts[s.key];
+    flow += '<button onclick="openDashFilter(\'' + s.type + '\',\'' + s.label + '\')" '
+      + 'style="flex:1;min-width:96px;background:' + s.bg + ';border:1.5px solid ' + s.bd + ';border-radius:12px;padding:11px 8px;cursor:pointer;font-family:Heebo,sans-serif;text-align:center;transition:transform .1s" '
+      + 'onmouseover="this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'\'">'
+      + '<div style="font-size:1.25rem;line-height:1">' + s.icon + '</div>'
+      + '<div style="font-size:1.6rem;font-weight:900;color:' + s.tone + ';line-height:1.2">' + n + '</div>'
+      + '<div style="font-size:.72rem;font-weight:700;color:#475569;white-space:nowrap">' + s.label + '</div>'
+      + '</button>';
+  });
+  el.innerHTML = head + '<div style="display:flex;align-items:center;gap:6px;padding:14px 16px;overflow-x:auto">' + flow + '</div>';
+}
+// ── פס דק "עבודות להיום" (למעלה בדאשבורד) ──────────────────
+function renderDashTodayStrip(){
+  var el = document.getElementById('dash-today-strip'); if (!el) return;
+  var dayName = DAYS[new Date().getDay()];
+  var items = _dashTodayItems();
+  var wrap = 'background:var(--d-card,#fff);border:1px solid var(--d-line,#e2e8f0);border-radius:12px;padding:8px 12px;margin-bottom:14px;display:flex;align-items:center;gap:10px;overflow-x:auto';
+  var title = '<span style="flex:none;font-size:.82rem;font-weight:900;color:var(--d-text,#1e293b);white-space:nowrap">📅 היום · ' + escHtml(dayName) + ' <span style="background:var(--press,#1a1a4e);color:#fff;border-radius:10px;padding:1px 8px;font-size:.72rem">' + items.length + '</span></span>';
+  if (!items.length){
+    el.innerHTML = '<div style="' + wrap + '">' + title + '<span style="color:#94a3b8;font-size:.8rem">אין עבודות משובצות להיום</span></div>';
+    return;
+  }
+  var chips = items.map(function(it){
+    var card = _activeCardByName(it.name);
+    var done = card ? (card.status === 'done') : _cardDoneThisWeek(it.name);
+    var color = done ? '#16a34a' : (card ? '#2563eb' : '#c2410c');
+    var bg    = done ? '#f0fdf4' : (card ? '#eff6ff' : '#fff7ed');
+    var pre   = done ? '✓ ' : (card ? '' : '➕ ');
+    var mtag  = it.machine ? (' · ' + escHtml(String(it.machine).replace('מכונה ',''))) : '';
+    var onclick = card
+      ? ('showPrintModal(cards.find(function(c){return String(c.id)===' + JSON.stringify(String(card.id)) + '}))')
+      : ('_dashCreateCardFor(' + JSON.stringify(it.kind) + ',' + JSON.stringify(it.id) + ')');
+    return '<button onclick="' + onclick.replace(/"/g,'&quot;') + '" title="' + escHtml(it.name) + '" '
+      + 'style="flex:none;border:1.5px solid ' + color + ';background:' + bg + ';color:' + color + ';border-radius:20px;padding:4px 11px;font-size:.76rem;font-weight:700;cursor:pointer;font-family:Heebo,sans-serif;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis">'
+      + pre + escHtml(it.name) + mtag + '</button>';
+  }).join('');
+  el.innerHTML = '<div style="' + wrap + '">' + title + '<div style="display:flex;gap:6px;flex:1">' + chips + '</div></div>';
+}
 // ── KPI ───────────────────────────────────────────────────
 function renderDashKPIs() {
   var el = document.getElementById('dash-kpis');
