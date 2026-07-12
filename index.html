@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783851315';
+window.APP_VERSION = '1783851706';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -17918,6 +17918,7 @@ async function _fbPollAll() {
     try {
       var _psv = await window._fbGet('printingState');
       window._opPrintingState = (_psv && typeof _psv === 'object') ? _psv : {};
+      try { localStorage.setItem('solanPrintingStateCache', JSON.stringify(window._opPrintingState)); } catch(e){}
       if (document.getElementById('view-dashboard') && document.getElementById('view-dashboard').style.display !== 'none' && typeof renderDashPipeline === 'function') renderDashPipeline();
     } catch(e){}
     // סידור מחלקות (קיפול/כריכייה)
@@ -18305,6 +18306,21 @@ function _dashTick() {
 function renderDashboard() {
   // כל חלונית עוטפת ב-try/catch כדי שתקלה בחלונית אחת (למשל KPI/לוח ייצור)
   // לא תעצור את הריצה ותמנע מ"עומס מכונות" (ושאר החלוניות שאחריה) להתעדכן
+  // מצב "בהדפסה": ברענון — מציגים מיד מהמטמון המקומי (בלי המתנה לפולינג), ומרעננים ברקע
+  if (window._opPrintingState === undefined) {
+    try { window._opPrintingState = JSON.parse(localStorage.getItem('solanPrintingStateCache') || 'null') || undefined; } catch(e){}
+  }
+  if (window._fbGet && (Date.now() - (window._dashPSFetchAt || 0) > 3000)) {
+    window._dashPSFetchAt = Date.now();
+    window._fbGet('printingState').then(function(psv){
+      var next = (psv && typeof psv === 'object') ? psv : {};
+      try { localStorage.setItem('solanPrintingStateCache', JSON.stringify(next)); } catch(e){}
+      if (JSON.stringify(next) !== JSON.stringify(window._opPrintingState || {})) {
+        window._opPrintingState = next;
+        if (typeof renderDashPipeline === 'function' && document.getElementById('dash-pipeline')) { try { renderDashPipeline(); } catch(e){} }
+      }
+    }).catch(function(){});
+  }
   applyDashTheme();
   _dashTick();
   if (_dashTickTimer) clearInterval(_dashTickTimer);
