@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783840795';
+window.APP_VERSION = '1783844466';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2615,6 +2615,7 @@ window._fbSnapshot = {};
         <button class="btn btn-tpl" onclick="_cloudBackup(true)" style="flex:1;font-size:.83rem">☁️ גבה עכשיו לענן</button>
         <button class="btn btn-clear" onclick="openCardsArchive()" style="flex:1;font-size:.83rem">🗄️ ארכיון כרטיסים</button>
       </div>
+      <button class="btn btn-clear" onclick="openLostCardFinder()" style="width:100%;font-size:.83rem;margin-top:8px">🔎 מצא כרטיס אבוד (שרת · ארכיון · גיבוי)</button>
       <div style="font-size:.7rem;color:#94a3b8;margin-top:5px">גיבוי ענן רץ אוטומטית פעם ביום; כרטיסים שהושלמו לפני 60+ יום עוברים לארכיון אוטומטית.</div>
     </div>
     <div class="modal-footer">
@@ -9306,6 +9307,127 @@ function _archDelete(id){
     _archRender();
     showToast('🗑️ נמחק מהארכיון');
   });
+}
+// ═══ מצא כרטיס אבוד ═══════════════════════════════════════════════════════
+// כרטיס יכול "להיעלם" מהרשימה ומהחיפוש אם קיים לו tombstone (deletedIds) —
+// גם אם הוא עדיין קיים בשרת. המאתר קורא ישירות את המקורות הגולמיים:
+//   1) cards בשרת (raw — לא מסונן ע"י tombstones)  2) ארכיון  3) גיבויי הענן.
+// שחזור = עותק עם מזהה חדש (עוקף כל tombstone) — כמו שחזור מהארכיון.
+function _storageGetJson(path){
+  var url = 'https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o/' + encodeURIComponent(path) + '?alt=media';
+  return (window._fbAuthToken ? window._fbAuthToken() : Promise.resolve(null)).then(function(t){
+    return fetch(url, { headers: t ? { 'Authorization': 'Firebase ' + t } : {} }).then(function(r){
+      if (!r.ok) throw new Error('http ' + r.status); return r.json();
+    });
+  });
+}
+function openLostCardFinder(){
+  var ex = document.getElementById('lost-card-modal'); if (ex) ex.remove();
+  var ov = document.createElement('div'); ov.id = 'lost-card-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100006;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
+  ov.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:84vh;display:flex;flex-direction:column;font-family:Heebo,sans-serif;overflow:hidden">'
+    + '<div style="background:var(--press);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center"><b>🔎 מצא כרטיס אבוד</b>'
+    + '<button onclick="document.getElementById(\'lost-card-modal\').remove()" style="background:none;border:none;color:#fff;font-size:1.2rem;cursor:pointer">×</button></div>'
+    + '<div style="padding:9px 14px 4px;font-size:.76rem;color:#6b7280">מחפש כרטיסים שנעלמו מהרשימה — כולל כאלה שהוסתרו בטעות אחרי מחיקה, בארכיון, או בגיבוי הענן. שחזור יוצר עותק חדש ברשימה.</div>'
+    + '<div style="padding:0 14px 8px"><input id="lcf-search" class="fi" placeholder="🔍 שם עבודה / לקוח / גודל…" style="margin:0;width:100%" oninput="_lcfRender()"></div>'
+    + '<div id="lcf-list" style="overflow-y:auto;padding:0 14px 14px;flex:1"><div style="padding:20px;text-align:center;color:#9ca3af">טוען מקורות…</div></div></div>';
+  document.body.appendChild(ov);
+  window._lcfSources = []; window._lcfLoaded = { server:false, archive:false, backup:false };
+  // 1) שרת פעיל (raw)
+  (window._fbGet ? window._fbGet('cards') : Promise.resolve(null)).then(function(v){
+    var arr = v && typeof v === 'object' ? (Array.isArray(v) ? v : Object.values(v)) : [];
+    arr.forEach(function(c){ if (c && c.id != null) window._lcfSources.push({ c:c, src:'server' }); });
+  }).catch(function(){}).then(function(){ window._lcfLoaded.server = true; _lcfRender(); });
+  // 2) ארכיון
+  (window._fbGet ? window._fbGet('cardsArchive') : Promise.resolve(null)).then(function(v){
+    var arr = v && typeof v === 'object' ? Object.values(v) : [];
+    arr.forEach(function(c){ if (c && c.id != null) window._lcfSources.push({ c:c, src:'archive' }); });
+  }).catch(function(){}).then(function(){ window._lcfLoaded.archive = true; _lcfRender(); });
+  // 3) גיבויי ענן (best-effort)
+  _lcfLoadBackups().catch(function(){}).then(function(){ window._lcfLoaded.backup = true; _lcfRender(); });
+}
+function _lcfLoadBackups(){
+  var d = new Date(), paths = [];
+  for (var i = 0; i < 7; i++) paths.push('backups/daily-' + i + '.json');
+  paths.push('backups/monthly-' + d.toISOString().slice(0,7) + '.json');
+  var pm = new Date(d.getFullYear(), d.getMonth()-1, 1);
+  paths.push('backups/monthly-' + pm.toISOString().slice(0,7) + '.json');
+  return Promise.all(paths.map(function(p){
+    return _storageGetJson(p).then(function(j){
+      var arr = j && j.solanCards ? j.solanCards : [];
+      arr.forEach(function(c){ if (c && c.id != null) window._lcfSources.push({ c:c, src:'backup', bkPath:p }); });
+    }).catch(function(){});
+  }));
+}
+// מיזוג המקורות לרשומה אחת לכל מזהה, לפי עדיפות: שרת > ארכיון > גיבוי; שוויון → _upd עדכני
+function _lcfMerge(){
+  var rank = { server:0, archive:1, backup:2 }, byId = {};
+  (window._lcfSources||[]).forEach(function(e){
+    var id = String(e.c.id), cur = byId[id];
+    if (!cur) { byId[id] = e; return; }
+    if (rank[e.src] < rank[cur.src]) { byId[id] = e; return; }
+    if (rank[e.src] === rank[cur.src] && (e.c._upd||0) > (cur.c._upd||0)) byId[id] = e;
+  });
+  return Object.keys(byId).map(function(k){ return byId[k]; });
+}
+function _lcfRender(){
+  var el = document.getElementById('lcf-list'); if (!el) return;
+  var q = ((document.getElementById('lcf-search')||{}).value||'').trim().toLowerCase();
+  var loaded = window._lcfLoaded||{};
+  var loadingNote = (loaded.server && loaded.archive && loaded.backup) ? ''
+    : '<div style="padding:6px 0;text-align:center;color:#9ca3af;font-size:.74rem">טוען: ' + [loaded.server?'':'שרת', loaded.archive?'':'ארכיון', loaded.backup?'':'גיבוי'].filter(Boolean).join(' · ') + '…</div>';
+  var merged = _lcfMerge();
+  var list = merged.filter(function(e){
+    if (!q) return true;
+    var c = e.c;
+    return [c.name, c.customer, c.size, c.paper, c.type].join(' ').toLowerCase().indexOf(q) >= 0;
+  });
+  // מציגים קודם מה שלא ברשימה המקומית (האבודים באמת)
+  var localIds = {}; (cards||[]).forEach(function(c){ localIds[String(c.id)] = 1; });
+  list.sort(function(a,b){
+    var la = localIds[String(a.c.id)]?1:0, lb = localIds[String(b.c.id)]?1:0;
+    if (la !== lb) return la - lb;
+    return (Date.parse(b.c.printedAt)||b.c._upd||b.c.id||0) - (Date.parse(a.c.printedAt)||a.c._upd||a.c.id||0);
+  });
+  var srcLabel = { server:'🟢 בשרת', archive:'🗄️ ארכיון', backup:'☁️ גיבוי' };
+  if (!list.length){
+    el.innerHTML = loadingNote + '<div style="padding:20px;text-align:center;color:#9ca3af">' + (q ? 'לא נמצא כרטיס שתואם לחיפוש' : 'הקלד שם עבודה או לקוח כדי לחפש') + '</div>';
+    return;
+  }
+  el.innerHTML = loadingNote + list.slice(0,200).map(function(e){
+    var c = e.c, inLocal = !!localIds[String(c.id)];
+    var tomb = ((deletedIds && deletedIds.cards)||[]).some(function(x){ return String(x) === String(c.id); });
+    var when = c.printedAt ? new Date(c.printedAt).toLocaleDateString('he-IL') : (typeof c.id==='number' && c.id>1e12 ? new Date(c.id).toLocaleDateString('he-IL') : '');
+    return '<div style="display:flex;align-items:center;gap:8px;padding:9px 4px;border-bottom:1px solid #f1f5f9">'
+      + '<div style="flex:1;min-width:0">'
+        + '<div style="font-weight:800;font-size:.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(c.name||'ללא שם') + '</div>'
+        + '<div style="font-size:.72rem;color:#6b7280">' + escHtml(c.customer||'') + (c.size?(' · '+escHtml(c.size)):'') + (when?(' · '+when):'') + '</div>'
+        + '<div style="font-size:.68rem;margin-top:2px">' + (srcLabel[e.src]||e.src)
+          + (tomb ? ' <span style="color:#b91c1c;font-weight:700">· נמחק (tombstone)</span>' : '')
+          + (inLocal ? ' <span style="color:#059669;font-weight:700">· כבר ברשימה</span>' : '') + '</div>'
+      + '</div>'
+      + '<button onclick="_lcfView(' + JSON.stringify(String(c.id)).replace(/"/g,'&quot;') + ',' + JSON.stringify(e.src).replace(/"/g,'&quot;') + ')" style="font-size:.74rem;padding:4px 10px;border:1.5px solid #c7d2fe;border-radius:7px;background:#eef2ff;color:#3730a3;cursor:pointer;font-family:Heebo,sans-serif;font-weight:700">👁️ צפה</button>'
+      + (inLocal ? '' : '<button onclick="_lcfRestore(' + JSON.stringify(String(c.id)).replace(/"/g,'&quot;') + ',' + JSON.stringify(e.src).replace(/"/g,'&quot;') + ')" style="font-size:.74rem;padding:4px 10px;border:1.5px solid #6ee7b7;border-radius:7px;background:#ecfdf5;color:#059669;cursor:pointer;font-family:Heebo,sans-serif;font-weight:700">📋 שחזר</button>')
+      + '</div>';
+  }).join('');
+}
+function _lcfFind(id, src){ return (window._lcfSources||[]).find(function(e){ return String(e.c.id) === String(id) && e.src === src; }); }
+function _lcfView(id, src){ var e = _lcfFind(id, src); if (e && typeof showPrintModal === 'function') showPrintModal(e.c); }
+function _lcfRestore(id, src){
+  var e = _lcfFind(id, src); if (!e) return;
+  var c = e.c;
+  if (!confirm('לשחזר את "' + (c.name||'') + '" לרשימת הכרטיסים?\n(ישוחזר כעותק חדש — בטוח מול מחיקות קודמות)')) return;
+  var copy = JSON.parse(JSON.stringify(c));
+  copy.id = Date.now();                  // מזהה חדש — עוקף כל tombstone קיים
+  copy._upd = Date.now();
+  if (copy.status === 'done' || copy.status === 'trash') copy.status = 'pending';
+  copy.restoredFrom = src + ':' + String(c.id);
+  cards.unshift(copy);
+  persist();
+  if (typeof renderCards === 'function') renderCards();
+  var m = document.getElementById('lost-card-modal'); if (m) m.remove();
+  showToast('📋 הכרטיס שוחזר לרשימה');
+  if (typeof _logActivity === 'function') _logActivity('📋', 'כרטיס "' + (copy.name||'') + '" שוחזר (מצא כרטיס אבוד)', copy.id);
 }
 function openSnapshotRestore() {
   const panel = document.getElementById('snapshot-restore-panel');
