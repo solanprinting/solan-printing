@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783850096';
+window.APP_VERSION = '1783850454';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -17914,6 +17914,12 @@ async function _fbPollAll() {
         }
       }
     }
+    // מצב "בהדפסה" משותף (מה מודפס כרגע בכל מכונה) — קטן וקריטי, נמשך ישירות כדי שפס הזרימה יראה מה בהדפסה
+    try {
+      var _psv = await window._fbGet('printingState');
+      window._opPrintingState = (_psv && typeof _psv === 'object') ? _psv : {};
+      if (document.getElementById('view-dashboard') && document.getElementById('view-dashboard').style.display !== 'none' && typeof renderDashPipeline === 'function') renderDashPipeline();
+    } catch(e){}
     // סידור מחלקות (קיפול/כריכייה)
     var dov = await _pollGet('deptOrder');
     if (dov !== null && typeof dov === 'object' && !(_pend.deptOrder > 0)) {
@@ -18589,11 +18595,23 @@ function renderDashTodayWeekly() {
 
 // ── זרימת עבודה (pipeline) ────────────────────────────────
 // שלב של כרטיס בזרימה: נוצר → נשלח → בהדפסה → בגימורים → הושלם
+// האם העבודה מודפסת כרגע בפועל לפי מצב הדפסים המשותף (printingState/<מכונה>)
+function _cardPrintingNow(c){
+  if (!c || !window._opPrintingState) return false;
+  var st = window._opPrintingState;
+  for (var k in st){
+    var qid = st[k] && st[k].qid; if (!qid) continue;
+    var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
+    if (e && String(e.cardId) === String(c.id)) return true;
+  }
+  return false;
+}
 function _pipelineStageOf(c){
   if (!c || c.status === 'trash' || c.status === 'done_hidden' || c.status === 'archived') return null;
   if (c.status === 'done') return 'done';
   if (c.status === 'finishing') return 'finishing';
   if (c.status === 'inprogress') return 'printing';
+  if (_cardPrintingNow(c)) return 'printing';   // מודפס כרגע לפי מסך הדפס (גם אם הסטטוס עוד pending)
   // pending — נבדל בין "נשלח להדפסה" (בתור מכונה / התחילה ריצה) לבין "נוצר"
   if ((c.runs||[]).some(function(r){ return r.done; })) return 'printing';
   if ((machineQueue||[]).some(function(e){ return String(e.cardId) === String(c.id); })) return 'sent';
@@ -18634,7 +18652,22 @@ function _pipeNameHtml(c, stageKey){
       + 'style="cursor:grab;color:#94a3b8;font-size:.72rem;flex:none;user-select:none;line-height:1">⠿</span>'
     + '<span onclick="event.stopPropagation();_pipeOpen('+idq+')" title="'+escHtml(nm+extra)+' — לחץ לפתיחת כרטיס העבודה" '
       + 'style="flex:1;min-width:0;font-size:.66rem;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;text-align:right">'+mark+escHtml(nm)+'</span>'
+    + (stageKey==='done' ? '<span onclick="event.stopPropagation();_pipeClearOne('+idq+')" title="נקה עבודה זו מהרשימה (לארכיון)" style="flex:none;cursor:pointer;color:#cbd5e1;font-size:.72rem;padding:0 3px;line-height:1" onmouseover="this.style.color=\'#ef4444\'" onmouseout="this.style.color=\'#cbd5e1\'">✕</span>' : '')
     + '</div>';
+}
+// ניקוי עבודה ספציפית מ"הושלם" — לארכיון (ניתן לשחזור)
+function _pipeClearOne(id){
+  var c=(cards||[]).find(function(x){ return String(x.id)===String(id); }); if(!c) return;
+  if(!confirm('להעביר את "'+(c.name||'')+'" לארכיון?\n(ניתן לשחזר דרך 🗄️ ארכיון כרטיסים / 🔎 מצא כרטיס אבוד)')) return;
+  (window._fbPut ? window._fbPut('cardsArchive/'+c.id, c) : Promise.resolve(true)).then(function(ok){
+    if(ok===false){ showToast('❌ הניקוי נכשל — נסה שוב'); return; }
+    _markDeleted('cards', c.id);
+    cards=(cards||[]).filter(function(x){ return x.id!==c.id; });
+    persist();
+    if(typeof renderDashboard==='function') renderDashboard();
+    if(typeof renderCards==='function') renderCards();
+    showToast('🗄️ "'+(c.name||'')+'" הועבר לארכיון');
+  });
 }
 // ניקוי הושלמו — מעביר את שהושלם היום לארכיון (ניתן לשחזור)
 function _pipeClearDone(){
