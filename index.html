@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783928491';
+window.APP_VERSION = '1783929720';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -22260,6 +22260,7 @@ function pi_loadSheet(cur, idx){
 function pi_toggleSheetSide(){
   var cur = window._pi.cur; if (!cur) return;
   pi_ensureSheets(cur); pi_syncActiveSheet(cur);
+  if (window._pi.side !== 1) pi_syncPairedBacks(cur);   // עוברים לצד B → רענן את פריטי-הגב מהפנים (מראה + עמוד 2)
   window._pi.side = (window._pi.side === 1) ? 0 : 1;
   pi_loadSheet(cur, cur.activeSheetIdx);
   window._pi.dirty = true; pi_render();
@@ -22363,8 +22364,7 @@ function pi_detectSizeMm(file){
       if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name||'')){
         if (!window.pdfjsLib){ resolve({}); return; }
         file.arrayBuffer().then(function(buf){ return pdfjsLib.getDocument({ data: buf }).promise; })
-          .then(function(pdf){ return pdf.getPage(1); })
-          .then(function(page){ var vp = page.getViewport({ scale:1 }); resolve({ wMm: Math.round(vp.width*25.4/72), hMm: Math.round(vp.height*25.4/72) }); })
+          .then(function(pdf){ var np = pdf.numPages||1; return pdf.getPage(1).then(function(page){ var vp = page.getViewport({ scale:1 }); resolve({ wMm: Math.round(vp.width*25.4/72), hMm: Math.round(vp.height*25.4/72), pages: np }); }); })
           .catch(function(){ resolve({}); });
       } else if (/^image\//.test(file.type)){
         var img = new Image(), u = URL.createObjectURL(file);
@@ -22406,10 +22406,10 @@ function pi_fileCompare(a,b){ var ka=pi_fileSortKey(a.name), kb=pi_fileSortKey(b
   if (ka.base < kb.base) return -1; if (ka.base > kb.base) return 1; return ka.num - kb.num; }
 // תצוגה מקדימה (thumbnail) — נשמרת בזיכרון בלבד (window._pi.previews[fileId]), לא בטיוטה
 function pi_blobToDataUrl(blob){ return new Promise(function(res){ var r=new FileReader(); r.onload=function(){res(r.result);}; r.onerror=function(){res(null);}; r.readAsDataURL(blob); }); }
-function pi_pdfThumb(buf){
+function pi_pdfThumb(buf, pageNum){
   if (!window.pdfjsLib) return Promise.resolve(null);
   return pdfjsLib.getDocument({ data: buf.slice ? buf.slice(0) : buf }).promise
-    .then(function(pdf){ return pdf.getPage(1); })
+    .then(function(pdf){ var pn = Math.min(Math.max(1, pageNum||1), pdf.numPages||1); return pdf.getPage(pn); })
     .then(function(page){
       // רזולוציה גבוהה כדי שהגרפיקה על הגיליון תיראה חדה גם בזום (עד ~2000px בצד הארוך)
       var v1 = page.getViewport({ scale:1 }), scale = Math.min(6, 2000 / Math.max(v1.width, v1.height, 1));
@@ -22425,19 +22425,24 @@ function pi_previewFromFile(file){
   if (/^image\//.test(file.type)) return pi_blobToDataUrl(file);
   return Promise.resolve(null);
 }
-function pi_previewFromUrl(url){
+function pi_previewFromUrl(url, pageNum){
   return fetch(url).then(function(r){ var ct = r.headers.get('content-type')||''; return r.arrayBuffer().then(function(buf){ return { buf:buf, ct:ct }; }); })
-    .then(function(o){ if (/pdf/i.test(o.ct) || /\.pdf(\?|$)/i.test(url)) return pi_pdfThumb(o.buf); return pi_blobToDataUrl(new Blob([o.buf], { type:o.ct||'image/jpeg' })); })
+    .then(function(o){ if (/pdf/i.test(o.ct) || /\.pdf(\?|$)/i.test(url)) return pi_pdfThumb(o.buf, pageNum); return pi_blobToDataUrl(new Blob([o.buf], { type:o.ct||'image/jpeg' })); })
     .catch(function(){ return null; });
 }
-// יצירת תצוגות חסרות (בפתיחת טיוטה קיימת — מקבצי ה-URL)
+// יצירת תצוגות חסרות (בפתיחת טיוטה קיימת — מקבצי ה-URL). קובץ דו-עמודי → גם עמוד 2 (לצד B) במפתח fid+':2'
 function pi_ensurePreviews(cur){
   window._pi.previews = window._pi.previews || {};
   (cur.files||[]).forEach(function(f){
-    if (f.id in window._pi.previews) return;   // כבר קיים / בתהליך
-    if (!f.sourceFileUrl){ window._pi.previews[f.id] = null; return; }
-    window._pi.previews[f.id] = null;
-    pi_previewFromUrl(f.sourceFileUrl).then(function(d){ if (d){ window._pi.previews[f.id] = d; if (window._pi.view==='manual') pi_render(); } });
+    if (!(f.id in window._pi.previews)){
+      if (!f.sourceFileUrl){ window._pi.previews[f.id] = null; }
+      else { window._pi.previews[f.id] = null;
+        pi_previewFromUrl(f.sourceFileUrl, 1).then(function(d){ if (d){ window._pi.previews[f.id] = d; if (window._pi.view==='manual') pi_render(); } }); }
+    }
+    if ((f.pages||1) >= 2 && f.sourceFileUrl && !((f.id+':2') in window._pi.previews)){
+      window._pi.previews[f.id+':2'] = null;
+      pi_previewFromUrl(f.sourceFileUrl, 2).then(function(d){ if (d){ window._pi.previews[f.id+':2'] = d; if (window._pi.view==='manual') pi_render(); } });
+    }
   });
 }
 // העלאת קבצים אמיתית ל-Storage + מידות מזוהות + תצוגה מקדימה + מיון לפי שם/עמוד
@@ -22458,8 +22463,11 @@ function pi_manualUploadFiles(fileList, opts){
       return _uploadProofToStorage(path, file, null).then(function(url){
         cur.files = cur.files || [];
         var nf = { id: fid, name:file.name||'קובץ',
-          widthMm: dim.wMm||100, heightMm: dim.hMm||100, quantity:1, bleedMm:g.defaultBleedMm, sourceFileUrl:url };
+          widthMm: dim.wMm||100, heightMm: dim.hMm||100, quantity:1, bleedMm:g.defaultBleedMm, sourceFileUrl:url, pages: dim.pages||1 };
         cur.files.push(nf);
+        if ((dim.pages||1) >= 2){   // קובץ דו-עמודי → הכן תצוגת עמוד 2 (הצד האחורי) לצד B
+          file.arrayBuffer().then(function(b2){ return pi_pdfThumb(b2, 2); }).then(function(t2){ if (t2){ window._pi.previews[fid+':2'] = t2; if (window._pi.view==='manual') pi_render(); } }).catch(function(){});
+        }
         cur.files.sort(pi_fileCompare);   // שמירה על סדר לפי שם+עמוד גם כשההעלאות מסתיימות לא בסדר
         cur._edited = true; window._pi.dirty = true; done++;
         if (opts.attachToKey){   // שיוך הקובץ לקוביה קיימת — שומר מיקום+גודל הקוביה
@@ -22513,13 +22521,51 @@ function pi_itemDetachFile(key){
   cur._edited = true; window._pi.dirty = true; pi_render();
   showToast('הקובץ נותק — הקוביה נשארה');
 }
-// בחירת צד אחד / שני צדדים לפריט (מטא-דאטה להפעלה + דף עבודה)
+// בחירת צד אחד / שני צדדים לפריט. "שני צדדים" יוצר פריט-גב תואם בצד B של הגיליון (עמוד 2 של הקובץ)
 function pi_itemSetSides(key, n){
   var cur = window._pi.cur; if (!cur) return;
   var it = (cur.items||[]).find(function(x){ return String(x.id) === String(key); }); if (!it) return;
-  it.sides = (parseInt(n) === 2) ? 2 : 1;
-  cur._edited = true; window._pi.dirty = true; pi_render();
-  showToast(it.sides === 2 ? '📑 שני צדדים' : '📄 צד אחד');
+  var two = (parseInt(n) === 2);
+  it.sides = two ? 2 : 1;
+  if (two){ if (!it.pairId) it.pairId = 'pair_' + (it.id || Math.random().toString(36).slice(2,8)); it.page = 1; }
+  else { delete it.pairId; }
+  cur._edited = true; window._pi.dirty = true;
+  if (window._pi.side !== 1) pi_syncPairedBacks(cur);   // רק כשהצד הפעיל הוא הקדמי — כדי לא לדרוס עריכה חיה בצד B
+  pi_render();
+  if (two){
+    var f = (cur.files||[]).find(function(x){ return String(x.id)===String(it.fileId); });
+    var hasBack = f && (f.pages||1) >= 2;
+    showToast(hasBack ? '📑 שני צדדים · הגב (עמוד 2) נוסף לצד B — לחץ 🔄 צד B לצפייה'
+                      : '📑 שני צדדים · לקובץ יש עמוד אחד בלבד — הגב יוצג ריק/כעמוד 1');
+  } else showToast('📄 צד אחד');
+}
+// סנכרון פריטי-גב אוטומטיים: לכל פריט קדמי המסומן "שני צדדים" — פריט תואם בצד B,
+// במראה אופקית (רישום גב-מול-פנים לפרפקטור) ומציג את עמוד 2 של אותו קובץ. גב שנוצר ידנית נשמר.
+function pi_syncPairedBacks(cur){
+  if (!cur) return;
+  pi_ensureSheets(cur);
+  var g = pi_curGeom();
+  (cur.sheets||[]).forEach(function(s){
+    s.items = s.items || []; s.backItems = s.backItems || []; s.backCutBars = s.backCutBars || [];
+    var manual = s.backItems.filter(function(b){ return b && !b.backAuto; });   // פריטי-גב ידניים — לא נמחקים
+    var autos = [];
+    s.items.forEach(function(f){
+      if (!f || f.sides !== 2 || !f.fileId) return;
+      if (!f.pairId) f.pairId = 'pair_' + (f.id || Math.random().toString(36).slice(2,8));
+      f.page = 1;
+      var bx = g.sheetWidthMm - (f.xMm + f.widthMm);   // מראה אופקית לרישום הגב מול הפנים
+      autos.push({ id: 'back_' + f.pairId, backAuto: true, pairId: f.pairId, fileId: f.fileId, page: 2,
+        xMm: bx, yMm: f.yMm, widthMm: f.widthMm, heightMm: f.heightMm, rotation: f.rotation || 0,
+        bleedMm: f.bleedMm, copies: f.copies || 1,
+        marks: (f.marks===true?true:undefined), noMarks: (f.noMarks===true?true:undefined), sourceType: 'manual' });
+    });
+    s.backItems = manual.concat(autos);
+  });
+  // אם נמצאים כרגע בצד B — עדכן את המצביע לעריכה החיה כדי שהקאנבס לא יראה מערך ישן
+  if (window._pi.side === 1){
+    var as = cur.sheets[cur.activeSheetIdx];
+    if (as){ cur.items = as.backItems; cur.cutBars = as.backCutBars; window._pi._sheetCur = cur; window._pi._sheetIdx = cur.activeSheetIdx; window._pi._sheetSide = 1; }
+  }
 }
 // הכנסת כל הקבצים לגיליון בלחיצה אחת + סידור אוטומטי
 function pi_manualAddAll(){
@@ -24282,7 +24328,7 @@ function pi_drawSheetSvg(g, scale, items, selKey, warnKeys, svgId){
     var sw = (sel || lvl) ? 2.4 : 1;
     var iw = it.widthMm*scale, ih = it.heightMm*scale, lbl = pi_pgLabel(it); if (lbl.length > 11) lbl = lbl.slice(0,10) + '…';
     var _hideGfx = window._pi.cur && window._pi.cur.hideGfx;
-    var prev = (!_hideGfx && it.fileId && window._pi.previews) ? window._pi.previews[it.fileId] : null;
+    var prev = (!_hideGfx && it.fileId && window._pi.previews) ? ((it.page===2 && window._pi.previews[it.fileId+':2']) ? window._pi.previews[it.fileId+':2'] : window._pi.previews[it.fileId]) : null;
     var imgTag = '';
     if (prev){
       var rot = it.rotation||0, innerW = (rot===90||rot===270)?ih:iw, innerH = (rot===90||rot===270)?iw:ih;
@@ -24451,13 +24497,14 @@ function pi_exportProductionPdf(){
     bindingMode: !isManual, foldMarks: !isManual };   // מסלול כרטיס (קונטרסים) = כריכייה → צמוד + צלבי חיתוך(היקף)+קיפול
   if (isManual){
     pi_ensureSheets(cur); pi_syncActiveSheet(cur);   // ריבוי גיליונות — עמוד לכל גיליון
+    pi_syncPairedBacks(cur);   // ודא שפריטי-הגב (עמוד 2) עדכניים לפני הפקת ה-PDF הדו-צדדי
     var fmap = {}; (cur.files||[]).forEach(function(f){ fmap[f.id] = f; });
     var mkItems = function(itemsArr){
       return (itemsArr||[]).map(function(rawIt, i){
         var f = fmap[rawIt.fileId];
         var it = Object.assign({}, rawIt, { label: (f ? f.name : (rawIt.gangName || (rawIt.empty ? 'ריק' : 'קובץ?'))) });
         var srcB = (f && f.srcBleedMm != null) ? f.srcBleedMm : 0;   // Stage 3 — צלבים על ה-trim לפי הבליד האמיתי של הקובץ
-        return { srcUrl: (f && f.sourceFileUrl) || '', srcPage: 1, xMm: it.xMm, yMm: it.yMm,
+        return { srcUrl: (f && f.sourceFileUrl) || '', srcPage: rawIt.page || 1, xMm: it.xMm, yMm: it.yMm,
           wMm: it.widthMm, hMm: it.heightMm, rotation: it.rotation, bleedMm: srcB, label: it.label, n: i+1,
           marks: it.marks === true ? true : undefined, noMarks: it.noMarks === true ? true : undefined };
       });
