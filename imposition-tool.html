@@ -150,8 +150,23 @@ async function foldSignature(out, sidePages, tpl, map, firstSideIsFront, bleedMm
   const embeds = [];
   for (let i=0;i<sidePages.length;i++) embeds.push(await out.embedPage(sidePages[i]));
   const ref = sidePages[0];
-  const mwmm = ref.getWidth()/MM, mhmm = ref.getHeight()/MM;
-  const offX = (mwmm - 1000)/2, offY = (mhmm - 700)/2;   // שטח הפריסה ממורכז בגיליון (כולל bleed)
+  const mb = ref.getMediaBox();
+  const mwmm = mb.width/MM, mhmm = mb.height/MM;
+  let offX = (mwmm - 1000)/2, offY = (mhmm - 700)/2;   // ברירת מחדל: שטח הפריסה ממורכז בגיליון
+  // תיקון א-סימטריה (דש/lip): אם אזור הנטו (TrimBox/CropBox) לא ממורכז במדיה — מזיזים את שטח הפריסה בהתאם,
+  // כך שהחיתוך/הגאטר/הדש ייפלו מדויק בכל העמודים (הנחת-המרכז שברה גיליונות א-סימטריים).
+  try {
+    let nb = null; try { nb = ref.getTrimBox(); } catch(e){}
+    if (!nb || nb.width >= mb.width - 1){ try { nb = ref.getCropBox(); } catch(e){} }
+    if (nb && nb.width < mb.width - 1){
+      const leftM  = (nb.x - mb.x)/MM;
+      const rightM = ((mb.x + mb.width) - (nb.x + nb.width))/MM;
+      const topM   = ((mb.y + mb.height) - (nb.y + nb.height))/MM;
+      const botM   = (nb.y - mb.y)/MM;
+      if (Math.abs(leftM - rightM) >= 1) offX += (leftM - rightM) / 2;
+      if (Math.abs(topM  - botM)  >= 1) offY += (topM  - botM)  / 2;
+    }
+  } catch(e){}
   const sheetHpt = ref.getHeight();
   const B = (bleedMm > 0) ? bleedMm : 0;                  // ברוטו: מרווח בליד סביב הנטו כדי לחשוף את הגישות
   const OUTW = (TRIM_W + 2*B)*MM, OUTH = (TRIM_H + 2*B)*MM, ocx = OUTW/2, ocy = OUTH/2;
