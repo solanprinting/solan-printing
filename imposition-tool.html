@@ -326,25 +326,17 @@ async function _fbImg(i){
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);   // רקע לבן (ל-JPEG בלי שקיפות שחורה)
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   await page.render({canvasContext:ctx, viewport:vp}).promise;
-  // ── ברוטו: חיתוך אחיד — משאירים בדיוק DB מ״מ בליד בכל צד חיצוני (לא יותר), כדי לראות את הגלישות
-  //    אבל בלי לחשוף את צלבי החיתוך/קיפול שנמצאים בגאטר מעבר לבליד. השדרה (צד פנימי) נחתכת לנטו לגאטר צמוד.
+  // ── ברוטו: חותכים רק את הבליד הפנימי (השדרה) לנטו — כדי שהכפולה תתחבר בגאטר.
+  //    שאר הצדדים (חזית/ראש/רגל) נשארים מלאים — כך רואים את הגלישות ואת צלבי החיתוך שבבליד.
   let outCv = cv;
-  const pageWmm = v1.width / MM, pageHmm = v1.height / MM, B = (pageWmm - TRIM_W) / 2;
-  if (B > 0.5){
-    const DB = Math.min(B, 3);          // מציג עד 3 מ״מ בליד — סטנדרט; מעבר לזה מתחילים צלבי החיתוך
-    const cropOuter = B - DB;           // כמה לחתוך בצד חיצוני כדי להשאיר DB בליד
-    let leftMm, rightMm;
-    if (i === 0){ leftMm = cropOuter; rightMm = cropOuter; }                 // שער — בליד אחיד בשני הצדדים
-    else { const innerIsLeft = (i % 2 === 1);                                // שדרה→נטו, חזית→trim+DB
-      leftMm  = innerIsLeft ? B : cropOuter;
-      rightMm = innerIsLeft ? cropOuter : B; }
-    const pxX = cv.width / pageWmm, pxY = cv.height / pageHmm;
-    const sx = Math.round(leftMm*pxX), sy = Math.round(cropOuter*pxY);
-    const sw = cv.width - sx - Math.round(rightMm*pxX);
-    const sh = cv.height - sy - Math.round(cropOuter*pxY);
-    if (sw > 4 && sh > 4){
-      outCv = document.createElement('canvas'); outCv.width = sw; outCv.height = sh;
-      outCv.getContext('2d').drawImage(cv, sx, sy, sw, sh, 0, 0, sw, sh);
+  const pageWmm = v1.width / MM, B = (pageWmm - TRIM_W) / 2;
+  if (B > 0.5 && i > 0){
+    const innerPx = Math.round(B / pageWmm * cv.width);
+    if (innerPx > 0 && innerPx < cv.width - 4){
+      const innerIsLeft = (i % 2 === 1);           // אינדקס אי-זוגי → צד ימין בכפולה (RTL) → השדרה בשמאל
+      const sx = innerIsLeft ? innerPx : 0, w2 = cv.width - innerPx;
+      outCv = document.createElement('canvas'); outCv.width = w2; outCv.height = cv.height;
+      outCv.getContext('2d').drawImage(cv, sx, 0, w2, cv.height, 0, 0, w2, cv.height);
     }
   }
   const u = outCv.toDataURL('image/jpeg', 0.95);   // JPEG 95% — כמעט ללא אובדן אך קטן פי כמה מ-PNG, מאפשר רזולוציית רינדור גבוהה יותר
@@ -435,11 +427,10 @@ async function _fbRender(){
     let insetPx = 0;
     const Bmm = parseFloat((document.getElementById('viewsize')||{}).value) || 0;
     if (lipOn && Bmm > 0){
-      const DB = Math.min(Bmm, 3);
       const dispHpx = Math.min((window.innerHeight || 900) * 0.62, 880);
-      const imgWmm = TRIM_W + DB, imgHmm = TRIM_H + 2*DB;   // תמונה לאחר חיתוך אחיד: נטו בשדרה + DB בחזית
+      const imgWmm = TRIM_W + Bmm, imgHmm = TRIM_H + 2*Bmm;   // נטו בשדרה + בליד מלא בחזית
       const dispWpx = dispHpx * imgWmm / imgHmm;
-      insetPx = Math.round(DB / imgWmm * dispWpx);
+      insetPx = Math.round(Bmm / imgWmm * dispWpx);
     }
     // שני העמודים נפגשים בדיוק בקו הטרים/הקיפול (בלי חפיפה — כדי שהקיפול ייפול מדויק על הצלבים)
     const img0 = '<img src="'+imgs[0]+'" style="height:62vh;max-height:880px;width:auto;max-width:'+mw+';background:#fff;image-rendering:auto;display:block">';
