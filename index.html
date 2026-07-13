@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783929720';
+window.APP_VERSION = '1783930889';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -12551,7 +12551,8 @@ function confirmMakeCardWeekly(cardId, day) {
     notes:         c.notes || '',
     internalNotes: c.internalNotes || '',
     needsFolding:  c.needsFolding || false,
-    needsBinding:  c.needsBinding || false
+    needsBinding:  c.needsBinding || false,
+    _upd:          Date.now()
   });
   persist();
   _logActivity('📅', 'עבודה "' + (c.name||'') + '" נוספה ליומן השבועי (' + day + ')');
@@ -12977,7 +12978,8 @@ function saveWeeklyJobEdit(id) {
     color:    document.getElementById('wej-color').value.trim(),
     day:      dayBtn ? dayBtn.dataset.day : weeklyJobs[idx].day,
     needsFolding: document.getElementById('wej-needs-folding')?document.getElementById('wej-needs-folding').checked:false,
-    needsBinding: document.getElementById('wej-needs-binding')?document.getElementById('wej-needs-binding').checked:false
+    needsBinding: document.getElementById('wej-needs-binding')?document.getElementById('wej-needs-binding').checked:false,
+    _upd: Date.now()   // חותמת עדכון → המיזוג לא ידרוס את העריכה בנתון שרת ישן (השינוי נשמר קבוע)
   });
   persist();
   closeWeeklyEditModal();
@@ -17702,12 +17704,15 @@ async function _fbPollAll() {
       if (_incWJ.length === 0 && weeklyJobs.length > 0) {
         window._fbPut('weeklyJobs', _filterDeleted('weeklyJobs', weeklyJobs)); // הגנה מפני שרת ריק
       } else {
+        _stampChangedArr('weeklyJobs', weeklyJobs);   // עריכה מקומית שטרם סונכרנה → _upd=עכשיו כדי שהמיזוג לא ידרוס אותה בנתון שרת ישן
         weeklyJobs = _filterDeleted('weeklyJobs', _mergeArrById(_incWJ, weeklyJobs));
         localStorage.setItem('solanWeeklyJobs', JSON.stringify(weeklyJobs));
         window._fbSnapshot.weeklyJobs = JSON.stringify(weeklyJobs);
         _seedArrSnap('weeklyJobs', weeklyJobs);
         if (JSON.stringify(weeklyJobs) !== JSON.stringify(_incWJ)) _pushArrMerged('weeklyJobs');
         if (document.getElementById('view-week') && document.getElementById('view-week').style.display!=='none') renderWeek();
+        var _wjMgmt = document.getElementById('weekly-job-mgmt-list');
+        if (typeof renderWeeklyJobMgmt === 'function' && _wjMgmt && _wjMgmt.offsetParent !== null) renderWeeklyJobMgmt();
       }
     }
     // עבודות קבועות
