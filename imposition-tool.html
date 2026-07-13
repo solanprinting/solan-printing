@@ -78,7 +78,10 @@
         <select id="viewsize"><option value="0" selected>נטו (טרים בלבד)</option><option value="3">ברוטו +3 מ״מ (עם בליד)</option><option value="5">ברוטו +5 מ״מ (עם בליד)</option></select>
       </div>
       <div class="opt"><label>דש סיכות (lip):</label>
-        <select id="showlip" onchange="if(_FB)_fbRender()"><option value="0" selected>לא</option><option value="1">כן — סמן את הדש בצד החיצוני</option></select>
+        <select id="showlip" onchange="if(_FB)_fbRender()"><option value="0" selected>לא</option><option value="1">כן — הצג דש (15/5 מ״מ)</option></select>
+      </div>
+      <div class="opt"><label>צד הדש (15 מ״מ):</label>
+        <select id="lipside" onchange="if(_FB)_fbRender()"><option value="auto" selected>אוטומטי — מהפרופר</option><option value="right">ימין</option><option value="left">שמאל</option></select>
       </div>
     </div>
     <div class="muted" id="fileinfo" style="margin-top:10px"></div>
@@ -187,6 +190,18 @@ async function fold(arrayBuffer, opts){
     if (Math.abs(w-1000) > 60 || Math.abs(h-700) > 60) report.sizeWarn = Math.round(w)+'×'+Math.round(h)+' מ"מ';
     // קובץ ששמור עם דגל סיבוב (Rotate 90/270) — ההטמעה מתעלמת מהדגל והקיפול יצא שגוי
     try { const ra = pages[0].getRotation && pages[0].getRotation().angle; if (ra && ra % 360 !== 0) report.rotWarn = ra; } catch(e){}
+    // זיהוי דש סיכות מהפרופר: אסימטריה אופקית בין גבול הגיליון (MediaBox) לאזור הנטו (TrimBox/CropBox).
+    // הצד עם עודף הנייר הגדול יותר עד קצה הגיליון = הצד עם הדש (fore-edge שהתופסנים תופסים).
+    try {
+      const p0 = pages[0], mb = p0.getMediaBox();
+      let nb = null; try { nb = p0.getTrimBox(); } catch(e){}
+      if (!nb || nb.width >= mb.width - 1){ try { nb = p0.getCropBox(); } catch(e){} }
+      if (nb && nb.width < mb.width - 1){
+        const mL = (nb.x - mb.x)/MM, mR = (mb.x + mb.width - (nb.x + nb.width))/MM;
+        if (Math.abs(mR - mL) >= 2)
+          report.lip = { bigSide: (mR > mL) ? 'right' : 'left', big: Math.round(Math.max(mL, mR)), small: Math.round(Math.min(mL, mR)) };
+      }
+    } catch(e){}
   }
   for (let s = 0; s + per <= pages.length; s += per){
     await foldSignature(out, pages.slice(s, s+per), tpl, map, firstSideIsFront, opts.bleedMm || 0);
@@ -244,6 +259,7 @@ $('go').onclick = async () => {
       if (report.sizeWarn) html += '<div class="warn">⚠️ גודל הגיליון בקובץ הוא '+report.sizeWarn+' — התבניות מותאמות ל-70×100. אם התוצאה לא מדויקת, ייתכן שנבחר סוג פריסה לא נכון.</div>';
       if (report.rotWarn) html += '<div class="warn">⚠️ הקובץ שמור עם סיבוב עמוד ('+report.rotWarn+'°) — ייתכן שהקיפול יצא שגוי. אם העמודים לא במקום, סובב/שמור מחדש את הקובץ ללא דגל סיבוב ונסה שוב.</div>';
       if (report.leftover) html += '<div class="warn">⚠️ נשארו '+report.leftover+' עמ\' בקובץ שלא הושלמה להם חתימה — דולגו.</div>';
+      if (report.lip) html += '<div class="ok" style="background:#fffbeb;border-color:#fde68a;color:#92400e">🔖 זוהה דש סיכות בפרופר: ~'+report.lip.big+' מ״מ בצד '+(report.lip.bigSide==='right'?'ימין':'שמאל')+' · ~'+report.lip.small+' מ״מ בצד השני. בחר <b>דש סיכות = כן</b> (מומלץ יחד עם ברוטו) כדי לסמן.</div>';
       const blob = new Blob([bytes], { type:'application/pdf' });
       const url = URL.createObjectURL(blob);
       const name = _file.name.replace(/\.pdf$/i,'') + ' — חוברת מקופלת.pdf';
@@ -254,7 +270,7 @@ $('go').onclick = async () => {
         + '<div class="muted" style="margin-top:10px">אם הסדר/כיוון לא נכון — שנה את "סוג הפריסה" או "צד ראשון בקובץ" ונסה שוב.</div>';
     }
     $('result').innerHTML = html; $('log').textContent = '';
-    if (report.signatures > 0) showFlipbook(bytes);
+    if (report.signatures > 0) showFlipbook(bytes, report.lip);
   } catch(e){
     console.error(e); $('log').textContent = '✗ שגיאה: ' + (e.message||e);
   } finally { $('go').disabled = false; }
@@ -262,13 +278,13 @@ $('go').onclick = async () => {
 
 // ── צופה דפדוף בכפולות (RTL) — מרנדר את ה-PDF המקופל (כבר ישר) עם pdf.js, lazy ──
 var _FB = null;
-async function showFlipbook(bytes){
+async function showFlipbook(bytes, lip){
   const host = document.getElementById('fb'); if (!host) return;
   if (!window.pdfjsLib){ host.innerHTML = '<div class="muted">צופה דפדוף לא זמין — השתמש בהורדה.</div>'; return; }
   host.innerHTML = '<div class="muted" style="padding:14px">טוען דפדוף…</div>';
   try {
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
-    _FB = { pdf, n: pdf.numPages, idx: 0, cache: {} };
+    _FB = { pdf, n: pdf.numPages, idx: 0, cache: {}, lip: lip || null };
     host.innerHTML =
         '<div id="fbWrap" style="background:#fff;border-radius:10px">'
       + '<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin:8px 0;flex-wrap:wrap">'
@@ -370,24 +386,31 @@ async function _fbRender(){
   if (my !== f.renderSeq) return;
   const lipOn = ((document.getElementById('showlip')||{}).value === '1');
   if (imgs.length === 2){
+    // צד הדש (15 מ״מ) — לפי הבחירה, אחרת לפי זיהוי הפרופר, אחרת ברירת מחדל ימין
+    const sel = (document.getElementById('lipside')||{}).value || 'auto';
+    let bigSide = (sel === 'right' || sel === 'left') ? sel : ((f.lip && f.lip.bigSide) || 'right');
+    const bigMm   = (f.lip && f.lip.big)   || 15;
+    const smallMm = (f.lip && f.lip.small) || 5;
     // כפולה — שני העמודים צמודים ללא רווח, עם צל אחד סביב הזוג, כדי לראות את החיבור בין העמודים
     sp.innerHTML = '<div dir="rtl" style="position:relative;display:flex;gap:0;box-shadow:0 3px 16px rgba(0,0,0,.4);border-radius:2px;overflow:hidden;max-width:96vw">'
       + _fbImgTag(imgs[0], false) + _fbImgTag(imgs[1], false)
-      + (lipOn ? _fbLipOverlay('right') + _fbLipOverlay('left') : '')   // הדש בצדדים החיצוניים (fore-edge) של הכפולה
+      + (lipOn ? _fbLipOverlay('right', bigSide==='right'?bigMm:smallMm) + _fbLipOverlay('left', bigSide==='left'?bigMm:smallMm) : '')
       + '</div>';
   } else {
     sp.innerHTML = imgs.map(function(u){ return _fbImgTag(u, true, '92vw'); }).join('');
   }
   _fbPrefetch();   // הכן מראש את העמודים הסמוכים — דפדוף הבא יהיה מיידי
 }
-// רצועת "דש סיכות" (lip) על הצד החיצוני — הצד שבו יש עודף נייר לתפיסת התופסנים בכריכיית הסיכות
-function _fbLipOverlay(side){
+// רצועת "דש סיכות" (lip) על הצד החיצוני (fore-edge) — רוחב פרופורציוני למ״מ (15=דש גדול, 5=קטן)
+function _fbLipOverlay(side, mm){
   const pos = (side === 'right') ? 'right:0' : 'left:0';
   const bd  = (side === 'right') ? 'border-left' : 'border-right';
-  return '<div style="position:absolute;top:0;bottom:0;'+pos+';width:22px;'
-    + 'background:repeating-linear-gradient(45deg,rgba(245,158,11,.28),rgba(245,158,11,.28) 5px,rgba(245,158,11,.13) 5px,rgba(245,158,11,.13) 10px);'
+  const w   = Math.max(9, Math.min(46, Math.round((mm||5) * 2.6)));   // רוחב חזותי לפי גודל הדש
+  const strong = (mm >= 10);
+  return '<div title="דש סיכות '+mm+' מ״מ" style="position:absolute;top:0;bottom:0;'+pos+';width:'+w+'px;'
+    + 'background:repeating-linear-gradient(45deg,rgba(245,158,11,'+(strong?'.34':'.2')+'),rgba(245,158,11,'+(strong?'.34':'.2')+') 5px,rgba(245,158,11,.12) 5px,rgba(245,158,11,.12) 10px);'
     + bd+':2px dashed #d97706;pointer-events:none;display:flex;align-items:center;justify-content:center;z-index:2">'
-    + '<span style="writing-mode:vertical-rl;text-orientation:mixed;font-size:.62rem;font-weight:900;color:#92400e;background:rgba(255,255,255,.72);padding:3px 1px;border-radius:4px;white-space:nowrap">דש סיכות</span>'
+    + '<span style="writing-mode:vertical-rl;text-orientation:mixed;font-size:.6rem;font-weight:900;color:#92400e;background:rgba(255,255,255,.75);padding:3px 1px;border-radius:4px;white-space:nowrap">דש '+mm+'מ״מ</span>'
     + '</div>';
 }
 // רינדור-רקע של הכפולות הסמוכות (קדימה ואחורה) כדי שהדפדוף יהיה חלק
