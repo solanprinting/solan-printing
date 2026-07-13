@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783928074';
+window.APP_VERSION = '1783928491';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -18740,8 +18740,42 @@ function _printingProgress(c){
   return { pct:Math.min(100,Math.round(elapsedMin/estMin*100)), elapsedMin:Math.round(elapsedMin), remainingMin:Math.max(0,Math.round(estMin-elapsedMin)), estMin:estMin };
 }
 // גרירה בין שלבים
-function _pipeDragStart(ev, id){ window._pipeDragId = String(id); try{ ev.dataTransfer.setData('text/plain', String(id)); ev.dataTransfer.effectAllowed='move'; }catch(e){} }
-function _pipeDrop(ev, stage){ if(ev&&ev.preventDefault)ev.preventDefault(); var id = window._pipeDragId || (ev.dataTransfer && ev.dataTransfer.getData('text/plain')); window._pipeDragId=null; if(id) _pipeMoveStage(id, stage); }
+function _pipeDragStart(ev, id){ window._pipeDragId = String(id); window._pipeDragRun = null; try{ ev.dataTransfer.setData('text/plain', String(id)); ev.dataTransfer.effectAllowed='move'; }catch(e){} }
+function _pipeDrop(ev, stage){ if(ev&&ev.preventDefault)ev.preventDefault(); var run=window._pipeDragRun; var id = window._pipeDragId || (ev.dataTransfer && ev.dataTransfer.getData('text/plain')); window._pipeDragId=null; window._pipeDragRun=null; if(run){ if(run.cardId) _pipeMoveStage(run.cardId, stage); return; } if(id) _pipeMoveStage(id, stage); }
+// גרירת ריצה בודדת (בשלב "נוצר כרטיס") — נושאת cardId+runIdx
+function _pipeRunDragStart(ev, cardId, runIdx){ window._pipeDragRun = { cardId:String(cardId), runIdx:runIdx }; window._pipeDragId=null; try{ ev.dataTransfer.setData('text/plain', String(cardId)); ev.dataTransfer.effectAllowed='move'; }catch(e){} if(ev&&ev.stopPropagation) ev.stopPropagation(); }
+// שם מכונה בפועל לקבוצה '4'/'8'
+function _pipeMachineName(mg){
+  var wm = (typeof WORKLIST_MACHINES!=='undefined' && WORKLIST_MACHINES.length) ? WORKLIST_MACHINES : ['מכונה 4 צבעים','מכונה 8 צבעים'];
+  if(mg==='8') return wm.find(function(m){ return /8/.test(m); }) || 'מכונה 8 צבעים';
+  return wm.find(function(m){ return /4/.test(m); }) || 'מכונה 4 צבעים';
+}
+// שחרור על רשימת מכונה ב"נשלח להדפסה" — משייך ריצה/עבודה למכונה ומכניס לתור.
+// ריצה המשויכת למכונה אחרת → _queueAddEntry מפעיל אישור ומעדכן גם את כרטיס העבודה.
+function _pipeDropMachine(ev, mg){
+  if(ev){ if(ev.preventDefault)ev.preventDefault(); if(ev.stopPropagation)ev.stopPropagation(); }
+  var machine = _pipeMachineName(mg);
+  var runDrag = window._pipeDragRun, cardDrag = window._pipeDragId;
+  window._pipeDragRun=null; window._pipeDragId=null;
+  if(runDrag){
+    var c = (cards||[]).find(function(x){ return String(x.id)===String(runDrag.cardId); });
+    if(!c){ return; }
+    var run = (c.runs && c.runs[runDrag.runIdx]) ? c.runs[runDrag.runIdx] : null;
+    var wasUnassigned = run && !run.machine;
+    if(wasUnassigned){ run.machine = machine; c._upd = Date.now(); c.lastUpdatedBy = currentUser ? currentUser.id : 'admin'; }
+    if(typeof _queueAddEntry==='function') _queueAddEntry(runDrag.cardId, runDrag.runIdx, machine);   // אישור למכונה-שונה + עדכון הכרטיס בפנים
+    if(wasUnassigned) showToast('📝 הריצה שויכה ל'+machine+' — עודכן גם בכרטיס העבודה');
+  } else if(cardDrag){
+    var c2 = (cards||[]).find(function(x){ return String(x.id)===String(cardDrag); });
+    if(!c2){ return; }
+    if(c2.runs && c2.runs.length>1){ showToast('ℹ️ לעבודה יש כמה ריצות — גרור כל ריצה בנפרד למכונה'); return; }
+    var ri = (c2.runs && c2.runs.length) ? 0 : -1;
+    if(typeof _queueAddEntry==='function') _queueAddEntry(cardDrag, ri, machine);
+  } else { return; }
+  if(typeof renderDashboard==='function') renderDashboard();
+  if(typeof renderCards==='function') renderCards();
+  if(typeof renderMachineQueue==='function') renderMachineQueue();
+}
 // שורת שם עבודה: ידית גרירה (⠿) נפרדת + שם לחיץ שפותח את כרטיס העבודה + חיווי אישור
 function _pipeNameHtml(c, stageKey){
   var idq = "'" + String(c.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'") + "'";
@@ -18758,6 +18792,21 @@ function _pipeNameHtml(c, stageKey){
       + 'style="flex:1;min-width:0;font-size:.66rem;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;text-align:right">'+mark+escHtml(nm)+'</span>'
     + (stageKey==='done' ? '<span onclick="event.stopPropagation();_pipeClearOne('+idq+')" title="נקה עבודה זו מהרשימה (לארכיון)" style="flex:none;cursor:pointer;color:#cbd5e1;font-size:.72rem;padding:0 3px;line-height:1" onmouseover="this.style.color=\'#ef4444\'" onmouseout="this.style.color=\'#cbd5e1\'">✕</span>' : '')
     + '</div>';
+  // בשלב "נוצר כרטיס": עבודה עם יותר מריצה אחת → כל ריצה כשבב נגרר בנפרד למכונה
+  if (stageKey==='created' && c.runs && c.runs.length>1){
+    var chips = c.runs.map(function(r,i){
+      var rl = (r && (r.label || ('ריצה '+(r.num||(i+1))))) || ('ריצה '+(i+1));
+      var mc = (r && r.machine) || '';
+      var mgTag = /8/.test(mc) ? '8צ' : (/4/.test(mc) ? '4צ' : '');
+      var col = mc ? '#6d28d9' : '#94a3b8';
+      var bg2 = mc ? '#f5f3ff' : '#f8fafc';
+      return '<span draggable="true" ondragstart="_pipeRunDragStart(event,'+idq+','+i+')" '
+        + 'title="'+escHtml(rl+(mc?(' · '+mc):' · לא משויך למכונה'))+' — גרור לרשימת המכונה בשלב נשלח להדפסה" '
+        + 'style="display:inline-flex;align-items:center;gap:2px;cursor:grab;border:1px solid '+col+';background:'+bg2+';color:'+col+';border-radius:10px;padding:1px 6px;font-size:.58rem;font-weight:700;white-space:nowrap;user-select:none">'
+        + '⠿ '+escHtml(rl)+' · '+(mgTag||'—')+'</span>';
+    }).join('');
+    row += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin:1px 16px 4px 4px">'+chips+'</div>';
+  }
   // פס התקדמות לעבודה שמודפסת כרגע
   if (stageKey==='printing'){
     var pr = _printingProgress(c);
@@ -18850,17 +18899,21 @@ function renderDashPipeline(){
   var machineSplitBody = function(list, stageKey, tone, bd){
     var g4 = list.filter(function(c){ return _pipeMachineGroup(c)!=='8'; });   // 4 או לא-ידוע
     var g8 = list.filter(function(c){ return _pipeMachineGroup(c)==='8'; });
-    var sub = function(lbl, arr){
-      return '<div style="margin-top:6px;border:1px solid '+bd+';border-radius:8px;overflow:hidden">'
+    var sub = function(lbl, arr, mg){
+      // ב"נשלח להדפסה" — רשימת המכונה היא יעד שחרור לגרירת ריצה/עבודה למכונה זו
+      var drop = (stageKey==='sent')
+        ? ' ondragover="event.preventDefault();event.stopPropagation();this.style.boxShadow=\'inset 0 0 0 2px #6d28d9\'" ondragleave="this.style.boxShadow=\'\'" ondrop="event.stopPropagation();this.style.boxShadow=\'\';_pipeDropMachine(event,\''+mg+'\')" title="גרור לכאן ריצה כדי לשלוח למכונה זו"'
+        : '';
+      return '<div style="margin-top:6px;border:1px solid '+bd+';border-radius:8px;overflow:hidden"'+drop+'>'
         + '<div style="display:flex;align-items:center;justify-content:space-between;background:#fff;padding:3px 7px;border-bottom:1px solid '+bd+'">'
         +   '<span style="font-size:.66rem;font-weight:800;color:'+tone+'">'+lbl+'</span>'
         +   '<span style="font-size:.72rem;font-weight:900;color:'+tone+'">'+arr.length+'</span>'
         + '</div>'
         + '<div style="padding:3px 4px;max-height:110px;overflow-y:auto">'
-        +   (arr.length ? namesListHtml(arr, stageKey) : '<div style="font-size:.62rem;color:#cbd5e1;text-align:center;padding:2px">—</div>')
+        +   (arr.length ? namesListHtml(arr, stageKey) : '<div style="font-size:.62rem;color:#cbd5e1;text-align:center;padding:2px">'+(stageKey==='sent'?'גרור ריצה לכאן':'—')+'</div>')
         + '</div></div>';
     };
-    return '<div style="margin-top:5px">' + sub('🖨️ מכונה 4 צבעים', g4) + sub('🖨️ מכונה 8 צבעים', g8) + '</div>';
+    return '<div style="margin-top:5px">' + sub('🖨️ מכונה 4 צבעים', g4, '4') + sub('🖨️ מכונה 8 צבעים', g8, '8') + '</div>';
   };
   var flow = '';
   _PIPE_STAGES.forEach(function(s, i){
