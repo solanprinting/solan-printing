@@ -77,6 +77,9 @@
       <div class="opt"><label>גודל עמוד בתצוגה:</label>
         <select id="viewsize"><option value="0" selected>נטו (טרים בלבד)</option><option value="3">ברוטו +3 מ״מ (עם בליד)</option><option value="5">ברוטו +5 מ״מ (עם בליד)</option></select>
       </div>
+      <div class="opt"><label>דש סיכות (lip):</label>
+        <select id="showlip" onchange="if(_FB)_fbRender()"><option value="0" selected>לא</option><option value="1">כן — סמן את הדש בצד החיצוני</option></select>
+      </div>
     </div>
     <div class="muted" id="fileinfo" style="margin-top:10px"></div>
     <button class="btn btn-go" id="go" disabled>📖 קפל לחוברת</button>
@@ -365,14 +368,27 @@ async function _fbRender(){
   }
   if (anim){ clearInterval(anim); const bar=document.getElementById('fbProgBar'); if(bar) bar.style.width='100%'; }
   if (my !== f.renderSeq) return;
+  const lipOn = ((document.getElementById('showlip')||{}).value === '1');
   if (imgs.length === 2){
     // כפולה — שני העמודים צמודים ללא רווח, עם צל אחד סביב הזוג, כדי לראות את החיבור בין העמודים
-    sp.innerHTML = '<div dir="rtl" style="display:flex;gap:0;box-shadow:0 3px 16px rgba(0,0,0,.4);border-radius:2px;overflow:hidden;max-width:96vw">'
-      + _fbImgTag(imgs[0], false) + _fbImgTag(imgs[1], false) + '</div>';
+    sp.innerHTML = '<div dir="rtl" style="position:relative;display:flex;gap:0;box-shadow:0 3px 16px rgba(0,0,0,.4);border-radius:2px;overflow:hidden;max-width:96vw">'
+      + _fbImgTag(imgs[0], false) + _fbImgTag(imgs[1], false)
+      + (lipOn ? _fbLipOverlay('right') + _fbLipOverlay('left') : '')   // הדש בצדדים החיצוניים (fore-edge) של הכפולה
+      + '</div>';
   } else {
     sp.innerHTML = imgs.map(function(u){ return _fbImgTag(u, true, '92vw'); }).join('');
   }
   _fbPrefetch();   // הכן מראש את העמודים הסמוכים — דפדוף הבא יהיה מיידי
+}
+// רצועת "דש סיכות" (lip) על הצד החיצוני — הצד שבו יש עודף נייר לתפיסת התופסנים בכריכיית הסיכות
+function _fbLipOverlay(side){
+  const pos = (side === 'right') ? 'right:0' : 'left:0';
+  const bd  = (side === 'right') ? 'border-left' : 'border-right';
+  return '<div style="position:absolute;top:0;bottom:0;'+pos+';width:22px;'
+    + 'background:repeating-linear-gradient(45deg,rgba(245,158,11,.28),rgba(245,158,11,.28) 5px,rgba(245,158,11,.13) 5px,rgba(245,158,11,.13) 10px);'
+    + bd+':2px dashed #d97706;pointer-events:none;display:flex;align-items:center;justify-content:center;z-index:2">'
+    + '<span style="writing-mode:vertical-rl;text-orientation:mixed;font-size:.62rem;font-weight:900;color:#92400e;background:rgba(255,255,255,.72);padding:3px 1px;border-radius:4px;white-space:nowrap">דש סיכות</span>'
+    + '</div>';
 }
 // רינדור-רקע של הכפולות הסמוכות (קדימה ואחורה) כדי שהדפדוף יהיה חלק
 async function _fbPrefetch(){
