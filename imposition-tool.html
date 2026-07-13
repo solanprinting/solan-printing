@@ -422,13 +422,22 @@ async function _fbRender(){
     const bigMm   = (f.lip && f.lip.big)   || 15;
     const smallMm = (f.lip && f.lip.small) || 5;
     const mw = lipOn ? '40vw' : '44vw';
+    // הזחה פנימה של רצועת הדש כך שקו הטרים שלה יישב בדיוק על צלב החיתוך (הבליד החיצוני שמוצג מעבר לטרים)
+    let insetPx = 0;
+    const Bmm = parseFloat((document.getElementById('viewsize')||{}).value) || 0;
+    if (lipOn && Bmm > 0){
+      const dispHpx = Math.min((window.innerHeight || 900) * 0.62, 880);
+      const imgWmm = TRIM_W + Bmm, imgHmm = TRIM_H + 2*Bmm;   // רוחב לאחר חיתוך הבליד הפנימי = טרים + בליד חיצוני
+      const dispWpx = dispHpx * imgWmm / imgHmm;
+      insetPx = Math.round(Bmm / imgWmm * dispWpx);
+    }
     // שני העמודים צמודים בגאטר (חפיפה זעירה מבטלת רווחי-עיגול), עם צל אחד סביב הזוג
     const img0 = '<img src="'+imgs[0]+'" style="height:62vh;max-height:880px;width:auto;max-width:'+mw+';background:#fff;image-rendering:auto;display:block;margin-left:-1px">';
     const img1 = '<img src="'+imgs[1]+'" style="height:62vh;max-height:880px;width:auto;max-width:'+mw+';background:#fff;image-rendering:auto;display:block">';
     sp.innerHTML = '<div dir="rtl" style="display:flex;gap:0;align-items:stretch;box-shadow:0 3px 16px rgba(0,0,0,.4);border-radius:2px;overflow:hidden;max-width:98vw">'
-      + (lipOn ? _fbLipStrip(bigSide==='right'?bigMm:smallMm, 'right') : '')   // דש בקצה החיצוני הימני
+      + (lipOn ? _fbLipStrip(bigSide==='right'?bigMm:smallMm, 'right', insetPx) : '')   // דש בקצה החיצוני הימני
       + img0 + img1
-      + (lipOn ? _fbLipStrip(bigSide==='left'?bigMm:smallMm, 'left') : '')     // דש בקצה החיצוני השמאלי
+      + (lipOn ? _fbLipStrip(bigSide==='left'?bigMm:smallMm, 'left', insetPx) : '')     // דש בקצה החיצוני השמאלי
       + '</div>';
   } else {
     sp.innerHTML = imgs.map(function(u){ return _fbImgTag(u, true, '92vw'); }).join('');
@@ -436,10 +445,13 @@ async function _fbRender(){
   _fbPrefetch();   // הכן מראש את העמודים הסמוכים — דפדוף הבא יהיה מיידי
 }
 // דש סיכות = נייר לבן מעבר לטרים (fore-edge). רצועה לבנה מחוץ לעמוד, עם קו טרים מקווקו בגבול — לא נכנס לתוך העמוד/הטרים.
-function _fbLipStrip(mm, outerSide){
+function _fbLipStrip(mm, outerSide, insetPx){
+  insetPx = insetPx || 0;
   const w = Math.max(10, Math.min(64, Math.round((mm||5) * 3.4)));   // רוחב חזותי לפי גודל הדש (מ״מ)
   const trimSide = (outerSide === 'right') ? 'left' : 'right';       // הצד הפונה לעמוד = קו הטרים/צלב חיתוך
-  return '<div title="דש סיכות ' + mm + ' מ״מ (נייר לבן עד קו החיתוך)" style="align-self:stretch;flex:none;width:' + w + 'px;background:#fff;position:relative">'
+  // הזחה פנימה כדי שקו הטרים המקווקו יישב בדיוק על צלב החיתוך (מכסה את הבליד החיצוני בלבן — צד הדש)
+  const mgn = insetPx > 0 ? ('margin-' + trimSide + ':-' + insetPx + 'px;') : '';
+  return '<div title="דש סיכות ' + mm + ' מ״מ (נייר לבן שמתחיל בצלב החיתוך)" style="align-self:stretch;flex:none;width:' + w + 'px;background:#fff;position:relative;z-index:3;' + mgn + '">'
     + '<div style="position:absolute;top:0;bottom:0;' + trimSide + ':0;border-' + trimSide + ':1.5px dashed #d97706"></div>'
     + '<span style="position:absolute;top:50%;' + outerSide + ':3px;transform:translateY(-50%);writing-mode:vertical-rl;text-orientation:mixed;font-size:.56rem;font-weight:800;color:#b45309;white-space:nowrap">דש ' + mm + 'מ״מ</span>'
     + '</div>';
