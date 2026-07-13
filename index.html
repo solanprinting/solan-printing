@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783931110';
+window.APP_VERSION = '1783933083';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1201,6 +1201,7 @@ window._fbSnapshot = {};
     <button class="btn btn-outline-w" onclick="document.getElementById('newspapersModal').style.display='flex'">📥 לקוחות עיתונים</button>
     <button class="btn btn-outline-w" onclick="openImpositionTool()">✂️ קיפול לחוברת</button>
     <button class="btn btn-outline-w" onclick="openCartonCalc()">🧮 מחשבון</button>
+    <button class="btn btn-outline-w" id="fj-btn" onclick="openFutureJobs()" title="עבודות עתידיות + תזכורות (נייר והכנסת כרטיס)" style="position:relative">🔮 עבודות עתידיות<span id="fj-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#f59e0b;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w admin-only" onclick="openReports()">📊 דוחות</button>
     <button class="btn btn-outline-w admin-only" id="cs-stock-btn" onclick="openCustStock()" style="position:relative">📦 מלאי לקוחות<span id="cs-stock-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w" id="pi-btn" onclick="pi_open()" title="תכנון דפוס — אימפוזיציה" style="position:relative">🖨️ תכנון דפוס<span id="pi-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#8b5cf6;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
@@ -2720,6 +2721,7 @@ let newspapers= JSON.parse(localStorage.getItem('solanNewspapers')|| '[]');
 let flyers    = JSON.parse(localStorage.getItem('solanFlyers')    || '[]');
 let printFiles = JSON.parse(localStorage.getItem('solanPrintFiles') || '[]');  // קבצים להדפסה + מעקב כמויות ("להכניס בחורים")
 let weeklyJobs= JSON.parse(localStorage.getItem('solanWeeklyJobs')|| '[]');
+let futureJobs = JSON.parse(localStorage.getItem('solanFutureJobs') || '[]');   // עבודות עתידיות עם תזכורת (נייר + הכנסת כרטיס) — מוסתרות מהרשימות עד למועד
 let recurringJobs = JSON.parse(localStorage.getItem('solanRecurringJobs') || '[]');
 let machineQueue = JSON.parse(localStorage.getItem('solanMachineQueue') || '[]');
 let historyDB = JSON.parse(localStorage.getItem('solanHistory')   || '{}');
@@ -3413,13 +3415,14 @@ function _doPushCardsMerged(){
 // פותר את משפחת הבאגים "מערך שלם דורס מערך שלם": שני מכשירים שעורכים בו-זמנית,
 // או טאב ישן שדוחף נתון ישן. כל פריט נושא חותמת _upd; מיזוג שומר את החדש יותר.
 // מחיקות מוגנות ב-tombstones (deletedIds) — כמו בכרטיסים.
-var _MERGED_COLLS = ['orders','quotes','weeklyJobs','printFiles','deliveryNotes'];
+var _MERGED_COLLS = ['orders','quotes','weeklyJobs','printFiles','deliveryNotes','futureJobs'];
 var _COLL_REF = {
   orders:        { get:function(){return orders;},        set:function(v){orders=v;},        ls:'solanOrders' },
   quotes:        { get:function(){return quotes;},        set:function(v){quotes=v;},        ls:'solanQuotes' },
   weeklyJobs:    { get:function(){return weeklyJobs;},    set:function(v){weeklyJobs=v;},    ls:'solanWeeklyJobs' },
   printFiles:    { get:function(){return printFiles;},    set:function(v){printFiles=v;},    ls:'solanPrintFiles' },
-  deliveryNotes: { get:function(){return deliveryNotes;}, set:function(v){deliveryNotes=v;}, ls:'solanDeliveryNotes' }
+  deliveryNotes: { get:function(){return deliveryNotes;}, set:function(v){deliveryNotes=v;}, ls:'solanDeliveryNotes' },
+  futureJobs:    { get:function(){return futureJobs;},    set:function(v){futureJobs=v;},    ls:'solanFutureJobs' }
 };
 window._arrSnap = window._arrSnap || {};
 var _arrPushTimers = {};
@@ -3514,6 +3517,7 @@ function persist() {
   localStorage.setItem('solanFlyers',             JSON.stringify(flyers));
   localStorage.setItem('solanPrintFiles',          JSON.stringify(printFiles));
   localStorage.setItem('solanWeeklyJobs',          JSON.stringify(weeklyJobs));
+  localStorage.setItem('solanFutureJobs',          JSON.stringify(futureJobs));
   localStorage.setItem('solanRecurringJobs',       JSON.stringify(recurringJobs));
   localStorage.setItem('solanMachineQueue',        JSON.stringify(machineQueue));
   localStorage.setItem('solanProductMemory',       JSON.stringify(productMemory));
@@ -17725,6 +17729,24 @@ async function _fbPollAll() {
         if (typeof renderWeeklyJobMgmt === 'function' && _wjMgmt && _wjMgmt.offsetParent !== null) renderWeeklyJobMgmt();
       }
     }
+    // עבודות עתידיות (עם תזכורת)
+    var fjv = await _pollGet('futureJobs');
+    if (fjv !== null && !(_pend.futureJobs > 0)) {
+      var _incFJ = _filterDeleted('futureJobs', Array.isArray(fjv) ? fjv : Object.values(fjv));
+      if (_incFJ.length === 0 && futureJobs.length > 0) {
+        window._fbPut('futureJobs', _filterDeleted('futureJobs', futureJobs)); // הגנה מפני שרת ריק
+      } else {
+        _stampChangedArr('futureJobs', futureJobs);
+        futureJobs = _filterDeleted('futureJobs', _mergeArrById(_incFJ, futureJobs));
+        localStorage.setItem('solanFutureJobs', JSON.stringify(futureJobs));
+        window._fbSnapshot.futureJobs = JSON.stringify(futureJobs);
+        _seedArrSnap('futureJobs', futureJobs);
+        if (JSON.stringify(futureJobs) !== JSON.stringify(_incFJ)) _pushArrMerged('futureJobs');
+        if (typeof _fjUpdateBadge === 'function') _fjUpdateBadge();
+        var _fjList = document.getElementById('fj-list');
+        if (typeof _fjRender === 'function' && _fjList && _fjList.offsetParent !== null) _fjRender();
+      }
+    }
     // עבודות קבועות
     var rjv = await _pollGet('recurringJobs');
     if (rjv !== null && !(_pend.recurringJobs > 0)) {
@@ -20490,6 +20512,193 @@ function _operatorUnmarkDone(qid) {
   });
 }
 
+// ═══════════════════════════════════════════════════════
+// עבודות עתידיות + תזכורות (נייר במלאי + הכנסת כרטיס עבודה)
+// אוסף נפרד (futureJobs) — לא מופיע ברשימות/תור/יומן עד שממירים לכרטיס.
+// ═══════════════════════════════════════════════════════
+function _fjCalcRemind(shipDate, days){
+  if (!shipDate) return '';
+  var d = new Date(shipDate + 'T00:00:00Z'); if (isNaN(d)) return '';   // UTC — עקבי עם _todayStr (שגם הוא UTC)
+  d.setUTCDate(d.getUTCDate() - (parseInt(days)||0));
+  return d.toISOString().slice(0,10);
+}
+function _fjIsDue(f){ return f && f.status !== 'done' && f.remindDate && f.remindDate <= _todayStr(); }
+function _fjHandled(f){ return f && (!f.needsPaper || f.paperChecked) && (!f.needsCard || f.cardCreated); }
+function _fjDueCount(){ return (futureJobs||[]).filter(_fjIsDue).length; }
+function _fjUpdateBadge(){
+  var b = document.getElementById('fj-badge'); if (!b) return;
+  var n = _fjDueCount();
+  if (n > 0){ b.textContent = n; b.style.display = ''; } else b.style.display = 'none';
+}
+function _fjDaysUntil(dateStr){
+  if (!dateStr) return null;
+  var d = new Date(dateStr + 'T00:00:00Z'), t = new Date(_todayStr() + 'T00:00:00Z');
+  return Math.round((d - t) / 86400000);
+}
+function _fjFmtDate(dateStr){
+  if (!dateStr) return '—';
+  var d = new Date(dateStr + 'T00:00:00Z'); if (isNaN(d)) return dateStr;
+  return d.getUTCDate() + '.' + (d.getUTCMonth()+1) + '.' + d.getUTCFullYear();
+}
+function _fjSyncRemindPreview(){
+  var el = document.getElementById('fj-remind-preview'); if (!el) return;
+  var ship = (document.getElementById('fj-ship-date')||{}).value || '';
+  var days = (document.getElementById('fj-remind-days')||{}).value || '0';
+  if (!ship){ el.textContent = ''; return; }
+  var rd = _fjCalcRemind(ship, days);
+  var du = _fjDaysUntil(rd);
+  el.textContent = '🔔 התזכורת תופיע החל מ־' + _fjFmtDate(rd) + (du!=null ? (du<=0 ? ' (מהיום)' : ' (בעוד ' + du + ' ימים)') : '');
+}
+function openFutureJobs(){
+  var m = document.getElementById('futureJobsModal'); if (!m) return;
+  _fjResetForm();
+  m.classList.add('open');
+  _fjRender();
+  _fjUpdateBadge();
+}
+function closeFutureJobs(){ var m = document.getElementById('futureJobsModal'); if (m) m.classList.remove('open'); }
+function _fjResetForm(){
+  window._fjEditingId = null;
+  ['fj-name','fj-customer','fj-ship-date','fj-copies','fj-paper','fj-paper-qty','fj-notes'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
+  var rd=document.getElementById('fj-remind-days'); if(rd) rd.value='3';
+  var np=document.getElementById('fj-needs-paper'); if(np) np.checked=true;
+  var nc=document.getElementById('fj-needs-card'); if(nc) nc.checked=true;
+  var ft=document.getElementById('fj-form-title'); if(ft) ft.textContent='➕ עבודה עתידית חדשה';
+  var cb=document.getElementById('fj-cancel-edit-btn'); if(cb) cb.style.display='none';
+  _fjSyncRemindPreview();
+}
+function _fjSave(){
+  var gv = function(id){ var e=document.getElementById(id); return e ? String(e.value).trim() : ''; };
+  var name = gv('fj-name'), ship = gv('fj-ship-date');
+  if (!name){ showToast('⚠️ חסר שם עבודה'); return; }
+  if (!ship){ showToast('⚠️ חסר תאריך משלוח'); return; }
+  var days = parseInt(gv('fj-remind-days')) || 0;
+  var rec = {
+    name: name, customer: gv('fj-customer'), shipDate: ship, remindDays: days,
+    remindDate: _fjCalcRemind(ship, days), copies: gv('fj-copies'), paper: gv('fj-paper'),
+    paperQty: gv('fj-paper-qty'), notes: gv('fj-notes'),
+    needsPaper: !!(document.getElementById('fj-needs-paper')||{}).checked,
+    needsCard: !!(document.getElementById('fj-needs-card')||{}).checked,
+    _upd: Date.now()
+  };
+  if (window._fjEditingId){
+    var idx = futureJobs.findIndex(function(x){ return String(x.id) === String(window._fjEditingId); });
+    if (idx > -1) futureJobs[idx] = Object.assign({}, futureJobs[idx], rec);
+    showToast('✅ עבודה עתידית עודכנה');
+  } else {
+    rec.id = 'fj' + Date.now() + Math.random().toString(36).slice(2,5);
+    rec.status = 'pending'; rec.paperChecked = false; rec.cardCreated = false;
+    rec.createdAt = new Date().toISOString(); rec.createdBy = currentUser ? currentUser.id : null;
+    futureJobs.unshift(rec);
+    if (typeof _logActivity === 'function') _logActivity('🔮', 'עבודה עתידית "' + name + '" תוזמנה למשלוח ' + _fjFmtDate(ship));
+    showToast('✅ עבודה עתידית נשמרה · תזכורת מ־' + _fjFmtDate(rec.remindDate));
+  }
+  persist(); _fjResetForm(); _fjRender(); _fjUpdateBadge();
+}
+function _fjEdit(id){
+  var f = (futureJobs||[]).find(function(x){ return String(x.id) === String(id); }); if (!f) return;
+  window._fjEditingId = f.id;
+  var sv = function(elId, val){ var e=document.getElementById(elId); if(e) e.value = val==null?'':val; };
+  sv('fj-name', f.name); sv('fj-customer', f.customer); sv('fj-ship-date', f.shipDate);
+  sv('fj-remind-days', f.remindDays!=null ? f.remindDays : 3); sv('fj-copies', f.copies);
+  sv('fj-paper', f.paper); sv('fj-paper-qty', f.paperQty); sv('fj-notes', f.notes);
+  var np=document.getElementById('fj-needs-paper'); if(np) np.checked = f.needsPaper !== false;
+  var nc=document.getElementById('fj-needs-card'); if(nc) nc.checked = f.needsCard !== false;
+  var ft=document.getElementById('fj-form-title'); if(ft) ft.textContent='✏️ עריכת עבודה עתידית';
+  var cb=document.getElementById('fj-cancel-edit-btn'); if(cb) cb.style.display='';
+  _fjSyncRemindPreview();
+  var body = document.querySelector('#futureJobsModal .modal-body'); if (body) body.scrollTop = 0;
+}
+function _fjDelete(id){
+  var f = (futureJobs||[]).find(function(x){ return String(x.id) === String(id); }); if (!f) return;
+  if (!confirm('למחוק את העבודה העתידית "' + (f.name||'') + '"?')) return;
+  _markDeleted('futureJobs', String(f.id));
+  futureJobs = (futureJobs||[]).filter(function(x){ return String(x.id) !== String(id); });
+  persist(); _fjRender(); _fjUpdateBadge();
+  showToast('🗑️ נמחק');
+}
+function _fjTogglePaper(id){
+  var f = (futureJobs||[]).find(function(x){ return String(x.id) === String(id); }); if (!f) return;
+  f.paperChecked = !f.paperChecked; f._upd = Date.now();
+  persist(); _fjRender(); _fjUpdateBadge();
+  showToast(f.paperChecked ? '📦 סומן: הנייר נבדק' : '↩︎ בוטל סימון הנייר');
+}
+function _fjMarkDone(id){
+  var f = (futureJobs||[]).find(function(x){ return String(x.id) === String(id); }); if (!f) return;
+  f.status = 'done'; f.doneAt = new Date().toISOString(); f._upd = Date.now();
+  persist(); _fjRender(); _fjUpdateBadge();
+  showToast('✓ "' + (f.name||'') + '" הוסר מהתזכורות');
+}
+// המרה לכרטיס עבודה — ממלא את טופס הכרטיס מתוך העבודה העתידית ומסמן שהכרטיס נוצר
+function _fjMakeCard(id){
+  var f = (futureJobs||[]).find(function(x){ return String(x.id) === String(id); }); if (!f) return;
+  if (typeof clearForm === 'function') clearForm();
+  var sv = function(elId, val){ var e=document.getElementById(elId); if(e && val!=null && val!=='') e.value = val; };
+  sv('f-name', f.name); sv('f-customer', f.customer); sv('f-delivery-date', f.shipDate);
+  sv('f-copies', f.copies); sv('f-paper', f.paper);
+  if (f.notes){ var n=document.getElementById('f-notes'); if(n) n.value = f.notes; }
+  f.cardCreated = true; f._upd = Date.now(); persist();
+  closeFutureJobs();
+  var ft = document.getElementById('form-title'); if (ft) ft.textContent = 'כרטיס עבודה חדש — ' + (f.name||'');
+  if (typeof switchTab === 'function') switchTab('new');
+  window.scrollTo(0,0);
+  _fjUpdateBadge();
+  showToast('📝 הטופס מולא מהעבודה העתידית — השלם ושמור את הכרטיס');
+}
+function _fjRender(){
+  var el = document.getElementById('fj-list'); if (!el) return;
+  var list = (futureJobs||[]).slice().sort(function(a,b){ return String(a.shipDate||'') < String(b.shipDate||'') ? -1 : 1; });
+  if (!list.length){ el.innerHTML = '<div style="color:#9ca3af;font-size:.85rem;text-align:center;padding:18px">אין עבודות עתידיות. הוסף אחת למעלה 🔮</div>'; return; }
+  el.innerHTML = list.map(function(f){
+    var due = _fjIsDue(f), done = f.status === 'done';
+    var du = _fjDaysUntil(f.shipDate);
+    var bd = done ? '#d1d5db' : (due ? '#f59e0b' : '#c7d2fe');
+    var bg = done ? '#f9fafb' : (due ? '#fffbeb' : '#fff');
+    var when = done ? '<span style="color:#16a34a;font-weight:800">✓ טופל</span>'
+      : (du!=null ? (du < 0 ? '<span style="color:#dc2626;font-weight:800">באיחור ' + (-du) + ' ימים</span>'
+          : (du === 0 ? '<span style="color:#dc2626;font-weight:800">היום!</span>'
+          : '<span style="color:#6b7280">בעוד ' + du + ' ימים</span>')) : '');
+    var paperTag = f.needsPaper
+      ? (f.paperChecked ? '<span style="color:#16a34a">📦 נייר נבדק ✓</span>' : '<span style="color:#b45309">📦 לבדוק נייר' + (f.paper ? (' · ' + escHtml(f.paper)) : '') + (f.paperQty ? (' · ' + escHtml(String(f.paperQty))) : '') + '</span>')
+      : '';
+    var cardTag = f.needsCard
+      ? (f.cardCreated ? '<span style="color:#16a34a">📝 כרטיס נוצר ✓</span>' : '<span style="color:#4338ca">📝 להכניס כרטיס עבודה</span>')
+      : '';
+    var chips = [paperTag, cardTag].filter(Boolean).join(' &nbsp;·&nbsp; ');
+    var actions = done
+      ? '<button class="btn btn-sm" onclick="_fjDelete(\'' + f.id + '\')" style="background:#fff;color:#b91c1c;border:1px solid #fecaca">🗑 מחק</button>'
+      : (
+        (f.needsCard && !f.cardCreated ? '<button class="btn btn-sm" onclick="_fjMakeCard(\'' + f.id + '\')" style="background:#4338ca;color:#fff;border-color:#4338ca">➕ צור כרטיס עבודה</button>' : '') +
+        (f.needsPaper ? '<button class="btn btn-sm" onclick="_fjTogglePaper(\'' + f.id + '\')" style="background:' + (f.paperChecked?'#dcfce7':'#fffbeb') + ';color:#92400e;border:1px solid #fde68a">' + (f.paperChecked?'↩︎ בטל נייר':'📦 סמן נייר נבדק') + '</button>' : '') +
+        '<button class="btn btn-sm" onclick="_fjEdit(\'' + f.id + '\')" style="background:#fff;color:#374151;border:1px solid #d1d5db">✏️ ערוך</button>' +
+        '<button class="btn btn-sm" onclick="_fjMarkDone(\'' + f.id + '\')" style="background:#16a34a;color:#fff;border-color:#16a34a">✓ טופל</button>' +
+        '<button class="btn btn-sm" onclick="_fjDelete(\'' + f.id + '\')" style="background:#fff;color:#b91c1c;border:1px solid #fecaca">🗑</button>'
+      );
+    return '<div style="border:1.5px solid ' + bd + ';background:' + bg + ';border-radius:12px;padding:11px 13px;margin-bottom:9px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
+      +   '<div style="font-weight:800;color:#1f2937;font-size:.95rem">' + escHtml(f.name||'') + (f.customer ? ' <span style="font-weight:600;color:#6b7280;font-size:.82rem">· ' + escHtml(f.customer) + '</span>' : '') + '</div>'
+      +   '<div style="font-size:.82rem">📅 משלוח ' + _fjFmtDate(f.shipDate) + ' &nbsp; ' + when + '</div>'
+      + '</div>'
+      + (chips ? '<div style="font-size:.8rem;margin-top:6px">' + chips + '</div>' : '')
+      + (f.copies ? '<div style="font-size:.76rem;color:#6b7280;margin-top:3px">כמות: ' + escHtml(String(f.copies)) + '</div>' : '')
+      + (f.notes ? '<div style="font-size:.76rem;color:#6b7280;margin-top:3px">📝 ' + escHtml(f.notes) + '</div>' : '')
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px">' + actions + '</div>'
+      + '</div>';
+  }).join('');
+}
+// תזכורת: מציג טוסט חד-פעמי-לסשן על עבודות שהגיע מועד התזכורת שלהן + מעדכן את הבּיידג'
+function _fjCheckReminders(){
+  _fjUpdateBadge();
+  var due = (futureJobs||[]).filter(_fjIsDue);
+  if (!due.length) return;
+  window._fjAlerted = window._fjAlerted || {};
+  var fresh = due.filter(function(f){ return !window._fjAlerted[f.id]; });
+  fresh.forEach(function(f){ window._fjAlerted[f.id] = 1; });
+  if (fresh.length){
+    var names = fresh.slice(0,3).map(function(f){ return f.name; }).join(', ');
+    showToast('🔮 תזכורת — ' + fresh.length + ' עבודות עתידיות לטיפול (נייר/כרטיס): ' + names + (fresh.length>3?'…':''));
+  }
+}
 // ========== INIT ==========
 _seedCardSnap();   // בסיס השוואה לזיהוי שינויים בכרטיסים (לפני כל פעולה)
 // בסיסי השוואה לאוספים הממוזגים (הזמנות/הצעות/יומן/קבצים) — לזיהוי פריטים שהשתנו
@@ -20499,6 +20708,8 @@ renderDashboard();
 renderWeek();
 connectFirebase();
 setTimeout(checkLowInventory, 1000);
+setTimeout(function(){ try{ _fjCheckReminders(); }catch(e){} }, 1800);   // תזכורות עבודות עתידיות
+setInterval(function(){ try{ _fjCheckReminders(); }catch(e){} }, 10 * 60 * 1000);
 setTimeout(autoBackup, 2000);
 setTimeout(_autoCompleteWeeklyJobs, 1500);
 setInterval(_autoCompleteWeeklyJobs, 5 * 60 * 1000);
@@ -21692,6 +21903,70 @@ function _dnExportCsv(){
   showToast('📥 יוצא להנהלת חשבונות');
 }
 </script>
+
+<!-- ===== FUTURE JOBS (עבודות עתידיות + תזכורות) ===== -->
+<div class="modal-overlay" id="futureJobsModal">
+  <div class="modal" style="max-width:720px">
+    <div class="modal-header">
+      <h3>🔮 עבודות עתידיות + תזכורות</h3>
+      <button class="modal-close" onclick="closeFutureJobs()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+        <div style="font-weight:800;color:#92400e;font-size:.92rem;margin-bottom:9px" id="fj-form-title">➕ עבודה עתידית חדשה</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div style="flex:2;min-width:150px;display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:.74rem;color:#777">שם העבודה *</label>
+            <input class="fi" id="fj-name" placeholder="עיתון שכונה ג'" style="margin:0">
+          </div>
+          <div style="flex:1;min-width:120px;display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:.74rem;color:#777">לקוח</label>
+            <input class="fi" id="fj-customer" placeholder="ועד שכונה" style="margin:0">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+          <div style="flex:1;min-width:130px;display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:.74rem;color:#777">תאריך משלוח *</label>
+            <input class="fi" id="fj-ship-date" type="date" style="margin:0" oninput="_fjSyncRemindPreview()">
+          </div>
+          <div style="flex:1;min-width:130px;display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:.74rem;color:#777">תזכיר כמה ימים לפני</label>
+            <input class="fi" id="fj-remind-days" type="number" min="0" value="3" style="margin:0" oninput="_fjSyncRemindPreview()">
+          </div>
+          <div style="flex:1;min-width:130px;display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:.74rem;color:#777">מס' עותקים / גיליונות</label>
+            <input class="fi" id="fj-copies" type="number" min="0" placeholder="5000" style="margin:0">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+          <div style="flex:2;min-width:150px;display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:.74rem;color:#777">נייר (לבדיקת מלאי)</label>
+            <input class="fi" id="fj-paper" placeholder="כרומו מט 90 גר" style="margin:0">
+          </div>
+          <div style="flex:1;min-width:120px;display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:.74rem;color:#777">כמות נייר משוערת</label>
+            <input class="fi" id="fj-paper-qty" placeholder="גיליונות" style="margin:0">
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px;margin-top:10px">
+          <label style="font-size:.74rem;color:#777">הערות</label>
+          <textarea class="fi" id="fj-notes" rows="2" placeholder="פרטים נוספים לתזכורת" style="margin:0;resize:vertical"></textarea>
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:11px;align-items:center">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;font-weight:700;color:#374151;cursor:pointer"><input type="checkbox" id="fj-needs-paper" checked> 📦 להזכיר לבדוק נייר במלאי</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;font-weight:700;color:#374151;cursor:pointer"><input type="checkbox" id="fj-needs-card" checked> 📝 להזכיר להכניס כרטיס עבודה</label>
+        </div>
+        <div id="fj-remind-preview" style="font-size:.76rem;color:#92400e;margin-top:9px"></div>
+        <div style="display:flex;gap:8px;margin-top:11px">
+          <button class="btn btn-primary" onclick="_fjSave()" style="flex:1">💾 שמור עבודה עתידית</button>
+          <button class="btn" id="fj-cancel-edit-btn" onclick="_fjResetForm()" style="display:none;background:#e5e7eb;color:#374151">ביטול עריכה</button>
+        </div>
+      </div>
+      <div style="font-weight:800;color:var(--press);font-size:.9rem;margin-bottom:8px">📋 עבודות עתידיות מתוזמנות</div>
+      <div id="fj-list"></div>
+    </div>
+  </div>
+</div>
 
 <!-- ===== CARTON / PLACEMAT CALCULATOR ===== -->
 <div class="modal-overlay" id="cartonCalcModal">
