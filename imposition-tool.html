@@ -74,6 +74,9 @@
       <div class="opt"><label>היפוך מראה:</label>
         <select id="mirror"><option value="0" selected>לא</option><option value="1">כן — פרופר הפוך (Wrong-reading)</option></select>
       </div>
+      <div class="opt"><label>גודל עמוד בתצוגה:</label>
+        <select id="viewsize"><option value="0" selected>נטו (טרים בלבד)</option><option value="3">ברוטו +3 מ״מ (עם בליד)</option><option value="5">ברוטו +5 מ״מ (עם בליד)</option></select>
+      </div>
     </div>
     <div class="muted" id="fileinfo" style="margin-top:10px"></div>
     <button class="btn btn-go" id="go" disabled>📖 קפל לחוברת</button>
@@ -137,14 +140,15 @@ function _buildMap(tpl){
 }
 
 // "מקפל" חתימה אחת: מחלץ את N העמודים מהגיליון ומסדר בסדר קריאה.
-async function foldSignature(out, sidePages, tpl, map, firstSideIsFront){
+async function foldSignature(out, sidePages, tpl, map, firstSideIsFront, bleedMm){
   const embeds = [];
   for (let i=0;i<sidePages.length;i++) embeds.push(await out.embedPage(sidePages[i]));
   const ref = sidePages[0];
   const mwmm = ref.getWidth()/MM, mhmm = ref.getHeight()/MM;
   const offX = (mwmm - 1000)/2, offY = (mhmm - 700)/2;   // שטח הפריסה ממורכז בגיליון (כולל bleed)
   const sheetHpt = ref.getHeight();
-  const OUTW = TRIM_W*MM, OUTH = TRIM_H*MM, ocx = OUTW/2, ocy = OUTH/2;
+  const B = (bleedMm > 0) ? bleedMm : 0;                  // ברוטו: מרווח בליד סביב הנטו כדי לחשוף את הגישות
+  const OUTW = (TRIM_W + 2*B)*MM, OUTH = (TRIM_H + 2*B)*MM, ocx = OUTW/2, ocy = OUTH/2;
   for (let n = 1; n <= tpl.N; n++){
     const pos = map[n]; if (!pos) continue;
     let sideIdx = pos.side;
@@ -156,6 +160,13 @@ async function foldSignature(out, sidePages, tpl, map, firstSideIsFront){
     const c = Math.cos(theta*Math.PI/180), s = Math.sin(theta*Math.PI/180);
     const page = out.addPage([OUTW, OUTH]);
     page.drawPage(embed, { x: ocx - (scx*c - scy*s), y: ocy - (scx*s + scy*c), rotate: degrees(theta), xScale: 1, yScale: 1 });
+    if (B > 0){   // מסגרת נטו (קו טרים) — כדי להבחין בין הנטו לבליד שמסביבו
+      const tx = B*MM, ty = B*MM, tw = TRIM_W*MM, th = TRIM_H*MM, col = rgb(0.85,0.1,0.1);
+      page.drawLine({ start:{x:tx,y:ty},      end:{x:tx+tw,y:ty},    thickness:0.4, color:col, opacity:0.65 });
+      page.drawLine({ start:{x:tx,y:ty+th},   end:{x:tx+tw,y:ty+th}, thickness:0.4, color:col, opacity:0.65 });
+      page.drawLine({ start:{x:tx,y:ty},      end:{x:tx,y:ty+th},    thickness:0.4, color:col, opacity:0.65 });
+      page.drawLine({ start:{x:tx+tw,y:ty},   end:{x:tx+tw,y:ty+th}, thickness:0.4, color:col, opacity:0.65 });
+    }
   }
 }
 
@@ -175,7 +186,7 @@ async function fold(arrayBuffer, opts){
     try { const ra = pages[0].getRotation && pages[0].getRotation().angle; if (ra && ra % 360 !== 0) report.rotWarn = ra; } catch(e){}
   }
   for (let s = 0; s + per <= pages.length; s += per){
-    await foldSignature(out, pages.slice(s, s+per), tpl, map, firstSideIsFront);
+    await foldSignature(out, pages.slice(s, s+per), tpl, map, firstSideIsFront, opts.bleedMm || 0);
     report.signatures++; report.pagesOut += tpl.N;
   }
   report.leftover = pages.length % per;
@@ -219,7 +230,7 @@ $('go').onclick = async () => {
     const buf = await _file.arrayBuffer();
     const type = $('sheet').value;
     $('log').textContent = 'מקפל לחוברת…';
-    const { bytes, report } = await fold(buf, { type: type, firstSide: parseInt($('firstside').value,10), mirror: $('mirror').value==='1' });
+    const { bytes, report } = await fold(buf, { type: type, firstSide: parseInt($('firstside').value,10), mirror: $('mirror').value==='1', bleedMm: parseFloat(($('viewsize')||{}).value)||0 });
     var per = (type==='16p'||type==='8p') ? 1 : 2;
     let html = '';
     if (report.signatures === 0){
