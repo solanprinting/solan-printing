@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783941577';
+window.APP_VERSION = '1783944922';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21247,6 +21247,83 @@ function openImpositionTool(){
     f.src = 'imposition-tool.html?v=' + (window.APP_VERSION||'5');   // טעינה רק בפתיחה הראשונה; גרסת האפליקציה מפצחת מטמון
   }
   document.getElementById('impositionModal').style.display = 'flex';
+}
+// ── צירוף חוברת מקופלת (גיליון פרוס) לכרטיס עבודה — נקרא מכלי הקיפול (iframe same-origin) ──
+// זיהוי לפי שם הפרופר המצורף לכרטיס; אם אין התאמה ודאית → בורר כרטיסים ידני.
+window.piAttachBookletFromTool = function(info){
+  try {
+    if (!info || !info.file){ showToast('אין קובץ גיליון לצירוף'); return; }
+    var norm = function(s){ return String(s||'').trim().toLowerCase(); };
+    var target = norm(info.fileName || (info.file && info.file.name));
+    var matches = (cards||[]).filter(function(c){
+      if (!c || c.status === 'trash' || c.status === 'done') return false;
+      if (c.proofName && norm(c.proofName) === target) return true;
+      if (c.runProofs){ for (var k in c.runProofs){ if (c.runProofs[k] && norm(c.runProofs[k].name) === target) return true; } }
+      return false;
+    });
+    if (matches.length === 1){
+      var c = matches[0];
+      if (confirm('זוהתה התאמה לכרטיס "' + (c.name || '') + '" (לפי שם הפרופר).\nלצרף אליו את החוברת המקופלת?')){ _piLinkBooklet(c, info); return; }
+    }
+    _piBookletPicker(info, matches);   // אין התאמה ודאית / המשתמש רוצה לבחור
+  } catch(e){ console.error(e); showToast('❌ שגיאה בצירוף החוברת'); }
+};
+function _piLinkBooklet(card, info){
+  if (!card || !info || !info.file) return;
+  showToast('⏳ מעלה ומצרף חוברת לכרטיס…');
+  var safe = String(info.fileName || 'sheet').replace(/[^\w.\-]+/g, '_').slice(0, 60);
+  var path = 'bookletSheets/' + card.id + '/' + Date.now() + '_' + safe;
+  _uploadProofToStorage(path, info.file, null).then(function(url){
+    card.bookletSheetUrl = url;
+    card.bookletFoldType = info.foldType || '32';
+    card.bookletName = info.fileName || 'חוברת';
+    card.bookletAt = new Date().toISOString();
+    card._upd = Date.now();
+    card.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+    persist();
+    if (typeof _logActivity === 'function') _logActivity('📖', 'חוברת מקופלת צורפה לכרטיס "' + (card.name || '') + '"', card.id);
+    var m = document.getElementById('piBookletPickerModal'); if (m) m.remove();
+    showToast('✅ החוברת קושרה לכרטיס "' + (card.name || '') + '" — סריקת ה-QR תפתח את החוברת המקופלת');
+  }).catch(function(e){ console.error('booklet link failed', e); showToast('❌ ההעלאה נכשלה — נסה שוב'); });
+}
+function _piBookletPicker(info, matches){
+  window._piBookletInfo = info;
+  var old = document.getElementById('piBookletPickerModal'); if (old) old.remove();
+  var wrap = document.createElement('div');
+  wrap.id = 'piBookletPickerModal'; wrap.className = 'modal-overlay open'; wrap.style.zIndex = '700';
+  wrap.innerHTML = '<div class="modal" style="max-width:560px;max-height:82vh;display:flex;flex-direction:column">'
+    + '<div class="modal-header"><h3>🔗 צרף חוברת לכרטיס עבודה</h3>'
+    + '<button class="modal-close" onclick="document.getElementById(\'piBookletPickerModal\').remove()">×</button></div>'
+    + '<div class="modal-body" style="overflow:auto">'
+    + '<div style="font-size:.82rem;color:#6b7280;margin-bottom:8px">קובץ: <b>' + escHtml(info.fileName || 'גיליון') + '</b> · בחר כרטיס עבודה לקישור:</div>'
+    + '<div style="font-size:.78rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 10px;margin-bottom:8px">💡 לא נמצאה התאמה ודאית לפי שם הפרופר — בחר את הכרטיס ידנית.</div>'
+    + '<input id="piBkSearch" placeholder="🔍 חיפוש לפי שם / לקוח" oninput="_piBookletRenderList()" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:9px;font-family:Heebo,sans-serif;margin-bottom:10px;box-sizing:border-box">'
+    + '<div id="piBkList"></div>'
+    + '</div></div>';
+  document.body.appendChild(wrap);
+  _piBookletRenderList();
+}
+function _piBookletRenderList(){
+  var el = document.getElementById('piBkList'); if (!el) return;
+  var q = ((document.getElementById('piBkSearch') || {}).value || '').trim().toLowerCase();
+  var list = (cards || []).filter(function(c){ return c && c.status !== 'trash' && c.status !== 'done'; });
+  if (q) list = list.filter(function(c){ return (String(c.name || '') + ' ' + String(c.customer || '')).toLowerCase().indexOf(q) >= 0; });
+  list = list.slice(0, 60);
+  if (!list.length){ el.innerHTML = '<div style="color:#9ca3af;text-align:center;padding:16px">אין כרטיסים תואמים</div>'; return; }
+  el.innerHTML = list.map(function(c){
+    var idq = JSON.stringify(String(c.id));
+    var badge = c.bookletSheetUrl ? '<span style="flex:none;font-size:.66rem;background:#dcfce7;color:#166534;border-radius:6px;padding:1px 6px;font-weight:700">📖 יש חוברת</span>' : '';
+    return '<div onclick="_piBookletChoose(' + idq + ')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:6px;cursor:pointer" onmouseover="this.style.background=\'#f8fafc\'" onmouseout="this.style.background=\'\'">'
+      + '<div style="min-width:0"><div style="font-weight:800;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(c.name || 'ללא שם') + '</div>'
+      + '<div style="font-size:.74rem;color:#6b7280">' + escHtml(c.customer || '') + (c.deliveryDate ? (' · ' + escHtml(c.deliveryDate)) : '') + '</div></div>'
+      + badge + '</div>';
+  }).join('');
+}
+function _piBookletChoose(id){
+  var c = (cards || []).find(function(x){ return String(x.id) === String(id); }); if (!c) return;
+  var info = window._piBookletInfo; if (!info){ showToast('פג תוקף — נסה שוב'); return; }
+  if (c.bookletSheetUrl && !confirm('לכרטיס "' + (c.name || '') + '" כבר מצורפת חוברת. להחליף?')) return;
+  _piLinkBooklet(c, info);
 }
 </script>
 

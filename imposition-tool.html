@@ -265,6 +265,7 @@ $('go').onclick = async () => {
       const name = _file.name.replace(/\.pdf$/i,'') + ' — חוברת מקופלת.pdf';
       html += '<div class="ok">✓ קופלו '+report.signatures+' חתימות → '+report.pagesOut+' עמ\' בסדר קריאה.</div>'
         + '<a class="dl" href="'+url+'" download="'+name+'">⬇️ הורד את החוברת המקופלת</a>'
+        + '<button class="btn" id="attachCardBtn" onclick="_attachToCard()" style="background:#4338ca;color:#fff;margin:8px 0 0 8px;padding:9px 16px">🔗 צרף לכרטיס עבודה</button>'
         + '<div style="margin-top:14px;font-weight:800;color:var(--press)">📖 דפדוף בחוברת (כפולות):</div>'
         + '<div id="fb"></div>'
         + '<div class="muted" style="margin-top:10px">אם הסדר/כיוון לא נכון — שנה את "סוג הפריסה" או "צד ראשון בקובץ" ונסה שוב.</div>';
@@ -276,6 +277,16 @@ $('go').onclick = async () => {
   } finally { $('go').disabled = false; }
 };
 
+// ── צירוף החוברת המקופלת לכרטיס עבודה (דרך האפליקציה — iframe same-origin) ──
+function _attachToCard(){
+  if (!_file){ alert('העלה קודם את קובץ הגיליון הפרוס.'); return; }
+  var api = null;
+  try { api = (window.parent && window.parent !== window) ? window.parent.piAttachBookletFromTool : null; } catch(e){ api = null; }
+  if (typeof api !== 'function'){ alert('כדי לצרף לכרטיס עבודה — פתח את "קיפול לחוברת" מתוך האפליקציה.'); return; }
+  try { api({ file: _file, fileName: _file.name, foldType: $('sheet').value }); }
+  catch(e){ console.error(e); alert('שגיאה בצירוף — נסה שוב.'); }
+}
+window._attachToCard = _attachToCard;
 // ── צופה דפדוף בכפולות (RTL) — מרנדר את ה-PDF המקופל (כבר ישר) עם pdf.js, lazy ──
 var _FB = null;
 async function showFlipbook(bytes, lip){

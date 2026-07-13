@@ -155,6 +155,13 @@ function go(url, msg){
 }
 // החלטה ראשית: קובץ לקוח קודם (לחוברות), אחר כך פרופר. מחזיר true אם נמצא יעד.
 function resolveAndGo(card, proofsMap){
+  // חוברת מקופלת שצורפה ידנית לכרטיס (גיליון פרוס + סוג קיפול) — קדימות עליונה
+  if (card.bookletSheetUrl && !rk) {
+    go('imposition-tool.html?v=6&auto=1&type=' + encodeURIComponent(card.bookletFoldType || '32')
+       + '&proofUrl=' + encodeURIComponent(card.bookletSheetUrl)
+       + '&name=' + encodeURIComponent(card.bookletName || card.name || 'חוברת'), 'פותח את החוברת המקופלת…');
+    return true;
+  }
   var booklet = isBooklet(card);
   if (booklet) {
     var cm = customerMatches(card, proofsMap);
@@ -215,7 +222,8 @@ function waitForFiles(){
   function resolveIfReady(card, proofsMap){
     var hasCustomer = isBooklet(card) && customerMatches(card, proofsMap).length > 0;
     var hasProof = collectProofs(card).length > 0;
-    if (hasCustomer || hasProof) { resolveAndGo(card, proofsMap); return true; }
+    var hasBooklet = !!card.bookletSheetUrl && !rk;
+    if (hasCustomer || hasProof || hasBooklet) { resolveAndGo(card, proofsMap); return true; }
     return false;
   }
   iv = setInterval(function(){ if (++ticks > 90) { clearInterval(iv); return; } check(false); }, 20000);   // עד 30 דק'
