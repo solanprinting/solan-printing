@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783934964';
+window.APP_VERSION = '1783935294';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -11483,6 +11483,10 @@ function renderWorkList() {
       .sort(function(a,b){ return a.order - b.order; });
     var done = (machineQueue||[]).filter(function(e){ return e.machine === machine && e.done; })
       .sort(function(a,b){ return new Date(b.doneAt||0) - new Date(a.doneAt||0); });
+    // "בהדפסה" נקבע לפי המצב המשותף (printingState) — בדיוק כמו במסך הדפסים ובזרימת העבודה,
+    // ולא לפי המיקום בתור. כך עבודה שהמפעיל סימן כהושלמה כבר לא תופיע כ"בהדפסה".
+    var _nowP = (typeof _opGetPrinting === 'function') ? _opGetPrinting(machine) : null;
+    var _nowQid = (_nowP && _nowP.qid) ? String(_nowP.qid) : null;
     // חישוב מצטבר: זמן הדפסה לכל עבודה + זמן החלפת פלטות בין עבודה לעבודה.
     // בונה מפת זמני-סיום משוערים (שעון) לכל פריט, וסה"כ זמן לכל התור.
     var _plateMin = _machinePlateChangeMin(machine);
@@ -11526,6 +11530,7 @@ function renderWorkList() {
         var qidSq = sq(e.qid);
         var rowBg = idx % 2 ? 'background:#fafafa;' : '';
         var isFirst = idx === 0;
+        var isPrinting = _nowQid && String(e.qid) === _nowQid;   // מודפס כרגע בפועל (printingState), לא רק ראשון בתור
 
         machinesHtml += '<div draggable="true" ondragstart="_queueEntryDragStart(event,' + qidSq + ')" '
           + 'ondragover="_queueDragOver(event)" ondrop="_queueEntryDrop(event,' + qidSq + ',' + mSq + ')" '
@@ -11538,7 +11543,7 @@ function renderWorkList() {
 
         machinesHtml += '<div style="flex:1;min-width:0">'
           + '<div style="font-weight:700;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
-          + (isFirst ? '<span style="font-size:.65rem;background:#1a1a4e;color:white;border-radius:3px;padding:1px 5px;margin-left:4px">בהדפסה</span>' : '')
+          + (isPrinting ? '<span style="font-size:.65rem;background:#1a1a4e;color:white;border-radius:3px;padding:1px 5px;margin-left:4px">בהדפסה</span>' : '')
           + escHtml(name) + '</div>'
           + (runLabel ? '<div style="font-size:.7rem;color:#6b7280">' + escHtml(runLabel) + '</div>' : '')
           + (function(){ var _b = infoBadges(ePaper, eCopies) + (c ? proofBadge(c) : ''); return _b ? '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">' + _b + '</div>' : ''; })()
