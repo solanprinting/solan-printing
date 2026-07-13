@@ -301,7 +301,19 @@ async function _fbImg(i){
   const ctx = cv.getContext('2d');
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   await page.render({canvasContext:ctx, viewport:vp}).promise;
-  const u = cv.toDataURL('image/png');   // PNG ללא אובדן — איכות מלאה (במקום JPEG 80%)
+  // ── ברוטו: הצמדת הצד הפנימי (השדרה) לנטו — חותכים את רצועת הבליד הפנימית כדי שהכפולה תתחבר יפה בגאטר ──
+  let outCv = cv;
+  const pageWmm = v1.width / MM, B = (pageWmm - TRIM_W) / 2;
+  if (B > 0.5 && i > 0){
+    const innerPx = Math.round(B / pageWmm * cv.width);
+    if (innerPx > 0 && innerPx < cv.width - 4){
+      const innerIsLeft = (i % 2 === 1);           // אינדקס אי-זוגי → צד ימין בכפולה (RTL) → הצד הפנימי (שדרה) הוא השמאלי
+      const sx = innerIsLeft ? innerPx : 0, w2 = cv.width - innerPx;
+      outCv = document.createElement('canvas'); outCv.width = w2; outCv.height = cv.height;
+      outCv.getContext('2d').drawImage(cv, sx, 0, w2, cv.height, 0, 0, w2, cv.height);
+    }
+  }
+  const u = outCv.toDataURL('image/png');   // PNG ללא אובדן — איכות מלאה (במקום JPEG 80%)
   // הגבלת זיכרון: שמור במטמון רק את ~12 העמודים האחרונים שנצפו (קבצים גדולים)
   f.cacheOrder = f.cacheOrder || [];
   f.cacheOrder.push(i);
@@ -316,8 +328,8 @@ function _fbProgHtml(){
     + '</div>'
     + '<div id="fbProgEta" style="font-size:.84rem;color:#64748b;margin-top:8px">מחשב…</div></div>';
 }
-function _fbImgTag(u){
-  return '<img src="'+u+'" style="height:62vh;max-height:880px;width:auto;max-width:48%;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.35);image-rendering:auto">';
+function _fbImgTag(u, shadow, mw){
+  return '<img src="'+u+'" style="height:62vh;max-height:880px;width:auto;max-width:'+(mw||'48vw')+';background:#fff;'+(shadow?'box-shadow:0 2px 12px rgba(0,0,0,.35);':'')+'image-rendering:auto;display:block">';
 }
 async function _fbRender(){
   const f=_FB; if(!f) return;
@@ -353,7 +365,13 @@ async function _fbRender(){
   }
   if (anim){ clearInterval(anim); const bar=document.getElementById('fbProgBar'); if(bar) bar.style.width='100%'; }
   if (my !== f.renderSeq) return;
-  sp.innerHTML = imgs.map(_fbImgTag).join('');
+  if (imgs.length === 2){
+    // כפולה — שני העמודים צמודים ללא רווח, עם צל אחד סביב הזוג, כדי לראות את החיבור בין העמודים
+    sp.innerHTML = '<div dir="rtl" style="display:flex;gap:0;box-shadow:0 3px 16px rgba(0,0,0,.4);border-radius:2px;overflow:hidden;max-width:96vw">'
+      + _fbImgTag(imgs[0], false) + _fbImgTag(imgs[1], false) + '</div>';
+  } else {
+    sp.innerHTML = imgs.map(function(u){ return _fbImgTag(u, true, '92vw'); }).join('');
+  }
   _fbPrefetch();   // הכן מראש את העמודים הסמוכים — דפדוף הבא יהיה מיידי
 }
 // רינדור-רקע של הכפולות הסמוכות (קדימה ואחורה) כדי שהדפדוף יהיה חלק
