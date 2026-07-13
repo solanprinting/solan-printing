@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783925628';
+window.APP_VERSION = '1783927162';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3138,6 +3138,7 @@ function updateUserName(uid, name) {
   var u = solanUsers.find(function(x){ return x.id === uid; });
   if (!u) return;
   u.name = name.trim();
+  u._upd = Date.now();
   saveUsers();
   // אם זה המשתמש המחובר כרגע — עדכן גם את currentUser ואת השם בכותרת באופן מיידי
   if (currentUser && currentUser.id === uid) {
@@ -3152,6 +3153,7 @@ function applyRolePreset(uid, role) {
   var u = solanUsers.find(function(x){ return x.id === uid; });
   if (!u || !ROLE_PRESETS[role]) return;
   u.permissions = Object.assign({}, ROLE_PRESETS[role]);
+  u._upd = Date.now();   // חותמת — שהפולינג לא ידרוס את השינוי בערך הישן מהשרת
   saveUsers();
   renderUsersManager();
 }
@@ -3161,6 +3163,7 @@ function updateUserPerm(uid, perm, val) {
   if (!u) return;
   if (!u.permissions) u.permissions = {};
   u.permissions[perm] = (val === 'true' ? true : val === 'false' ? false : val);
+  u._upd = Date.now();   // חותמת — שהפולינג לא ידרוס את השינוי בערך הישן מהשרת
   saveUsers();
 }
 
@@ -9903,6 +9906,7 @@ function removeCustomerPurgeRule(i) {
 function _hardPurgeCard(id) {
   if (typeof _markDeleted === 'function') _markDeleted('cards', id);
   cards = (cards||[]).filter(function(c){ return c.id !== id; });
+  (machineQueue||[]).forEach(function(e){ if (String(e.cardId) === String(id) && e.qid) _markDeleted('machineQueue', String(e.qid)); });   // tombstone רשומות התור של הכרטיס
   machineQueue = (machineQueue||[]).filter(function(e){ return String(e.cardId) !== String(id); });
   DEPARTMENTS.forEach(function(d){
     if (_deptOrder[d]) _deptOrder[d] = _deptOrder[d].filter(function(e){ return !(e.type==='card' && e.cardId===id); });
@@ -12057,6 +12061,24 @@ function _queueOpenCard(cardId) {
   if (c && typeof showPrintModal === 'function') showPrintModal(c);
 }
 
+// מיזוג תור-המכונות בין מכשירים — מונע "כרטיסים נעלמים / קמים לתחייה" מדריסת-מערך שלמה.
+// איחוד לפי qid, המצב העדכני יותר (_upd) מנצח, ורשומות שנמחקו (deletedIds.machineQueue) מסוננות תמיד.
+function _mergeMachineQueue(server, local){
+  server = Array.isArray(server) ? server : [];
+  local  = Array.isArray(local)  ? local  : [];
+  var del = (deletedIds && deletedIds.machineQueue) || [];
+  var isDel = function(qid){ return del.indexOf(String(qid)) >= 0; };
+  var byId = {};
+  server.forEach(function(e){ if (e && e.qid && !isDel(e.qid)) byId[String(e.qid)] = e; });
+  local.forEach(function(e){
+    if (!e || !e.qid || isDel(e.qid)) return;
+    var s = byId[String(e.qid)];
+    if (!s){ byId[String(e.qid)] = e; return; }         // רשומה שקיימת רק מקומית (נוספה זה עתה) — נשמרת
+    byId[String(e.qid)] = ((e._upd||0) >= (s._upd||0)) ? e : s;   // המצב העדכני (done וכו') מנצח
+  });
+  return Object.keys(byId).map(function(k){ return byId[k]; })
+    .sort(function(a,b){ return String(a.machine||'')===String(b.machine||'') ? ((a.order||0)-(b.order||0)) : String(a.machine||'').localeCompare(String(b.machine||'')); });
+}
 function _queueAddEntry(cardId, runIdx, machine) {
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
   if (!c) return;
@@ -12085,6 +12107,7 @@ function _queueAddEntry(cardId, runIdx, machine) {
     doneAt: null,
     doneBy: null,
     doneByName: null,
+    _upd: Date.now(),
     addedAt: new Date().toISOString(),
     addedBy: currentUser ? currentUser.id : null
   });
@@ -12124,6 +12147,7 @@ function _autoQueueAssignedRuns(card) {
 function _queueRemoveEntry(qid) {
   var idx = (machineQueue||[]).findIndex(function(e){ return String(e.qid) === String(qid); });
   if (idx < 0) return;
+  _markDeleted('machineQueue', String(qid));   // tombstone — שהסרה לא "תקום לתחייה" במיזוג ממכשיר אחר
   machineQueue.splice(idx, 1);
   persist();
   _queueRender();
@@ -12158,7 +12182,7 @@ function _syncCardStatusFromQueue(cardId) {
 function _queueMarkDone(qid) {
   var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
   if (!e) return;
-  e.done = true;
+  e.done = true; e._upd = Date.now();
   e.doneAt = new Date().toISOString();
   e.doneBy = currentUser ? currentUser.id : null;
   e.doneByName = currentUser ? (currentUser.name || _userName(currentUser.id) || 'לא ידוע') : 'לא ידוע';
@@ -12171,7 +12195,7 @@ function _queueMarkDone(qid) {
 function _queueUnmarkDone(qid) {
   var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
   if (!e) return;
-  e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null;
+  e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null; e._upd = Date.now();
   _syncCardStatusFromQueue(e.cardId);
   persist();
   _queueRender();
@@ -12182,7 +12206,7 @@ function _queueUnmarkDoneAll(cardId) {
   var changed = false;
   (machineQueue||[]).forEach(function(e) {
     if (String(e.cardId) === String(cardId) && e.done) {
-      e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null;
+      e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null; e._upd = Date.now();
       changed = true;
     }
   });
@@ -12203,7 +12227,7 @@ function _queueCompleteCard(cardId) {
   // אם יש ריצות פעילות בתור — סמן אותן כהודפסו
   (machineQueue||[]).forEach(function(e) {
     if (String(e.cardId) === String(cardId) && !e.done) {
-      e.done = true;
+      e.done = true; e._upd = Date.now();
       e.doneAt = new Date().toISOString();
       e.doneBy = currentUser ? currentUser.id : null;
       e.doneByName = currentUser ? (currentUser.name || _userName(currentUser.id) || 'לא ידוע') : 'לא ידוע';
@@ -17828,15 +17852,15 @@ async function _fbPollAll() {
     var uv = await _pollGet('solanUsers');
     if (uv !== null) {
       var incoming = Array.isArray(uv) ? uv : Object.values(uv);
-      // merge: keep local users not in Firebase (added offline), update existing
-      var merged = incoming.slice();
-      solanUsers.forEach(function(lu) {
-        if (!merged.find(function(x){ return x.id === lu.id; })) merged.push(lu);
-      });
+      // מיזוג לפי id, המצב העדכני יותר (_upd) מנצח — כך שינוי הרשאות מקומי טרי לא נדרס בערך ישן מהשרת
+      var _uById = {};
+      incoming.forEach(function(su){ if (su && su.id) _uById[su.id] = su; });
+      solanUsers.forEach(function(lu){ if (!lu || !lu.id) return; var s = _uById[lu.id]; if (!s || (lu._upd||0) >= (s._upd||0)) _uById[lu.id] = lu; });
+      var merged = Object.keys(_uById).map(function(k){ return _uById[k]; });
       solanUsers = merged;
       localStorage.setItem('solanUsers', JSON.stringify(solanUsers));
-      // דחוף חזרה ל-Firebase אם היו משתמשים מקומיים שחסרו שם
-      if (merged.length > incoming.length) {
+      // דחוף חזרה ל-Firebase אם המיזוג שינה משהו (משתמש מקומי חסר, או שינוי מקומי טרי שניצח) — כדי שהשרת יתכנס
+      if (window._fbPut && JSON.stringify(merged) !== JSON.stringify(incoming)) {
         window._fbPut('solanUsers', solanUsers);
       }
       if (currentUser) {
@@ -17876,9 +17900,10 @@ async function _fbPollAll() {
     // תור מכונות
     var mqv = await _pollGet('machineQueue');
     if (mqv !== null && Array.isArray(mqv) && !(_pend.machineQueue > 0)) {
-      machineQueue = mqv;
+      machineQueue = _mergeMachineQueue(mqv, machineQueue);   // מיזוג (לא דריסה) — מונע היעלמות/תחייה של עבודות בתור
       localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
       window._fbSnapshot.machineQueue = JSON.stringify(machineQueue);
+      if (JSON.stringify(machineQueue) !== JSON.stringify(mqv) && window._fbPut) window._fbPut('machineQueue', machineQueue);   // דחיפת המיזוג חזרה
       if (document.getElementById('queue-content') && document.getElementById('tab-queue') && document.getElementById('tab-queue').classList.contains('active')) renderMachineQueue();
       // גזירת סטטוס כרטיסים מהתור: המפעיל כותב רק את machineQueue — צד המשרד גוזר מכאן.
       // כשכל ריצות הכרטיס (למשל 4 צבעים + 8 צבעים) סומנו הודפסו → הכרטיס עובר ל"הושלם"
@@ -18252,13 +18277,27 @@ function _myActName(){
   } catch(e){}
   return null;
 }
-function _logActivity(icon, text, cardId) {
+// פעולה "למנהל בלבד" — לא חשופה לעובדים אחרים (מלאי, מחירון, תעודות משלוח, ספקים, הרשאות...).
+// עובד לא יראה אותה בהתראות/פיד; המנהל רואה הכל. סיווג לפי דגל מפורש (vis) או לפי מילות-מפתח.
+function _actAdminOnly(a){
+  if (!a) return false;
+  if (a.vis === 'admin') return true;
+  if (a.vis === 'all') return false;
+  var s = (a.icon||'') + ' ' + (a.text||'');
+  return /מלאי|מחירון|קונסיגנציה|תעודת משלוח|הרשאות|הגדרות|ספק|חשבונית|דוח|מחיר|₪/.test(s);
+}
+function _actVisibleTo(a){
+  if (currentUser && currentUser.isAdmin) return true;   // מנהל רואה כל פעולה באפליקציה
+  return !_actAdminOnly(a);                                // עובד לא רואה פעולות למנהל בלבד
+}
+function _logActivity(icon, text, cardId, vis) {
   // עבודות של לקוח "גרפיק" — פעולה שקטה: לא נרשמת ביומן/התראות ולא נראית בשום מקום
   if (typeof _isSilentCardId === 'function' && cardId && _isSilentCardId(cardId)) return;
   if (typeof text === 'string' && text.indexOf('גרפיק') >= 0) return;   // גם לפי שם העבודה
   var uname = currentUser ? (currentUser.name || _userName(currentUser.id))
     : (typeof _machineViewMachine !== 'undefined' && _machineViewMachine ? ('דפס' + (_machineViewOpName && _machineViewOpName !== 'מפעיל' ? ' ' + _machineViewOpName : '')) : null);
   var entry = { id: Date.now() + '_' + Math.random().toString(36).slice(2,7), t: Date.now(), icon: icon, text: text, user: uname };
+  if (vis) entry.vis = vis;   // 'admin' = למנהל בלבד ; 'all' = לכולם
   if (cardId != null) entry.cardId = cardId;
   dashActivity = _actMergeById([entry], dashActivity);
   localStorage.setItem('solanDashActivity', JSON.stringify(dashActivity));
@@ -18505,6 +18544,7 @@ function _dashSetRunMachine(cardId, runIdx, machine) {
     if (entry) entry.machine = machine;
     else _autoQueueAssignedRuns(c);
   } else if (entry) {
+    if (entry.qid) _markDeleted('machineQueue', String(entry.qid));   // tombstone — לא לחזור במיזוג
     machineQueue = machineQueue.filter(function(e){ return e !== entry; });
   }
   persist();
@@ -18847,6 +18887,7 @@ function _pipeMoveStage(cardId, toStage){
   if (toStage === 'created'){
     c.status='pending'; delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
     (c.runs||[]).forEach(function(r){ r.done=false; });
+    (machineQueue||[]).forEach(function(e){ if (String(e.cardId)===String(cardId) && e.qid) _markDeleted('machineQueue', String(e.qid)); });
     machineQueue = (machineQueue||[]).filter(function(e){ return String(e.cardId)!==String(cardId); });
   } else if (toStage === 'sent'){
     c.status='pending'; delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
@@ -19139,7 +19180,7 @@ function renderDashToday() {}
 function renderActivityFeed() {
   var el = document.getElementById('dash-activity');
   if (!el) return;
-  var rows = dashActivity.slice(0, 20).map(function(a){
+  var rows = (dashActivity||[]).filter(_actVisibleTo).slice(0, 20).map(function(a){
     var time = new Date(a.t).toLocaleTimeString('he-IL', { hour:'2-digit', minute:'2-digit' });
     return '<div class="dash-activity-row">'
       + '<span class="dash-activity-time">'+time+'</span>'
@@ -19155,7 +19196,7 @@ function renderActivityFeed() {
 function _notifSeenAt(){ return parseInt(localStorage.getItem('solanNotifSeenAt')||'0', 10); }
 function _notifUnreadCount(){
   var seen = _notifSeenAt();
-  return (dashActivity||[]).filter(function(a){ return a && a.t > seen; }).length;
+  return (dashActivity||[]).filter(function(a){ return a && a.t > seen && _actVisibleTo(a); }).length;
 }
 function _notifRenderBadge(){
   var b = document.getElementById('notif-badge');
@@ -19166,8 +19207,9 @@ function _notifRenderBadge(){
 }
 function _notifRenderPanel(p){
   var _isAdmin = currentUser && currentUser.isAdmin;
-  var _total = (dashActivity||[]).length;
-  var rows = (dashActivity||[]).slice(0, 200).map(function(a){
+  var _visible = (dashActivity||[]).filter(_actVisibleTo);
+  var _total = _visible.length;
+  var rows = _visible.slice(0, 200).map(function(a){
     var d = new Date(a.t);
     var when = d.toLocaleDateString('he-IL', { day:'2-digit', month:'2-digit' }) + ' · ' + d.toLocaleTimeString('he-IL', { hour:'2-digit', minute:'2-digit' });
     var _aid = a.id || (a.t + '_' + (a.text||''));
@@ -19345,7 +19387,7 @@ function _opLoadAndRender() {
       fetchProofs ? window._fbGet('customerProofs').catch(function(){ return null; }) : Promise.resolve(undefined),
       window._fbGet('printingState').catch(function(){ return null; })
     ]).then(function(res) {
-      if (res[0] && Array.isArray(res[0])) machineQueue = res[0];
+      if (res[0] && Array.isArray(res[0])) machineQueue = _mergeMachineQueue(res[0], machineQueue);
       if (res[1] !== undefined && res[1] && Array.isArray(res[1])) { cards = res[1]; window._lastRev.cards = cardsRev; window._revSynced.cards = true; }
       if (res[2] !== undefined) window._opCustomerProofs = (res[2] && typeof res[2] === 'object') ? res[2] : {};
       // מצב "בהדפסה" משותף — מעדכנים רק אם החיבור נראה תקין (machineQueue הגיע כמערך),
@@ -19523,7 +19565,7 @@ function _opStartPrinting(qid) {
     // סימון העבודה הקודמת כהודפסה — דרך עדכון ממוזג (לא דורסים תור ישן)
     _opQueuePatch(cur.qid, function(e){
       if (e.done) return;
-      e.done = true;
+      e.done = true; e._upd = Date.now();
       e.doneAt = new Date().toISOString();
       if (curStartAt) {
         e.printDurationSec = Math.floor((Date.now() - curStartAt) / 1000);
@@ -19855,7 +19897,7 @@ function _opQueuePatch(qid, mutFn) {
   _renderOperatorScreen();
   return window._fbGet('machineQueue').then(function(sv){
     var server = Array.isArray(sv) ? sv : (sv && typeof sv === 'object' ? Object.values(sv) : []);
-    if (server.length) { machineQueue = server; apply(); }   // בסיס עדכני + השינוי שלנו
+    if (server.length) { machineQueue = _mergeMachineQueue(server, machineQueue); apply(); }   // מיזוג (לא דריסה) + השינוי שלנו
     if (window._fbPut) return window._fbPut('machineQueue', machineQueue);
   }).then(function(){ _renderOperatorScreen(); })
     .catch(function(){ /* אין רשת — נשאר מקומי, בלי דחיפה (לא דורסים) */ });
@@ -19865,7 +19907,7 @@ function _operatorMarkDone(qid) {
   var _e0 = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
   var _c0 = _e0 ? (cards||[]).find(function(x){ return String(x.id) === String(_e0.cardId); }) : null;
   _opQueuePatch(qid, function(e){
-    e.done = true;
+    e.done = true; e._upd = Date.now();
     e.doneAt = new Date().toISOString();
     e.doneBy = _machineViewOpName;
     e.doneByName = _machineViewOpName;
@@ -20368,7 +20410,7 @@ function _opReturnToPrintQueue() {
 
 function _operatorUnmarkDone(qid) {
   _opQueuePatch(qid, function(e){
-    e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null;
+    e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null; e._upd = Date.now();
   });
 }
 
