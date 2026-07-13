@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1783917678';
+window.APP_VERSION = '1783925628';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21086,11 +21086,13 @@ function _rpRender(){
   var themeCss='padding:6px 8px;font-size:.72rem;color:#475569;border-bottom:2px solid #e2e8f0;text-align:center';
   var tdCss='padding:6px 8px;font-size:.83rem;border-bottom:1px solid #f1f5f9;text-align:center';
   if (!list.length) { el.innerHTML='<div style="padding:30px;text-align:center;color:#94a3b8">אין עבודות בחודש זה.<br><span style="font-size:.75rem">(עבודות שהושלמו לפני 60+ יום עברו לארכיון)</span></div>'; return; }
-  var totalSheets=0, byCust={}, byPaper={}, byMach={}, hoursByMach={};
+  var totalSheets=0, byCust={}, byPaper={}, byMach={}, hoursByMach={}, byJob={};
   list.forEach(function(c){
     var sh=_cardSheets(c); totalSheets+=sh;
     var cu=(c.customer||'—').trim()||'—';
     byCust[cu]=byCust[cu]||{jobs:0,sheets:0}; byCust[cu].jobs++; byCust[cu].sheets+=sh;
+    var jn=(c.name||'—').trim()||'—';   // לפי שם עבודה
+    byJob[jn]=byJob[jn]||{jobs:0,sheets:0}; byJob[jn].jobs++; byJob[jn].sheets+=sh;
     var pp=(c.paper||'—').trim()||'—';
     byPaper[pp]=byPaper[pp]||{jobs:0,sheets:0}; byPaper[pp].jobs++; byPaper[pp].sheets+=sh;
     // לפי מכונה (מריצות אם יש, אחרת מהכרטיס)
@@ -21102,6 +21104,7 @@ function _rpRender(){
     if (c.actualPrintSec > 0) { var mk=_rpMachineShort(c.printMachine||c.machine||(c.runs&&c.runs[0]&&c.runs[0].machine)); hoursByMach[mk]=(hoursByMach[mk]||0)+(c.actualPrintSec/3600); }
   });
   var custRows=Object.keys(byCust).map(function(k){ return {k:k,v:byCust[k]}; }).sort(function(a,b){ return b.v.sheets-a.v.sheets; });
+  var jobRows=Object.keys(byJob).map(function(k){ return {k:k,v:byJob[k]}; }).sort(function(a,b){ return b.v.sheets-a.v.sheets; });
   var paperRows=Object.keys(byPaper).map(function(k){ return {k:k,v:byPaper[k]}; }).sort(function(a,b){ return b.v.sheets-a.v.sheets; });
   var machRows=Object.keys(byMach).map(function(k){ return {k:k,v:byMach[k]}; }).sort(function(a,b){ return b.v.sheets-a.v.sheets; });
 
@@ -21119,6 +21122,7 @@ function _rpRender(){
     s+='</tbody></table>'; return s;
   };
   h+=section('👥 לפי לקוח', custRows, 'לקוח');
+  h+=section('🏷️ לפי שם עבודה', jobRows, 'שם עבודה');
   h+=section('📄 לפי סוג נייר', paperRows, 'נייר');
   // מכונה — עם שעות אם יש
   h+='<div style="font-weight:800;color:var(--press);margin:14px 0 5px;font-size:.9rem">🖨️ לפי מכונה</div>';
@@ -21127,13 +21131,14 @@ function _rpRender(){
   h+='</tbody></table>';
   h+='<button onclick="_rpExportCsv()" style="margin-top:16px;width:100%;padding:10px;border:none;border-radius:9px;background:#16a34a;color:#fff;font-family:Heebo,sans-serif;font-weight:800;cursor:pointer">📥 ייצוא לאקסל / הנהלת חשבונות (CSV)</button>';
   el.innerHTML=h;
-  window._rpLast = { month: months[mo]+' '+y, custRows:custRows, paperRows:paperRows, machRows:machRows, totalSheets:totalSheets, jobs:list.length };
+  window._rpLast = { month: months[mo]+' '+y, custRows:custRows, jobRows:jobRows, paperRows:paperRows, machRows:machRows, totalSheets:totalSheets, jobs:list.length };
 }
 
 function _rpExportCsv(){
   var d=window._rpLast; if(!d){ return; }
   var lines=['סוג,שם,עבודות,גיליונות'];
   d.custRows.forEach(function(r){ lines.push('לקוח,"'+String(r.k).replace(/"/g,'""')+'",'+r.v.jobs+','+r.v.sheets); });
+  (d.jobRows||[]).forEach(function(r){ lines.push('שם עבודה,"'+String(r.k).replace(/"/g,'""')+'",'+r.v.jobs+','+r.v.sheets); });
   d.paperRows.forEach(function(r){ lines.push('נייר,"'+String(r.k).replace(/"/g,'""')+'",'+r.v.jobs+','+r.v.sheets); });
   d.machRows.forEach(function(r){ lines.push('מכונה,"'+String(r.k).replace(/"/g,'""')+'",'+r.v.jobs+','+r.v.sheets); });
   lines.push('סה"כ,,'+d.jobs+','+d.totalSheets);
