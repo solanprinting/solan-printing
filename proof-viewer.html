@@ -92,6 +92,49 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
 // ── הזדהות אנונימית מול Firebase (מנעול אבטחה) ──
 const _FB_APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+// ── App Check (reCAPTCHA v3) — עוטף fetch ומצרף X-Firebase-AppCheck לכל בקשה ל-RTDB.
+//    מצב ניטור עד אכיפה בקונסולה; אם ה-SDK נכשל — אין header ושום דבר לא נחסם. ריק = כבוי.
+var _APPCHECK_SITEKEY = '6LeYDVMtAAAAAAsc-qvVPz9QvLhIlDBfcYCl-pXI';
+window._appCheckReady = null;
+window._appCheckInit = function(){
+  if (!_APPCHECK_SITEKEY) return Promise.resolve(null);
+  if (window._appCheckReady) return window._appCheckReady;
+  window._appCheckReady = new Promise(function(resolve){
+    function load(src){ return new Promise(function(res, rej){ var s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+    var base='https://www.gstatic.com/firebasejs/10.12.5/';
+    load(base+'firebase-app-compat.js').then(function(){ return load(base+'firebase-app-check-compat.js'); }).then(function(){
+      try {
+        if (!firebase.apps.length) firebase.initializeApp({ apiKey:_FB_APIKEY, authDomain:'solan-printing.firebaseapp.com', projectId:'solan-printing', databaseURL:_FBURL, appId:'1:1094826649317:web:bd5f5efdc1f8e3ab67160c' });
+        var ac=firebase.appCheck(); ac.activate(new firebase.appCheck.ReCaptchaV3Provider(_APPCHECK_SITEKEY), true); resolve(ac);
+      } catch(e){ resolve(null); }
+    }).catch(function(){ resolve(null); });
+  });
+  return window._appCheckReady;
+};
+window._appCheckToken = function(){
+  if (!_APPCHECK_SITEKEY) return Promise.resolve(null);
+  return window._appCheckInit().then(function(ac){
+    if (!ac) return null;
+    return Promise.race([ ac.getToken(false).then(function(r){ return (r&&r.token)||null; }).catch(function(){ return null; }), new Promise(function(res){ setTimeout(function(){ res(null); }, 8000); }) ]);
+  }).catch(function(){ return null; });
+};
+(function(){
+  var _of = window.fetch;
+  window.fetch = function(input, init){
+    try {
+      var url = (typeof input==='string') ? input : (input && input.url) || '';
+      if (_APPCHECK_SITEKEY && url.indexOf('firebasedatabase.app') >= 0) {
+        return window._appCheckToken().then(function(ac){
+          init = init || {};
+          if (ac) { var h = new Headers(init.headers || (typeof input!=='string' && input.headers) || {}); h.set('X-Firebase-AppCheck', ac); init.headers = h; }
+          return _of.call(window, input, init);
+        });
+      }
+    } catch(e){}
+    return _of.call(window, input, init);
+  };
+})();
+try { window._appCheckToken(); } catch(e){}
 let _fbTok = null, _fbTokExp = 0, _fbTokP = null;
 async function _fbAuthToken(){
   if (_fbTok && Date.now() < _fbTokExp - 120000) return _fbTok;
