@@ -112,6 +112,21 @@ window._appCheckToken = function(){
 })();
 try { window._appCheckToken(); } catch(e){}
 
+// הזדהות אנונימית — נדרשת כי חוקי הגישה הם auth != null (אחרת הכתיבה נחסמת)
+let _fbTok = null, _fbTokExp = 0;
+async function _fbAuthToken(){
+  if (_fbTok && Date.now() < _fbTokExp - 120000) return _fbTok;
+  try {
+    const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + _FB_APIKEY,
+      { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ returnSecureToken:true }) });
+    if (!r.ok) return null;
+    const d = await r.json();
+    _fbTok = d.idToken; _fbTokExp = Date.now() + (parseInt(d.expiresIn)||3600)*1000;
+    return _fbTok;
+  } catch(e){ return null; }
+}
+_fbAuthToken();   // חימום מוקדם
+
 const $ = id => document.getElementById(id);
 const log = m => $('log').textContent = m;
 
@@ -139,7 +154,8 @@ $('go').onclick = async () => {
 
     // 2. פתיחת רשומה ב-RTDB (נתיב נפרד מהפיצ'ר הקיים proofs/)
     log('שומר רשומה…');
-    const ok = await fetch(`${_FBURL}/customerProofs/${id}.json`, {
+    const _t = await _fbAuthToken();   // חוקי הגישה auth != null — חובה טוקן
+    const ok = await fetch(`${_FBURL}/customerProofs/${id}.json` + (_t ? `?auth=${_t}` : ''), {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         status: 'pending_approval', fileUrl, filePath: path, fileName: file.name,
@@ -166,10 +182,11 @@ $('go').onclick = async () => {
 
 // העלאה ל-Firebase Storage דרך REST — מנסה כל bucket, מחזיר URL הורדה.
 async function uploadToStorage(path, file, onProgress) {
+  const token = await _fbAuthToken();   // חוקי Storage/גישה auth != null — מצרפים טוקן
   let lastErr;
   for (const bucket of _BUCKETS) {
     try {
-      const json = await xhrUpload(bucket, path, file, onProgress);
+      const json = await xhrUpload(bucket, path, file, onProgress, token);
       const token = json.downloadTokens?.split(',')[0] || '';
       return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
     } catch (e) { lastErr = e; /* נסה bucket הבא */ }
@@ -177,11 +194,12 @@ async function uploadToStorage(path, file, onProgress) {
   throw lastErr || new Error('העלאה נכשלה');
 }
 
-function xhrUpload(bucket, path, file, onProgress) {
+function xhrUpload(bucket, path, file, onProgress, token) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(path)}`);
     xhr.setRequestHeader('Content-Type', 'application/pdf');
+    if (token) xhr.setRequestHeader('Authorization', 'Firebase ' + token);
     xhr.upload.onprogress = e => e.lengthComputable && onProgress?.(Math.round(e.loaded / e.total * 100));
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText));
