@@ -327,9 +327,25 @@ function _dtHasFiles(e){ return e.dataTransfer && Array.prototype.indexOf.call(e
 $('editor').addEventListener('dragleave', e => { if (e.target === $('editor')) $('editor').classList.remove('extdrag'); });
 $('editor').addEventListener('drop', e => { if (_dtHasFiles(e)) { e.preventDefault(); $('editor').classList.remove('extdrag'); addFiles(e.dataTransfer.files); } });
 
-async function addFiles(fileList) {
-  const files = [...fileList].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+// תור עיבוד: מוסיפים קבצים סדרתית — גרירה נוספת באמצע עיבוד לא משתרבבת לתוך הסדר
+let _addFilesBusy = Promise.resolve();
+function addFiles(fileList) {
+  const files = [...fileList];   // FileList חי — מקבעים לפני שה-input מתאפס
+  const run = _addFilesBusy.then(() => _addFilesNow(files));
+  _addFilesBusy = run.catch(() => {});
+  return run;
+}
+async function _addFilesNow(fileArr) {
+  const files = fileArr.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
   if (!files.length) return;
+  // ⚠️ מנגנון מניעת-בלגן: בבחירה מרובת-קבצים הדפדפן מוסר את הקבצים לפי סדר הבחירה בסייר —
+  // לא לפי שם! (זה גרם ל"עמודים מבולגנים"). ממיינים דטרמיניסטית לפי שם קובץ במיון טבעי
+  // (עמ' 2 לפני עמ' 10), כך שקבצים ממוספרים תמיד נכנסים בסדר הנכון.
+  if (files.length > 1) {
+    const col = new Intl.Collator('he', { numeric: true, sensitivity: 'base' });
+    files.sort((a, b) => col.compare(a.name, b.name));
+    _orderNotice(files.length);
+  }
   // ספירת עמודים כוללת למד התקדמות
   let total = 0, doneN = 0;
   const docs = [];
@@ -358,6 +374,20 @@ async function addFiles(fileList) {
   $('file').value = '';
   renderAll(); showOverlay('', false);
   _pcAnomalyCheck();   // שאל את הלקוח על עמודים בגודל לא רגיל (כפולה / גלישות)
+}
+// באנר סידור-קבצים: מודיע ללקוח שקבצים מרובים סודרו לפי שם הקובץ ושיש לבדוק את הסדר לפני אישור
+function _orderNotice(n) {
+  let el = document.getElementById('orderNotice');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'orderNotice';
+    el.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:120;background:#1d4ed8;color:#fff;padding:11px 20px;border-radius:12px;font-size:.92rem;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.3);direction:rtl;max-width:92vw;text-align:center';
+    document.body.appendChild(el);
+  }
+  el.textContent = '📑 ' + n + ' קבצים סודרו אוטומטית לפי שם הקובץ — בדקו שסדר העמודים נכון לפני האישור';
+  el.style.display = 'block';
+  clearTimeout(el._tid);
+  el._tid = setTimeout(() => { el.style.display = 'none'; }, 9000);
 }
 // ── הערות דרישות קבצים (סטטי, ללא בדיקת הקובץ) + הערת סטיית צבע מסך↔הדפסה ──
 function buildPreflight(){
