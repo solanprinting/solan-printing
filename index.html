@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784018651';
+window.APP_VERSION = '1784019617';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2840,9 +2840,9 @@ function _viewedByLine(card) {
 
 function saveUsers() {
   localStorage.setItem('solanUsers', JSON.stringify(solanUsers));
-  // push to Firebase so other devices get the update
+  // push to Firebase so other devices get the update (מסונן מ-tombstones כדי לא להחזיר משתמש שנמחק)
   if (window._fbConnected && window._fbPut) {
-    window._fbPut('solanUsers', solanUsers);
+    window._fbPut('solanUsers', _filterDeleted('solanUsers', solanUsers));
   }
 }
 
@@ -3133,8 +3133,13 @@ function addNewUser() {
 
 function deleteUser(uid) {
   if (!confirm('למחוק משתמש זה?')) return;
-  solanUsers = solanUsers.filter(function(u){ return u.id !== uid; });
+  var victim = solanUsers.find(function(u){ return String(u.id) === String(uid); });
+  var vid = victim ? victim.id : uid;
+  _markDeleted('solanUsers', vid);   // tombstone — שהמחיקה לא "תקום לתחייה" במיזוג ממכשיר אחר
+  solanUsers = solanUsers.filter(function(u){ return String(u.id) !== String(uid); });
   saveUsers();
+  // שמור + דחוף את ה-tombstone מיד (deletedIds מתאחד בין המכשירים)
+  try { localStorage.setItem('solanDeletedIds', JSON.stringify(deletedIds)); if (window._fbPut) window._fbPut('deletedIds', deletedIds); } catch(e){}
   renderUsersManager();
 }
 
@@ -18001,7 +18006,7 @@ async function _fbPollAll() {
       var _uById = {};
       incoming.forEach(function(su){ if (su && su.id) _uById[su.id] = su; });
       solanUsers.forEach(function(lu){ if (!lu || !lu.id) return; var s = _uById[lu.id]; if (!s || (lu._upd||0) >= (s._upd||0)) _uById[lu.id] = lu; });
-      var merged = Object.keys(_uById).map(function(k){ return _uById[k]; });
+      var merged = _filterDeleted('solanUsers', Object.keys(_uById).map(function(k){ return _uById[k]; }));   // הסר משתמשים שנמחקו (tombstone)
       solanUsers = merged;
       localStorage.setItem('solanUsers', JSON.stringify(solanUsers));
       // דחוף חזרה ל-Firebase אם המיזוג שינה משהו (משתמש מקומי חסר, או שינוי מקומי טרי שניצח) — כדי שהשרת יתכנס
