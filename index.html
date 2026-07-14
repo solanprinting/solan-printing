@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784010197';
+window.APP_VERSION = '1784012527';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -11936,7 +11936,74 @@ function markJobPrinted(cardId) {
   } else {
     _logActivity('✅', 'עבודה "'+(c.name||'')+'" הושלמה', c.id);
     showToast('✅ העבודה הושלמה');
+    _adminAlert('🎉 העבודה הושלמה: '+(c.name||''), true);   // הדפסה ללא גימור → הושלמה
   }
+}
+
+// ═══ שלבי גימור מסריקת QR (scanStages) + התראת מנהל בהשלמה ═══════════════
+// שלבי הגימור הנדרשים אחרי הדפסה, לפי סוג העבודה (תואם _finishingKind).
+function _scanStagesFor(c){
+  if (!c) return [];
+  if (c.needsFolding && c.needsBinding) return ['fold','bind'];
+  if (c.needsBinding) return ['bind'];
+  if (c.needsFolding) return ['fold'];
+  if (_cardNeedsCutting(c)) return ['cut'];
+  return [];   // גיליון מלא / ללא גימור — מסתיים בהדפסה
+}
+var _SCAN_STAGE_LBL = { cut:'חיתוך', fold:'קיפול', bind:'כריכה' };
+// התראה בולטת — למנהלים בלבד (עובדים רגילים לא רואים)
+function _adminAlert(msg, big){
+  if (!(currentUser && currentUser.isAdmin)) return;
+  var host = document.getElementById('_adminAlertHost');
+  if (!host){ host = document.createElement('div'); host.id='_adminAlertHost';
+    host.style.cssText='position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none';
+    document.body.appendChild(host); }
+  var card = document.createElement('div');
+  card.style.cssText='pointer-events:auto;background:'+(big?'linear-gradient(135deg,#15803d,#16a34a)':'#1a1a4e')+';color:#fff;font-family:Heebo,sans-serif;font-weight:800;font-size:'+(big?'1.05rem':'.92rem')+';padding:'+(big?'16px 26px':'12px 20px')+';border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.4);border:2px solid rgba(255,255,255,.25);max-width:92vw;text-align:center;cursor:pointer';
+  card.textContent = msg;
+  card.onclick = function(){ if(card.parentNode) card.parentNode.removeChild(card); };
+  host.appendChild(card);
+  try { if (typeof _notifBeep === 'function') _notifBeep(); } catch(e){}
+  setTimeout(function(){ try{ card.style.transition='opacity .5s,transform .5s'; card.style.opacity='0'; card.style.transform='translateY(-8px)'; }catch(e){} setTimeout(function(){ if(card.parentNode) card.parentNode.removeChild(card); }, 500); }, big ? 10000 : 6000);
+}
+// החלת סימון שלב-גימור על כרטיס (הגיע מסריקת QR). מעדכן דגלים, מחשב סטטוס, מתריע למנהל.
+function _applyScanStage(c, stage, by){
+  if (!c || !stage) return;
+  var flag = stage + 'Done';
+  if (c[flag]) return;   // כבר סומן — לא לחזור על ההתראה
+  c[flag] = true; c[stage+'DoneAt'] = new Date().toISOString(); c[stage+'DoneBy'] = by || 'סריקה';
+  var need = _scanStagesFor(c);
+  var allDone = need.length > 0 && need.every(function(s){ return c[s+'Done']; });
+  if (allDone){
+    if (!c.printedAt) c.printedAt = new Date().toISOString();
+    c.status = 'done'; c.finishedAt = new Date().toISOString();
+    if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);
+  } else if (c.status !== 'done'){
+    c.status = 'finishing';
+  }
+  c.lastUpdatedBy = 'scan'; c._upd = Date.now();
+  persist();
+  if (typeof renderDashboard === 'function') renderDashboard();
+  if (typeof renderCards === 'function') renderCards();
+  if (typeof renderMachineQueue === 'function') renderMachineQueue();
+  var lbl = _SCAN_STAGE_LBL[stage] || stage;
+  _logActivity('✅', 'עבודה "'+(c.name||'')+'" — '+lbl+' הושלם'+(allDone?' · הושלמה!':''), c.id);
+  _adminAlert(allDone ? ('🎉 העבודה הושלמה: '+(c.name||'')) : ('✅ '+lbl+' הושלם — '+(c.name||'')), allDone);
+}
+// פולינג scanStages — מחיל סימוני-שלבים חדשים שהגיעו מסריקות QR (כל דגל מוחל פעם אחת)
+function _pollScanStages(){
+  if (window._isMachineView || !window._fbGet) return;
+  window._fbGet('scanStages').then(function(ss){
+    if (!ss || typeof ss !== 'object') return;
+    Object.keys(ss).forEach(function(cid){
+      var st = ss[cid]; if (!st || typeof st !== 'object') return;
+      var c = (cards||[]).find(function(x){ return String(x.id) === String(cid); });
+      if (!c || c.status === 'trash') return;
+      ['cut','fold','bind'].forEach(function(stage){
+        if (st[stage] && st[stage].done && !c[stage+'Done']) _applyScanStage(c, stage, st[stage].by);
+      });
+    });
+  }).catch(function(){});
 }
 
 function editRunTime(cardId, runIdx, machine) {
@@ -12210,7 +12277,8 @@ function _syncCardStatusFromQueue(cardId) {
     if (c.status !== 'done' && c.status !== 'finishing') {
       c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
       // עבודה עם גימור (קיפול/כריכה/חיתוך) → 'finishing'; גיליון מלא ללא חיתוך → ישר 'done'
-      _completePrinting(c);
+      var _st2 = _completePrinting(c);
+      if (_st2 === 'done' && typeof _adminAlert === 'function') _adminAlert('🎉 העבודה הושלמה: '+(c.name||''), true);   // הדפסה ללא גימור
       changed = true;
     }
   } else if (c.status === 'done' || c.status === 'finishing') {
@@ -20751,6 +20819,9 @@ setInterval(function(){ try { _cleanupOldProofs(); } catch(e){} }, 60 * 60 * 100
 // מצב העלאות פרופרים משותף — נראה לכל המשתמשים ושורד ריענון מסך
 setTimeout(function(){ try { _pollProofUploads(); } catch(e){} }, 2500);
 setInterval(function(){ try { _pollProofUploads(); } catch(e){} }, 20000);   // 20ש' (היה 5) — פחות בקשות
+// סימוני שלבי גימור מסריקות QR — מחיל על הכרטיסים ומתריע למנהל
+setTimeout(function(){ try { _pollScanStages(); } catch(e){} }, 3500);
+setInterval(function(){ try { _pollScanStages(); } catch(e){} }, 20000);
 // אתחול לוגין — אם זה מסך מפעיל, מדלגים על לוגין
 (function(){
   if (_initMachineViewMode()) return;

@@ -63,6 +63,11 @@ function fbGet(path){
     return r.json();
   });
 }
+function fbPut(path, val){
+  return fetch(_FBURL + '/' + path + '.json' + (TOKEN ? '?auth=' + TOKEN : ''),
+    { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(val) })
+    .then(function(r){ return r.ok; }).catch(function(){ return false; });
+}
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function norm(s){ return String(s||'').toLowerCase().replace(/[^0-9a-zא-ת ]+/g,' ').replace(/\s+/g,' ').trim(); }
 
@@ -231,16 +236,77 @@ function waitForFiles(){
   check(false);
 }
 
+// ── שלבי גימור נדרשים לפי סוג העבודה (תואם לוגיקת האפליקציה) ──
+function _isFullSheet(c){
+  var hay = ((c.size||'')+' '+(c.name||'')+' '+(c.type||'')+' '+(c.notes||'')).toLowerCase();
+  if (/חצי\s*גיליון/.test(hay)) return false;
+  if (/70[\s×x*]?100|100[\s×x*]?70/.test(hay)) return true;
+  if (/פוסטר\s*גיליון|גיליון\s*מלא/.test(hay)) return true;
+  if (/\bגיליון\b/.test(hay) && !/חצי/.test(hay)) return true;
+  return false;
+}
+function _needsCut(c){ if (c.needsFolding || c.needsBinding || c.noCut || c.noFinishing) return false; return !_isFullSheet(c); }
+function _stagesFor(c){
+  if (c.needsFolding && c.needsBinding) return ['fold','bind'];
+  if (c.needsBinding) return ['bind'];
+  if (c.needsFolding) return ['fold'];
+  if (_needsCut(c)) return ['cut'];
+  return [];
+}
+var _STG = { cut:{ btn:'✂️ סמן הושלם בחיתוך', done:'חיתוך' }, fold:{ btn:'📐 סמן כהושלמה בקיפול', done:'קיפול' }, bind:{ btn:'📚 סמן כהושלמה בכריכייה', done:'כריכה' } };
+var _scanStages = {};   // מצב שלבים מקומי (מ-scanStages בשרת + אופטימי)
+function _stageDone(card, s){ return !!(card[s+'Done'] || (_scanStages[s] && _scanStages[s].done)); }
+function _rawUrl(card){
+  if (card.bookletSheetUrl) return card.bookletSheetUrl;
+  var e = collectProofs(card); if (e.length) return e[0].url;
+  return null;
+}
+function _markStage(card, s){
+  var payload = { done:true, at: Date.now(), by:'סריקה' };
+  _scanStages[s] = payload;
+  fbPut('scanStages/' + encodeURIComponent(String(card.id)) + '/' + s, payload);
+  showMenu(card);   // רענון → מציג ✓
+}
+function showMenu(card){
+  var proofsMap = window._scanProofs || {};
+  var isBk = isBooklet(card) || !!card.bookletSheetUrl;
+  var raw = _rawUrl(card);
+  var cm = customerMatches(card, proofsMap);
+  var stages = _stagesFor(card);
+  var h = '';
+  // צפייה
+  if (raw || cm.length) h += '<button class="btn" id="m-proof">📄 צפייה בפרופר</button>';
+  if (isBk && (raw || cm.length || collectProofs(card).length)) h += '<button class="btn alt" id="m-booklet">📖 צפייה בחוברת לדפדוף</button>';
+  // שלבי גימור
+  if (stages.length){
+    h += '<div style="height:8px"></div>';
+    stages.forEach(function(s){
+      if (_stageDone(card, s)) h += '<button class="btn" disabled style="background:#16a34a;color:#fff;cursor:default;opacity:1">✓ ' + _STG[s].done + ' הושלם</button>';
+      else h += '<button class="btn alt" data-stage="' + s + '">' + _STG[s].btn + '</button>';
+    });
+  } else {
+    h += '<div class="wait" style="font-size:.8rem;margin-top:10px">🖨️ עבודה ללא גימור — מסתיימת אוטומטית עם סיום ההדפסה.</div>';
+  }
+  if (!raw && !cm.length && !stages.length){ waitForFiles(); return; }
+  body.innerHTML = h;
+  var pb = document.getElementById('m-proof');
+  if (pb) pb.onclick = function(){ if (raw) location.href = raw; else resolveAndGo(card, proofsMap); };
+  var bb = document.getElementById('m-booklet');
+  if (bb) bb.onclick = function(){ resolveAndGo(card, proofsMap); };   // resolveAndGo מקפל חוברת/פותח קובץ לקוח
+  body.querySelectorAll('[data-stage]').forEach(function(b){ b.onclick = function(){ _markStage(card, b.dataset.stage); }; });
+}
+
 if (!cid) { sub.textContent = ''; body.innerHTML = '<div class="err">חסר מזהה כרטיס בקישור.</div>'; }
 else _tok().then(function(t){
   TOKEN = t;
-  return Promise.all([ fbGet('cards'), fbGet('customerProofs').catch(function(){ return {}; }) ]);
+  return Promise.all([ fbGet('cards'), fbGet('customerProofs').catch(function(){ return {}; }), fbGet('scanStages/' + encodeURIComponent(String(cid))).catch(function(){ return null; }) ]);
 }).then(function(res){
   var card = findCard(res[0]);
   if (!card) { sub.textContent = ''; body.innerHTML = '<div class="err">הכרטיס לא נמצא — ייתכן שהעבודה הושלמה ועברה לארכיון.</div>'; return; }
-  window._scanCard = card;
+  window._scanCard = card; window._scanProofs = res[1] || {};
+  if (res[2] && typeof res[2] === 'object') _scanStages = res[2];
   sub.textContent = card.name || '';
-  if (!resolveAndGo(card, res[1] || {})) waitForFiles();
+  showMenu(card);   // תפריט אפשרויות (במקום פתיחה אוטומטית איטית של הפרופר)
 }).catch(function(e){
   sub.textContent = '';
   body.innerHTML = '<div class="err">שגיאה בטעינה — בדוק חיבור לאינטרנט ונסה שוב.</div>';
