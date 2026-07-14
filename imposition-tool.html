@@ -950,6 +950,8 @@ window.showFlipbook = showFlipbook;
 // מעלה את הגיליון הפרוס ל-Storage (אם אין לו כבר URL) ובונה קישור לאותו כלי בדיוק
 // במצב-לקוח (client=1): הלקוח רואה את אותה חוברת עם אותו דפדוף — בלי כפתורי בית הדפוס.
 window._clientMode = (new URLSearchParams(location.search)).get('client') === '1';
+window._shareSid = (new URLSearchParams(location.search)).get('sid') || null;
+var _FBURL_IT = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
 if (window._clientMode) {
   var _ccss = document.createElement('style');
   _ccss.textContent = '.drop,.opts,#go,.wrap .card:nth-of-type(2),#attachCardBtn,#shareBookletBtn{display:none !important} .brandbar .sub::after{content:""}';
@@ -959,8 +961,60 @@ if (window._clientMode) {
     if (sub) sub.textContent = 'הגהה דיגיטלית — דפדפו בחוברת ובדקו שהכל נכון';
     var h2 = document.querySelector('.wrap .card h2');
     if (h2) h2.textContent = '📖 החוברת שלכם';
+    if (window._shareSid) _bkApprovalBar();   // פס אישור לקוח (רק כשיש מזהה שיתוף)
   });
 }
+// ══════ אישור לקוח על החוברת — נשמר כתיעוד קבוע בענן ══════
+function _bkApprovalBar(){
+  var bar = document.createElement('div');
+  bar.id = 'bkApproveBar';
+  bar.style.cssText = 'position:fixed;bottom:0;right:0;left:0;z-index:400;background:#fff;border-top:2px solid #e5e7eb;box-shadow:0 -6px 20px rgba(0,0,0,.12);padding:12px 16px;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;direction:rtl';
+  bar.innerHTML = '<span id="bkApproveMsg" style="font-size:.9rem;color:#374151;font-weight:600">בדקתם את החוברת והכל נכון?</span>'
+    + '<button id="bkApproveBtn" onclick="_bkApprove()" style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;border-radius:12px;padding:13px 30px;font-size:1.05rem;font-weight:900;cursor:pointer;box-shadow:0 4px 14px rgba(22,163,74,.35);font-family:inherit">✓ אני מאשר את החוברת לדפוס</button>';
+  document.body.appendChild(bar);
+  document.body.style.paddingBottom = '80px';
+  _bkCheckApproved();   // אם כבר אושר בעבר — הצג את הסטטוס במקום הכפתור
+}
+function _bkApprovedUi(rec){
+  var btn = document.getElementById('bkApproveBtn'), msg = document.getElementById('bkApproveMsg');
+  if (btn) btn.style.display = 'none';
+  if (msg) {
+    var d = rec && rec.at ? new Date(rec.at) : null;
+    msg.innerHTML = '<span style="color:#15803d;font-weight:900;font-size:1.02rem">✓ החוברת אושרה לדפוס' + (rec && rec.name ? ' על ידי ' + String(rec.name).replace(/</g,'&lt;') : '') + (d ? ' · ' + d.toLocaleDateString('he-IL') + ' ' + d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}) : '') + '</span>';
+  }
+}
+function _bkCheckApproved(){
+  if (!window._shareSid) return;
+  _itAuth().then(function(tok){
+    return fetch(_FBURL_IT + '/bookletApprovals/' + encodeURIComponent(window._shareSid) + '.json' + (tok ? '?auth=' + tok : ''));
+  }).then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(rec){ if (rec && rec.at) _bkApprovedUi(rec); })
+    .catch(function(){});
+}
+async function _bkApprove(){
+  var name = (prompt('לאישור החוברת לדפוס — כתבו שם מלא של המאשר:') || '').trim();
+  if (!name) return;
+  var btn = document.getElementById('bkApproveBtn');
+  try {
+    if (btn){ btn.disabled = true; btn.textContent = '⏳ שומר אישור...'; }
+    var tok = await _itAuth();
+    var rec = {
+      name: name, at: Date.now(),
+      fileName: (_file && _file.name) || '', foldType: $('sheet').value,
+      ua: (navigator.userAgent || '').slice(0, 140)
+    };
+    var r = await fetch(_FBURL_IT + '/bookletApprovals/' + encodeURIComponent(window._shareSid) + '.json' + (tok ? '?auth=' + tok : ''), {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(rec)
+    });
+    if (!r.ok) throw new Error('שמירה נכשלה (' + r.status + ')');
+    _bkApprovedUi(rec);
+    alert('תודה! האישור נשמר ונשלח לבית הדפוס.');
+  } catch(e){
+    if (btn){ btn.disabled = false; btn.textContent = '✓ אני מאשר את החוברת לדפוס'; }
+    alert('שגיאה בשמירת האישור: ' + (e.message||e) + '\nנסו שוב או צרו קשר עם בית הדפוס.');
+  }
+}
+window._bkApprove = _bkApprove;
 var _FB_APIKEY_IT = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';   // מפתח Web ציבורי (לא סוד)
 var _itTok = { id:null, exp:0 };
 function _itAuth(){
@@ -1004,13 +1058,15 @@ async function _shareBooklet(){
       srcUrl = await _itUpload(path, buf, function(p){ if (btn) btn.textContent = '⏳ מעלה... ' + p + '%'; });
       window._srcProofUrl = srcUrl;   // לשיתוף חוזר בלי העלאה נוספת
     }
+    // מזהה שיתוף קבוע לקובץ הזה — האישור של הלקוח יירשם תחתיו (שיתוף חוזר = אותו מזהה)
+    if (!window._shareBkSid) window._shareBkSid = 'bk_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
     var link = location.origin + location.pathname
       + '?proofUrl=' + encodeURIComponent(srcUrl)
       + '&type=' + encodeURIComponent($('sheet').value)
       + '&firstside=' + encodeURIComponent($('firstside').value)
       + '&mirror=' + encodeURIComponent($('mirror').value)
       + '&name=' + encodeURIComponent(_file.name)
-      + '&auto=1&client=1';
+      + '&auto=1&client=1&sid=' + encodeURIComponent(window._shareBkSid);
     _shareDialog(link);
   } catch(e){
     console.error(e); alert('שגיאה בהכנת הקישור: ' + (e.message||e));

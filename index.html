@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784035253';
+window.APP_VERSION = '1784035783';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -18079,6 +18079,20 @@ async function _fbPollAll() {
       localStorage.setItem('solanCustomers', JSON.stringify(customers));
       window._fbSnapshot.customers = JSON.stringify(customers);
     }
+    // אישורי חוברת מלקוחות (קיפול ששותף בוואטסאפ/מייל) — התראה + תיעוד ביומן הפעילות
+    try {
+      var bkap = await window._fbGet('bookletApprovals');
+      if (bkap && typeof bkap === 'object') {
+        Object.keys(bkap).forEach(function(bid){
+          var v = bkap[bid]; if (!v || !v.at || v.notified) return;
+          var txt = '📖 לקוח אישר חוברת לדפוס: ' + (v.name||'') + (v.fileName ? ' — ' + v.fileName : '');
+          try { showToast('✅ ' + txt, 6000); } catch(e){}
+          try { if (typeof _speakHe === 'function') _speakHe('לקוח אישר חוברת לדפוס'); } catch(e){}
+          try { if (typeof _logActivity === 'function') _logActivity('📖', 'לקוח אישר חוברת לדפוס: ' + (v.name||'') + (v.fileName ? ' — ' + v.fileName : '')); } catch(e){}
+          window._fbPut('bookletApprovals/' + bid + '/notified', true);   // פעם אחת בלבד (בכל המכשירים)
+        });
+      }
+    } catch(e){}
     // התראות העלאת קבצים מלקוחות (אות "מעלה עכשיו" + עיתונים/ריצות שאושרו) — כולל קול
     try {
       var cpv2 = await window._fbGet('customerProofs');
