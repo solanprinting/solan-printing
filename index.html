@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784023534';
+window.APP_VERSION = '1784024477';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -100,8 +100,9 @@ window.addEventListener('beforeinstallprompt', function(ev) {
 <title>סולן הדפסות בע"מ</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
-/* מסתירים את תג reCAPTCHA (App Check) — במקומו מוצג משפט גילוי במסך הכניסה, כנדרש בתנאי Google */
-.grecaptcha-badge{visibility:hidden!important;}
+/* מציגים את תג reCAPTCHA (App Check) בפינה הימנית-תחתונה. בלי זה הוא נדחף אל
+   מחוץ למסך (right:-186px) בגלל פריסת RTL. משפט הגילוי נשאר גם במסך הכניסה. */
+.grecaptcha-badge{visibility:visible!important;right:14px!important;left:auto!important;bottom:14px!important;opacity:.85;}
 :root{
   --press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;
   --line:#d0c8b8;--danger:#c62828;--gray:#666;--tpl-bg:#f0f4ff;
@@ -3430,7 +3431,17 @@ function showToast(msg, duration) {
 // עוברות דרך tombstones (deletedIds) שתמיד מסננים. כך מכשיר עם נתונים
 // ישנים לא יכול לדרוס: הוא לא יחזיר מחוקים ולא יהפוך "הושלם" ל"פעיל".
 function _cardUpd(c){ return (c && (c._upd || c.id)) || 0; }
-function _cardKeyJson(c){ var o={}; for (var k in c) if (k !== '_upd') o[k]=c[k]; return JSON.stringify(o); }
+// השוואת-תוכן חסינת-סדר-מפתחות (עומק): Firebase מחזיר מפתחות ממויינים אלפביתית,
+// בעוד כרטיס מקומי שמור בסדר-הכנסה. JSON.stringify תמים "מזהה שינוי" מדומה בין שתי
+// הגרסאות (אותו תוכן, סדר שונה) → מטביע _upd=עכשיו שוב ושוב → כרטיסים ישנים "חוזרים"
+// כמעודכנים היום ומציפים תצוגות. מיון עמוק פותר: תוכן זהה ⇒ מחרוזת זהה.
+function _stableStr(v){
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(_stableStr).join(',') + ']';
+  var ks = Object.keys(v).sort();
+  return '{' + ks.map(function(k){ return JSON.stringify(k) + ':' + _stableStr(v[k]); }).join(',') + '}';
+}
+function _cardKeyJson(c){ var o={}; for (var k in c) if (k !== '_upd') o[k]=c[k]; return _stableStr(o); }
 function _seedCardSnap(){
   window._cardJsonSnap = {};
   (cards||[]).forEach(function(c){ if (c && c.id != null) window._cardJsonSnap[String(c.id)] = _cardKeyJson(c); });
@@ -3505,7 +3516,7 @@ function _unmarkDeleted(coll, id){
     if (window._fbPut) window._fbPut('deletedIds', deletedIds);   // דחיפה מיידית — לפני שה-union ממכשיר אחר יחזיר
   }
 }
-function _itemKeyJson(it){ var c = Object.assign({}, it); delete c._upd; return JSON.stringify(c); }
+function _itemKeyJson(it){ var c = Object.assign({}, it); delete c._upd; return _stableStr(c); }   // חסין-סדר-מפתחות (ראה _cardKeyJson) — מונע _upd מדומה גם באוספים אלה
 function _seedArrSnap(coll, arr){
   var m = {};
   (arr||[]).forEach(function(it){ if (it && it.id != null) m[String(it.id)] = _itemKeyJson(it); });
