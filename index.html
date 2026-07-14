@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784019617';
+window.APP_VERSION = '1784023007';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1135,10 +1135,58 @@ window._fbAuthToken = function(){
 };
 try { window._fbAuthToken(); } catch(e){}   // חימום מוקדם — משיג אסימון מיד עם הטעינה
 
+// ── App Check (reCAPTCHA v3) — מוודא שרק האפליקציה האמיתית ניגשת ל-Firebase ──
+// מצרף header "X-Firebase-AppCheck" לכל בקשה. עד שנאכוף בקונסולה זה במצב ניטור בלבד:
+// אם ה-SDK/רשת נכשלים — הטוקן פשוט לא מצורף, ושום דבר לא נחסם. site key ריק = כבוי לגמרי.
+const _APPCHECK_SITEKEY = '6LeYDVMtAAAAAAsc-qvVPz9QvLhIlDBfcYCl-pXI';
+window._appCheckReady = null;
+window._appCheckInit = function(){
+  if (!_APPCHECK_SITEKEY) return Promise.resolve(null);
+  if (window._appCheckReady) return window._appCheckReady;
+  window._appCheckReady = new Promise(function(resolve){
+    function load(src){ return new Promise(function(res, rej){
+      var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    }); }
+    var base = 'https://www.gstatic.com/firebasejs/10.12.5/';
+    load(base + 'firebase-app-compat.js')
+      .then(function(){ return load(base + 'firebase-app-check-compat.js'); })
+      .then(function(){
+        try {
+          if (!firebase.apps.length) firebase.initializeApp({
+            apiKey: _FB_APIKEY,
+            authDomain: 'solan-printing.firebaseapp.com',
+            projectId: 'solan-printing',
+            databaseURL: _FBURL,
+            appId: '1:1094826649317:web:bd5f5efdc1f8e3ab67160c'
+          });
+          var ac = firebase.appCheck();
+          ac.activate(new firebase.appCheck.ReCaptchaV3Provider(_APPCHECK_SITEKEY), true);
+          resolve(ac);
+        } catch(e){ resolve(null); }
+      })
+      .catch(function(){ resolve(null); });
+  });
+  return window._appCheckReady;
+};
+window._appCheckToken = function(){
+  if (!_APPCHECK_SITEKEY) return Promise.resolve(null);
+  return window._appCheckInit().then(function(ac){
+    if (!ac) return null;
+    // לא נתקעים: אם reCAPTCHA איטי/נכשל — מחזיר null אחרי 8ש' (במצב ניטור זה לא חוסם כלום)
+    return Promise.race([
+      ac.getToken(false).then(function(r){ return (r && r.token) || null; }).catch(function(){ return null; }),
+      new Promise(function(res){ setTimeout(function(){ res(null); }, 8000); })
+    ]);
+  }).catch(function(){ return null; });
+};
+try { window._appCheckToken(); } catch(e){}   // חימום — טוען SDK ומייצר טוקן ראשון מוקדם
+
 window._fbGet = async path => {
   try {
     var t = await window._fbAuthToken();
-    const r = await fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''));
+    var ac = await window._appCheckToken();
+    const r = await fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), ac ? { headers: { 'X-Firebase-AppCheck': ac } } : undefined);
     return r.ok ? r.json() : null;
   } catch(e) { return null; }
 };
@@ -1152,18 +1200,23 @@ window._pollRev   = window._pollRev   || {};   // snapshot של _rev בסבב ה
 window._fbBumpRev = function(coll, tok){
   if (!coll || coll === '_rev' || coll === 'customerProofs') return; // customerProofs נקרא תמיד (נכתב גם מדפי הלקוח)
   var doPut = function(t){
-    fetch(_FBURL + '/_rev/' + coll + '.json' + (t ? '?auth=' + t : ''), {
-      method:'PUT', headers:{'Content-Type':'application/json'}, body: String(Date.now())
-    }).catch(function(){});
+    window._appCheckToken().then(function(ac){
+      var h = {'Content-Type':'application/json'}; if (ac) h['X-Firebase-AppCheck'] = ac;
+      fetch(_FBURL + '/_rev/' + coll + '.json' + (t ? '?auth=' + t : ''), {
+        method:'PUT', headers: h, body: String(Date.now())
+      }).catch(function(){});
+    });
   };
   if (tok) doPut(tok); else if (window._fbAuthToken) window._fbAuthToken().then(doPut); else doPut(null);
 };
 window._fbPut = async (path, data) => {
   try {
     var t = await window._fbAuthToken();
+    var ac = await window._appCheckToken();
+    var _h = {'Content-Type':'application/json'}; if (ac) _h['X-Firebase-AppCheck'] = ac;
     await fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
       method: 'PUT',
-      headers: {'Content-Type':'application/json'},
+      headers: _h,
       body: JSON.stringify(data)
     });
     try { if (String(path).indexOf('_rev') !== 0) window._fbBumpRev(String(path).split('/')[0], t); } catch(e){}
@@ -2840,9 +2893,17 @@ function _viewedByLine(card) {
 
 function saveUsers() {
   localStorage.setItem('solanUsers', JSON.stringify(solanUsers));
+  // מנע מהפולינג (כל 30ש') לדרוס את השינוי לפני שהדחיפה נקלטה בשרת — כמו persist()
+  window._lastLocalWriteAt = Date.now();
   // push to Firebase so other devices get the update (מסונן מ-tombstones כדי לא להחזיר משתמש שנמחק)
   if (window._fbConnected && window._fbPut) {
-    window._fbPut('solanUsers', _filterDeleted('solanUsers', solanUsers));
+    // מונה כתיבות-תלויות: כל עוד יש PUT באוויר, סבב ה-poll ידלג על solanUsers ולא ידרוס בערך ישן
+    window._fbPendingPuts = window._fbPendingPuts || {};
+    window._fbPendingPuts.solanUsers = (window._fbPendingPuts.solanUsers || 0) + 1;
+    window._fbSnapshot = window._fbSnapshot || {};
+    window._fbSnapshot.solanUsers = JSON.stringify(solanUsers);
+    var _dec = function(){ window._fbPendingPuts.solanUsers = Math.max(0, (window._fbPendingPuts.solanUsers || 1) - 1); };
+    Promise.resolve(window._fbPut('solanUsers', _filterDeleted('solanUsers', solanUsers))).then(_dec, _dec);
   }
 }
 
@@ -3125,7 +3186,8 @@ function addNewUser() {
   var id = 'user_' + Date.now();
   solanUsers.push({
     id: id, name: name.trim(), pin: pin, isAdmin: false,
-    permissions: Object.assign({}, ROLE_PRESETS['worker'])
+    permissions: Object.assign({}, ROLE_PRESETS['worker']),
+    _upd: Date.now()   // חותמת — שהמשתמש החדש ינצח כל ערך שרת ישן במיזוג
   });
   saveUsers();
   renderUsersManager();
@@ -3184,6 +3246,7 @@ function changeAdminPin() {
   var newPin = prompt('PIN חדש (4 ספרות):');
   if (!newPin || !/^\d{4}$/.test(newPin)) { alert('PIN חייב להיות 4 ספרות'); return; }
   u.pin = newPin;
+  u._upd = Date.now();   // חותמת — שהמיזוג לא ידרוס את ה-PIN החדש בערך ישן מהשרת
   saveUsers();
   showToast('✅ PIN עודכן');
 }
@@ -3194,6 +3257,7 @@ function changeUserPin(uid) {
   var newPin = prompt('PIN חדש ל-' + u.name + ' (4 ספרות):');
   if (!newPin || !/^\d{4}$/.test(newPin)) { alert('PIN חייב להיות 4 ספרות'); return; }
   u.pin = newPin;
+  u._upd = Date.now();   // חותמת — שהמיזוג לא ידרוס את ה-PIN החדש בערך ישן מהשרת
   saveUsers();
   showToast('✅ PIN עודכן ל-' + u.name);
 }
@@ -18000,7 +18064,7 @@ async function _fbPollAll() {
     } catch(e){}
     // משתמשים
     var uv = await _pollGet('solanUsers');
-    if (uv !== null) {
+    if (uv !== null && !(_pend.solanUsers > 0)) {
       var incoming = Array.isArray(uv) ? uv : Object.values(uv);
       // מיזוג לפי id, המצב העדכני יותר (_upd) מנצח — כך שינוי הרשאות מקומי טרי לא נדרס בערך ישן מהשרת
       var _uById = {};
