@@ -236,11 +236,11 @@ async function fold(arrayBuffer, opts){
 // ── UI ──
 const $ = id => document.getElementById(id);
 let _file = null;
-$('file').onchange = e => setFile(e.target.files[0]);
+$('file').onchange = e => { window._srcProofUrl = null; setFile(e.target.files[0]); };
 $('drop').onclick = () => $('file').click();
 ['dragover','dragenter'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.add('over');}));
 ['dragleave','drop'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.remove('over');}));
-$('drop').addEventListener('drop', e=>{ if(e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
+$('drop').addEventListener('drop', e=>{ if(e.dataTransfer.files[0]) { window._srcProofUrl = null; setFile(e.dataTransfer.files[0]); } });
 
 function setFile(f){
   if (!f || f.type!=='application/pdf'){ $('fileinfo').textContent='⚠️ יש לבחור קובץ PDF.'; return; }
@@ -274,9 +274,12 @@ $('go').onclick = async () => {
       html += '<div class="ok">✓ קופלו '+report.signatures+' חתימות → '+report.pagesOut+' עמ\' בסדר קריאה.</div>'
         + '<a class="dl" href="'+url+'" download="'+name+'">⬇️ הורד את החוברת המקופלת</a>'
         + '<button class="btn" id="attachCardBtn" onclick="_attachToCard()" style="background:#4338ca;color:#fff;margin:8px 0 0 8px;padding:9px 16px">🔗 צרף לכרטיס עבודה</button>'
+        + (window._clientMode ? '' : '<button class="btn" id="shareBookletBtn" onclick="_shareBooklet()" style="background:#16a34a;color:#fff;margin:8px 0 0 8px;padding:9px 16px">📤 שלח ללקוח</button>')
         + '<div style="margin-top:14px;font-weight:800;color:var(--press)">📖 דפדוף בחוברת (כפולות):</div>'
         + '<div id="fb"></div>'
-        + '<div class="muted" style="margin-top:10px">אם הסדר/כיוון לא נכון — שנה את "סוג הפריסה" או "צד ראשון בקובץ" ונסה שוב.</div>';
+        + (window._clientMode
+            ? '<div class="muted" style="margin-top:10px">📱 דפדפו בחוברת ובדקו את סדר העמודים והתוכן. אם משהו לא נכון — צרו קשר עם בית הדפוס.</div>'
+            : '<div class="muted" style="margin-top:10px">אם הסדר/כיוון לא נכון — שנה את "סוג הפריסה" או "צד ראשון בקובץ" ונסה שוב.</div>');
     }
     $('result').innerHTML = html; $('log').textContent = '';
     if (report.signatures > 0) showFlipbook(bytes, report.lip);
@@ -943,6 +946,109 @@ window.TEMPLATES = TEMPLATES;
 window._buildMap = _buildMap;
 window.showFlipbook = showFlipbook;
 
+// ══════ שיתוף החוברת עם הלקוח (וואטסאפ / מייל / קישור) ══════
+// מעלה את הגיליון הפרוס ל-Storage (אם אין לו כבר URL) ובונה קישור לאותו כלי בדיוק
+// במצב-לקוח (client=1): הלקוח רואה את אותה חוברת עם אותו דפדוף — בלי כפתורי בית הדפוס.
+window._clientMode = (new URLSearchParams(location.search)).get('client') === '1';
+if (window._clientMode) {
+  var _ccss = document.createElement('style');
+  _ccss.textContent = '.drop,.opts,#go,.wrap .card:nth-of-type(2),#attachCardBtn,#shareBookletBtn{display:none !important} .brandbar .sub::after{content:""}';
+  document.head.appendChild(_ccss);
+  document.addEventListener('DOMContentLoaded', function(){
+    var sub = document.querySelector('.brandbar .sub');
+    if (sub) sub.textContent = 'הגהה דיגיטלית — דפדפו בחוברת ובדקו שהכל נכון';
+    var h2 = document.querySelector('.wrap .card h2');
+    if (h2) h2.textContent = '📖 החוברת שלכם';
+  });
+}
+var _FB_APIKEY_IT = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';   // מפתח Web ציבורי (לא סוד)
+var _itTok = { id:null, exp:0 };
+function _itAuth(){
+  if (_itTok.id && Date.now() < _itTok.exp - 120000) return Promise.resolve(_itTok.id);
+  return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + _FB_APIKEY_IT, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ returnSecureToken:true })
+  }).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('auth ' + r.status)); })
+    .then(function(j){ _itTok = { id:j.idToken, exp: Date.now() + (parseInt(j.expiresIn)||3600)*1000 }; return _itTok.id; });
+}
+function _itUpload(path, bytes, onPct){
+  return _itAuth().then(function(tok){
+    return new Promise(function(resolve, reject){
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', 'https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o?name=' + encodeURIComponent(path));
+      xhr.setRequestHeader('Content-Type', 'application/pdf');
+      if (tok) xhr.setRequestHeader('Authorization', 'Firebase ' + tok);
+      xhr.upload.onprogress = function(e){ if (e.lengthComputable && onPct) onPct(Math.round(e.loaded/e.total*100)); };
+      xhr.onload = function(){
+        if (xhr.status >= 200 && xhr.status < 300){
+          var j = JSON.parse(xhr.responseText);
+          var t = (j.downloadTokens||'').split(',')[0] || '';
+          resolve('https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o/' + encodeURIComponent(path) + '?alt=media&token=' + t);
+        } else reject(new Error('Storage ' + xhr.status));
+      };
+      xhr.onerror = function(){ reject(new Error('שגיאת רשת בהעלאה')); };
+      xhr.send(bytes);
+    });
+  });
+}
+async function _shareBooklet(){
+  if (!_file){ alert('העלה וקפל קודם את הקובץ.'); return; }
+  var btn = document.getElementById('shareBookletBtn');
+  try {
+    if (btn){ btn.disabled = true; btn.textContent = '⏳ מכין קישור...'; }
+    var srcUrl = window._srcProofUrl;
+    if (!srcUrl){
+      // הקובץ מקומי — מעלים אותו לענן כדי שהלקוח יוכל לפתוח
+      var buf = await _file.arrayBuffer();
+      var safe = _file.name.replace(/[\\/:*?"<>|#%&{}]+/g,'_').slice(0,100);
+      var path = 'bookletShares/' + Date.now() + '_' + Math.random().toString(36).slice(2,8) + '/' + safe;
+      srcUrl = await _itUpload(path, buf, function(p){ if (btn) btn.textContent = '⏳ מעלה... ' + p + '%'; });
+      window._srcProofUrl = srcUrl;   // לשיתוף חוזר בלי העלאה נוספת
+    }
+    var link = location.origin + location.pathname
+      + '?proofUrl=' + encodeURIComponent(srcUrl)
+      + '&type=' + encodeURIComponent($('sheet').value)
+      + '&firstside=' + encodeURIComponent($('firstside').value)
+      + '&mirror=' + encodeURIComponent($('mirror').value)
+      + '&name=' + encodeURIComponent(_file.name)
+      + '&auto=1&client=1';
+    _shareDialog(link);
+  } catch(e){
+    console.error(e); alert('שגיאה בהכנת הקישור: ' + (e.message||e));
+  } finally {
+    if (btn){ btn.disabled = false; btn.textContent = '📤 שלח ללקוח'; }
+  }
+}
+window._shareBooklet = _shareBooklet;
+function _shareDialog(link){
+  var old = document.getElementById('shareDlg'); if (old) old.remove();
+  var msg = 'שלום! מצורפת הגהה דיגיטלית של החוברת שלכם מסולן הדפסות.\nלחצו על הקישור כדי לדפדף בחוברת ולבדוק שהכל נכון:\n' + link;
+  var dlg = document.createElement('div');
+  dlg.id = 'shareDlg';
+  dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:flex;align-items:center;justify-content:center;direction:rtl';
+  dlg.innerHTML =
+      '<div style="background:#fff;border-radius:16px;padding:22px 24px;width:min(480px,92vw);box-shadow:0 12px 40px rgba(0,0,0,.35)">'
+    + '<div style="font-weight:900;font-size:1.1rem;color:#2d3561;margin-bottom:6px">📤 שליחת החוברת ללקוח</div>'
+    + '<div style="font-size:.85rem;color:#666;margin-bottom:14px">הלקוח יפתח את הקישור ויראה את החוברת עם דפדוף מלא — בדיוק כמו אצלך.</div>'
+    + '<div style="display:flex;flex-direction:column;gap:9px">'
+    + '<a target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(msg) + '" style="display:block;text-align:center;background:#25d366;color:#fff;font-weight:800;padding:12px;border-radius:10px;text-decoration:none">🟢 שלח בוואטסאפ</a>'
+    + '<a href="mailto:?subject=' + encodeURIComponent('הגהה דיגיטלית — חוברת לבדיקה | סולן הדפסות') + '&body=' + encodeURIComponent(msg) + '" style="display:block;text-align:center;background:#2d3561;color:#fff;font-weight:800;padding:12px;border-radius:10px;text-decoration:none">✉️ שלח במייל</a>'
+    + '<button id="shareCopy" style="background:#f3f4f6;border:1.5px solid #d1d5db;color:#111;font-weight:800;padding:12px;border-radius:10px;cursor:pointer;font-size:1rem">📋 העתק קישור</button>'
+    + '</div>'
+    + '<input id="shareLinkInp" value="' + link.replace(/"/g,'&quot;') + '" readonly style="width:100%;margin-top:12px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;font-size:.78rem;direction:ltr;color:#555;box-sizing:border-box">'
+    + '<button id="shareClose" style="margin-top:12px;background:none;border:none;color:#888;cursor:pointer;font-size:.9rem">סגור</button>'
+    + '</div>';
+  document.body.appendChild(dlg);
+  dlg.addEventListener('click', function(e){ if (e.target === dlg) dlg.remove(); });
+  document.getElementById('shareClose').onclick = function(){ dlg.remove(); };
+  document.getElementById('shareCopy').onclick = function(){
+    var inp = document.getElementById('shareLinkInp'); inp.select();
+    var okCopy = false;
+    try { navigator.clipboard.writeText(link).then(function(){}); okCopy = true; } catch(e){}
+    if (!okCopy) { try { document.execCommand('copy'); okCopy = true; } catch(e){} }
+    this.textContent = okCopy ? '✓ הקישור הועתק' : '⚠️ העתק ידנית מהשדה';
+  };
+}
+
 // ── טעינה ישירה מפרופר של כרטיס: imposition-tool.html?proofUrl=<url>&type=<32|16perf|16p|8perf|8p>&name=<שם>&auto=1 ──
 (function(){
   try {
@@ -957,6 +1063,7 @@ window.showFlipbook = showFlipbook;
       .then(function(blob){
         var f = new File([blob], nm.replace(/[\\/:*?"<>|]/g,'_').slice(0,120) + (/\.pdf$/i.test(nm)?'':'.pdf'), { type:'application/pdf' });
         setFile(f);
+        window._srcProofUrl = url;   // מקור מרוחק — שיתוף ללקוח לא צריך העלאה חוזרת
         if (qs.get('auto') !== '0') $('go').click();   // קיפול אוטומטי (אלא אם auto=0)
       })
       .catch(function(e){ $('fileinfo').innerHTML = '⚠️ לא ניתן לטעון את הפרופר אוטומטית ('+(e.message||e)+'). גרור/בחר קובץ ידנית.'; });
