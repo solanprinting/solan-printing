@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784012527';
+window.APP_VERSION = '1784018651';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -11870,9 +11870,17 @@ function renderTemplates() {
 }
 
 // סוג הגימור של עבודה: כריכה / קיפול / חיתוך בגיליוטינה (פריט שטוח — פלייסמנט/פוסטר/עלון בלי קיפול)
+// עיתון/חוברת/עבודה עם יותר מ-4 עמודים → מקופלת ונכרכת (גם אם הדגלים לא נשמרו על הכרטיס)
+function _cardBookletish(c){
+  if (!c) return false;
+  var pages = parseInt(c.pages, 10) || 0;
+  if (pages > 4) return true;
+  var txt = ((c.type||'') + ' ' + (c.name||'')).toLowerCase();
+  return /עיתון|חוברת|קטלוג|מגזין|ספר/.test(txt);
+}
 function _finishingKind(c){
   if (!c) return '';
-  if (c.needsFolding && c.needsBinding) return 'קיפול + כריכה';
+  if ((c.needsFolding && c.needsBinding) || _cardBookletish(c)) return 'קיפול + כריכה';
   if (c.needsBinding) return 'כריכה';
   if (c.needsFolding) return 'קיפול';
   return 'חיתוך בגיליוטינה';
@@ -11894,7 +11902,7 @@ function _cardNeedsCutting(c){
   return !_isFullSheetItem(c);
 }
 // גימור = קיפול / כריכה / חיתוך. גיליון מלא ללא חיתוך → אין גימור → ישר ל"הושלם".
-function _cardNeedsFinishing(c){ return !!(c && (c.needsFolding || c.needsBinding || _cardNeedsCutting(c))); }
+function _cardNeedsFinishing(c){ return !!(c && (c.needsFolding || c.needsBinding || _cardBookletish(c) || _cardNeedsCutting(c))); }
 // סיום הדפסה: עבודה עם גימור → 'finishing' (ממתינה ל"סיים גימור"); אחרת → 'done'. מחזיר את הסטטוס שנקבע.
 function _completePrinting(c){
   c.printedAt = new Date().toISOString();
@@ -11944,6 +11952,7 @@ function markJobPrinted(cardId) {
 // שלבי הגימור הנדרשים אחרי הדפסה, לפי סוג העבודה (תואם _finishingKind).
 function _scanStagesFor(c){
   if (!c) return [];
+  if (_cardBookletish(c)) return ['fold','bind'];        // עיתון/חוברת/>4 עמ' → קיפול + כריכה
   if (c.needsFolding && c.needsBinding) return ['fold','bind'];
   if (c.needsBinding) return ['bind'];
   if (c.needsFolding) return ['fold'];
