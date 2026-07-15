@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784119974';
+window.APP_VERSION = '1784122125';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4526,7 +4526,7 @@ function openProEngine(){
         _proField('צבעים','<select id="pro-colors" style="'+_PROIN+'"><option value="4">4 (CMYK)</option><option value="8">8 (פרפקטור)</option><option value="1">1</option><option value="2">2</option></select>')+
         _proField('הדפסה','<select id="pro-sides" style="'+_PROIN+'"><option value="perfecting">דו-צדדי (פרפקטור)</option><option value="single">צד אחד</option></select>')+
         _proField('נייר','<select id="pro-paper" style="'+_PROIN+'"><option value="">— בחר —</option>'+paperOpts+'</select>')+
-        _proField('כריכה','<select id="pro-bind" style="'+_PROIN+'"><option value="saddle">תפר אוכף</option><option value="none">ללא</option><option value="perfect">דבק</option></select>')+
+        _proField('כריכה','<select id="pro-bind" style="'+_PROIN+'"><option value="saddle">כריכת סיכות (תפר אוכף)</option><option value="none">ללא</option></select>')+
       '</div>'+
       '<button onclick="_proAnalyze()" style="margin-top:14px;padding:11px 26px;border:none;border-radius:10px;background:#0f766e;color:#fff;font-weight:900;cursor:pointer;font-family:Heebo;font-size:.95rem">⚙️ נתח והחלט</button>'+
       '<div id="pro-results" style="margin-top:16px"></div>'+
@@ -4541,7 +4541,15 @@ function _proAnalyze(){
   var runs=(typeof buildRuns==='function')?buildRuns(pages,qty,sheet.per):[]; var nSig=runs.length||Math.ceil(pages/sheet.per);
   var foldsPer=sheet.per===32?4:(sheet.per===16?3:(sheet.per===8?2:1));
   var platesPerSig=colors*(perf?1:2), totalPlates=platesPerSig*nSig, plateCost=totalPlates*(pr.platePrice||0);
-  var waste=(pr.wastePerRun||0), totalSheets=nSig*(qty+waste);
+  // גיליונות לכל קונטרס: קונטרס חלקי (למשל 16 עמ' על גיליון 32) מודפס N-up → פחות גיליונות.
+  var waste=(pr.wastePerRun||0), totalSheets=0, runBreak=[];
+  if (runs.length){
+    runs.forEach(function(r){
+      var rp=r.pages||sheet.per, up=Math.max(1, Math.round(sheet.per/rp));
+      var s=Math.ceil(qty/up)+waste; totalSheets+=s;
+      runBreak.push(rp+' עמ\''+(up>1?(' ('+up+'-up)'):'')+' = '+Math.ceil(qty/up).toLocaleString()+'+'+waste+' פחת');
+    });
+  } else { totalSheets=nSig*(qty+waste); }
   var tonnage=paper?(totalSheets*(paper.sheetW*paper.sheetH/10000)*(paper.gram||0)/1000000):0, paperCost=paper?tonnage*(paper.tonPrice||0):0;
   var prod=(size==='a5')?{w:165,h:240}:(size==='a3')?{w:297,h:420}:{w:210,h:297};
   var sw=sheet.w*10, sh=sheet.h*10, nUp=Math.max(1, Math.floor(sw/prod.w)*Math.floor(sh/prod.h), Math.floor(sw/prod.h)*Math.floor(sh/prod.w));
@@ -4552,7 +4560,7 @@ function _proAnalyze(){
   D.push(_proD('📚 תכנון קונטרסים',nSig+' קונטרסים',pages+' עמ\' ÷ '+sheet.per+' לגיליון = '+nSig+'.'+(runs.length?(' טווחים: '+runs.map(function(r){return r.pageRange;}).join(' · ')):'')));
   D.push(_proD('📐 תכנון קיפול',foldsPer+' קיפולים לכל קונטרס','גיליון של '+sheet.per+' עמ\' מתקפל ב-'+foldsPer+' קיפולים לחוברת בסדר קריאה.'));
   D.push(_proD('🟦 אופטימיזציית לוחות',totalPlates+' לוחות'+(plateCost?' · ₪'+Math.round(plateCost):''),platesPerSig+' לוחות לקונטרס ('+colors+' צבעים'+(perf?' × 1':' × 2 צדדים')+') × '+nSig+' קונטרסים.'+(perf?' פרפקטור חוסך חצי מהלוחות.':'')));
-  D.push(_proD('🧻 אופטימיזציית נייר',Math.round(totalSheets).toLocaleString()+' גיליונות'+(tonnage?' · '+tonnage.toFixed(2)+' טון · ₪'+Math.round(paperCost):''),nSig+' קונטרסים × ('+qty.toLocaleString()+' + '+waste+' פחת).'+(paper?' '+paper.gram+' גר, גיליון '+paper.sheetW+'×'+paper.sheetH+' → '+tonnage.toFixed(2)+' טון × ₪'+(paper.tonPrice||0)+'/טון.':' (בחר נייר לחישוב טונאז\').')));
+  D.push(_proD('🧻 אופטימיזציית נייר',Math.round(totalSheets).toLocaleString()+' גיליונות'+(tonnage?' · '+tonnage.toFixed(2)+' טון · ₪'+Math.round(paperCost):''),(runBreak.length?('לכל קונטרס: '+runBreak.join(' · ')+'.'):(nSig+' קונטרסים × ('+qty.toLocaleString()+'+'+waste+').'))+(paper?' נייר '+paper.gram+' גר, גיליון '+paper.sheetW+'×'+paper.sheetH+' → '+tonnage.toFixed(2)+' טון × ₪'+(paper.tonPrice||0)+'/טון.':' (בחר נייר לחישוב טונאז\').')));
   if(nUp>1) D.push(_proD('🔲 אופטימיזציית Gang',nUp+'-up אפשרי','המוצר ('+prod.w+'×'+prod.h+' מ"מ) נכנס '+nUp+' פעמים בגיליון '+sheet.name+'. לעבודה שטוחה (לא חוברת) — שקול gang לחיסכון בנייר ולחיצות.'));
   D.push(_proD('⚙️ אופטימיזציית Setup',setups+' הכנות · ~'+(Math.round(makeMin/6)/10)+' שע\'','~25 דק\' התאמה לכל קונטרס.'+(nSig>1?' שקול לתזמן את הקונטרסים ברצף על אותה מכונה כדי לחסוך התאמות.':'')));
   D.push(_proD('🏭 אופטימיזציית לחיצה',pressHours?pressHours.toFixed(1)+' שע\' דפוס':'—',Math.round(totalSheets).toLocaleString()+' גיליונות ÷ '+machine.spd.toLocaleString()+' גיליון/שעה = '+pressHours.toFixed(1)+' שעות ריצה נטו (ללא הכנות).'));
