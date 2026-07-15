@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784110110';
+window.APP_VERSION = '1784113848';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4662,6 +4662,35 @@ function closeAiQuote(){ var m = document.getElementById('aiQuoteModal'); if (m)
 function _aiOpenPricing(){
   if (typeof openOffsetPricing === 'function') openOffsetPricing();
   var m = document.getElementById('offset-pricing-modal'); if (m) m.style.zIndex = '9200';
+}
+// ── שיתוף ההצעה (PDF / וואטסאפ / העתקה) — פועל על הודעת ה-AI האחרונה (ניתנת לעריכה ידנית) ──
+function _aiqEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _aiqQuoteText(){
+  var bubbles = document.querySelectorAll('#aiq-msgs [contenteditable]');
+  if (bubbles.length) return (bubbles[bubbles.length-1].innerText||'').trim();
+  for (var i=_aiqMsgs.length-1;i>=0;i--){ if(_aiqMsgs[i].role==='assistant') return _aiqClean(_aiqMsgs[i].content); }
+  return '';
+}
+function _aiqSharePdf(){
+  var txt=_aiqQuoteText(); if(!txt){ showToast('אין עדיין הצעה — בקש מה-AI "תן לי הצעה מסודרת"'); return; }
+  var w=window.open('','_blank'); if(!w){ showToast('⚠️ חסום ע"י הדפדפן — אפשר חלונות קופצים'); return; }
+  var logo=''; try{ if(typeof _solanLogoImg==='function') logo=_solanLogoImg(58); }catch(e){}
+  var html='<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>הצעת מחיר — סולן הדפסות</title>'+
+    '<style>*{box-sizing:border-box}body{font-family:Arial,"Segoe UI",sans-serif;direction:rtl;padding:38px 44px;color:#222;line-height:1.7}.hdr{display:flex;align-items:center;gap:14px;border-bottom:3px solid #2d3561;padding-bottom:14px;margin-bottom:22px}.hdr h1{color:#2d3561;font-size:1.5rem;margin:0}.sub{color:#c9a84c;font-weight:700;font-size:.95rem}.quote{white-space:pre-wrap;font-size:1.02rem}.foot{margin-top:34px;padding-top:14px;border-top:1px solid #ccc;font-size:.78rem;color:#777}@media print{body{padding:20px}}</style></head><body>'+
+    '<div class="hdr">'+logo+'<div><h1>סולן הדפסות בע"מ</h1><div class="sub">הצעת מחיר</div></div></div>'+
+    '<div class="quote">'+_aiqEsc(txt)+'</div>'+
+    '<div class="foot">נוצר '+new Date().toLocaleDateString('he-IL')+' · תוקף ההצעה 14 יום · המחירים אינם כוללים מע"מ אלא אם צוין אחרת.</div>'+
+    '<scr'+'ipt>setTimeout(function(){window.print();},350);</scr'+'ipt></body></html>';
+  w.document.write(html); w.document.close();
+}
+function _aiqShareWhatsapp(){
+  var txt=_aiqQuoteText(); if(!txt){ showToast('אין עדיין הצעה — בקש מה-AI "תן לי הצעה מסודרת"'); return; }
+  window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');
+}
+function _aiqCopyQuote(){
+  var txt=_aiqQuoteText(); if(!txt){ showToast('אין עדיין הצעה'); return; }
+  try{ navigator.clipboard.writeText(txt).then(function(){ showToast('📋 ההצעה הועתקה'); },function(){ showToast('⚠️ העתק ידנית'); }); }
+  catch(e){ showToast('⚠️ העתק ידנית'); }
 }
 function _aiQuoteAppend(role, text){
   var box = document.getElementById('aiq-msgs'); if (!box) return null;
@@ -21240,6 +21269,12 @@ setInterval(function(){ try { _pollScanStages(); } catch(e){} }, 20000);
     </div>
     <div id="aiq-msgs" style="flex:1;overflow-y:auto;padding:16px;background:#f7f7fb;display:flex;flex-direction:column;gap:10px"></div>
     <div id="aiq-status" style="padding:0 16px;font-size:.8rem;color:#7c3aed;min-height:16px"></div>
+    <div style="display:flex;gap:7px;padding:0 14px 4px;flex-wrap:wrap">
+      <button onclick="_aiqSharePdf()" title="צור PDF של ההצעה האחרונה (שמור/הדפס)" style="background:#fff;border:1px solid #d1d5db;color:#374151;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">📄 PDF ללקוח</button>
+      <button onclick="_aiqShareWhatsapp()" title="שלח את ההצעה בוואטסאפ" style="background:#25d366;border:none;color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">🟢 שלח בוואטסאפ</button>
+      <button onclick="_aiqCopyQuote()" title="העתק את טקסט ההצעה" style="background:#fff;border:1px solid #d1d5db;color:#374151;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">📋 העתק</button>
+      <span style="align-self:center;font-size:.7rem;color:#9ca3af">פועל על ההצעה האחרונה של ה-AI</span>
+    </div>
     <div style="display:flex;gap:8px;padding:12px 14px;border-top:1px solid #eee;align-items:flex-end">
       <textarea id="aiq-input" rows="2" placeholder="כתוב את מפרט העבודה... (למשל: 5000 עלונים A4, כרומו מט 135, 4 צבעים דו-צדדי, קיפול אחד)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();_aiQuoteSend();}" style="flex:1;resize:none;padding:9px 11px;border:1px solid #d1d5db;border-radius:9px;font-size:.95rem;font-family:inherit;box-sizing:border-box"></textarea>
       <button onclick="_aiQuoteSend()" id="aiq-send" class="btn btn-primary" style="white-space:nowrap">שלח ▸</button>
