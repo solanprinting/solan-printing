@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784109650';
+window.APP_VERSION = '1784110110';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4629,12 +4629,32 @@ function _aiQuoteSys(){
     + '• ענה בעברית, קצר וברור. ציין תמיד באיזה נייר וגודל גיליון בחרת ולמה.\n\n'
     + 'התעריפון המלא (JSON — מקור-האמת למספרים):\n' + JSON.stringify(pr);
 }
+var _AIQ_GREET = 'שלום! כתוב לי מה העבודה — אפילו רק "חוברת A4" — ואשאל אותך שאלה-אחר-שאלה (עם אפשרויות ללחיצה) עד שיהיה לי כל המידע לתמחור.';
+function _aiqSave(){ try { localStorage.setItem('solanAiQuoteChat', JSON.stringify(_aiqMsgs)); } catch(e){} }
+function _aiqLoad(){ try { var s = JSON.parse(localStorage.getItem('solanAiQuoteChat')||'[]'); return Array.isArray(s)?s:[]; } catch(e){ return []; } }
+function _aiqClean(t){ return String(t||'').replace(/\[\[\s*אפשרויות\s*:[^\]]*\]\]/g,'').trim(); }
 function openAiQuote(){
-  _aiqMsgs = [];
   var box = document.getElementById('aiq-msgs'); if (box) box.innerHTML = '';
-  _aiQuoteAppend('assistant', 'שלום! כתוב לי מה העבודה — אפילו רק "חוברת A4" — ואשאל אותך שאלה-אחר-שאלה (עם אפשרויות ללחיצה) עד שיהיה לי כל המידע לתמחור.');
+  _aiqMsgs = _aiqLoad();
+  if (_aiqMsgs.length){
+    // שחזור שיחה שנשמרה (שרדה רענון/סגירה)
+    _aiqMsgs.forEach(function(m){
+      if (m.role === 'user') _aiQuoteAppend('user', m.content);
+      else _aiQuoteAppend('assistant', _aiqClean(m.content) || m.content);
+    });
+    var last = _aiqMsgs[_aiqMsgs.length-1];
+    if (last && last.role === 'assistant'){ var mo = String(last.content||'').match(/\[\[\s*אפשרויות\s*:\s*([^\]]+)\]\]/); if (mo) _aiqRenderOptions(mo[1]); }
+  } else {
+    _aiQuoteAppend('assistant', _AIQ_GREET);
+  }
   document.getElementById('aiQuoteModal').style.display = 'flex';
-  setTimeout(function(){ var i = document.getElementById('aiq-input'); if (i) i.focus(); }, 60);
+  setTimeout(function(){ var i = document.getElementById('aiq-input'); if (i) i.focus(); box=document.getElementById('aiq-msgs'); if(box) box.scrollTop=box.scrollHeight; }, 60);
+}
+function _aiQuoteNew(){
+  if (_aiqMsgs.length && !confirm('להתחיל שיחת תמחור חדשה? השיחה הנוכחית תימחק.')) return;
+  _aiqMsgs = []; _aiqSave();
+  var box = document.getElementById('aiq-msgs'); if (box) box.innerHTML = '';
+  _aiQuoteAppend('assistant', _AIQ_GREET);
 }
 function closeAiQuote(){ var m = document.getElementById('aiQuoteModal'); if (m) m.style.display = 'none'; }
 // פתיחת המחירון (עורך התעריפון) מתוך חלון תמחור ה-AI — מרים z-index מעל חלון ה-AI.
@@ -4682,7 +4702,7 @@ function _aiQuoteSend(){
   // נטרל כפתורי-בחירה קודמים (כבר נענו)
   try { document.querySelectorAll('#aiq-msgs .aiq-opts button').forEach(function(b){ b.disabled = true; b.style.opacity = b.style.opacity || '.5'; }); } catch(e){}
   _aiQuoteAppend('user', txt);
-  _aiqMsgs.push({ role:'user', content: txt });
+  _aiqMsgs.push({ role:'user', content: txt }); _aiqSave();
   var btn = document.getElementById('aiq-send'); if (btn) btn.disabled = true;
   var st = document.getElementById('aiq-status'); if (st) st.textContent = '🤖 מחשב...';
   _aiRequest({ model:'claude-opus-4-8', max_tokens:1500, system:_aiQuoteSys(), messages:_aiqMsgs })
@@ -4690,7 +4710,7 @@ function _aiQuoteSend(){
     if (data.type === 'error') throw new Error((data.error && data.error.message) || 'API error');
     var reply = ''; (data.content || []).forEach(function(bk){ if (bk && bk.type === 'text') reply += bk.text; });
     if (!reply.trim()) reply = '(לא התקבלה תשובה — נסה שוב)';
-    _aiqMsgs.push({ role:'assistant', content: reply });
+    _aiqMsgs.push({ role:'assistant', content: reply }); _aiqSave();
     var _opts = reply.match(/\[\[\s*אפשרויות\s*:\s*([^\]]+)\]\]/);
     var _clean = reply.replace(/\[\[\s*אפשרויות\s*:[^\]]*\]\]/g, '').trim();
     _aiQuoteAppend('assistant', _clean || reply);
@@ -21212,7 +21232,8 @@ setInterval(function(){ try { _pollScanStages(); } catch(e){} }, 20000);
   <div style="background:#fff;border-radius:14px;width:min(680px,96vw);height:min(88vh,760px);display:flex;flex-direction:column;direction:rtl;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3)">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:#7c3aed;color:#fff">
       <strong style="font-size:1.05rem">🤖 תמחור AI — עוזר הצעות מחיר</strong>
-      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="_aiQuoteNew()" title="התחל שיחת תמחור חדשה" style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.82rem;white-space:nowrap">🗑 שיחה חדשה</button>
         <button onclick="_aiOpenPricing()" title="פתח את המחירון לעדכון מחירים" style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.82rem;white-space:nowrap">⚙️ הגדרות תמחור</button>
         <button onclick="closeAiQuote()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;line-height:1">✕</button>
       </div>
