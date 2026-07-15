@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784106434';
+window.APP_VERSION = '1784106845';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1444,7 +1444,7 @@ window._fbSnapshot = {};
         <label>סוג עבודה</label>
         <div class="ac-wrap">
           <input class="fi" type="text" id="f-type" placeholder="עיתון / עלון..." autocomplete="off"
-            oninput="acInput(this,'ac-type',acSugg('f-type',this.value))" onfocus="acInput(this,'ac-type',acSugg('f-type',this.value))" onblur="acDelay('ac-type')">
+            oninput="acInput(this,'ac-type',acSugg('f-type',this.value));calcRuns()" onfocus="acInput(this,'ac-type',acSugg('f-type',this.value))" onblur="acDelay('ac-type');calcRuns()">
           <div class="ac-list" id="ac-type"></div>
         </div>
       </div>
@@ -4676,7 +4676,7 @@ function acPickEl(el) {
   const list = document.getElementById(listId);
   if (list) list.classList.remove('open');
   if (fieldId==='f-size') { syncSizeBtns(val); calcRuns(); }
-  if (fieldId==='f-copies'||fieldId==='f-pages') calcRuns();
+  if (fieldId==='f-copies'||fieldId==='f-pages'||fieldId==='f-type') calcRuns();
 }
 
 function acPick(fieldId, listId, val) {
@@ -4685,7 +4685,7 @@ function acPick(fieldId, listId, val) {
   const list = document.getElementById(listId);
   if (list) list.classList.remove('open');
   if (fieldId==='f-size') { syncSizeBtns(val); calcRuns(); }
-  if (fieldId==='f-copies'||fieldId==='f-pages') calcRuns();
+  if (fieldId==='f-copies'||fieldId==='f-pages'||fieldId==='f-type') calcRuns();
 }
 
 function acDelay(listId) {
@@ -5049,9 +5049,14 @@ function calcRuns() {
   const copies = parseInt(document.getElementById('f-copies').value)||0;
   const pages  = parseInt(document.getElementById('f-pages').value)||0;
   const size   = document.getElementById('f-size').value.trim().toLowerCase();
+  const type   = ((document.getElementById('f-type')||{}).value||'').trim().toLowerCase();
   const field  = document.getElementById('runs-field');
   const out    = document.getElementById('runs-output');
   let fs=0, lbl='';
+  // סוגי עבודה בלי ריצות הדפסה: עלון/פלאייר מתקפל, כרטיס, פוסטר, מדבקה, דף — מוצר פשוט,
+  // לא פרסום כרוך/מקופל עם חלוקה לריצות. (מונע ש"A3 קיפול לA4" יוצג בטעות כעיתון 16 עמ'.)
+  const _noRunsType = /עלון|פלא?ייר|פלייר|flyer|leaflet|כרטיס|ביקור|פוסטר|poster|מדבק|סטיקר|sticker|פלייסמנט|פלסמנט/.test(type);
+  if (_noRunsType) { if (field) field.style.display='none'; currentRuns=[]; return; }
   const _is32 = /70[\s×x*]?100|100[\s×x*]?70|16[.,]5[\s×x*]?24|24[\s×x*]?16|165[\s×x*]?240|240[\s×x*]?165|^a5$|עיתון\s*a5/.test(size);
   // עיתון A4 = 16 עמ' לגיליון · עיתון A5 = 32 עמ' לגיליון (עם חלוקה לריצות). "A4" רגיל = פלאייר/דף — בלי ריצות.
   const _is16 = /64[\s×x*]?90|90[\s×x*]?64|240[\s×x*]?330|330[\s×x*]?240|עיתון\s*a4|a3\s*קיפול/.test(size);
