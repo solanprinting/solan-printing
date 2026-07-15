@@ -303,7 +303,8 @@ function goHome() {
 $('chFull').onclick = () => startEditor('full');
 $('chRun').onclick  = () => startEditor('run');
 function startEditor(m) {
-  mode = m; pages = []; sources.clear(); vIndex = 0;
+  mode = m; pages = []; sources.clear(); vIndex = 0; window._pcRun = null;
+  if (m === 'run') setTimeout(_pcRunPicker, 80);   // שאל כמה עמודים + איזו ריצה — לזיהוי אוטומטי של כפולות-גבול
   $('editorHint').innerHTML = (m === 'full'
     ? 'העלו את <b>כל עמודי העיתון</b>. דפדפו בתצוגה, וסדרו/החליפו עמודים בסרגל הצד. אתם אחראים על הסדר.'
     : 'העלו את עמודי <b>הריצה</b>. דפדפו וסדרו בסרגל הצד. בסיום אפשר להוסיף ריצה נוספת.')
@@ -449,6 +450,81 @@ function _toMM(v) { v = +v || 0; return v > 0 && v < 60 ? v * 10 : v; }
 // ── זיהוי "כפולה" (spread): עמוד PDF אחד שמכיל שני עמודי עיתון זה-לצד-זה ──
 // עמוד כזה רחב בערך פי 2 מרוחב העיתון (ובאותו גובה) — נספר כ-2 עמודים, לא 1.
 // הבסיס להשוואה: הגודל שהוגדר לעיתון; אם לא הוגדר — הגודל השכיח מבין העמודים שהועלו.
+// ── מבנה הריצות לפי מספר עמודים (משוחזר מ-buildRuns) — לדעת אילו עמודים בכל ריצה ──
+function _pcFullSheet() {
+  var w = _toMM(record.reqW), h = _toMM(record.reqH);
+  var mx = Math.max(w||0, h||0), mn = Math.min(w||0, h||0);
+  if (Math.abs(mx-240)<12 && Math.abs(mn-165)<12) return 32;   // 16.5×24 / A5 → 32 עמ' לגיליון
+  return 16;                                                    // A4 / 64×90 → 16
+}
+function _pcRunLayout(total, fullSheet) {
+  total = parseInt(total)||0; if (!total || !fullSheet) return [];
+  var layers = [];
+  if (fullSheet===32 && (total===20||total===24)) { layers.push(total-16); layers.push(16); }
+  else { var rem = total % fullSheet; if (rem) layers.push(rem); var inner = total-rem; while (inner>0){ layers.push(fullSheet); inner-=fullSheet; } }
+  var front=1, back=total, runs=[];
+  layers.forEach(function(lp, i){
+    var isLast=(i===layers.length-1), half=lp/2, seq=[], setO={}, label, p;
+    if (isLast && lp===fullSheet) {
+      for (p=front; p<=front+lp-1; p++){ seq.push(p); setO[p]=1; }
+      label = 'עמ\' '+front+'–'+(front+lp-1); front+=lp;
+    } else {
+      var fe=front+half-1, bs=back-half+1;
+      for (p=front; p<=fe; p++){ seq.push(p); setO[p]=1; }
+      for (p=bs; p<=back; p++){ seq.push(p); setO[p]=1; }
+      label = (fe+1===bs) ? ('עמ\' '+front+'–'+back) : ('עמ\' '+front+'–'+fe+' + '+bs+'–'+back);
+      front+=half; back-=half;
+    }
+    var boundary={}; seq.forEach(function(pp){ if (setO[pp] && !setO[pp+1]) boundary[pp]=1; });   // עמוד שבריצה אך העמוד הבא לא (גבול)
+    runs.push({ num:i+1, pages:lp, seq:seq, set:setO, boundary:boundary, label:label });
+  });
+  return runs;
+}
+// הקצאת מספרי-עמוד אמיתיים לפריטים לפי רצף הריצה שנבחרה + טיפול אוטומטי בכפולות-גבול
+function _pcAssignRunPages() {
+  var run = window._pcRun; if (!run) return;
+  var seq = run.seq, si = 0;
+  pages.forEach(function(p){
+    if (si >= seq.length) { p._runPage = null; p._asked = true; return; }
+    var pg = seq[si]; p._runPage = pg;
+    if (p.isSpread) {
+      if (run.boundary[pg]) {                        // כפולה על גבול ריצה → רק הצד הימני (העמוד שבריצה)
+        if (p.spreadKeep !== 'right') { p.spreadKeep = 'right'; if (p.src) _cropHalf(p.src,'right').then(function(u){ p.displaySrc=u; renderAll(); }); }
+        si += 1;
+      } else { p.spreadKeep = 'both'; p.displaySrc = null; si += 2; }
+    } else { p.spreadKeep = undefined; si += 1; }
+    p._asked = true;                                 // נקבע אוטומטית — אין צורך לשאול
+  });
+}
+function _pcRunListHtml(total) {
+  var runs = total ? _pcRunLayout(total, _pcFullSheet()) : [];
+  if (!runs.length) return '<div style="color:#9ca3af;font-size:.85rem;padding:6px 0">הזינו מספר עמודים כדי לראות את הריצות</div>';
+  return runs.map(function(r){ return '<button onclick="_pcPickRun('+r.num+')" style="display:block;width:100%;text-align:right;margin-bottom:6px;padding:11px 13px;border:1.5px solid #c7d2fe;border-radius:10px;background:#eef2ff;color:#3730a3;font-weight:700;cursor:pointer;font-family:inherit;font-size:.9rem">📄 ריצה '+r.num+' · '+r.label+' <span style="color:#6b7280;font-weight:500">('+r.pages+' עמ\')</span></button>'; }).join('');
+}
+function _pcRunPicker() {
+  var m = document.getElementById('pc-runpick');
+  if (!m) { m = document.createElement('div'); m.id='pc-runpick'; document.body.appendChild(m); }
+  m.style.cssText = 'position:fixed;inset:0;z-index:130;background:rgba(15,23,42,.62);display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
+  var total = parseInt(record.totalPages)||'';
+  m.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:540px;width:96vw;max-height:88vh;overflow:auto;padding:18px 20px;font-family:Heebo,Arial,sans-serif">' +
+    '<div style="font-size:1.12rem;font-weight:900;color:#1d4ed8;margin-bottom:6px">📖 איזו ריצה אתם מעלים?</div>' +
+    '<div style="font-size:.85rem;color:#555;margin-bottom:12px">כמה עמודים בעיתון המלא? כך נדע אילו עמודים שייכים לכל ריצה — וכפולה על גבול ריצה תטופל אוטומטית (רק הצד ששייך לריצה).</div>' +
+    '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><label style="font-weight:700">מספר עמודים בעיתון:</label>' +
+      '<input id="pc-total" type="number" min="1" value="'+(total||'')+'" oninput="document.getElementById(\'pc-runlist\').innerHTML=_pcRunListHtml(parseInt(this.value)||0)" style="width:90px;padding:8px 9px;border:1px solid #d1d5db;border-radius:8px;font-size:1rem;text-align:center"></div>' +
+    '<div id="pc-runlist">'+_pcRunListHtml(parseInt(total)||0)+'</div>' +
+    '<div style="margin-top:12px;text-align:left"><button onclick="_pcSkipRun()" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:.85rem;text-decoration:underline">דלג — אבחר ידנית לכל כפולה</button></div>' +
+  '</div>';
+}
+window._pcPickRun = function(num) {
+  var total = parseInt((document.getElementById('pc-total')||{}).value) || parseInt(record.totalPages) || 0;
+  if (!total) { alert('נא להזין את מספר העמודים בעיתון'); return; }
+  record.totalPages = total; try { patch({ totalPages: total }); } catch(e){}
+  var runs = _pcRunLayout(total, _pcFullSheet());
+  window._pcRun = runs.find(function(r){ return r.num===num; }) || null;
+  var m = document.getElementById('pc-runpick'); if (m) m.remove();
+  if (pages.length) { detectSpreads(); _pcAssignRunPages(); renderAll(); }
+};
+window._pcSkipRun = function(){ window._pcRun = null; var m=document.getElementById('pc-runpick'); if(m) m.remove(); };
 function detectSpreads() {
   const tol = 6;                                     // סובלנות במ"מ
   let baseW = _toMM(record.reqW), baseH = _toMM(record.reqH);
@@ -572,6 +648,8 @@ function effPageCount() { return pages.reduce((s, p) => s + _spreadPages(p), 0);
 function spreadCount()  { return pages.filter(p => p.isSpread && _spreadPages(p) === 2).length; }
 // מספור רץ לכל פריט: כפולה מלאה מקבלת "n–n+1", עמוד רגיל / כפולה-צד-אחד מקבלים "n"
 function pageLabels() {
+  // אם נבחרה ריצה — מציגים את מספרי-העמוד האמיתיים של אותה ריצה (1–8, 41–48 וכו')
+  if (window._pcRun) return pages.map(p => (p._runPage != null ? String(p._runPage) : '?'));
   let n = 1;
   return pages.map(p => { const two = _spreadPages(p) === 2; const l = two ? (n + '–' + (n + 1)) : String(n); n += two ? 2 : 1; return l; });
 }
@@ -791,7 +869,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') step(-1);
 });
 
-function renderAll() { detectSpreads(); renderSidebar(); renderViewer(); buildWarnings(); buildPreflight(); }
+function renderAll() { detectSpreads(); _pcAssignRunPages(); renderSidebar(); renderViewer(); buildWarnings(); buildPreflight(); }
 
 // ── אישור + העלאה עם מד אחוזים ──
 $('approve').onclick = async () => {
