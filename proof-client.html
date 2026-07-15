@@ -503,6 +503,19 @@ function _pcShowAnomalyModal(items, baseW, baseH) {
         var idx = pages.findIndex(function(x){ return x.uid===it.uid; });
         var p = idx>=0 ? pages[idx] : null; var thumb = p?p.src:'';
         var lbl = (idx>=0 && labels[idx]!=null) ? labels[idx] : '?';
+        if (it.type==='spreadside'){
+          return '<div style="'+rowStyle+'">' +
+            '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:none">' +
+              (thumb?'<img src="'+thumb+'" style="width:70px;height:auto;border:1px solid #ddd;border-radius:4px">':'') +
+              '<div style="font-weight:900;font-size:.82rem;color:#1d4ed8;white-space:nowrap">📖 עמוד '+lbl+'</div></div>' +
+            '<div style="flex:1;min-width:160px;font-size:.85rem;color:#374151;line-height:1.5">זו <b>כפולה</b> שמתחברת לעמוד הבא. איזה צד שייך <b>לריצה שאתם מעלים כעת</b>?<br><span style="font-size:.76rem;color:#6b7280">אם העמוד המחובר שייך לריצה אחרת — בחרו רק את הצד של הריצה הזו.</span></div>' +
+            '<div style="display:flex;flex-direction:column;gap:5px;flex:none">' +
+              '<button style="'+btn('#1d4ed8')+';color:#fff" onclick="_pcAnomalyAns('+it.uid+',\'spreadside\',\'both\')">↔ שני העמודים בריצה</button>' +
+              '<button style="'+btn('#16a34a')+';color:#fff" onclick="_pcAnomalyAns('+it.uid+',\'spreadside\',\'right\')">➡ רק הצד הימני</button>' +
+              '<button style="'+btn('#e5e7eb')+';color:#111" onclick="_pcAnomalyAns('+it.uid+',\'spreadside\',\'left\')">⬅ רק הצד השמאלי</button>' +
+            '</div>' +
+          '</div>';
+        }
         var q, y, n;
         if (it.type==='spread'){ q = 'בגודל <b>'+it.w+'×'+it.h+' מ״מ</b> — רוחב <b>כפול</b> מהנדרש. האם זו כפולה (עמוד שנפרס על שני עמודים)?'; y = '📖 כן, כפולה'; n = '✂ לא, עמוד רגיל'; }
         else if (it.bigger){ q = 'בגודל <b>'+it.w+'×'+it.h+' מ״מ</b> — גדול מהנדרש. האם זה בכוונה לצורך <b>גלישות/רקע</b>?'; y = '✓ כן, לגלישות'; n = '⚠️ לא, אתקן'; }
@@ -521,20 +534,46 @@ function _pcShowAnomalyModal(items, baseW, baseH) {
   };
   m._draw();
 }
-window._pcAnomalyAns = function(uid, type, yes) {
+// חיתוך תמונת-תצוגה לחצי (ימין=החלק הימני של התמונה = העמוד הנמוך ב-RTL)
+function _cropHalf(src, side){
+  return new Promise(function(res){
+    var img=new Image();
+    img.onload=function(){ var hw=Math.floor(img.width/2); var c=document.createElement('canvas'); c.width=hw; c.height=img.height; var sx=(side==='right')?(img.width-hw):0; try{ c.getContext('2d').drawImage(img, sx,0,hw,img.height, 0,0,hw,img.height); res(c.toDataURL('image/jpeg',0.85)); }catch(e){ res(src); } };
+    img.onerror=function(){ res(src); };
+    img.src=src;
+  });
+}
+window._pcAnomalyAns = function(uid, type, val) {
   const m = document.getElementById('pc-anomaly'); if (!m) return;
-  const it = (m._items||[]).find(function(x){ return x.uid===uid; }); if (it) it._done = true;
+  const it = (m._items||[]).find(function(x){ return x.uid===uid; });
   const p = pages.find(function(x){ return x.uid===uid; });
-  if (p) { if (type==='spread') p.spreadConfirmed = yes; else p.sizeConfirmed = yes; p._asked = true; }
+  if (type==='spread') {
+    if (p) p.spreadConfirmed = !!val;
+    // כפולה מאושרת במצב "ריצה" → שאל איזה צד שייך לריצה (מונע שהעמוד המחובר ידלוף לריצה אחרת)
+    if (val && mode==='run' && it && !it._sideAsked) { it.type='spreadside'; it._sideAsked=true; if (m._draw) m._draw(); return; }
+    if (it) it._done=true; if (p) p._asked=true;
+  } else if (type==='spreadside') {
+    if (p) {
+      p.spreadKeep = val;                 // 'both' | 'right' | 'left'
+      p._asked = true; p.displaySrc = null;
+      if ((val==='right'||val==='left') && p.src) _cropHalf(p.src, val).then(function(u){ p.displaySrc=u; renderAll(); });
+    }
+    if (it) it._done=true;
+  } else {
+    if (p) { p.sizeConfirmed = !!val; p._asked=true; }
+    if (it) it._done=true;
+  }
   if (m._draw) m._draw();
 };
-// ספירת עמודים אפקטיבית — כפולה = 2 עמודים
-function effPageCount() { return pages.reduce((s, p) => s + (p.isSpread ? 2 : 1), 0); }
-function spreadCount()  { return pages.filter(p => p.isSpread).length; }
-// מספור רץ לכל פריט: כפולה מקבלת "n–n+1", עמוד רגיל "n"
+// כמה עמודים בפועל תורם פריט: כפולה=2, אבל כפולה שנשמר בה רק צד אחד (גבול ריצה)=1
+function _spreadPages(p) { return (p.isSpread && !(p.spreadKeep === 'right' || p.spreadKeep === 'left')) ? 2 : 1; }
+// ספירת עמודים אפקטיבית
+function effPageCount() { return pages.reduce((s, p) => s + _spreadPages(p), 0); }
+function spreadCount()  { return pages.filter(p => p.isSpread && _spreadPages(p) === 2).length; }
+// מספור רץ לכל פריט: כפולה מלאה מקבלת "n–n+1", עמוד רגיל / כפולה-צד-אחד מקבלים "n"
 function pageLabels() {
   let n = 1;
-  return pages.map(p => { const l = p.isSpread ? (n + '–' + (n + 1)) : String(n); n += p.isSpread ? 2 : 1; return l; });
+  return pages.map(p => { const two = _spreadPages(p) === 2; const l = two ? (n + '–' + (n + 1)) : String(n); n += two ? 2 : 1; return l; });
 }
 
 // בדיקת גודל מול הגודל שהוגדר לעיתון
@@ -581,7 +620,7 @@ function renderSidebar() {
     const d = document.createElement('div');
     d.className = 'thumb' + (active.includes(idx) ? ' active' : '');
     d.draggable = true; d.dataset.uid = p.uid;
-    d.innerHTML = `<img src="${p.src}" alt=""><span class="n">${labels[idx]}</span>
+    d.innerHTML = `<img src="${p.displaySrc||p.src}" alt=""><span class="n">${labels[idx]}</span>
       ${p.isSpread ? '<span style="position:absolute;top:4px;left:4px;background:#1d4ed8;color:#fff;font-size:.62rem;font-weight:800;border-radius:5px;padding:1px 6px">📖 כפולה</span>' : ''}
       <div class="tools"><button class="rep">החלף</button><button class="rm">מחק</button></div>`;
     d.onclick = e => { if (!e.target.closest('.tools')) { vIndex = alignSpread(idx); renderViewer(); renderSidebar(); } };
@@ -636,9 +675,10 @@ function buildViews() {
   let n = 1, i = 0;                       // n = מספר העמוד האפקטיבי של הפריט הבא
   while (i < pages.length) {
     const p = pages[i];
-    if (p.isSpread) { views.push([i]); n += 2; i++; continue; }   // כפולה = זוג שלם, לבד
+    if (p.isSpread && _spreadPages(p) === 2) { views.push([i]); n += 2; i++; continue; }   // כפולה מלאה = זוג שלם, לבד
+    // כפולה שנשמר בה רק צד אחד (גבול ריצה) = עמוד בודד רגיל
     if (n === 1) { views.push([i]); n++; i++; continue; }         // שער
-    if (n % 2 === 0 && i + 1 < pages.length && !pages[i + 1].isSpread) {
+    if (n % 2 === 0 && i + 1 < pages.length && _spreadPages(pages[i + 1]) !== 2) {
       views.push([i, i + 1]); n += 2; i += 2; continue;           // זוג רגיל
     }
     views.push([i]); n++; i++;                                    // בודד (סוף/לפני כפולה)
@@ -693,7 +733,7 @@ function renderViewer() {
       // חיתוך נטו רק בשדרה; בצדדים החיצוניים בליד + צלבים + מסגרת trim (אותה תצוגה שהמדפיס רואה)
       const spine = two ? (pos === 0 ? 'left' : 'right') : 'left';
       const sp = _pageNetSpec({ l:tf.l, t:tf.t, w:tf.w, h:tf.h, wmm:p.wmm, hmm:p.hmm }, spine);
-      const mc = `aspect-ratio:${sp.arr.toFixed(4)};background-image:url('${p.src}');`
+      const mc = `aspect-ratio:${sp.arr.toFixed(4)};background-image:url('${p.displaySrc||p.src}');`
         + `background-size:${sp.sizeW.toFixed(3)}% 100%;background-position:${sp.posX.toFixed(3)}% 0%;`;
       const f = sp.frame;
       const fb = `border:1.4px dashed #e11d48;`
@@ -707,7 +747,7 @@ function renderViewer() {
     }
     return `<div class="pagewrap">`
       + `<div class="page" data-idx="${i}" data-uid="${p.uid}">`
-      + `<img src="${p.src}" alt="">`
+      + `<img src="${p.displaySrc||p.src}" alt="">`
       + `<button class="pgdel" title="מחק עמוד זה" data-uid="${p.uid}">✕</button></div>`
       + `<div class="pgnum">${p.isSpread ? '📖 כפולה — עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
   }).join('');
@@ -775,13 +815,15 @@ $('approve').onclick = async () => {
       let lib = cache.get(p.fileId);
       if (!lib) { lib = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); cache.set(p.fileId, lib); }
       if (p.isSpread) {
-        // כפולה = 2 עמודים: מפצלים את העמוד הרחב לשני עמודים בודדים בסדר קריאה (RTL: החצי הימני = העמוד הנמוך, קודם)
+        // כפולה: מפצלים את העמוד הרחב לחצאים (RTL: החצי הימני = העמוד הנמוך, קודם).
+        // אם נבחר רק צד אחד (גבול ריצה) — מוציאים רק אותו, כדי שהעמוד המחובר לא ידלוף לריצה.
         const sp = lib.getPage(p.pageIndex);
         const w = sp.getWidth(), h = sp.getHeight(), half = w / 2;
-        const embR = await out.embedPage(sp, { left: half, bottom: 0, right: w, top: h });   // חצי ימין
-        out.addPage([half, h]).drawPage(embR);
-        const embL = await out.embedPage(sp, { left: 0, bottom: 0, right: half, top: h });    // חצי שמאל
-        out.addPage([half, h]).drawPage(embL);
+        const embR = async () => { const e = await out.embedPage(sp, { left: half, bottom: 0, right: w, top: h }); out.addPage([half, h]).drawPage(e); };   // חצי ימין (עמוד נמוך)
+        const embL = async () => { const e = await out.embedPage(sp, { left: 0, bottom: 0, right: half, top: h }); out.addPage([half, h]).drawPage(e); };    // חצי שמאל (עמוד גבוה)
+        if (p.spreadKeep === 'right') { await embR(); }
+        else if (p.spreadKeep === 'left') { await embL(); }
+        else { await embR(); await embL(); }   // שני העמודים (ברירת מחדל)
       } else {
         const [cp] = await out.copyPages(lib, [p.pageIndex]); out.addPage(cp);
       }
@@ -850,7 +892,7 @@ async function uploadBytes(path, bytes, onProgress) {
 async function uploadPagesCache(path) {
   try {
     showOverlay('שומר תצוגה מהירה…', true, 0);
-    const json = JSON.stringify(pages.map(p => p.src));
+    const json = JSON.stringify(pages.map(p => p.displaySrc || p.src));
     const bytes = new TextEncoder().encode(json);
     const url = await uploadBytes(path, bytes, pct => showOverlay('שומר תצוגה מהירה…', true, pct));
     return { url, at: Date.now() };
