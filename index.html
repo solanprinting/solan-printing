@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784114500';
+window.APP_VERSION = '1784115202';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4693,6 +4693,62 @@ function _aiqCopyQuote(){
   try{ navigator.clipboard.writeText(txt).then(function(){ showToast('📋 ההצעה הועתקה'); },function(){ showToast('⚠️ העתק ידנית'); }); }
   catch(e){ showToast('⚠️ העתק ידנית'); }
 }
+// טעינת pdf-lib על-פי דרישה (לא טעון בקובץ הראשי) — לשיתוף קובץ PDF במובייל
+var _pdflibP=null;
+function _loadPdfLib(){
+  if (window.PDFLib) return Promise.resolve(window.PDFLib);
+  if (_pdflibP) return _pdflibP;
+  _pdflibP=new Promise(function(res,rej){ var s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js'; s.onload=function(){ res(window.PDFLib); }; s.onerror=rej; document.head.appendChild(s); });
+  return _pdflibP;
+}
+// מרנדר את ההצעה לקנבס (עברית/RTL מושלמים) → PNG → עמוד A4 ב-pdf-lib → בייטים
+async function _aiqBuildPdfBytes(txt){
+  try { await document.fonts.ready; } catch(e){}
+  var W=1240, H=1754, pad=90;
+  var cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  var ctx=cv.getContext('2d');
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='right'; try{ ctx.direction='rtl'; }catch(e){}
+  ctx.fillStyle='#2d3561'; ctx.fillRect(0,0,W,7);
+  ctx.fillStyle='#2d3561'; ctx.font='bold 46px Arial'; ctx.fillText('סולן הדפסות בע"מ', W-pad, 95);
+  ctx.fillStyle='#c9a84c'; ctx.font='bold 30px Arial'; ctx.fillText('הצעת מחיר', W-pad, 140);
+  ctx.strokeStyle='#2d3561'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(pad,165); ctx.lineTo(W-pad,165); ctx.stroke();
+  ctx.fillStyle='#222'; ctx.font='28px Arial';
+  var y=225, lh=42, maxW=W-2*pad, maxY=H-110;
+  String(txt).split('\n').forEach(function(line){
+    if(y>maxY) return;
+    if(!line.trim()){ y+=lh*0.55; return; }
+    var words=line.split(' '), cur='';
+    words.forEach(function(w){
+      var test=cur?cur+' '+w:w;
+      if(ctx.measureText(test).width>maxW && cur){ if(y<=maxY) ctx.fillText(cur, W-pad, y); y+=lh; cur=w; }
+      else cur=test;
+    });
+    if(cur && y<=maxY){ ctx.fillText(cur, W-pad, y); y+=lh; }
+  });
+  ctx.fillStyle='#888'; ctx.font='20px Arial';
+  ctx.fillText('נוצר '+new Date().toLocaleDateString('he-IL')+' · תוקף 14 יום · לא כולל מע"מ אלא אם צוין', W-pad, H-60);
+  var png=cv.toDataURL('image/png');
+  var pngBytes=Uint8Array.from(atob(png.split(',')[1]), function(ch){return ch.charCodeAt(0);});
+  var PDFLib=await _loadPdfLib();
+  var pdf=await PDFLib.PDFDocument.create();
+  var page=pdf.addPage([595.28, 841.89]);   // A4 בנקודות
+  var img=await pdf.embedPng(pngBytes);
+  page.drawImage(img, { x:0, y:0, width:595.28, height:841.89 });
+  return await pdf.save();
+}
+async function _aiqShareFile(){
+  var txt=_aiqQuoteText(); if(!txt){ showToast('אין עדיין הצעה — בקש מה-AI "תן לי הצעה מסודרת"'); return; }
+  if (!(navigator.share)) { _aiqSharePdf(); return; }   // אין תפריט שיתוף (דסקטופ) → הדפסה ל-PDF
+  var st=document.getElementById('aiq-status'); if(st) st.textContent='⏳ מכין קובץ לשיתוף...';
+  try {
+    var bytes=await _aiqBuildPdfBytes(txt);
+    var file=new File([bytes], 'הצעת-מחיר-סולן.pdf', { type:'application/pdf' });
+    if (navigator.canShare && !navigator.canShare({ files:[file] })) { if(st)st.textContent=''; _aiqSharePdf(); return; }
+    await navigator.share({ files:[file], title:'הצעת מחיר — סולן הדפסות', text:'הצעת מחיר מסולן הדפסות' });
+  } catch(e){ if(String(e&&e.name)!=='AbortError'){ console.error(e); showToast('השיתוף נכשל — נסה 📄 PDF'); } }
+  finally { if(st) st.textContent=''; }
+}
 function _aiQuoteAppend(role, text){
   var box = document.getElementById('aiq-msgs'); if (!box) return null;
   var mine = (role === 'user');
@@ -5903,9 +5959,23 @@ function _thisWeekRange() {
 function _itemClearedSince(name) {
   return Math.max(weekClearedAt || 0, weekClearedItems[name] || 0);
 }
+// איפוס שבועי אוטומטי — כל יום שבת כל הסימונים הירוקים מתאפסים לשבוע חדש (בנוסף לניקוי הידני).
+// דטרמיניסטי (לפי התאריך) — כל המכשירים מחשבים את אותה "שבת אחרונה", אז עקבי בלי סנכרון.
+function _weeklyAutoReset() {
+  var d = new Date(); d.setHours(0,0,0,0);
+  var back = (d.getDay() - 6 + 7) % 7;   // ימים אחורה עד שבת האחרון (6=שבת)
+  d.setDate(d.getDate() - back);
+  var lastSaturday = d.getTime();
+  if ((weekClearedAt||0) < lastSaturday) {
+    weekClearedAt = lastSaturday;                                  // מאפס את כל הסימונים שלפני השבת הזו
+    try { localStorage.setItem('solanWeekClearedAt', String(weekClearedAt)); } catch(e){}
+    return true;
+  }
+  return false;
+}
 
 function _cardDoneThisWeek(name) {
-  // אין יותר איפוס שבועי אוטומטי — הסימון נשאר עד ניקוי ידני (כפתור "נקה סימונים").
+  // הסימון נשאר עד ניקוי ידני (כפתור "נקה סימונים") או עד איפוס אוטומטי בשבת (_weeklyAutoReset).
   const clearedSince = _itemClearedSince(name);
   // סימון ידני (גובר על "נוקה" אם סומן אחריו) — ללא הגבלת שבוע
   var mk = weekCardMarked[name] || 0;
@@ -5963,6 +6033,7 @@ function clearWeekDoneMarks() {
 }
 
 function renderWeek() {
+  _weeklyAutoReset();   // איפוס אוטומטי בשבת — מוודא שהסימונים הירוקים מתאפסים לשבוע חדש
   const grid = document.getElementById('week-grid');
   const todayIdx = new Date().getDay(); // 0=ראשון ... 6=שבת
 
@@ -8207,7 +8278,7 @@ function buildPrintCard(c) {
     : '';
   // כפל סוגים (✖️N) — תווית בלבד: אותו כרטיס לכמה סוגים (למשל 6 עיתונים שונים)
   const _copiesMultNote = (c.copiesMult && c.copiesMult>1 && _copiesNum)
-    ? ('✖️ <strong>' + c.copiesMult + ' סוגים</strong> · סה״כ ' + (_copiesNum*c.copiesMult).toLocaleString() + ' עותקים')
+    ? ('✖️ <strong>' + c.copiesMult + ' סוגים</strong> · כל סוג ' + _copiesNum.toLocaleString() + ' עותקים')
     : '';
   const _bwSideLbl = (c.bwSide === 'B') ? { bw: 'צד B (2)', proc: 'צד A (1)' } : { bw: 'צד A (1)', proc: 'צד B (2)' };
   const _bwProcessNote = c.bwProcess ? ('🎨 <strong>' + _bwSideLbl.bw + ': ש/ל (K)</strong> · <strong>' + _bwSideLbl.proc + ': פרוצס (CMYK)</strong>') : '';
@@ -21277,7 +21348,8 @@ setInterval(function(){ try { _pollScanStages(); } catch(e){} }, 20000);
     <div id="aiq-status" style="padding:0 16px;font-size:.8rem;color:#7c3aed;min-height:16px"></div>
     <div style="display:flex;gap:7px;padding:0 14px 4px;flex-wrap:wrap">
       <button onclick="_aiqSharePdf()" title="צור PDF של ההצעה האחרונה (שמור/הדפס)" style="background:#fff;border:1px solid #d1d5db;color:#374151;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">📄 PDF ללקוח</button>
-      <button onclick="_aiqShareWhatsapp()" title="שלח את ההצעה בוואטסאפ" style="background:#25d366;border:none;color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">🟢 שלח בוואטסאפ</button>
+      <button onclick="_aiqShareWhatsapp()" title="שלח את טקסט ההצעה בוואטסאפ" style="background:#25d366;border:none;color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">🟢 וואטסאפ (טקסט)</button>
+      <button onclick="_aiqShareFile()" title="שתף את קובץ ה-PDF דרך תפריט השיתוף של הטלפון (וואטסאפ עם קובץ מצורף)" style="background:#128c7e;border:none;color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">📱 שתף PDF</button>
       <button onclick="_aiqCopyQuote()" title="העתק את טקסט ההצעה" style="background:#fff;border:1px solid #d1d5db;color:#374151;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">📋 העתק</button>
       <span style="align-self:center;font-size:.7rem;color:#9ca3af">פועל על ההצעה האחרונה של ה-AI</span>
     </div>
