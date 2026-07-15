@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784036083';
+window.APP_VERSION = '1784106079';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -100,6 +100,10 @@ window.addEventListener('beforeinstallprompt', function(ev) {
 <title>סולן הדפסות בע"מ</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
+/* תפריטי כלים נפתחים באימפוזיציה — לחצן אחיד בלי משולש-ברירת-מחדל */
+details.pi-menu > summary{list-style:none;user-select:none;}
+details.pi-menu > summary::-webkit-details-marker{display:none;}
+details.pi-menu[open] > summary{background:#f1f5f9 !important;border-color:#0f766e !important;color:#0f766e !important;}
 /* מציגים את תג reCAPTCHA (App Check) בפינה הימנית-תחתונה. בלי זה הוא נדחף אל
    מחוץ למסך (right:-186px) בגלל פריסת RTL. משפט הגילוי נשאר גם במסך הכניסה. */
 .grecaptcha-badge{visibility:visible!important;right:14px!important;left:auto!important;bottom:14px!important;opacity:.85;}
@@ -23628,32 +23632,53 @@ function pi_nupApplyShrink(wf, hf){
   pi_nupUpdate();
   pi_nupFillSheet();
 }
-// ── התאמת חלון: רישום כלים + מועדפים (נשמר ב-localStorage) ──
+// ── סרגל כלים מאורגן: כלים מקוטלגים לפי נושא + פס-מהיר (מועדפים, נשמר ב-localStorage) ──
+// עיצוב אחיד: לחצן אחד ניטרלי לכולם; רק "PDF דפוס" מודגש (primary). קטגוריות = תפריטים נפתחים.
 var PI_TOOLS = [
-  { id:'arrange',   label:'🧮 סדר אוטומטית',  onclick:'pi_manualAutoArrange()', bg:'#4338ca', color:'#fff' },
-  { id:'calc',      label:'🧮 מחשבון',         onclick:'pi_calcHub()',           bg:'#4338ca', color:'#fff' },
-  { id:'nup',       label:'🧮 מחשבון N-up',    onclick:'pi_nupCalc()',           bg:'#4338ca', color:'#fff' },
-  { id:'gang',      label:'🧮 מחשבון עבודות',  onclick:'pi_gangCalc()',          bg:'#4338ca', color:'#fff' },
-  { id:'holes',     label:'🧩 מצא עבודות לחורים', onclick:'pi_findHolesModal()',  bg:'#065f46', color:'#fff' },
-  { id:'clear',     label:'🧹 נקה גיליון',      onclick:'pi_manualClearSheet()',  bg:'#fff5f5', color:'#e11d48' },
-  { id:'addall',    label:'➕ הוסף הכל',        onclick:'pi_manualAddAll()',      bg:'#eef2ff', color:'#3730a3' },
-  { id:'center',    label:'⊹ מרכז בגיליון',    onclick:'pi_manualCenterAll()',   bg:'#eef2ff', color:'#3730a3' },
-  { id:'align',     label:'📏 יישר לקו',        onclick:'pi_alignFiles()',        bg:'#eef2ff', color:'#3730a3' },
-  { id:'crop',      label:'✚ מצב צלבים',       onclick:'pi_manualToggleCrop()',  bg:'#f0fdf4', color:'#166534' },
-  { id:'showmarks', label:'✚ צלבים על המסך',    onclick:'pi_toggleScreenMarks()', bg:'#f0fdf4', color:'#166534' },
-  { id:'hidegfx',   label:'👁 בלי גרפיקה',      onclick:'pi_manualToggleGfx()',   bg:'#eef2ff', color:'#3730a3' },
-  { id:'autocut',   label:'▦ קווים בין הקבצים', onclick:'pi_autoCutLines()',      bg:'#fff7ed', color:'#9a3412' },
-  { id:'cutv',      label:'✂ קו חיתוך אנכי',   onclick:"pi_manualAddCut('v')",   bg:'#fff5f5', color:'#e11d48' },
-  { id:'cuth',      label:'✂ קו חיתוך אופקי',  onclick:"pi_manualAddCut('h')",   bg:'#fff5f5', color:'#e11d48' },
-  { id:'clearcut',  label:'🧹 נקה קווי חיתוך',  onclick:'pi_clearCutBars()',      bg:'#fff5f5', color:'#e11d48' },
-  { id:'preflight', label:'🔎 Preflight',      onclick:'pi_preflight()',         bg:'#fffbeb', color:'#92400e' },
-  { id:'sheetfull', label:'🖼️ גיליון מלא',      onclick:'pi_sheetFullView()',     bg:'#eef2ff', color:'#3730a3' },
-  { id:'prodpdf',   label:'🏭 PDF דפוס',        onclick:'pi_exportProductionPdf()', bg:'#065f46', color:'#fff' },
-  { id:'testpdf',   label:'📄 PDF בדיקה',       onclick:'pi_manualExportPdf()',   bg:'#b45309', color:'#fff' }
+  { id:'arrange',   cat:'arrange', label:'🧮 סדר אוטומטית',    onclick:'pi_manualAutoArrange()', primary:true },
+  { id:'addall',    cat:'arrange', label:'➕ הוסף הכל',          onclick:'pi_manualAddAll()' },
+  { id:'center',    cat:'arrange', label:'⊹ מרכז בגיליון',      onclick:'pi_manualCenterAll()' },
+  { id:'align',     cat:'arrange', label:'📏 יישר לקו',          onclick:'pi_alignFiles()' },
+  { id:'calc',      cat:'calc',    label:'🧮 מחשבון',            onclick:'pi_calcHub()' },
+  { id:'nup',       cat:'calc',    label:'🧮 מחשבון N-up',       onclick:'pi_nupCalc()' },
+  { id:'gang',      cat:'calc',    label:'🧮 מחשבון עבודות',     onclick:'pi_gangCalc()' },
+  { id:'holes',     cat:'calc',    label:'🧩 מצא עבודות לחורים',  onclick:'pi_findHolesModal()' },
+  { id:'crop',      cat:'marks',   label:'✚ מצב צלבים',         onclick:'pi_manualToggleCrop()' },
+  { id:'showmarks', cat:'marks',   label:'✚ צלבים על המסך',      onclick:'pi_toggleScreenMarks()' },
+  { id:'cutv',      cat:'marks',   label:'✂ קו חיתוך אנכי',     onclick:"pi_manualAddCut('v')" },
+  { id:'cuth',      cat:'marks',   label:'✂ קו חיתוך אופקי',    onclick:"pi_manualAddCut('h')" },
+  { id:'clearcut',  cat:'marks',   label:'🧹 נקה קווי חיתוך',    onclick:'pi_clearCutBars()' },
+  { id:'hidegfx',   cat:'view',    label:'👁 בלי גרפיקה',        onclick:'pi_manualToggleGfx()' },
+  { id:'sheetfull', cat:'view',    label:'🖼️ גיליון מלא',        onclick:'pi_sheetFullView()' },
+  { id:'preflight', cat:'check',   label:'🔎 Preflight',        onclick:'pi_preflight()' },
+  { id:'prodpdf',   cat:'export',  label:'🏭 PDF דפוס',          onclick:'pi_exportProductionPdf()', primary:true },
+  { id:'testpdf',   cat:'export',  label:'📄 PDF בדיקה',         onclick:'pi_manualExportPdf()' },
+  { id:'clear',     cat:'sheet',   label:'🧹 נקה גיליון',        onclick:'pi_manualClearSheet()' }
 ];
+var PI_CATS = [
+  { key:'arrange', label:'📐 סידור' },
+  { key:'calc',    label:'🧮 מחשבונים' },
+  { key:'marks',   label:'✂ צלבים וחיתוך' },
+  { key:'view',    label:'👁 תצוגה' },
+  { key:'check',   label:'🔎 בדיקה' },
+  { key:'export',  label:'🏭 הפקה' },
+  { key:'sheet',   label:'🗂 גיליון' }
+];
+// עיצוב לחצן אחיד — כל הסרגל באותו סגנון (רק primary מודגש)
+var PI_BTN = 'padding:7px 13px;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#374151;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.8rem;white-space:nowrap';
+var PI_BTN_PRIMARY = 'padding:7px 13px;border:1px solid #0f766e;border-radius:8px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.8rem;white-space:nowrap';
+function pi_toolLabel(t, cur){
+  if (t.id === 'crop') return PI_CROP_LBL[pi_cropMode(cur)] || t.label;
+  if (t.id === 'hidegfx') return cur.hideGfx ? '🖼️ הצג גרפיקה' : '👁 בלי גרפיקה';
+  if (t.id === 'showmarks') return (window._pi.showMarks === false) ? '✚ הצג צלבים' : '✚ צלבים מוצגים';
+  return t.label;
+}
+function pi_closeMenus(){ try { document.querySelectorAll('details.pi-menu[open]').forEach(function(d){ d.open = false; }); } catch(e){} }
+function pi_menuToggle(sm){ try { var d = sm.parentNode; document.querySelectorAll('details.pi-menu[open]').forEach(function(x){ if (x !== d) x.open = false; }); } catch(e){} }   // פותח תפריט → סוגר את האחרים
+if (!window._piMenuCloser){ window._piMenuCloser = true; document.addEventListener('click', function(e){ if (!(e.target.closest && e.target.closest('details.pi-menu'))) pi_closeMenus(); }); }
 function pi_favTools(){
-  try { var s = JSON.parse(localStorage.getItem('solanPiTools') || 'null'); if (Array.isArray(s)) return s; } catch(e){}
-  return ['arrange','align','calc','addall','center','showmarks','autocut','crop','hidegfx','cutv','cuth','clearcut','clear','preflight','sheetfull','prodpdf'];
+  try { var s = JSON.parse(localStorage.getItem('solanPiTools') || 'null'); if (Array.isArray(s)) return s.filter(function(id){ return PI_TOOLS.some(function(t){ return t.id === id; }); }); } catch(e){}
+  return ['arrange','align','addall','preflight','prodpdf'];   // פס-מהיר ברירת-מחדל: מצומצם ונקי
 }
 function pi_toggleFavTool(id){
   var f = pi_favTools(), i = f.indexOf(id); if (i >= 0) f.splice(i,1); else f.push(id);
@@ -23662,17 +23687,32 @@ function pi_toggleFavTool(id){
 }
 function pi_toolsRowHtml(cur){
   var undoN = (window._pi._undo || []).length, canUndo = undoN > 0;
-  var undoBtn = '<button onclick="pi_undo()" ' + (canUndo?'':'disabled ') + 'title="בטל את הפעולה האחרונה (Ctrl+Z)" style="padding:6px 12px;border:1px solid ' + (canUndo?'#fcd34d':'#e5e7eb') + ';border-radius:7px;background:' + (canUndo?'#fffbeb':'#f9fafb') + ';color:' + (canUndo?'#92400e':'#cbd5e1') + ';font-weight:800;cursor:' + (canUndo?'pointer':'default') + ';font-family:Heebo;font-size:.78rem">↩︎ בטל' + (canUndo?(' ('+undoN+')'):'') + '</button>';
+  var undoBtn = '<button onclick="pi_undo()" ' + (canUndo?'':'disabled ') + 'title="בטל (Ctrl+Z)" style="' + PI_BTN + (canUndo?'':';opacity:.45;cursor:default') + '">↩︎ בטל' + (canUndo?(' ('+undoN+')'):'') + '</button>';
+  var fav = pi_favTools();
+  // פס-מהיר: הכלים המועדפים, בעיצוב אחיד
+  var favHtml = fav.map(function(id){
+    var t = PI_TOOLS.find(function(x){ return x.id === id; }); if (!t) return '';
+    return '<button onclick="' + t.onclick + '" style="' + (t.primary?PI_BTN_PRIMARY:PI_BTN) + '">' + pi_toolLabel(t, cur) + '</button>';
+  }).join('');
+  // תפריטים נפתחים לפי נושא — כל כלי עם כוכב לצירוף/הסרה מהפס-המהיר
+  var menus = PI_CATS.map(function(c){
+    var tools = PI_TOOLS.filter(function(t){ return t.cat === c.key; }); if (!tools.length) return '';
+    var rows = tools.map(function(t){
+      var on = fav.indexOf(t.id) >= 0;
+      return '<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px">' +
+        '<button onclick="pi_closeMenus();' + t.onclick + '" style="flex:1;text-align:right;padding:8px 10px;border:1px solid #eef2f7;border-radius:7px;background:#fff;color:#374151;font-weight:600;cursor:pointer;font-family:Heebo;font-size:.82rem">' + pi_toolLabel(t, cur) + '</button>' +
+        '<button onclick="pi_toggleFavTool(\'' + t.id + '\')" title="' + (on?'הסר מהפס המהיר':'הצמד לפס המהיר') + '" style="flex:none;width:32px;padding:8px 0;border:1px solid ' + (on?'#fcd34d':'#e5e7eb') + ';border-radius:7px;background:' + (on?'#fffbeb':'#fff') + ';color:' + (on?'#d97706':'#cbd5e1') + ';cursor:pointer;font-size:.95rem">' + (on?'★':'☆') + '</button>' +
+      '</div>';
+    }).join('');
+    return '<details class="pi-menu" style="position:relative">' +
+      '<summary onclick="pi_menuToggle(this)" style="' + PI_BTN + '">' + c.label + ' ▾</summary>' +
+      '<div style="position:absolute;top:calc(100% + 4px);inset-inline-end:0;z-index:60;min-width:220px;background:#fff;border:1px solid #d1d5db;border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.15);padding:8px">' + rows + '</div>' +
+    '</details>';
+  }).join('');
   return '<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px">' +
     undoBtn +
-    pi_favTools().map(function(id){
-      var t = PI_TOOLS.find(function(x){ return x.id === id; }); if (!t) return '';
-      var lbl = t.label; if (id === 'crop') lbl = PI_CROP_LBL[pi_cropMode(cur)] || t.label;
-      if (id === 'hidegfx') lbl = cur.hideGfx ? '🖼️ הצג גרפיקה' : '👁 בלי גרפיקה';
-      var border = (/^#(fff|eef|f0f|fff5|fffb)/i.test(t.bg)) ? '1px solid #e5e7eb' : 'none';
-      return '<button onclick="' + t.onclick + '" style="padding:6px 12px;border:' + border + ';border-radius:7px;background:' + t.bg + ';color:' + t.color + ';font-weight:700;cursor:pointer;font-family:Heebo;font-size:.78rem">' + lbl + '</button>';
-    }).join('') +
-    '<button onclick="pi_showCustomize()" title="בחר אילו כלים יופיעו בחלון" style="padding:6px 10px;border:1px dashed #a5b4fc;border-radius:7px;background:#fff;color:#4338ca;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">⚙️ התאם חלון</button>' +
+    (favHtml ? '<span style="display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center;padding-inline-end:8px;margin-inline-end:2px;border-inline-end:1px solid #e5e7eb">' + favHtml + '</span>' : '') +
+    menus +
   '</div>';
 }
 function pi_showCustomize(){
@@ -24735,22 +24775,50 @@ function pi_scaleItemsForFit(items, g){
   }
   return best;
 }
+// הקטנה סלקטיבית — מקטין רק את הקבצים שלא נכנסו (שאר הקבצים נשארים בגודלם המלא).
+// מחזיר { fits, scale, ids }: הסקייל הגדול ביותר לפריטים-שלא-נכנסו שבו כולם נכנסים (חיפוש בינארי).
+function pi_fitShrinkUnplacedOnly(cur, g){
+  var items = cur.items || [];
+  var O = {}; items.forEach(function(it){ O[it.id] = { w:it.widthMm, h:it.heightMm, b:it.bleedMm }; });
+  var restore = function(){ items.forEach(function(it){ var o=O[it.id]; it.widthMm=o.w; it.heightMm=o.h; it.bleedMm=o.b; }); };
+  var out0 = pi_autoArrange(pi_manualRenderItems(cur), g);
+  var ids = out0.unplaced.slice();
+  if (!ids.length) return { fits:true, scale:1, ids:[] };
+  var idSet = {}; ids.forEach(function(id){ idSet[String(id)] = 1; });
+  var apply = function(s){ items.forEach(function(it){ if (idSet[String(it.id)]){ var o=O[it.id]; it.widthMm=Math.floor(o.w*s*10)/10; it.heightMm=Math.floor(o.h*s*10)/10; if (o.b) it.bleedMm=Math.round(o.b*s*100)/100; } }); };
+  apply(0.2); var probe = pi_autoArrange(pi_manualRenderItems(cur), g); var canFit = (probe.unplaced.length === 0); restore();
+  if (!canFit) return { fits:false, scale:0, ids:ids };          // גם ב-20% לא נכנס → יותר מדי פריטים
+  var lo = 0.2, hi = 1.0, best = 0.2;
+  for (var i=0; i<12; i++){ var s=(lo+hi)/2; apply(s); var o=pi_autoArrange(pi_manualRenderItems(cur), g); var ok=(o.unplaced.length===0); restore(); if (ok){ best=s; lo=s; } else hi=s; }
+  return { fits:true, scale:Math.floor(best*100)/100, ids:ids };
+}
 function pi_manualAutoArrange(){
   var cur = window._pi.cur; if (!cur) return;
   if (!(cur.items||[]).length){ showToast('אין פריטים לסדר'); return; }
   var g = pi_curGeom(), out = pi_autoArrange(pi_manualRenderItems(cur), g), resizedPct = null;
-  // אם יש פריטים שלא נכנסו — הצע הקטנה קלה כדי שכולם ייכנסו (רק באישור המשתמש)
+  window._pi._shrunkOnlyN = 0;
+  // אם יש פריטים שלא נכנסו — קודם מנסים להקטין *רק אותם* (שאר הקבצים נשארים מלאים); רק אם אי אפשר → הקטנה אחידה
   if (out.unplaced.length){
-    var items0 = pi_manualRenderItems(cur), fit = pi_scaleItemsForFit(items0, g);
-    if (fit && fit.scale < 0.999){
-      var pct = Math.floor(fit.scale * 100), s0 = items0[0];
-      var ex = s0 ? ('\n(דוגמה: ' + Math.round(s0.widthMm) + '×' + Math.round(s0.heightMm) + ' ← ' + Math.round(s0.widthMm * fit.scale) + '×' + Math.round(s0.heightMm * fit.scale) + ' מ״מ)') : '';
-      if (confirm('⚠️ ' + out.unplaced.length + ' קבצים לא נכנסים בגודל המקורי (גם עם סיבוב).\n\nלהקטין את כל הקבצים ל-' + pct + '% כדי שכולם ייכנסו לגיליון?' + ex + '\n\n(שים לב: זה משנה את גודל המוצר הסופי. אפשר לבטל עם Ctrl+Z.)')){
-        var sc = fit.scale;
-        // עיגול כלפי מטה (floor) כדי להבטיח שהגודל המוקטן באמת נכנס (עיגול מעלה עלול להוציא פריט)
-        (cur.items||[]).forEach(function(it){ it.widthMm = Math.floor(it.widthMm * sc * 10) / 10; it.heightMm = Math.floor(it.heightMm * sc * 10) / 10; if (it.bleedMm) it.bleedMm = Math.round(it.bleedMm * sc * 100) / 100; });
-        out = pi_autoArrange(pi_manualRenderItems(cur), g);   // סדר מחדש בגודל החדש
-        resizedPct = pct;
+    var uf = pi_fitShrinkUnplacedOnly(cur, g);
+    if (uf.fits && uf.scale < 0.999){
+      var pctU = Math.floor(uf.scale * 100);
+      if (confirm('⚠️ ' + uf.ids.length + ' קבצים לא נכנסים בגודל המקורי (גם עם סיבוב).\n\nלהקטין *רק אותם* ל-' + pctU + '% — שאר הקבצים יישארו בגודלם המלא — כדי שכולם ייכנסו לגיליון?\n\n(אפשר לבטל עם Ctrl+Z.)')){
+        var idSetU = {}; uf.ids.forEach(function(id){ idSetU[String(id)] = 1; });
+        (cur.items||[]).forEach(function(it){ if (idSetU[String(it.id)]){ it.widthMm = Math.floor(it.widthMm * uf.scale * 10)/10; it.heightMm = Math.floor(it.heightMm * uf.scale * 10)/10; if (it.bleedMm) it.bleedMm = Math.round(it.bleedMm * uf.scale * 100)/100; } });
+        out = pi_autoArrange(pi_manualRenderItems(cur), g);
+        resizedPct = pctU; window._pi._shrunkOnlyN = uf.ids.length;
+      }
+    } else {
+      // גיבוי: אי אפשר להכניס ע"י הקטנת הבודדים בלבד → מציע הקטנה אחידה של כולם (התנהגות קודמת)
+      var items0 = pi_manualRenderItems(cur), fit = pi_scaleItemsForFit(items0, g);
+      if (fit && fit.scale < 0.999){
+        var pct = Math.floor(fit.scale * 100);
+        if (confirm('⚠️ ' + out.unplaced.length + ' קבצים לא נכנסים, ואי אפשר להכניס ע"י הקטנת הבודדים בלבד (יותר מדי פריטים).\n\nלהקטין את *כל* הקבצים ל-' + pct + '% כדי שכולם ייכנסו?\n\n(Ctrl+Z לביטול.)')){
+          var sc = fit.scale;
+          (cur.items||[]).forEach(function(it){ it.widthMm = Math.floor(it.widthMm * sc * 10) / 10; it.heightMm = Math.floor(it.heightMm * sc * 10) / 10; if (it.bleedMm) it.bleedMm = Math.round(it.bleedMm * sc * 100) / 100; });
+          out = pi_autoArrange(pi_manualRenderItems(cur), g);
+          resizedPct = pct;
+        }
       }
     }
   }
@@ -24767,7 +24835,7 @@ function pi_manualAutoArrange(){
   window._pi.arrangeMsg = { placed: placed.length, unplaced: unNames, util: util, rotated: rotated, resizedPct: resizedPct };
   cur._edited = true; window._pi.dirty = true; window._pi.canvasSel = null; pi_render();
   if (out.unplaced.length) showToast('⚠️ סודרו ' + placed.length + ' · ' + out.unplaced.length + ' לא נכנסו — הסר/הגדל גיליון או פצל לכמה גיליונות', 6500);
-  else showToast('✓ סודרו ' + placed.length + ' פריטים' + (resizedPct ? ' · הוקטנו ל-' + resizedPct + '%' : '') + (rotated ? ' · ' + rotated + ' סובבו' : '') + ' · ניצול ' + util + '%');
+  else { var _shr = resizedPct ? (window._pi._shrunkOnlyN ? ' · ' + window._pi._shrunkOnlyN + ' קבצים הוקטנו ל-' + resizedPct + '%' : ' · הוקטנו ל-' + resizedPct + '%') : ''; showToast('✓ סודרו ' + placed.length + ' פריטים' + _shr + (rotated ? ' · ' + rotated + ' סובבו' : '') + ' · ניצול ' + util + '%'); }
 }
 // סדר אוטומטית את כל הגיליונות (ריבוי גיליונות) — תיקון בלחיצה אחת לפני הפקה. מחזיר כמה פריטים לא נכנסו.
 function pi_autoArrangeAllSheets(){
@@ -25787,15 +25855,15 @@ function pi_renderManualWS(){
   })();
   // ── שורת כלים: מצומצמת במצב פשוט, ניתנת להתאמה (מועדפים) במתקדם ──
   if (simple){
-    var sbtn = function(onclick, label, bg, col, bd){ return '<button onclick="' + onclick + '" style="padding:9px 14px;border:1px solid ' + bd + ';border-radius:9px;background:' + bg + ';color:' + col + ';font-weight:800;cursor:pointer;font-family:Heebo;font-size:.86rem">' + label + '</button>'; };
+    // מצב פשוט — לחצנים אחידים ומעטים בלבד (בלי צבעים מרובים)
+    var sbtn = function(onclick, label, primary){ return '<button onclick="' + onclick + '" style="' + (primary?PI_BTN_PRIMARY:PI_BTN) + ';padding:9px 15px;font-size:.86rem">' + label + '</button>'; };
     html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
-      sbtn('pi_manualAutoArrange()', '🧮 סדר אוטומטית', '#eef2ff', '#3730a3', '#c7d2fe') +
-      sbtn('pi_alignFiles()', '📏 יישר לקו', '#fff', '#3730a3', '#c7d2fe') +
-      sbtn('pi_manualCenterAll()', '⊹ מרכז בגיליון', '#fff', '#374151', '#ddd') +
-      sbtn('pi_toggleScreenMarks()', (window._pi.showMarks===false?'✚ הצג צלבים':'✚ צלבים מוצגים'), (window._pi.showMarks===false?'#fff':'#f0fdf4'), '#166534', '#bbf7d0') +
-      sbtn('pi_autoCutLines()', '▦ קווי חיתוך בין הקבצים', '#fff', '#9a3412', '#fed7aa') +
-      sbtn('pi_manualClearSheet()', '🧹 נקה גיליון', '#fff', '#b91c1c', '#fecaca') +
-      sbtn('pi_calcHub()', '🧮 מחשבון', '#fff', '#374151', '#ddd') +
+      sbtn('pi_manualAutoArrange()', '🧮 סדר אוטומטית', true) +
+      sbtn('pi_alignFiles()', '📏 יישר לקו') +
+      sbtn('pi_manualCenterAll()', '⊹ מרכז בגיליון') +
+      sbtn('pi_toggleScreenMarks()', (window._pi.showMarks===false?'✚ הצג צלבים':'✚ צלבים מוצגים')) +
+      sbtn('pi_calcHub()', '🧮 מחשבון') +
+      sbtn('pi_manualClearSheet()', '🧹 נקה גיליון') +
     '</div>';
   } else {
     html += pi_toolsRowHtml(cur);
@@ -25916,6 +25984,17 @@ function pi_renderManualWS(){
   if (selArr.length > 1){
     html += '<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:9px;padding:9px 11px;font-size:.76rem;color:#3730a3;line-height:1.7">' +
       '<b>🔲 נבחרו ' + selArr.length + ' פריטים</b> (Ctrl/Shift+לחיצה להוספה)<br>' +
+      (selArr.length === 2 ? (function(){
+        var pr = pi_groupItems(); if (pr.length !== 2) return '';
+        var ax = pi_pairAxis(pr[0], pr[1]);
+        var cg = pi_currentGap(pr[0], pr[1], ax);
+        return '<div style="display:flex;gap:5px;align-items:center;margin-top:7px;background:#fff;border:1.5px solid #a855f7;border-radius:7px;padding:6px 8px;flex-wrap:wrap">' +
+          '<b style="font-size:.72rem;color:#7c3aed">↔ מרווח בין השניים (' + (ax === 'h' ? 'אופקי' : 'אנכי') + '):</b>' +
+          '<input id="pi-gap-mm" type="number" step="0.5" value="' + cg + '" onkeydown="if(event.key===\'Enter\')pi_applyGap()" style="width:64px;padding:3px 6px;border:1px solid #d8b4fe;border-radius:6px;font-family:Heebo;text-align:center;font-weight:700"> מ״מ' +
+          '<button onclick="pi_applyGap()" style="padding:5px 13px;border:none;border-radius:6px;background:#7c3aed;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.76rem">החל מרווח</button>' +
+          '<span style="width:100%;font-size:.66rem;color:#9ca3af">0 = צמוד לגמרי · השמאלי/עליון נשאר במקום, השני זז</span>' +
+        '</div>';
+      })() : '') +
       '<div style="display:flex;gap:5px;align-items:center;margin-top:7px;background:#fff;border:1px solid #c7d2fe;border-radius:7px;padding:5px 7px;flex-wrap:wrap">' +
         '<b style="font-size:.72rem">שנה גודל לכולם:</b>' +
         'רוחב <input id="pi-grp-w" type="number" min="1" placeholder="מ״מ" onkeydown="if(event.key===\'Enter\')pi_manualGroupApplySize()" style="width:56px;padding:2px 5px;border:1px solid #ddd;border-radius:5px;font-family:Heebo;text-align:center">' +
@@ -27086,6 +27165,40 @@ function pi_manualButtSelected(){
   cur._edited = true; window._pi.dirty = true; window._pi.arrangeMsg = null; pi_render();
   showToast('⇥ ' + its.length + ' פריטים הוצמדו ללא רווח');
 }
+// ── מרווח מדויק בין שני פריטים נבחרים (מ״מ) — קובע מרחק קצה-לקצה בציר הצמידות ──
+// מזהה אוטומטית אם השניים שכנים אופקית (זה ליד זה) או אנכית (זה מעל זה),
+// משאיר את השמאלי/עליון במקומו ומזיז את השני כך שהמרווח = הערך. 0 = צמוד לגמרי.
+function pi_pairAxis(a, b){
+  var yOverlap = (a.yMm < b.yMm + b.heightMm) && (b.yMm < a.yMm + a.heightMm);
+  var xOverlap = (a.xMm < b.xMm + b.widthMm) && (b.xMm < a.xMm + a.widthMm);
+  if (yOverlap && !xOverlap) return 'h';
+  if (xOverlap && !yOverlap) return 'v';
+  var dx = Math.abs((a.xMm + a.widthMm/2) - (b.xMm + b.widthMm/2));
+  var dy = Math.abs((a.yMm + a.heightMm/2) - (b.yMm + b.heightMm/2));
+  return dx >= dy ? 'h' : 'v';
+}
+function pi_currentGap(a, b, axis){
+  if (axis === 'h'){ var L = a.xMm<=b.xMm?a:b, R = a.xMm<=b.xMm?b:a; return Math.round((R.xMm - (L.xMm + L.widthMm))*10)/10; }
+  var T = a.yMm<=b.yMm?a:b, B = a.yMm<=b.yMm?b:a; return Math.round((B.yMm - (T.yMm + T.heightMm))*10)/10;
+}
+function pi_setGapBetween(mm){
+  var its = pi_groupItems();
+  if (its.length !== 2){ showToast('בחר בדיוק שני פריטים'); return; }
+  mm = parseFloat(mm); if (isNaN(mm)){ showToast('הזן מספר מ״מ'); return; }
+  var a = its[0], b = its[1], axis = pi_pairAxis(a, b), g = pi_curGeom();
+  if (axis === 'h'){
+    var L = a.xMm<=b.xMm?a:b, R = a.xMm<=b.xMm?b:a;
+    R.xMm = Math.max(0, Math.min(g.sheetWidthMm - R.widthMm, Math.round((L.xMm + L.widthMm + mm)*10)/10));
+  } else {
+    var T = a.yMm<=b.yMm?a:b, B = a.yMm<=b.yMm?b:a;
+    B.yMm = Math.max(0, Math.min(g.sheetHeightMm - B.heightMm, Math.round((T.yMm + T.heightMm + mm)*10)/10));
+  }
+  _piGroupCommit();
+  showToast(mm === 0 ? '⇥ הוצמדו ללא רווח' : '↔ מרווח ' + mm + ' מ״מ הוחל');
+}
+function pi_applyGap(){ var inp = document.getElementById('pi-gap-mm'); if (inp) pi_setGapBetween(inp.value); }
+// לחיצה על ידית-המרווח שבין שני פריטים (בקאנבס) → בוחרת את השניים ופותחת את בקרת המרווח
+function pi_gapZoneClick(a, b){ pi_selSet([a, b]); window._pi.dirty = true; pi_render(); setTimeout(function(){ var i = document.getElementById('pi-gap-mm'); if (i){ i.focus(); i.select(); } }, 30); }
 // עבודה שטוחה (לא כריכייה): בחירה עם/בלי רווחים בין הקבצים בגיליון
 function pi_manualSetGaps(withGaps){
   var cur = window._pi.cur; if (!cur) return;
