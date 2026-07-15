@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784107579';
+window.APP_VERSION = '1784108084';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4522,8 +4522,10 @@ function _aiQuoteSys(){
     + '7) כריכה: מספר-תחנות ≈ מספר-הריצות. מחיר = bindRates[תחנות] × (כמות ÷ 1000); לתחנות 5-6 יש מינימום לאלף הראשון (bindFirstKMin).\n\n'
     + '━━━ הניירות בתעריפון (שם | גיליון | משקל | מחיר-לטון) ━━━\n' + papers + '\n\n'
     + '━━━ כללי עבודה ━━━\n'
-    + '• חסר מידע חיוני (כמות · גודל מוצר · עמודים · סוג/משקל נייר · צבעים · צד-אחד/דו-צדדי/מתהפך · קיפול · כריכה)? שאל שאלה קצרה אחת. אל תמציא.\n'
-    + '• יש מספיק מידע? הצג פירוט שקוף: נייר (טונאז\'+מחיר) · הדפסה · לוחות · קיפול · כריכה → סכום ביניים · מע"מ 18% · סה"כ.\n'
+    + '• שיטת שאלה-אחר-שאלה: כשמתחילים ממעט מידע (למשל רק "חוברת A4") — אל תבקש הכל בבת אחת. שאל שאלה אחת קצרה בכל פעם, לפי הסדר: עמודים → סוג+משקל נייר → כמות → צבעים → צד-אחד/דו-צדדי/מתהפך → קיפול → כריכה. דלג על מה שכבר ידוע.\n'
+    + '• חובה: בכל שאלה הוסף בשורה נפרדת אפשרויות-תשובה נפוצות ללחיצה, בפורמט המדויק הזה: [[אפשרויות: ערך1 | ערך2 | ערך3]] — למשל לעמודים: [[אפשרויות: 8 | 16 | 24 | 32 | 48]]. המשתמש ילחץ על אחת או יכתוב חופשי. אל תוסיף את שורת האפשרויות כשאתה מציג חישוב או הצעה סופית.\n'
+    + '• אל תמציא נתונים חסרים — תמיד שאל.\n'
+    + '• יש כל המידע? הצג פירוט שקוף: נייר (טונאז\'+מחיר) · הדפסה · לוחות · קיפול · כריכה → סכום ביניים · מע"מ 18% · סה"כ.\n'
     + '• מבקשים "הצעה"? נסח הצעה נקייה ללקוח (שם · תיאור · כמות · מחיר סופי · תוקף 14 יום). מבקשים תיקון? תקן.\n'
     + '• ענה בעברית, קצר וברור. ציין תמיד באיזה נייר וגודל גיליון בחרת ולמה.\n\n'
     + 'התעריפון המלא (JSON — מקור-האמת למספרים):\n' + JSON.stringify(pr);
@@ -4531,7 +4533,7 @@ function _aiQuoteSys(){
 function openAiQuote(){
   _aiqMsgs = [];
   var box = document.getElementById('aiq-msgs'); if (box) box.innerHTML = '';
-  _aiQuoteAppend('assistant', 'שלום! כתוב לי את מפרט העבודה ואחשב הצעת מחיר. אם יחסר לי מידע — אשאל.\nלדוגמה: "5000 עלונים A4, כרומו מט 135 גר\', 4 צבעים דו-צדדי, קיפול אחד".');
+  _aiQuoteAppend('assistant', 'שלום! כתוב לי מה העבודה — אפילו רק "חוברת A4" — ואשאל אותך שאלה-אחר-שאלה (עם אפשרויות ללחיצה) עד שיהיה לי כל המידע לתמחור.');
   document.getElementById('aiQuoteModal').style.display = 'flex';
   setTimeout(function(){ var i = document.getElementById('aiq-input'); if (i) i.focus(); }, 60);
 }
@@ -4547,11 +4549,33 @@ function _aiQuoteAppend(role, text){
   box.appendChild(b); box.scrollTop = box.scrollHeight;
   return b;
 }
+// כפתורי בחירה מהירים לשאלות ה-AI (מנתח [[אפשרויות: א | ב | ג]] מתשובת ה-AI)
+function _aiqRenderOptions(optsStr){
+  var box = document.getElementById('aiq-msgs'); if (!box) return;
+  var opts = optsStr.split('|').map(function(s){ return s.trim(); }).filter(Boolean);
+  if (!opts.length) return;
+  var wrap = document.createElement('div'); wrap.className = 'aiq-opts';
+  wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-self:flex-end;max-width:90%;margin:-2px 0 2px';
+  opts.forEach(function(o){
+    var b = document.createElement('button'); b.type = 'button'; b.textContent = o;
+    b.style.cssText = 'padding:6px 13px;border:1.5px solid #c4b5fd;border-radius:16px;background:#f5f3ff;color:#6d28d9;font-weight:700;cursor:pointer;font-family:inherit;font-size:.86rem';
+    b.onclick = function(){ _aiqPickOption(o, wrap); };
+    wrap.appendChild(b);
+  });
+  box.appendChild(wrap); box.scrollTop = box.scrollHeight;
+}
+function _aiqPickOption(text, wrap){
+  if (wrap){ Array.prototype.forEach.call(wrap.querySelectorAll('button'), function(b){ b.disabled = true; if (b.textContent === text){ b.style.background='#6d28d9'; b.style.color='#fff'; } else { b.style.opacity='.4'; } }); }
+  var input = document.getElementById('aiq-input'); if (input) input.value = text;
+  _aiQuoteSend();
+}
 function _aiQuoteSend(){
   var input = document.getElementById('aiq-input');
   var txt = (input && input.value || '').trim();
   if (!txt) return;
   input.value = '';
+  // נטרל כפתורי-בחירה קודמים (כבר נענו)
+  try { document.querySelectorAll('#aiq-msgs .aiq-opts button').forEach(function(b){ b.disabled = true; b.style.opacity = b.style.opacity || '.5'; }); } catch(e){}
   _aiQuoteAppend('user', txt);
   _aiqMsgs.push({ role:'user', content: txt });
   var btn = document.getElementById('aiq-send'); if (btn) btn.disabled = true;
@@ -4562,7 +4586,10 @@ function _aiQuoteSend(){
     var reply = ''; (data.content || []).forEach(function(bk){ if (bk && bk.type === 'text') reply += bk.text; });
     if (!reply.trim()) reply = '(לא התקבלה תשובה — נסה שוב)';
     _aiqMsgs.push({ role:'assistant', content: reply });
-    _aiQuoteAppend('assistant', reply);
+    var _opts = reply.match(/\[\[\s*אפשרויות\s*:\s*([^\]]+)\]\]/);
+    var _clean = reply.replace(/\[\[\s*אפשרויות\s*:[^\]]*\]\]/g, '').trim();
+    _aiQuoteAppend('assistant', _clean || reply);
+    if (_opts) _aiqRenderOptions(_opts[1]);
   })
   .catch(function(e){ _aiQuoteAppend('assistant', '⚠️ שגיאה: ' + (e.message || e)); })
   .finally(function(){ if (btn) btn.disabled = false; if (st) st.textContent = ''; });
