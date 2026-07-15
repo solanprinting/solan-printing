@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784113848';
+window.APP_VERSION = '1784114500';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4516,6 +4516,7 @@ function _learnProfiles(){
   var groups={};
   (cards||[]).forEach(function(c){
     if(!c || c.status==='trash') return;
+    if(typeof _isGraphicCard==='function' && _isGraphicCard(c)) return;   // עבודות "גרפיק" — לא בהיסטוריה/למידה
     var key=_learnNorm(c.customer||c.name); if(!key || key.length<2) return;
     (groups[key]=groups[key]||{key:key,label:String(c.customer||c.name||'').replace(/[\d#]+\s*$/,'').trim(),orders:[]}).orders.push({
       date:_learnDate(c), size:c.size||'', paper:c.paper||'', type:c.type||'', color:c.color||'', copies:parseInt(c.copies)||0 });
@@ -9939,6 +9940,7 @@ function renderGlobalSearch(q) {
   // ── לקוחות ─────────────────────────────────────────────
   const custMap = {};
   (cards||[]).forEach(c => {
+    if (_isGraphicCard(c)) return;                     // עבודות "גרפיק" — לא בחיפוש/היסטוריה
     const cust = (c.customer||'').trim();
     if (!cust) return;
     if ([cust,c.name||''].join(' ').toLowerCase().includes(lq)) {
@@ -9950,6 +9952,7 @@ function renderGlobalSearch(q) {
   // ── עבודות (שם עבודה) — מקובצות לפי שם ───────────────────
   const jobNameMap = {};
   (cards||[]).forEach(c => {
+    if (_isGraphicCard(c)) return;                     // עבודות "גרפיק" — לא בחיפוש/היסטוריה
     if (!(c.name||'').toLowerCase().includes(lq) || !c.name) return;
     const n = c.name.trim();
     if (!jobNameMap[n]) jobNameMap[n] = [];
@@ -18749,6 +18752,9 @@ function _actMergeById(a, b) {
   var byId = {};
   (a||[]).concat(b||[]).forEach(function(e){
     if (!e) return;
+    // עבודות "גרפיק" — לא נשמרות ביומן בשום צורה (מסנן גם רשומות ישנות/מסונכרנות ממכשיר אחר)
+    if (e.text && String(e.text).indexOf('גרפיק') >= 0) return;
+    if (e.cardId != null && typeof _isSilentCardId === 'function' && _isSilentCardId(e.cardId)) return;
     var k = e.id || (e.t + '_' + (e.text||''));
     if (_actIsDeleted(k)) return;   // דלג על רשומות שנמחקו ע"י מנהל
     byId[k] = e;
@@ -21982,7 +21988,7 @@ function _rpRender(){
   var months=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   var lbl=document.getElementById('rp-month-label'); if(lbl) lbl.textContent = months[mo]+' '+y;
   var start=new Date(y,mo,1).getTime(), end=new Date(y,mo+1,1).getTime();
-  var list=(cards||[]).filter(function(c){ if(!c||c.status==='trash')return false; var t=_cardDateMs(c); return t>=start && t<end; });
+  var list=(cards||[]).filter(function(c){ if(!c||c.status==='trash')return false; if(typeof _isGraphicCard==='function'&&_isGraphicCard(c))return false; var t=_cardDateMs(c); return t>=start && t<end; });
   var themeCss='padding:6px 8px;font-size:.72rem;color:#475569;border-bottom:2px solid #e2e8f0;text-align:center';
   var tdCss='padding:6px 8px;font-size:.83rem;border-bottom:1px solid #f1f5f9;text-align:center';
   if (!list.length) { el.innerHTML='<div style="padding:30px;text-align:center;color:#94a3b8">אין עבודות בחודש זה.<br><span style="font-size:.75rem">(עבודות שהושלמו לפני 60+ יום עברו לארכיון)</span></div>'; return; }
