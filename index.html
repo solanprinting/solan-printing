@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784202686';
+window.APP_VERSION = '1784203471';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -24037,6 +24037,7 @@ var PI_TOOLS = [
   { id:'nup',       cat:'calc',    label:'🧮 מחשבון N-up',       onclick:'pi_nupCalc()' },
   { id:'gang',      cat:'calc',    label:'🧮 מחשבון עבודות',     onclick:'pi_gangCalc()' },
   { id:'holes',     cat:'calc',    label:'🧩 מצא עבודות לחורים',  onclick:'pi_findHolesModal()' },
+  { id:'merge',     cat:'calc',    label:'🤝 Merge Assistant',    onclick:'pi_mergeAssistant()' },
   { id:'crop',      cat:'marks',   label:'✚ מצב צלבים',         onclick:'pi_manualToggleCrop()' },
   { id:'showmarks', cat:'marks',   label:'✚ צלבים על המסך',      onclick:'pi_toggleScreenMarks()' },
   { id:'cutv',      cat:'marks',   label:'✂ קו חיתוך אנכי',     onclick:"pi_manualAddCut('v')" },
@@ -24078,6 +24079,78 @@ function pi_toggleFavTool(id){
   var f = pi_favTools(), i = f.indexOf(id); if (i >= 0) f.splice(i,1); else f.push(id);
   try { localStorage.setItem('solanPiTools', JSON.stringify(f)); } catch(e){}
   pi_render();
+}
+// ── 🤝 Merge Assistant (בהשראת Apogee) — סורק את הקבצים הפתוחים ומציע לבד אילו עבודות לשלב ──
+// מקבץ קבצים מאושרים (עם כמות שנותרה) לפי נייר תואם; קבוצה של 2+ = הצעת שילוב עם הערכת חיסכון.
+function pi_mergeSuggestions(){
+  var pool = (typeof printFiles !== 'undefined' ? printFiles : []).filter(function(pf){
+    return pf && !pf._deleted && pf.approved && _pfRemaining(pf) > 0 && pf.widthMm > 0 && pf.heightMm > 0 && parseInt(pf.sides) !== 2;
+  });
+  var groups = [];
+  pool.forEach(function(pf){
+    var grp = groups.find(function(gr){ return !pf.paper || !gr.paper || pi_paperCompatible(gr.paper, pf.paper); });
+    if (grp){ grp.jobs.push(pf); if (!grp.paper && pf.paper) grp.paper = pf.paper; }
+    else groups.push({ paper: pf.paper || '', jobs: [pf] });
+  });
+  var SHEET_W = 700, SHEET_H = 1000, MARGIN = 12;                 // גיליון 70×100 (שמרני עם שוליים)
+  var suggestions = [];
+  groups.filter(function(gr){ return gr.jobs.length >= 2; }).forEach(function(gr){
+    // בדיקת התכנות: כל העבודות (עותק אחד מכל אחת) נכנסות יחד בגיליון? (מדף-אחר-מדף פשוט)
+    var areaNeed = 0, maxW = 0, fits = true;
+    gr.jobs.forEach(function(j){ areaNeed += (j.widthMm + 6) * (j.heightMm + 6); maxW = Math.max(maxW, Math.min(j.widthMm, j.heightMm)); });
+    if (areaNeed > (SHEET_W - MARGIN*2) * (SHEET_H - MARGIN*2)) fits = false;
+    if (maxW > SHEET_W - MARGIN*2) fits = false;
+    if (!fits) return;
+    var plateSave = (gr.jobs.length - 1) * 4;                     // כל עבודה שמצטרפת חוסכת ריצה נפרדת (~4 לוחות)
+    var totalQty = gr.jobs.reduce(function(s,j){ return s + _pfRemaining(j); }, 0);
+    suggestions.push({ paper: gr.paper, jobs: gr.jobs, plateSave: plateSave, totalQty: totalQty,
+      why: gr.jobs.length + ' עבודות על אותו נייר' + (gr.paper ? ' ("' + gr.paper + '")' : '') + ' — הדפסה בריצה משולבת אחת במקום ' + gr.jobs.length + ' ריצות נפרדות: חיסכון ~' + plateSave + ' לוחות + ' + (gr.jobs.length - 1) + ' הכנות מכונה.' });
+  });
+  suggestions.sort(function(a,b){ return b.plateSave - a.plateSave || b.totalQty - a.totalQty; });
+  return suggestions;
+}
+function pi_mergeAssistant(){
+  var S = pi_mergeSuggestions();
+  var m = document.getElementById('pi-merge-modal');
+  if (!m){ m = document.createElement('div'); m.id = 'pi-merge-modal'; m.className = 'modal-overlay open'; m.style.zIndex = 288; document.body.appendChild(m); }
+  m.classList.add('open');
+  var body = S.length ? S.map(function(s, i){
+    var rows = s.jobs.map(function(j){ return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:.78rem;color:#374151;padding:3px 0;border-bottom:1px dashed #f3f4f6"><span>📄 ' + escHtml(j.name || 'קובץ') + '</span><span style="color:#6b7280">' + Math.round(j.widthMm) + '×' + Math.round(j.heightMm) + ' מ״מ · ' + _pfRemaining(j).toLocaleString() + ' נותרו</span></div>'; }).join('');
+    return '<div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:11px;padding:12px 14px;margin-bottom:10px">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
+        '<b style="flex:1;color:#065f46;font-size:.92rem">🤝 הצעה ' + (i+1) + ' — שילוב ' + s.jobs.length + ' עבודות</b>' +
+        '<span style="background:#dcfce7;color:#166534;border-radius:7px;padding:3px 9px;font-size:.72rem;font-weight:800">חוסך ~' + s.plateSave + ' לוחות</span>' +
+        '<button onclick="pi_mergeOpen(' + i + ')" style="border:none;border-radius:8px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.8rem;padding:7px 15px">📐 פתח כגיליון משולב</button>' +
+      '</div>' + rows +
+      '<div style="font-size:.74rem;color:#6b7280;margin-top:6px">💡 ' + escHtml(s.why) + '</div>' +
+    '</div>';
+  }).join('') : '<div style="color:#9ca3af;font-size:.86rem;padding:14px;text-align:center">אין כרגע הצעות שילוב.<br><span style="font-size:.76rem">המערכת מציעה כשיש 2+ קבצים מאושרים עם כמות שנותרה, על נייר תואם, בתאב "להכניס בחורים".</span></div>';
+  window._piMergeS = S;
+  m.innerHTML = '<div class="modal-box" style="max-width:640px;width:95vw;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div class="modal-header"><span>🤝 Merge Assistant — הצעות שילוב עבודות</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').classList.remove(\'open\')">✕</button></div>' +
+    '<div style="padding:14px 18px;overflow:auto">' +
+      '<div style="font-size:.78rem;color:#6b7280;margin-bottom:10px">המערכת סרקה את הקבצים המאושרים ("להכניס בחורים") ומציעה שילובים על גיליון אחד — לפי נייר תואם ושטח. כל הצעה מוסברת.</div>' + body +
+    '</div></div>';
+}
+function pi_mergeOpen(idx){
+  var s = (window._piMergeS || [])[idx]; if (!s){ showToast('ההצעה לא נמצאה'); return; }
+  var m = document.getElementById('pi-merge-modal'); if (m) m.classList.remove('open');
+  if (typeof pi_newManual === 'function') pi_newManual();
+  var cur = window._pi.cur; if (!cur) return;
+  var g = pi_curGeom();
+  cur.name = 'שילוב ' + s.jobs.map(function(j){ return (j.name||'').split(' ')[0]; }).filter(Boolean).slice(0,3).join('+') + ' ' + new Date().toLocaleDateString('he-IL');
+  cur.files = cur.files || []; cur.items = cur.items || [];
+  s.jobs.forEach(function(pf){
+    var fid = 'hf' + pf.id;
+    if (!cur.files.some(function(f){ return f.id === fid; }))
+      cur.files.push({ id: fid, name: pf.name || 'קובץ', widthMm: pf.widthMm, heightMm: pf.heightMm, quantity: 1, bleedMm: g.defaultBleedMm, sourceFileUrl: pf.fileUrl || '', holeJobId: pf.id });
+    cur.items.push({ id: 'itm' + pf.id + '_' + Date.now().toString(36).slice(-4), fileId: fid, empty: !pf.fileUrl, gangName: pf.name || '',
+      xMm: 10, yMm: 10, widthMm: pf.widthMm, heightMm: pf.heightMm, rotation: 0, bleedMm: g.defaultBleedMm, copies: 1, sourceType: 'manual', holeJobId: pf.id });
+  });
+  if (typeof pi_ensurePreviews === 'function') pi_ensurePreviews(cur);
+  cur._edited = true; window._pi.dirty = true;
+  try { pi_manualAutoArrange(); } catch(e){ pi_render(); }
+  showToast('🤝 נפתח גיליון משולב — התאם כמויות (שכפול/מילוי) לפי היחס בין העבודות');
 }
 // ── רשימת עבודות בסגנון Apogee (מצב מתקדם בלבד) — פאנל צדדי עם כל עבודות האימפוזיציה ──
 function _piJobsSorted(){
@@ -26880,6 +26953,7 @@ function pi_renderList(){
         '<div style="font-weight:800;color:#0f766e;font-size:.9rem;margin-bottom:3px">🧩 אימפוזיציה ידנית</div>' +
         '<div style="font-size:.74rem;color:#6b7280;line-height:1.5;margin-bottom:9px;flex:1">העלה קבצים בעצמך, סדר על הגיליון, בדוק והפק PDF.</div>' +
         '<button onclick="pi_newManual()" style="padding:10px;border:none;border-radius:9px;background:#0f766e;color:#fff;font-weight:800;font-size:.86rem;cursor:pointer;font-family:Heebo">➕ התחל ידנית</button>' +
+        '<button onclick="pi_mergeAssistant()" title="המערכת מציעה לבד אילו עבודות לשלב על גיליון אחד" style="padding:10px;border:1.5px solid #16a34a;border-radius:9px;background:#f0fdf4;color:#166534;font-weight:800;font-size:.86rem;cursor:pointer;font-family:Heebo">🤝 Merge Assistant</button>' +
       '</div>' +
     '</div>' +
     (simple ? '' : '<div style="display:flex;align-items:center;gap:8px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:9px;padding:7px 11px;margin-bottom:14px">' +
