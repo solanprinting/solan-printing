@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784122125';
+window.APP_VERSION = '1784202686';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -24079,6 +24079,43 @@ function pi_toggleFavTool(id){
   try { localStorage.setItem('solanPiTools', JSON.stringify(f)); } catch(e){}
   pi_render();
 }
+// ── רשימת עבודות בסגנון Apogee (מצב מתקדם בלבד) — פאנל צדדי עם כל עבודות האימפוזיציה ──
+function _piJobsSorted(){
+  var imps = window._pi.imps || {};
+  var list = Object.keys(imps).map(function(k){ return imps[k]; }).filter(function(d){ return d && !d._deleted; });
+  var q = (window._piJobSearch||'').toLowerCase();
+  if (q) list = list.filter(function(d){ return ((d.name||'')+' '+(d.machine||'')+' '+((d.jobs||[]).map(function(j){return j.customer||'';}).join(' '))).toLowerCase().indexOf(q)>=0; });
+  return list.sort(function(a,b){ return (b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0); });
+}
+function pi_jobsRowsHtml(cur){
+  var list = _piJobsSorted();
+  if (!list.length) return '<div style="font-size:.74rem;color:#9ca3af;padding:10px 4px;text-align:center">אין עבודות שמורות עדיין</div>';
+  return list.map(function(d){
+    var active = cur && String(d.id)===String(cur.id);
+    var sub = ((d.items||[]).length||0)+' פריטים' + (d.machine?(' · '+d.machine):'') + (d.sheets&&d.sheets.length>1?(' · '+d.sheets.length+' גיל\''):'');
+    return '<div onclick="pi_openDraft(\''+d.id+'\')" title="פתח עבודה" style="padding:8px 9px;border-radius:8px;margin-bottom:4px;cursor:pointer;border:1px solid '+(active?'#0f766e':'#eef2f7')+';background:'+(active?'#f0fdfa':'#fff')+'">'+
+      '<div style="font-weight:700;font-size:.8rem;color:'+(active?'#0f766e':'#374151')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(active?'▸ ':'')+escHtml(d.name||'ללא שם')+'</div>'+
+      '<div style="font-size:.66rem;color:#9ca3af;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(sub)+'</div>'+
+    '</div>';
+  }).join('');
+}
+window.pi_jobSearchInput = function(v){ window._piJobSearch = v; var el=document.getElementById('pi-jobs-rows'); if (el) el.innerHTML = pi_jobsRowsHtml(window._pi.cur); };
+window.pi_toggleJobsPanel = function(){ window._piJobsCollapsed = !window._piJobsCollapsed; pi_render(); };
+function pi_jobsListHtml(cur){
+  if (window._piJobsCollapsed){
+    return '<div style="flex:none"><button onclick="pi_toggleJobsPanel()" title="הצג רשימת עבודות" style="writing-mode:vertical-rl;padding:12px 6px;border:1px solid #d1d5db;border-radius:8px;background:#f8fafc;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem">🗂️ עבודות ▸</button></div>';
+  }
+  var n = _piJobsSorted().length;
+  return '<div style="flex:none;width:198px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
+      '<div style="font-weight:800;font-size:.82rem;color:#0f766e">🗂️ עבודות ('+n+')</div>' +
+      '<button onclick="pi_toggleJobsPanel()" title="כווץ" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:.95rem;line-height:1">◀</button>' +
+    '</div>' +
+    '<button onclick="pi_newManual()" style="width:100%;padding:7px;border:1px dashed #0f766e;border-radius:8px;background:#f0fdfa;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.78rem;margin-bottom:6px">➕ עבודה חדשה</button>' +
+    '<input type="text" placeholder="🔍 חיפוש עבודה..." value="'+escHtml(window._piJobSearch||'')+'" oninput="pi_jobSearchInput(this.value)" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px;font-family:Heebo;font-size:.76rem;box-sizing:border-box;margin-bottom:6px">' +
+    '<div id="pi-jobs-rows" style="max-height:62vh;overflow:auto">'+pi_jobsRowsHtml(cur)+'</div>' +
+  '</div>';
+}
 function pi_toolsRowHtml(cur){
   var undoN = (window._pi._undo || []).length, canUndo = undoN > 0;
   var undoBtn = '<button onclick="pi_undo()" ' + (canUndo?'':'disabled ') + 'title="בטל (Ctrl+Z)" style="' + PI_BTN + (canUndo?'':';opacity:.45;cursor:default') + '">↩︎ בטל' + (canUndo?(' ('+undoN+')'):'') + '</button>';
@@ -26262,8 +26299,9 @@ function pi_renderManualWS(){
   } else {
     html += pi_toolsRowHtml(cur);
   }
-  // ── גוף: סיידבר קבצים | גיליון | פאנל ──
+  // ── גוף: [רשימת עבודות (מתקדם)] | סיידבר קבצים | גיליון | פאנל ──
   html += '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">';
+  if (!simple) html += pi_jobsListHtml(cur);   // פאנל עבודות בסגנון Apogee — מוסתר במצב פשוט (עובדי רצפה)
   // סיידבר קבצים
   html += '<div style="flex:none;width:212px">' +
     '<div style="font-weight:800;font-size:.82rem;color:#0f766e;margin-bottom:6px">📁 קבצים</div>' +
