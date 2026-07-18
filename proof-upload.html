@@ -68,6 +68,84 @@ const _FBURL   = 'https://solan-printing-default-rtdb.europe-west1.firebasedatab
 const _FB_APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
 // שני שמות ה-bucket האפשריים — הקוד מנסה את שניהם.
 const _BUCKETS = ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com'];
+// ── שומר-סביבה (רשת ביטחון · ספרינט 1 שלב 5) — פתיחה מקומית לא כותבת ל-Firebase החי ──
+//    production = הדומיין הרשמי בלבד; אחרת development (חסום ללא אישור); test = מאולץ.
+//    עוטף fetch + XMLHttpRequest וחוסם כתיבות (PUT/POST/PATCH/DELETE) לכתובות RTDB/Storage
+//    בכל סביבה שאינה production. בייצור — תמיד עובר (אפס שינוי התנהגות). זהה בכל הדפים.
+(function(){
+  if (window._solanEnvGuardReady) return;              // אידמפוטנטי — לא לעטוף פעמיים
+  window._solanEnvGuardReady = true;
+  window._solanEnv = (function(){
+    try {
+      if (typeof window._SOLAN_ENV_FORCE === 'string') return window._SOLAN_ENV_FORCE;
+      var h = (typeof location !== 'undefined' && location.hostname || '').toLowerCase();
+      return (h === 'solanprinting.github.io') ? 'production' : 'development';
+    } catch(e){ return 'development'; }
+  })();
+  window._solanEnvNow = function(){ return (typeof window._SOLAN_ENV_FORCE === 'string') ? window._SOLAN_ENV_FORCE : window._solanEnv; };
+  window._solanIsProd = function(){ return window._solanEnvNow() === 'production'; };
+  window._solanWritesAllowed = function(){
+    var e = window._solanEnvNow();
+    if (e === 'production')  return true;
+    if (e === 'development') return window._SOLAN_ALLOW_DEV_WRITES === true;
+    return false;                                       // test — לעולם לא
+  };
+  window._solanIsFbWriteUrl = function(url, method){
+    url = String(url == null ? '' : url); method = String(method || 'GET').toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;   // קריאות תמיד מותרות
+    return url.indexOf('firebasedatabase.app') >= 0 || url.indexOf('firebasestorage.googleapis.com') >= 0 || url.indexOf('storage.googleapis.com') >= 0;
+  };
+  window._fbWriteGuard = function(op){
+    if (window._solanWritesAllowed()) return true;
+    try { console.warn('⛔ [SOLAN ' + window._solanEnvNow().toUpperCase() + '] כתיבה ל-Firebase נחסמה (הגנת סביבה): ' + op + '\n   לאישור זמני בפיתוח בלבד: window._SOLAN_ALLOW_DEV_WRITES = true'); } catch(e){}
+    try { window._solanDevBanner && window._solanDevBanner(); } catch(e){}
+    return false;
+  };
+  window._solanDevBanner = function(){
+    if (window._solanIsProd()) return;
+    try {
+      if (typeof document === 'undefined' || document.getElementById('solan-dev-banner')) return;
+      var b = document.createElement('div'); b.id = 'solan-dev-banner';
+      b.textContent = '🛠️ סביבת ' + window._solanEnvNow().toUpperCase() + ' — כתיבה ל-Firebase חסומה (הגנה מפני דריסת ייצור)';
+      b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:2147483000;background:#b45309;color:#fff;font:700 12px Heebo,Arial;padding:5px 12px;text-align:center;direction:rtl;box-shadow:0 -2px 8px rgba(0,0,0,.3);pointer-events:none';
+      (document.body || document.documentElement).appendChild(b);
+    } catch(e){}
+  };
+  try {                                                 // עוטף fetch — כתיבת RTDB/Storage חסומה מחוץ ל-production
+    var _of = window.fetch;
+    if (_of && !_of._solanGuarded) {
+      var wf = function(input, init){
+        try {
+          var url = (typeof input === 'string') ? input : (input && input.url) || '';
+          var method = (init && init.method) || (typeof input !== 'string' && input && input.method) || 'GET';
+          if (window._solanIsFbWriteUrl(url, method) && !window._fbWriteGuard(method + ' ' + url))
+            return Promise.resolve(new Response('{"error":"blocked-by-solan-env-guard"}', { status: 503, statusText: 'blocked-by-solan-env-guard' }));
+        } catch(e){}
+        return _of.apply(this, arguments);
+      };
+      wf._solanGuarded = true; window.fetch = wf;
+    }
+  } catch(e){}
+  try {                                                 // עוטף XMLHttpRequest — העלאות/מחיקות Storage חסומות מחוץ ל-production
+    var XP = window.XMLHttpRequest && window.XMLHttpRequest.prototype;
+    if (XP && !XP._solanGuarded) {
+      var _xopen = XP.open, _xsend = XP.send;
+      XP.open = function(method, url){ this._solanMethod = method; this._solanUrl = url; return _xopen.apply(this, arguments); };
+      XP.send = function(){
+        try {
+          if (window._solanIsFbWriteUrl(this._solanUrl, this._solanMethod) && !window._fbWriteGuard((this._solanMethod || '') + ' ' + this._solanUrl)) {
+            var self = this;
+            setTimeout(function(){ try { self.dispatchEvent(new Event('error')); } catch(e){ if (typeof self.onerror === 'function') try { self.onerror(new Event('error')); } catch(_){} } }, 0);
+            return;                                     // בקשה אמיתית לא נשלחת
+          }
+        } catch(e){}
+        return _xsend.apply(this, arguments);
+      };
+      XP._solanGuarded = true;
+    }
+  } catch(e){}
+  try { if (typeof document !== 'undefined') { if (document.readyState !== 'loading') window._solanDevBanner(); else document.addEventListener('DOMContentLoaded', window._solanDevBanner); } } catch(e){}
+})();
 // ── App Check (reCAPTCHA v3) — עוטף fetch ומצרף X-Firebase-AppCheck לכל בקשה ל-RTDB.
 //    מצב ניטור עד אכיפה בקונסולה; אם ה-SDK נכשל — אין header ושום דבר לא נחסם. ריק = כבוי.
 var _APPCHECK_SITEKEY = '6LeYDVMtAAAAAAsc-qvVPz9QvLhIlDBfcYCl-pXI';
@@ -206,7 +284,8 @@ function xhrUpload(bucket, path, file, onProgress, token) {
       else reject(new Error('Storage ' + xhr.status + ': ' + xhr.responseText.slice(0, 140)));
     };
     xhr.onerror = () => reject(new Error('שגיאת רשת ב-Storage'));
-    xhr.send(file);
+    // App Check (ניטור): מצרפים אסימון גם להעלאת Storage כשקיים — בלי לחסום אם חסר
+    (window._appCheckToken ? window._appCheckToken() : Promise.resolve(null)).then(act => { try { if (act) xhr.setRequestHeader('X-Firebase-AppCheck', act); } catch(e){} xhr.send(file); }, () => xhr.send(file));
   });
 }
 

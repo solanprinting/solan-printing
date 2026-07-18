@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784203471';
+window.APP_VERSION = '1784377026';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1107,6 +1107,47 @@ try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn
 // ── Firebase REST API (ללא SDK) ──────────────────────────────
 const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
 
+// ══════ מנגנון סביבה מרכזי — production / development / test ══════════════════════
+// מטרה: פתיחה מקומית (פיתוח) לא יכולה לכתוב בטעות ל-Firebase החי. production מזוהה
+// אך ורק מהדומיין הרשמי; כל דבר אחר = development. test = מאולץ ע"י harness הבדיקות.
+// ⚠️ בפרודקשן השומר תמיד מאשר → אפס שינוי בהתנהגות; החסימה חלה רק ב-dev/test.
+window._solanEnv = (function(){
+  try {
+    if (typeof window._SOLAN_ENV_FORCE === 'string') return window._SOLAN_ENV_FORCE;   // override לבדיקות
+    var h = (typeof location !== 'undefined' && location.hostname || '').toLowerCase();
+    return (h === 'solanprinting.github.io') ? 'production' : 'development';            // production = הדומיין הרשמי בלבד
+  } catch(e){ return 'development'; }                                                    // ספק? שמרני = לא-פרודקשן
+})();
+window._solanEnvNow  = function(){ return (typeof window._SOLAN_ENV_FORCE === 'string') ? window._SOLAN_ENV_FORCE : window._solanEnv; };
+window._solanIsProd  = function(){ return window._solanEnvNow() === 'production'; };
+// כתיבה ל-Firebase החי מותרת רק ב-production. ב-development נדרש אישור מפורש של המפתח.
+window._solanWritesAllowed = function(){
+  var e = window._solanEnvNow();
+  if (e === 'production')  return true;
+  if (e === 'development') return window._SOLAN_ALLOW_DEV_WRITES === true;   // מפתח מאשר ידנית לצורך ניסוי
+  return false;                                                             // test — לעולם לא
+};
+// שומר כתיבה מרכזי — מוחזר false ⇒ הקורא רואה כשל אמיתי (בלי להעמיד פנים שנשמר בענן)
+window._fbWriteGuard = function(op){
+  if (window._solanWritesAllowed()) return true;
+  try { console.warn('⛔ [SOLAN ' + window._solanEnvNow().toUpperCase() + '] כתיבה ל-Firebase נחסמה (הגנת סביבה): ' + op +
+    '\n   לאישור זמני בפיתוח בלבד: window._SOLAN_ALLOW_DEV_WRITES = true'); } catch(e){}
+  try { window._solanDevBanner && window._solanDevBanner(); } catch(e){}
+  return false;
+};
+// באנר-פיתוח קבוע (מופיע רק כשלא בפרודקשן) — כדי שהמפתח תמיד יידע שהוא לא על החי
+window._solanDevBanner = function(){
+  if (window._solanIsProd()) return;
+  if (document.getElementById('solan-dev-banner')) return;
+  try {
+    var b = document.createElement('div'); b.id = 'solan-dev-banner';
+    b.textContent = '🛠️ סביבת ' + window._solanEnvNow().toUpperCase() + ' — כתיבה ל-Firebase חסומה (הגנה מפני דריסת ייצור)';
+    b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:2147483000;background:#b45309;color:#fff;font:700 12px Heebo,Arial;padding:5px 12px;text-align:center;direction:rtl;box-shadow:0 -2px 8px rgba(0,0,0,.3);pointer-events:none';
+    (document.body || document.documentElement).appendChild(b);
+  } catch(e){}
+};
+try { if (typeof document !== 'undefined') { if (document.readyState !== 'loading') window._solanDevBanner(); else document.addEventListener('DOMContentLoaded', window._solanDevBanner); } } catch(e){}
+
 // ── הזדהות אנונימית (מנעול אבטחה) — כל בקשה נושאת אסימון ──────────────
 // מפתח Web ציבורי (לא סוד). כשחוקי הגישה ייסגרו ל-"auth != null", רק בקשות
 // עם אסימון תקין יתקבלו. עד אז — האסימון "מצטרף" ולא מזיק (חוקים פתוחים מתעלמים).
@@ -1205,6 +1246,7 @@ window._lastRev   = window._lastRev   || {};   // ה-rev שאומץ לאחרונ
 window._revSynced = window._revSynced || {};   // collection שכבר נמשך לפחות פעם אחת בסשן
 window._pollRev   = window._pollRev   || {};   // snapshot של _rev בסבב ה-poll הנוכחי
 window._fbBumpRev = function(coll, tok){
+  if (!window._fbWriteGuard('BUMP-REV ' + coll)) return;               // הגנת סביבה — לא כותבים ל-Firebase החי בפיתוח
   if (!coll || coll === '_rev' || coll === 'customerProofs') return; // customerProofs נקרא תמיד (נכתב גם מדפי הלקוח)
   var doPut = function(t){
     window._appCheckToken().then(function(ac){
@@ -1217,6 +1259,7 @@ window._fbBumpRev = function(coll, tok){
   if (tok) doPut(tok); else if (window._fbAuthToken) window._fbAuthToken().then(doPut); else doPut(null);
 };
 window._fbPut = async (path, data) => {
+  if (!window._fbWriteGuard('PUT ' + path)) return false;             // הגנת סביבה — כשל אמיתי, בלי להעמיד פנים שנשמר
   try {
     var t = await window._fbAuthToken();
     var ac = await window._appCheckToken();
@@ -4442,7 +4485,11 @@ function _proxyFetch(bodyJson){
   return attempt(0);
 }
 // ── עוזרי Firebase גולמיים לנתיב הענן (בלי מנגנון ה-rev) ──────────────
+// ⚠️ _fbPutRaw / _fbGetRaw / _fbDelRaw — כתיבה/קריאה "גולמית" שעוקפת בכוונה את שער-הגרסה (_rev).
+//    קיימות אך ורק ל-aiRelay (בקשות AI שלא צריכות פולינג ולא צריכות ש-collection יימשך מחדש).
+//    ❌ אין להשתמש בהן לאוספים רגילים (cards/orders/...) — כתיבה בלי _rev = מכשירים אחרים לא ימשכו את השינוי.
 function _fbPutRaw(path, data){
+  if (!window._fbWriteGuard('PUT-RAW ' + path)) return Promise.resolve(false);   // הגנת סביבה
   return window._fbAuthToken().then(function(t){
     return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
       method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)
@@ -4455,6 +4502,7 @@ function _fbGetRaw(path){
   }).catch(function(){ return null; });
 }
 function _fbDelRaw(path){
+  if (!window._fbWriteGuard('DEL-RAW ' + path)) return Promise.resolve();   // הגנת סביבה
   return window._fbAuthToken().then(function(t){
     return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), { method:'DELETE' }).catch(function(){});
   }).catch(function(){});
@@ -7244,16 +7292,17 @@ function _uploadProofOnce(path, file, onProgress, onXhr) {
       xhr.onerror = function(){ fin(reject, new Error('network')); };
       xhr.ontimeout = function(){ fin(reject, new Error('timeout')); };
       xhr.onabort = function(){ fin(reject, new Error('aborted')); };   // ביטול יזום ע"י המשתמש
-      // אסימון הזדהות (כשחוקי ה-Storage ייסגרו) ואז שליחה
+      // אסימון הזדהות (כשחוקי ה-Storage ייסגרו) + App Check (ניטור) ואז שליחה
       (window._fbAuthToken ? window._fbAuthToken() : Promise.resolve(null)).then(function(t){
         try { if (t) xhr.setRequestHeader('Authorization', 'Firebase ' + t); } catch(e){}
-        xhr.send(file);
+        (window._appCheckToken ? window._appCheckToken() : Promise.resolve(null)).then(function(act){ try { if (act) xhr.setRequestHeader('X-Firebase-AppCheck', act); } catch(e){} xhr.send(file); }, function(){ xhr.send(file); });
       });
     } catch(e) { reject(e); }
   });
 }
 // עטיפה עם ניסיון חוזר אוטומטי אחד — להעלאות שנתקעות/כשלי רשת חולפים.
 function _uploadProofToStorage(path, file, onProgress, onXhr) {
+  if (!window._fbWriteGuard('STORAGE-UPLOAD ' + path)) return Promise.reject(new Error('כתיבה חסומה בסביבת ' + window._solanEnvNow()));   // הגנת סביבה
   return _uploadProofOnce(path, file, onProgress, onXhr).catch(function(err){
     if (err && err.message === 'aborted') throw err;   // בוטל ביודעין — לא לנסות שוב
     if (onProgress) onProgress(0);
@@ -7262,6 +7311,7 @@ function _uploadProofToStorage(path, file, onProgress, onXhr) {
 }
 function _deleteProofStorage(spath) {
   if (!spath) return;
+  if (!window._fbWriteGuard('STORAGE-DELETE ' + spath)) return;   // הגנת סביבה
   try {
     (window._fbAuthToken ? window._fbAuthToken() : Promise.resolve(null)).then(function(t){
       fetch('https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o/' + encodeURIComponent(spath),
