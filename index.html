@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784377026';
+window.APP_VERSION = '1784404348';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -29,19 +29,324 @@ window.APP_VERSION = '1784377026';
           // אל תרענן את הדף בזמן שהדפס צופה בפרופר/דפדוף — הרענון יסגור את החלון
           // ויחזיר את העבודה לתור. נחכה עד שהחלון ייסגר (הבדיקה הבאה בעוד 60ש').
           if (document.getElementById('op-proof-overlay') || document.getElementById('op-flip-overlay')) return;
+          // ⬇️ S2-2: במקום רענון מיידי — מסלול עדכון בטוח (בודק blockers). fallback לרענון ישן אם המנגנון לא נטען.
+          if (window._onNewVersion) { window._onNewVersion(latest); return; }
           try {
             var u = new URL(location.href);
-            // אם כבר ניסינו לטעון את הגרסה הזו ועדיין לא עודכן — לא לולאה
-            if (u.searchParams.get('_v') === latest) return;
+            if (u.searchParams.get('_v') === latest) return;      // הגנת reload-loop
             u.searchParams.set('_v', latest);
             location.replace(u.toString());
           } catch(e) { location.reload(); }
+        } else if (window._evaluatePending) {
+          window._evaluatePending();                              // גרסה זהה — אולי דחיית "אחר כך" הסתיימה
         }
       }).catch(function(){});
   }
   setTimeout(checkVersion, 3000);
   setInterval(checkVersion, 60000);
 })();
+
+// ══════ מנגנון BLOCKERS מרכזי (ספרינט 2 · S2-1) ══════════════════════
+// רישום מקורות "עבודה לא שמורה" (dirty) ו"פעולות קריטיות" (critical), כדי
+// ש-watchdog הגרסה (S2-2) ו-beforeunload יידעו מתי בטוח לרענן. כל מקור מזוהה
+// לפי id ייחודי; מקור אחד לעולם לא מנקה מקור אחר. פעולות מקבילות מאותו סוג =
+// מונה (אף פעם לא שלילי). כאן נבנה המנגנון בלבד — החיווט לטפסים/העלאות/AI ב-S2-3.
+(function(){
+  if (window._appDirtySources) return;                          // אידמפוטנטי — לא לאתחל מחדש
+  window._appDirtySources    = new Map();                        // sourceId → details (עבודה לא שמורה)
+  window._criticalOperations = new Map();                        // sourceId → count>0 (פעולה קריטית באוויר)
+
+  // ── עבודה לא שמורה (dirty) ──
+  window._markDirty = function(source, details){
+    if (!source) return;
+    window._appDirtySources.set(String(source), (details == null ? true : details));   // מזהה מפורש בלבד
+  };
+  window._markClean = function(source){
+    if (!source) return;
+    window._appDirtySources.delete(String(source));             // מנקה אך ורק את המקור הזה — לא אחרים
+  };
+  window._isDirty = function(source){
+    return source ? window._appDirtySources.has(String(source)) : (window._appDirtySources.size > 0);
+  };
+
+  // ── פעולות קריטיות (מונה למקביליות) ──
+  window._beginCriticalOperation = function(source){
+    if (!source) return;
+    source = String(source);
+    window._criticalOperations.set(source, (window._criticalOperations.get(source) || 0) + 1);
+  };
+  window._endCriticalOperation = function(source){
+    if (!source) return;
+    source = String(source);
+    var n = (window._criticalOperations.get(source) || 0) - 1;
+    if (n > 0) window._criticalOperations.set(source, n);
+    else window._criticalOperations.delete(source);             // לעולם לא נשאר מונה שלילי/אפס
+  };
+  // עוטף Promise בפעולה קריטית עם cleanup מובטח ב-finally (מונע מונה תקוע)
+  window._withCriticalOperation = function(source, promise){
+    window._beginCriticalOperation(source);
+    return Promise.resolve(promise).finally(function(){ window._endCriticalOperation(source); });
+  };
+
+  // ── אגרגציה: מקורות החסימה לרענון (סיבות ברורות לבדיקות/דיבוג) ──
+  // מאגד את הרישומים הגנריים + מנגנונים גלובליים קיימים (כרגע: _fbPendingPuts —
+  // אוטומטי, בלי חיווט). מקורות נוספים (העלאות/גרירת-אימפוזיציה/AI) יחווטו ב-S2-3.
+  window._getReloadBlockers = function(){
+    var out = [];
+    try { window._appDirtySources.forEach(function(v, k){ out.push({ type:'dirty', source:k, details:v }); }); } catch(e){}
+    try { window._criticalOperations.forEach(function(n, k){ if (n > 0) out.push({ type:'critical', source:k, count:n }); }); } catch(e){}
+    try {
+      var p = window._fbPendingPuts;                             // מונה כתיבות-Firebase הקיים
+      if (p) Object.keys(p).forEach(function(coll){ if (p[coll] > 0) out.push({ type:'firebase-write', source:coll, count:p[coll] }); });
+    } catch(e){}
+    return out;
+  };
+  window._canSafelyReload = function(){ return window._getReloadBlockers().length === 0; };
+
+  // ── beforeunload — הגנה מפני סגירת-טאב / רענון-ידני / ניווט כשיש עבודה לא שמורה ──
+  // מופיע רק כשיש blockers (אחרת שקוף). מתלווה ל-beforeunload של הקיוסק (לא מחליף).
+  window.addEventListener('beforeunload', function(e){
+    try {
+      if (window._updateBypassBeforeUnload) return;               // רענון יזום ומאושר (S2-2) — בלי אזהרה כפולה
+      if (window._getReloadBlockers().length){ e.preventDefault(); e.returnValue = ''; return ''; }
+    } catch(_){}
+  });
+})();
+// ══════ סוף מנגנון BLOCKERS ══════════════════════════════════════════
+
+// ══════ עדכון-גרסה בטוח (ספרינט 2 · S2-2) ════════════════════════════
+// מחליף את הרענון המיידי של ה-watchdog במסלול בטוח: מצב-נקי → המתנה+בדיקה
+// חוזרת ואז רענון; מצב-חסום → הודעה לא-פולשנית עם 3 כפתורים. משתמש ב-
+// _canSafelyReload/_getReloadBlockers מ-S2-1. אין כאן חיווט טפסים (S2-3).
+(function(){
+  if (window._appUpdateState) return;                              // אידמפוטנטי
+  window._appUpdateState = {
+    latestVersion:null, pending:false, updateAfterSafe:false,
+    reloadTimer:null, watchTimer:null, noticeOpen:false, reloading:false
+  };
+  window._updateBypassBeforeUnload = false;                        // bypass חד-פעמי ל-beforeunload
+  window._updateSnoozeMs      = 10 * 60 * 1000;                    // "אחר כך" = 10 דקות
+  window._updateSafeRecheckMs = 3000;                              // המתנה+בדיקה-חוזרת לפני רענון
+  window._updateWatchMs       = 4000;                              // תדירות בדיקת "עדכן לאחר שמירה"
+
+  // ── דחייה ("אחר כך") ב-sessionStorage בלבד (לא נשמר בין סשנים) ──
+  window._updateSnoozedUntil = function(){ try { return parseInt(sessionStorage.getItem('solanUpdateSnoozedUntil'), 10) || 0; } catch(e){ return 0; } };
+  window._isUpdateSnoozed    = function(){ return Date.now() < window._updateSnoozedUntil(); };
+
+  // ── תרגום blockers להודעות ידידותיות (בלי IDs/collections/סודות) ──
+  window._blockerLabels = {
+    'dirty:job-card-form':'כרטיס עבודה שלא נשמר',
+    'dirty:quote-form':'הצעת מחיר שלא נשמרה',
+    'dirty:imposition-builder':'סידור אימפוזיציה שלא נשמר',
+    'critical:proof-upload':'העלאת קובץ מתבצעת',
+    'critical:ai-request':'בקשת AI פעילה',
+    'critical:imposition-drag':'עריכת אימפוזיציה פעילה'
+  };
+  window._translateBlockers = function(blockers){
+    var seen = {}, out = [];
+    (blockers||[]).forEach(function(b){
+      var label;
+      if (b.type === 'firebase-write') label = 'שמירה לענן מתבצעת';
+      else { var key = b.type + ':' + b.source; label = window._blockerLabels[key] || (b.type === 'critical' ? 'פעולה פעילה' : 'עבודה שלא נשמרה'); }
+      if (!seen[label]){ seen[label] = 1; out.push(label); }       // ללא כפילויות, ללא מזהים טכניים
+    });
+    return out;
+  };
+
+  // ── רענון בפועל — פעם אחת בלבד, עם bypass ל-beforeunload ──
+  window._doReload = function(){
+    var st = window._appUpdateState;
+    if (st.reloading) return;                                      // location.replace פעם אחת בלבד
+    st.reloading = true;
+    window._updateBypassBeforeUnload = true;                       // רענון יזום — בלי אזהרה כפולה
+    try {
+      var u = new URL(location.href);
+      u.searchParams.set('_v', String(st.latestVersion));          // מנגנון ?_v הקיים (עוקף CDN + הגנת-לולאה)
+      location.replace(u.toString());
+    } catch(e){
+      try { location.reload(); }
+      catch(e2){ st.reloading = false; window._updateBypassBeforeUnload = false; }   // כשל → בטל bypass, בלי לולאה
+    }
+  };
+
+  // ── מסלול מצב-נקי: המתנה קצרה ואז בדיקה חוזרת לפני רענון ──
+  window._scheduleSafeReload = function(){
+    var st = window._appUpdateState;
+    if (st.reloadTimer) return;                                    // טיימר יחיד בלבד
+    st.reloadTimer = setTimeout(function(){
+      st.reloadTimer = null;
+      if (st.reloading || !st.pending) return;
+      if (window._isUpdateSnoozed()) return;                       // נבחר "אחר כך" בינתיים
+      if (window._canSafelyReload()) window._doReload();
+      else window._showUpdateNotice();                             // blocker הופיע בהמתנה → מסלול חסום, pending נשמר
+    }, window._updateSafeRecheckMs);
+  };
+
+  // ── מעקב אחר "עדכן לאחר שמירה": כשנהיה בטוח → המתנה+בדיקה ואז רענון ──
+  window._startSafeWatch = function(){
+    var st = window._appUpdateState;
+    if (st.watchTimer) return;                                     // מעקב יחיד
+    st.watchTimer = setInterval(function(){
+      if (!st.updateAfterSafe || !st.pending || st.reloading){ clearInterval(st.watchTimer); st.watchTimer = null; return; }
+      if (window._isUpdateSnoozed()) return;
+      if (window._canSafelyReload()){
+        clearInterval(st.watchTimer); st.watchTimer = null;
+        st.reloadTimer = setTimeout(function(){                    // המתנה 2-3ש' ובדיקה חוזרת
+          st.reloadTimer = null;
+          if (st.reloading || !st.pending) return;
+          if (window._canSafelyReload() && !window._isUpdateSnoozed()) window._doReload();
+          else window._startSafeWatch();                          // blocker חזר → המשך לעקוב
+        }, window._updateSafeRecheckMs);
+      }
+    }, window._updateWatchMs);
+  };
+
+  // ── הליבה: מעריך מה לעשות עם עדכון ממתין (idempotent) ──
+  window._evaluatePending = function(){
+    var st = window._appUpdateState;
+    if (!st.pending || st.reloading) return;
+    if (window._isUpdateSnoozed()) return;                         // בזמן דחייה — לא להציג/לרענן
+    if (st.updateAfterSafe){ window._startSafeWatch(); return; }
+    if (window._canSafelyReload()){
+      if (!st.reloadTimer && !st.noticeOpen) window._scheduleSafeReload();
+    } else {
+      window._showUpdateNotice();                                 // idempotent (noticeOpen)
+    }
+  };
+
+  // ── נקודת כניסה מה-watchdog: זוהתה גרסה חדשה ──
+  window._onNewVersion = function(latest){
+    var st = window._appUpdateState;
+    try { if (new URL(location.href).searchParams.get('_v') === String(latest)) return; } catch(e){}   // כבר על הגרסה — הגנת-לולאה
+    if (st.pending && String(latest) === String(st.latestVersion)){ window._evaluatePending(); return; }   // אותה גרסה — רק הערך מחדש
+    if (st.pending && String(latest) !== String(st.latestVersion)){
+      st.latestVersion = latest;                                  // גרסה חדשה יותר מחליפה ישנה
+      if (st.reloadTimer){ clearTimeout(st.reloadTimer); st.reloadTimer = null; }
+    } else { st.pending = true; st.latestVersion = latest; }
+    window._evaluatePending();
+  };
+
+  // ── כפתורי ההודעה ──
+  window._updateAfterSave = function(){                            // "עדכן לאחר שמירה" — לא שומר בעצמו
+    window._appUpdateState.updateAfterSafe = true;
+    window._dismissUpdateNotice();
+    window._startSafeWatch();
+  };
+  window._updateLater = function(){                                // "אחר כך" — דחייה 10 דק' ב-sessionStorage
+    try { sessionStorage.setItem('solanUpdateSnoozedUntil', String(Date.now() + window._updateSnoozeMs)); } catch(e){}
+    var st = window._appUpdateState;
+    if (st.reloadTimer){ clearTimeout(st.reloadTimer); st.reloadTimer = null; }
+    if (st.watchTimer){ clearInterval(st.watchTimer); st.watchTimer = null; }
+    st.updateAfterSafe = false;
+    window._dismissUpdateNotice();                                 // pending נשאר — זוכרים שיש גרסה
+  };
+  window._reloadNow = function(){                                  // "רענן עכשיו" — אזהרת-סיבות + אישור
+    var reasons = window._translateBlockers(window._getReloadBlockers());
+    var msg = reasons.length
+      ? ('רענון עכשיו עלול לאבד עבודה שלא נשמרה:\n\n• ' + reasons.join('\n• ') + '\n\nלרענן בכל זאת?')
+      : 'לרענן עכשיו לגרסה החדשה?';
+    var okToGo = false; try { okToGo = window.confirm(msg); } catch(e){ okToGo = false; }
+    if (!okToGo) return;                                           // ביטול → נשאר בהמתנה
+    window._doReload();                                            // מגדיר bypass ומרענן
+  };
+
+  // ── הודעה לא-פולשנית (לא alert; לא חוסמת הקלדה) ──
+  window._showUpdateNotice = function(){
+    var st = window._appUpdateState;
+    if (st.noticeOpen) return;                                     // לא לשכפל הודעה
+    st.noticeOpen = true;
+    try {
+      if (typeof document === 'undefined') return;
+      var ex = document.getElementById('solan-update-notice'); if (ex && ex.remove) ex.remove();
+      var box = document.createElement('div'); box.id = 'solan-update-notice';
+      box.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:2147482000;background:#1e293b;color:#fff;font:600 13px Heebo,Arial;padding:11px 14px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.35);direction:rtl;max-width:92vw;display:flex;gap:9px;align-items:center;flex-wrap:wrap';
+      var txt = document.createElement('span'); txt.textContent = '🔄 קיימת גרסה חדשה למערכת. העדכון ימתין עד לסיום העבודה.'; txt.style.cssText = 'flex:1;min-width:180px';
+      box.appendChild(txt);
+      function mkBtn(label, bg, fn){ var b = document.createElement('button'); b.textContent = label; b.style.cssText = 'padding:7px 12px;border:none;border-radius:8px;font:700 12px Heebo,Arial;cursor:pointer;color:#fff;background:' + bg; b.onclick = fn; return b; }
+      box.appendChild(mkBtn('עדכן לאחר שמירה', '#2563eb', window._updateAfterSave));
+      box.appendChild(mkBtn('רענן עכשיו', '#dc2626', window._reloadNow));
+      box.appendChild(mkBtn('אחר כך', '#475569', window._updateLater));
+      (document.body || document.documentElement).appendChild(box);
+    } catch(e){}
+  };
+  window._dismissUpdateNotice = function(){
+    window._appUpdateState.noticeOpen = false;
+    try { var el = document.getElementById('solan-update-notice'); if (el && el.remove) el.remove(); } catch(e){}
+  };
+})();
+// ══════ סוף עדכון-גרסה בטוח ══════════════════════════════════════════
+
+// ══════ חיווט blockers לתהליכי-עבודה (ספרינט 2 · S2-3) ═══════════════
+// מחבר טופס-כרטיס / הצעת-מחיר / גרירת-אימפוזיציה למנגנון dirty/critical.
+// עבודה לא שמורה מזוהה ע"י השוואת snapshot ל-baseline שנלכד אחרי prefill.
+(function(){
+  // ── טופס כרטיס עבודה ──
+  window._captureCardFormState = function(){
+    var v = [];
+    ['f-name','f-type','f-order-date','f-delivery-date','f-copies','f-copies-mult','f-pages','f-pages-note','f-size','f-paper','f-notes','f-internal-notes','f-machine','f-placement-details','f-per-sheet']
+      .forEach(function(id){ var e = document.getElementById(id); v.push(id + '=' + (e ? String(e.value) : '')); });
+    ['f-needs-folding','f-needs-binding','f-single-sheet','f-all-paper','f-sheets-mode','f-combined-toggle','f-tumble','f-bw-process']
+      .forEach(function(id){ var e = document.getElementById(id); v.push(id + '=' + (e && e.checked ? '1' : '0')); });
+    var col = document.querySelector('input[name="color"]:checked'); v.push('color=' + (col ? col.value : ''));
+    try { v.push('combined=' + JSON.stringify((typeof combinedRows !== 'undefined' ? combinedRows : []).map(function(r){ return [r.customer, r.desc, r.qty, r.size, r.paper, r.notes]; }))); } catch(e){}
+    try { v.push('runs=' + JSON.stringify((typeof manualRuns !== 'undefined' ? manualRuns : []).map(function(r){ return [r.pages, r.copies, r.machine, r.paper, !!r.tumble, r.upCount, !!r.abEnabled, (r.abExtras||[]).join(','), r.manualExtra, r.folds]; }))); } catch(e){}
+    return v.join('|');
+  };
+  window._cardFormBaselineNow = function(){                       // נקרא אחרי prefill/ניקוי — קובע baseline ומנקה
+    try { window._cardFormBaseline = window._captureCardFormState(); if (window._markClean) window._markClean('job-card-form'); } catch(e){}
+  };
+  window._refreshCardDirtyState = function(){
+    if (window._cardFormBaseline == null) return;                // עוד אין baseline → לא מסמנים
+    try {
+      if (window._captureCardFormState() === window._cardFormBaseline) window._markClean('job-card-form');   // חזרה לערכי-בסיס → נקי
+      else window._markDirty('job-card-form');                   // שינוי ממשי → dirty
+    } catch(e){}
+  };
+
+  // ── טופס הצעת מחיר ──
+  window._captureQuoteFormState = function(){
+    var v = [];
+    ['q-customer','q-customer-email','q-date','q-docnum','q-notes','q-vat-pct','q-employee']
+      .forEach(function(id){ var e = document.getElementById(id); v.push(id + '=' + (e ? String(e.value) : '')); });
+    try { v.push('items=' + JSON.stringify((typeof _quoteItems !== 'undefined' ? _quoteItems : []).map(function(it){ return [it.desc, it.qty, it.price]; }))); } catch(e){}
+    return v.join('|');
+  };
+  window._quoteFormBaselineNow = function(){ try { window._quoteFormBaseline = window._captureQuoteFormState(); if (window._markClean) window._markClean('quote-form'); } catch(e){} };
+  window._refreshQuoteDirtyState = function(){
+    if (window._quoteFormBaseline == null) return;
+    try {
+      if (window._captureQuoteFormState() === window._quoteFormBaseline) window._markClean('quote-form');
+      else window._markDirty('quote-form');
+    } catch(e){}
+  };
+
+  // ── גשר גרירת-אימפוזיציה → פעולה קריטית (מונה יחיד; שחרור בכל מסלול) ──
+  window.pi_dragBegin = function(){ try { if (window._pi && !window._pi._dragCounted){ window._pi._dragCounted = true; if (window._beginCriticalOperation) window._beginCriticalOperation('imposition-drag'); } } catch(e){} };
+  window.pi_dragEnd   = function(){ try { if (window._pi && window._pi._dragCounted){ window._pi._dragCounted = false; if (window._endCriticalOperation) window._endCriticalOperation('imposition-drag'); } } catch(e){} };
+
+  // ── חיווט listeners (delegation) אחרי טעינת ה-DOM ──
+  function _wireS3(){
+    var vn = document.getElementById('view-new');
+    if (vn && !vn._s3wired){ vn._s3wired = true;
+      vn.addEventListener('input',  window._refreshCardDirtyState, true);
+      vn.addEventListener('change', window._refreshCardDirtyState, true);
+    }
+    var qm = document.getElementById('quote-modal');
+    if (qm && !qm._s3wired){ qm._s3wired = true;
+      qm.addEventListener('input',  window._refreshQuoteDirtyState, true);
+      qm.addEventListener('change', window._refreshQuoteDirtyState, true);
+    }
+    // רשת-ביטחון: כל שחרור-מצביע מסיים גרירת-אימפוזיציה תקועה (pointerup/cancel/mouseup)
+    ['pointerup','pointercancel','mouseup','touchend','touchcancel'].forEach(function(ev){ window.addEventListener(ev, window.pi_dragEnd, true); });
+    // baseline התחלתי לטופס הכרטיס (ריק) — כדי שהקלדה בטאב "חדש" תזוהה גם בלי clearForm
+    window._cardFormBaselineNow();
+  }
+  if (typeof document !== 'undefined'){
+    if (document.readyState !== 'loading') _wireS3();
+    else document.addEventListener('DOMContentLoaded', _wireS3);
+  }
+})();
+// ══════ סוף חיווט blockers (S2-3) ════════════════════════════════════
 
 // ── גובה כותרת דינמי ─────────────────────────────────────────────
 // שומר את גובה הכותרת ב-CSS var --hdr-h כדי שסרגל הטאבים יידבק בדיוק
@@ -2807,6 +3112,7 @@ window._fbSnapshot = {};
     <span>🤖 עוזר AI — סולן הדפסות</span>
     <button onclick="toggleAiChat()">✕</button>
   </div>
+  <div id="ai-svc-chat" style="display:none;padding:5px 12px;font-size:.75rem;background:#faf5ff;border-bottom:1px solid #eee"></div>
   <div id="ai-chat-messages">
     <div class="ai-msg bot">שלום! אני כאן לעזור עם שאלות על האפליקציה — כרטיסי עבודה, ריצות, מלאי, עיתונים, הצעות מחיר וכו'. שאל אותי כל שאלה 😊</div>
   </div>
@@ -4535,20 +4841,203 @@ function _aiRelay(payload){
 // נקודת כניסה אחידה לכל בקשות ה-AI: מנסה ישיר לפרוקסי, ואם הדפדפן חוסם — דרך הענן.
 window._proxyDirectOk = null;   // null=לא נבדק, true=ישיר עובד, false=דרך הענן
 function _aiRequest(payload){
-  if (window._proxyDirectOk === false) return _aiRelay(payload);   // כבר ידוע שהישיר חסום בסשן הזה
-  return _proxyFetch(JSON.stringify(payload)).then(function(r){
+  // S2-3: בקשת AI פעילה חוסמת רענון. מונה יחיד לכל הבקשה (כולל fallback הפנימי) —
+  // ה-fallback ל-relay אינו מתחיל operation חדש; מקביליות נתמכת ע"י המונה.
+  if (window._beginCriticalOperation) window._beginCriticalOperation('ai-request');
+  // S2-5: חיווי פעילות (תצפית בלבד — לא משנה timeout/fallback/סדר). מסלול ידוע רק בהצלחה.
+  var _route = { r: null };
+  if (window._aiStartRequestStatus) window._aiStartRequestStatus(window._proxyDirectOk === false ? 'cloud' : (window._proxyDirectOk === true ? 'local' : null));
+  var p;
+  if (window._proxyDirectOk === false) p = _aiRelay(payload).then(function(v){ _route.r = 'cloud'; return v; });   // כבר ידוע שהישיר חסום בסשן הזה
+  else p = _proxyFetch(JSON.stringify(payload)).then(function(r){
     if (!r.ok) return r.json().then(function(e){ throw new Error('API ' + r.status + ': ' + JSON.stringify(e)); });
-    window._proxyDirectOk = true;
+    window._proxyDirectOk = true; _route.r = 'local';
     return r.json();
   }).catch(function(err){
     var msg = (err && err.message) || '';
     if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1) {
       window._proxyDirectOk = false;
-      return _aiRelay(payload);      // חסימת רשת → מעבר לענן
+      if (window._aiSetServiceState) window._aiSetServiceState({ requestRoute:'cloud' });   // "מעבד דרך הענן" (עדיין לא success)
+      return _aiRelay(payload).then(function(v){ _route.r = 'cloud'; return v; });           // חסימת רשת → מעבר לענן (אותה operation)
     }
     throw err;                       // שגיאת API אמיתית → הצג אותה
   });
+  if (!window._endCriticalOperation) return p;   // סביבה בלי מנגנון (בדיקות ישנות)
+  return Promise.resolve(p).then(function(v){
+    window._endCriticalOperation('ai-request');                                 // decrement קודם — כדי ש-activeCount יהיה מדויק
+    if (window._aiEndRequestStatus) window._aiEndRequestStatus(true, _route.r);
+    return v;
+  }, function(e){
+    window._endCriticalOperation('ai-request');
+    if (window._aiEndRequestStatus) window._aiEndRequestStatus(false, null);
+    throw e;
+  });
 }
+
+// ══════ בדיקת בריאות שירות AI — תשתית בלבד (ספרינט 2 · S2-4) ═════════
+// קובעת אם ה-proxy המקומי חי (GET /health) או שה-relay בענן פעיל לאחרונה
+// (heartbeat טרי). ⚠️ אינה קוראת ל-Claude ואינה צורכת API. אינה משנה את
+// _aiRequest/_proxyDirectOk/fallback/timeout. אין polling/UI כאן — זה S2-5.
+// מגבלה: heartbeat מוכיח ש-proxy.py רץ וכתב לאחרונה, לא ש-Claude זמין כרגע
+// ולא הגנה קריפטוגרפית (חוקי Firebase = auth!=null; אבטחה אמיתית = משימה עתידית).
+window._AI_HEALTH_TIMEOUT_MS   = 2500;    // timeout ל-health בלבד (לא לבקשת Claude!)
+window._AI_HEARTBEAT_FRESH_MS  = 180000;  // heartbeat נחשב עדכני אם גילו < 3 דק'
+window._aiServiceState = { status:'unknown', checkedAt:0, local:null, relay:null, error:null };
+window._aiHealthInFlight = null;
+window._aiCheckServiceHealth = function(){
+  if (window._aiHealthInFlight) return window._aiHealthInFlight;   // מקביליות → אותו Promise
+  // merge (ולא החלפת-אובייקט) כדי לשמר שדות S2-5 (requestActive/slow/lastSuccessAt); render מרוכז
+  var _apply = function(patch){ try { Object.assign(window._aiServiceState, patch); } catch(e){} try { window._aiRenderServiceStatus && window._aiRenderServiceStatus(); } catch(e){} };
+  _apply({ status:'checking' });
+  var p = (async function(){
+    // (1) ניסיון מקומי — GET /health עם timeout קצר
+    try {
+      var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      var to = setTimeout(function(){ try { ctrl && ctrl.abort(); } catch(e){} }, window._AI_HEALTH_TIMEOUT_MS);
+      var r = await fetch('http://127.0.0.1:8766/health', { method:'GET', signal: ctrl ? ctrl.signal : undefined });
+      clearTimeout(to);
+      if (r && r.ok){
+        var hh = await r.json();
+        if (hh && hh.ready === true){
+          _apply({ status:'local', checkedAt:Date.now(),
+            local:{ relayWorker: !!hh.relayWorker, providerConfigured: !!hh.providerConfigured }, relay:null, error:null });
+          return window._aiServiceState;
+        }
+      }
+    } catch(e){ /* local לא זמין / timeout — ננסה heartbeat */ }
+    // (2) fallback: heartbeat של ה-relay — קריאה בלבד (בלי _rev/merge/persist/כתיבה)
+    try {
+      var hb = window._fbGetRaw ? await window._fbGetRaw('aiServiceHeartbeat/proxy') : null;
+      var fresh = !!(hb && hb.relayWorker === true && typeof hb.timestamp === 'number'
+                     && (Date.now() - hb.timestamp) < window._AI_HEARTBEAT_FRESH_MS);
+      _apply({ status: fresh ? 'cloud' : 'unavailable', checkedAt:Date.now(),
+        local:null, relay: hb ? { relayWorker: !!hb.relayWorker, ageMs: (typeof hb.timestamp==='number') ? (Date.now()-hb.timestamp) : null } : null, error:null });
+    } catch(e){
+      // כשל קריאת Firebase — לא שובר את האפליקציה, רק מסמן unavailable
+      _apply({ status:'unavailable', checkedAt:Date.now(), local:null, relay:null, error:'heartbeat-read-failed' });
+    }
+    return window._aiServiceState;
+  })();
+  window._aiHealthInFlight = p;
+  var _clr = function(){ window._aiHealthInFlight = null; };
+  p.then(_clr, _clr);   // אחרי סיום — אפשר בדיקה חדשה
+  return p;
+};
+
+// ══════ חיווי מצב שירות AI — ספרינט 2 · S2-5 ════════════════════════
+// מרחיב את _aiServiceState לפעילות-בקשה, מציג חיווי ידידותי למשתמשים
+// מורשים בלבד (בתוך חלונות ה-AI), וממפה שגיאות להודעות קצרות. אינו משנה
+// timeout/fallback/proxy.py; health לא נספר כ-ai-request.
+(function(){
+  // הרחבת המצב שנוצר ב-S2-4 (בלי לפזר משתנים)
+  try { Object.assign(window._aiServiceState, { requestActive:false, requestRoute:null, slow:false, lastSuccessAt:0 }); } catch(e){}
+  window._AI_SLOW_MS = 13000;            // "התגובה מתארכת" אחרי ~13ש' (חיווי בלבד — לא abort/fallback)
+  window._AI_SUCCESS_FLASH_MS = 4000;    // כמה זמן להציג "שירות ה-AI פועל" אחרי הצלחה
+
+  window._aiIsAdmin  = function(){ try { return !!(typeof currentUser!=='undefined' && currentUser && currentUser.isAdmin); } catch(e){ return false; } };
+  window._aiHasAccess = function(){       // מי רואה חיווי: מנהל או בעל-גישת-הצעות (משתמשי AI). לא בקיוסק/עובד-ייצור.
+    try {
+      if (window._kioskOn && window._kioskOn()) return false;
+      if (typeof currentUser==='undefined' || !currentUser) return false;
+      if (currentUser.isAdmin) return true;
+      return (typeof hasPermission==='function') ? hasPermission('quotes.view') : false;
+    } catch(e){ return false; }
+  };
+  window._aiActiveCount = function(){
+    try { return (window._criticalOperations && window._criticalOperations.get) ? (window._criticalOperations.get('ai-request')||0) : (window._aiServiceState.requestActive?1:0); } catch(e){ return 0; }
+  };
+  // נקודת-מצב מרכזית: כל שינוי עובר כאן ומפעיל render
+  window._aiSetServiceState = function(patch){
+    try { Object.assign(window._aiServiceState, patch||{}); } catch(e){}
+    try { window._aiRenderServiceStatus(); } catch(e){}
+    return window._aiServiceState;
+  };
+  // טקסט הסטטוס לפי המצב (פעילות-בקשה גוברת על מצב-health)
+  window._aiStatusInfo = function(){
+    var s = window._aiServiceState;
+    if (s.requestActive){
+      if (s.slow) return { text:'התגובה מתארכת, אך הבקשה עדיין פעילה.', tip:'', recheck:false, tone:'busy' };
+      if (s.requestRoute === 'cloud') return { text:'מעבד דרך שירות הענן…', tip:'', recheck:false, tone:'busy' };
+      if (s.requestRoute === 'local') return { text:'מעבד דרך השירות המקומי…', tip:'', recheck:false, tone:'busy' };
+      return { text:'ה-AI מעבד את הבקשה…', tip:'', recheck:false, tone:'busy' };
+    }
+    if (s.lastSuccessAt && (Date.now() - s.lastSuccessAt) < window._AI_SUCCESS_FLASH_MS)
+      return { text:'שירות ה-AI פועל', tip:'', recheck:false, tone:'ok' };
+    switch (s.status){
+      case 'checking':    return { text:'בודק את שירות ה-AI…', tip:'', recheck:false, tone:'busy' };
+      case 'local':       return { text:'AI מחובר מקומית', tip:'השירות המקומי במחשב פעיל.', recheck:false, tone:'ok' };
+      case 'cloud':       return { text:'שירות הענן נראה זמין', tip:'התקבל heartbeat עדכני משירות ה-relay. הדבר אינו מבטיח ש-Claude עצמו זמין.', recheck:false, tone:'ok' };
+      case 'unavailable': return { text:'שירות ה-AI אינו זמין כרגע', tip:'ודא ש-start.bat פועל ונסה שוב.', recheck:true, tone:'bad' };
+      default:            return { text:'מצב שירות ה-AI טרם נבדק', tip:'', recheck:false, tone:'idle' };
+    }
+  };
+  window._aiRenderServiceStatus = function(){
+    var targets = ['ai-svc-quote','ai-svc-chat'].map(function(id){ return document.getElementById(id); }).filter(Boolean);
+    if (!targets.length) return;
+    if (!window._aiHasAccess()){ targets.forEach(function(t){ t.innerHTML=''; t.style.display='none'; }); return; }   // לא-מורשה → אין חיווי
+    var info = window._aiStatusInfo();
+    var color = { ok:'#059669', bad:'#dc2626', busy:'#7c3aed', idle:'#6b7280' }[info.tone] || '#6b7280';
+    var tip = (info.tip||'').replace(/"/g,'&quot;');
+    var html = '<span title="'+tip+'" style="color:'+color+';font-weight:700">'+info.text+'</span>';
+    if (info.recheck) html += ' <button type="button" onclick="window._aiRecheckHealth&&window._aiRecheckHealth()"'+(window._aiHealthInFlight?' disabled':'')+' style="margin-inline-start:6px;font-size:.72rem;padding:2px 9px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer">בדוק שוב</button>';
+    if (info.recheck && window._aiIsAdmin()) html += '<div style="font-size:.68rem;color:#9ca3af;margin-top:3px">אם start.bat כבר פתוח, סגור והפעל אותו מחדש כדי לטעון את גרסת השירות החדשה.</div>';
+    targets.forEach(function(t){ t.style.display=''; t.innerHTML = html; });
+  };
+  // מיפוי שגיאות → הודעות משתמש קצרות (בלי response/stack/payload/prompt/מפתחות)
+  window._aiFriendlyError = function(err){
+    var m = (err && err.message) || String(err||'');
+    try { if (window._aiIsAdmin()) console.warn('[AI] ' + m.slice(0,160)); } catch(e){}   // למנהל: טכני מצומצם ב-console
+    if (/שמירת הבקשה לענן נכשלה/.test(m)) return 'לא ניתן להעביר את הבקשה לשירות הענן.';
+    if (/start\.bat|לא הגיב דרך הענן|Failed to fetch|NetworkError/i.test(m)) return 'שירות ה-AI אינו זמין כרגע. ודא ש-start.bat פועל או נסה שוב מאוחר יותר.';
+    if (/timeout|לא הגיב בזמן|timed out/i.test(m)) return 'שירות ה-AI לא החזיר תשובה בזמן. אפשר לנסות שוב.';
+    if (/API\s*\d|api error|overloaded|rate|\b4\d\d\b|\b5\d\d\b/i.test(m)) return 'שירות ה-AI החזיר שגיאה. נסה שוב בעוד מספר דקות.';
+    return 'לא ניתן להשלים את הבקשה כרגע.';
+  };
+  // מחזור-חיים של בקשה — מונע ע"י המונה _criticalOperations['ai-request'] (תומך מקביליות)
+  window._aiStartRequestStatus = function(route){
+    window._aiSetServiceState({ requestActive:true, slow:false, requestRoute: route || null });
+    if (!window._aiSlowTimer){
+      window._aiSlowTimer = setTimeout(function(){ window._aiSlowTimer=null; if (window._aiActiveCount()>0) window._aiSetServiceState({ slow:true }); }, window._AI_SLOW_MS);
+    }
+  };
+  window._aiEndRequestStatus = function(okFlag, route){
+    if (okFlag && route) window._aiSetServiceState({ status:route, requestRoute:route, lastSuccessAt:Date.now() });
+    else if (okFlag)     window._aiSetServiceState({ lastSuccessAt:Date.now() });
+    if (window._aiActiveCount() <= 0){                 // כל הבקשות הסתיימו (אחרי decrement של המונה)
+      if (window._aiSlowTimer){ clearTimeout(window._aiSlowTimer); window._aiSlowTimer=null; }
+      window._aiSetServiceState({ requestActive:false, slow:false, requestRoute:null });
+      if (!okFlag){ try { window._aiCheckServiceHealth && window._aiCheckServiceHealth().then(function(){ window._aiRenderServiceStatus(); }, function(){ window._aiRenderServiceStatus(); }); } catch(e){} }
+    }
+  };
+  window._aiRecheckHealth = function(){
+    if (window._aiHealthInFlight) return;              // כבר בבדיקה
+    var pr = window._aiCheckServiceHealth();           // מסמן inFlight + status=checking
+    window._aiSetServiceState({});                     // render מיידי (הכפתור ננעל)
+    pr.then(function(){ window._aiRenderServiceStatus(); }, function(){ window._aiRenderServiceStatus(); });
+  };
+  // ── polling רק בזמן שחלון AI פתוח (timer יחיד; לא גלובלי; לא בזמן בקשה פעילה) ──
+  window._aiAnyWindowOpen = function(){
+    try {
+      var q = document.getElementById('aiQuoteModal'); if (q && q.style && q.style.display && q.style.display !== 'none') return true;
+      var c = document.getElementById('ai-chat-panel'); if (c && c.classList && c.classList.contains('open')) return true;
+    } catch(e){}
+    return false;
+  };
+  window._aiStartHealthPolling = function(){
+    if (!window._aiHasAccess()) return;                // לא-מורשה → בלי health כלל
+    window._aiCheckServiceHealth().then(function(){ window._aiRenderServiceStatus(); }, function(){ window._aiRenderServiceStatus(); });
+    if (window._aiHealthPollTimer) return;             // timer יחיד
+    window._aiHealthPollTimer = setInterval(function(){
+      if (!window._aiAnyWindowOpen()){ window._aiStopHealthPolling(); return; }   // חלון נסגר → בטל
+      if (window._aiServiceState.requestActive || window._aiHealthInFlight) return;
+      window._aiCheckServiceHealth().then(function(){ window._aiRenderServiceStatus(); }, function(){ window._aiRenderServiceStatus(); });
+    }, 60000);
+  };
+  window._aiStopHealthPolling = function(){
+    if (window._aiAnyWindowOpen()) return;             // חלון AI אחר עדיין פתוח → אל תבטל
+    if (window._aiHealthPollTimer){ clearInterval(window._aiHealthPollTimer); window._aiHealthPollTimer=null; }
+  };
+})();
 
 // ══════ מנוע Prepress (בטא) — שכבת החלטות בסגנון Apogee Impose · מזינה לאימפוזיציה הקיימת · לבעלים בלבד ══════
 // לא עורך — מנוע החלטות: לכל שלב המלצה + הסבר, המשתמש מאשר, ואז ההחלטות מוזנות למערכת האימפוזיציה הקיימת.
@@ -4799,6 +5288,7 @@ function openAiQuote(){
     _aiQuoteAppend('assistant', _AIQ_GREET);
   }
   document.getElementById('aiQuoteModal').style.display = 'flex';
+  try { window._aiStartHealthPolling && window._aiStartHealthPolling(); } catch(e){}   // S2-5: בדיקת בריאות + polling בזמן שהחלון פתוח
   setTimeout(function(){ var i = document.getElementById('aiq-input'); if (i) i.focus(); box=document.getElementById('aiq-msgs'); if(box) box.scrollTop=box.scrollHeight; }, 60);
 }
 function _aiQuoteNew(){
@@ -4807,7 +5297,7 @@ function _aiQuoteNew(){
   var box = document.getElementById('aiq-msgs'); if (box) box.innerHTML = '';
   _aiQuoteAppend('assistant', _AIQ_GREET);
 }
-function closeAiQuote(){ var m = document.getElementById('aiQuoteModal'); if (m) m.style.display = 'none'; }
+function closeAiQuote(){ var m = document.getElementById('aiQuoteModal'); if (m) m.style.display = 'none'; try { window._aiStopHealthPolling && window._aiStopHealthPolling(); } catch(e){} }
 // פתיחת המחירון (עורך התעריפון) מתוך חלון תמחור ה-AI — מרים z-index מעל חלון ה-AI.
 // שינויים במחירון נקלטים אוטומטית: כל שאלה/חישוב הבא ב-AI קורא את quotePricing מחדש.
 function _aiOpenPricing(){
@@ -4952,11 +5442,13 @@ function _aiQuoteSend(){
     _aiQuoteAppend('assistant', _clean || reply);
     if (_opts) _aiqRenderOptions(_opts[1]);
   })
-  .catch(function(e){ _aiQuoteAppend('assistant', '⚠️ שגיאה: ' + (e.message || e)); })
+  .catch(function(e){ _aiQuoteAppend('assistant', '⚠️ ' + (window._aiFriendlyError ? window._aiFriendlyError(e) : 'לא ניתן להשלים את הבקשה כרגע.')); })
   .finally(function(){ if (btn) btn.disabled = false; if (st) st.textContent = ''; });
 }
 
 function _orderSendToClaude(opts){
+  if (window._aiOrderBusy) { try { showToast('⏳ ניתוח קובץ כבר מתבצע — המתן לסיום'); } catch(e){} return; }   // S2-5: מניעת לחיצה כפולה
+  window._aiOrderBusy = true;
   var SYS = 'אתה עוזר של בית דפוס בישראל. חלץ את פרטי ההזמנה מהמסמך. החזר אך ורק שורות בפורמט הבא — שדה אחד בכל שורה, בלי טקסט נוסף ובלי הסברים:\n'
     + 'לקוח: <שם הלקוח או החברה שמזמינים בשבילו>\n'
     + 'פריט: <תיאור המוצר/העבודה> | <כמות במספר>\n'
@@ -5011,7 +5503,8 @@ function _orderSendToClaude(opts){
     }
     // מציגים את סיבת הכשל בתוך חלון ההזמנה כדי שאפשר יהיה לאבחן בלי קונסול
     openNewOrderModal({ fileNote: '📎 ' + opts.file.name + ' (נותח ידנית) · ⚠️ ' + (isNet ? 'אין חיבור לשרת הניתוח (127.0.0.1:8766)' : msg.slice(0,120)) + ' · גרסה ' + (window.APP_VERSION || '?') });
-  });
+  })
+  .finally(function(){ window._aiOrderBusy = false; });   // S2-5: שחרור נעילת לחיצה כפולה
 }
 function _processOrderFile(file) {
   if (!file) return;
@@ -5814,13 +6307,15 @@ function addManualRun() {
   const id = Date.now();
   manualRuns.push({ id, pages:'', copies:'', machine:'', paper:'' });
   renderManualRuns();
+  try { if (window._refreshCardDirtyState) window._refreshCardDirtyState(); } catch(e){}   // S2-3.1: שינוי מבני
 }
 
 function removeManualRun(id) {
   const snap = [...manualRuns];
   manualRuns = manualRuns.filter(r=>r.id!==id);
   renderManualRuns();
-  showUndoToast('ריצה נמחקה', function() { manualRuns = snap; renderManualRuns(); });
+  try { if (window._refreshCardDirtyState) window._refreshCardDirtyState(); } catch(e){}   // S2-3.1
+  showUndoToast('ריצה נמחקה', function() { manualRuns = snap; renderManualRuns(); try { if (window._refreshCardDirtyState) window._refreshCardDirtyState(); } catch(e){} });
 }
 
 function moveManualRun(i, dir) {
@@ -5828,6 +6323,7 @@ function moveManualRun(i, dir) {
   if (j < 0 || j >= manualRuns.length) return;
   var tmp = manualRuns[i]; manualRuns[i] = manualRuns[j]; manualRuns[j] = tmp;
   renderManualRuns();
+  try { if (window._refreshCardDirtyState) window._refreshCardDirtyState(); } catch(e){}   // S2-3.1: שינוי סדר
 }
 
 // ===== כרטיס משולב — כמה לקוחות באותה הדפסה =====
@@ -5840,10 +6336,12 @@ function toggleCombined(){
 function addCombinedRow(){
   combinedRows.push({ id: Date.now()+'_'+Math.random().toString(36).slice(2,6), customer:'', desc:'', qty:'', size:'', paper:'', notes:'' });
   renderCombinedRows();
+  try { if (window._refreshCardDirtyState) window._refreshCardDirtyState(); } catch(e){}   // S2-3.1: הוספת לקוח
 }
 function removeCombinedRow(id){
   combinedRows = combinedRows.filter(function(r){ return r.id!==id; });
   renderCombinedRows();
+  try { if (window._refreshCardDirtyState) window._refreshCardDirtyState(); } catch(e){}   // S2-3.1: מחיקת לקוח
 }
 function _combinedSet(id, field, val){
   var r = combinedRows.find(function(x){ return x.id===id; });
@@ -7185,6 +7683,7 @@ function editCard(id) {
   document.getElementById('form-title').textContent = 'עריכת כרטיס — ' + (c.name||'');
   switchTab('new');
   window.scrollTo(0,0);
+  try { setTimeout(window._cardFormBaselineNow, 0); } catch(e){}   // S2-3: baseline לערכים שנטענו → נקי עד לעריכה
 }
 function clearForm() {
   window._editingCardId = null;
@@ -7224,6 +7723,7 @@ function clearForm() {
   window._formProof = null;
   window._pmDismissed = {};   // איפוס דחיות תזכורת-מוצר — כרטיס חדש מקבל תזכורות מחדש
   _updateProofFormStatus();
+  try { setTimeout(window._cardFormBaselineNow, 0); } catch(e){}   // S2-3: baseline לטופס ריק → נקי
 }
 
 function getColor() {
@@ -7303,11 +7803,14 @@ function _uploadProofOnce(path, file, onProgress, onXhr) {
 // עטיפה עם ניסיון חוזר אוטומטי אחד — להעלאות שנתקעות/כשלי רשת חולפים.
 function _uploadProofToStorage(path, file, onProgress, onXhr) {
   if (!window._fbWriteGuard('STORAGE-UPLOAD ' + path)) return Promise.reject(new Error('כתיבה חסומה בסביבת ' + window._solanEnvNow()));   // הגנת סביבה
-  return _uploadProofOnce(path, file, onProgress, onXhr).catch(function(err){
+  var _op = 'upload:' + path;                                         // S2-3: העלאה פעילה חוסמת רענון (מונה — מקביליות)
+  if (window._beginCriticalOperation) window._beginCriticalOperation(_op);
+  var p = _uploadProofOnce(path, file, onProgress, onXhr).catch(function(err){
     if (err && err.message === 'aborted') throw err;   // בוטל ביודעין — לא לנסות שוב
     if (onProgress) onProgress(0);
     return _uploadProofOnce(path, file, onProgress, onXhr);
   });
+  return window._endCriticalOperation ? p.finally(function(){ window._endCriticalOperation(_op); }) : p;   // שחרור בהצלחה/כשל/abort
 }
 function _deleteProofStorage(spath) {
   if (!spath) return;
@@ -9601,6 +10104,8 @@ function retryAI() {
 }
 
 function extractDeliveryWithAI(dataUrl) {
+  if (window._aiDeliveryBusy) { try { showToast('⏳ ניתוח כבר מתבצע — המתן לסיום'); } catch(e){} return Promise.resolve(); }   // S2-5: מניעת לחיצה כפולה
+  window._aiDeliveryBusy = true;
   var base64   = dataUrl.split(",")[1];
   var mimeType = dataUrl.split(";")[0].split(":")[1];
   var isPdf    = mimeType === "application/pdf";
@@ -9629,7 +10134,7 @@ function extractDeliveryWithAI(dataUrl) {
     document.getElementById("del-btn-ai").style.display = "inline-flex";
     document.getElementById("del-btn-manual").style.display = "inline-flex";
     buildDeliveryForm({}, _deliveryMode);
-  });
+  }).finally(function(){ window._aiDeliveryBusy = false; });   // S2-5: שחרור נעילת לחיצה כפולה
 }
 
 function buildDeliveryForm(pre, mode) {
@@ -15698,6 +16203,7 @@ function pickCustomerForQuote(name, email, phone, address) {
 }
 
 function openQuoteForm(type, id) {
+  window._quoteFormBaseline = null;   // S2-3.1: מנטרל dirty-check בזמן ה-prefill (baseline ייקבע בסוף)
   _quoteEditId = id || null;
   _quoteItems = [];
   const modal = document.getElementById('quote-modal');
@@ -15733,10 +16239,12 @@ function openQuoteForm(type, id) {
   renderQuoteItems();
   calcQuoteTotals();
   modal.classList.add('open');
+  try { setTimeout(window._quoteFormBaselineNow, 0); } catch(e){}   // S2-3: baseline אחרי prefill → נקי עד לשינוי
 }
 
 function closeQuoteModal() {
   document.getElementById('quote-modal').classList.remove('open');
+  try { if (window._markClean) window._markClean('quote-form'); } catch(e){}   // S2-3: סגירה/שמירה מפורשת מנקה
 }
 
 function addQuoteItem() {
@@ -15855,6 +16363,9 @@ function calcQuoteTotals() {
   if (s) s.textContent = fmt(subtotal);
   if (va) va.textContent = fmt(vatAmt);
   if (t) t.textContent = fmt(total);
+  // S2-3.1: נקודה מרכזית — כל mutation ב-_quoteItems (הוספה/מחיקה/שכפול/טעינה) עובר דרך כאן.
+  // בזמן prefill ה-baseline מאופס ל-null (ב-openQuoteForm) → ההשוואה היא no-op עד שנקבע baseline.
+  try { if (window._refreshQuoteDirtyState) window._refreshQuoteDirtyState(); } catch(e){}
 }
 
 // ═══════════════════════════════════════════
@@ -18828,7 +19339,8 @@ var _aiSysPrompt = `אתה עוזר AI מובנה באפליקציית ניהו�
 window.toggleAiChat = function(){
   var p = document.getElementById('ai-chat-panel');
   p.classList.toggle('open');
-  if(p.classList.contains('open')) document.getElementById('ai-chat-input').focus();
+  if(p.classList.contains('open')){ document.getElementById('ai-chat-input').focus(); try { window._aiStartHealthPolling && window._aiStartHealthPolling(); } catch(e){} }
+  else { try { window._aiStopHealthPolling && window._aiStopHealthPolling(); } catch(e){} }
 };
 
 function appendMsg(text, role){
@@ -18866,7 +19378,7 @@ window.sendAiMessage = async function(){
     typingEl.textContent = reply;
     typingEl.classList.remove('typing');
   } catch(e){
-    typingEl.textContent = 'שגיאת חיבור — ודא שהשרת המקומי פועל';
+    typingEl.textContent = (window._aiFriendlyError ? window._aiFriendlyError(e) : 'שירות ה-AI אינו זמין כרגע. ודא ש-start.bat פועל או נסה שוב מאוחר יותר.');
     typingEl.classList.remove('typing');
   }
   _aiThinking = false;
@@ -21498,6 +22010,7 @@ setInterval(function(){ try { _pollScanStages(); } catch(e){} }, 20000);
     </div>
     <div id="aiq-msgs" style="flex:1;overflow-y:auto;padding:16px;background:#f7f7fb;display:flex;flex-direction:column;gap:10px"></div>
     <div id="aiq-status" style="padding:0 16px;font-size:.8rem;color:#7c3aed;min-height:16px"></div>
+    <div id="ai-svc-quote" style="display:none;padding:2px 16px 6px;font-size:.76rem"></div>
     <div style="display:flex;gap:7px;padding:0 14px 4px;flex-wrap:wrap">
       <button onclick="_aiqSharePdf()" title="צור PDF של ההצעה האחרונה (שמור/הדפס)" style="background:#fff;border:1px solid #d1d5db;color:#374151;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">📄 PDF ללקוח</button>
       <button onclick="_aiqShareWhatsapp()" title="שלח את טקסט ההצעה בוואטסאפ" style="background:#25d366;border:none;color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">🟢 וואטסאפ (טקסט)</button>
@@ -26664,6 +27177,7 @@ function pi_mDragStart(e){
     });
   }
   window._pi._drag = { mode:'manual', key:id, id:id, el:el, additive:additive, group:grp, sx:pt.clientX, sy:pt.clientY, ox:it.xMm, oy:it.yMm, w:it.widthMm, h:it.heightMm, g:pi_curGeom(), moved:false, nx:it.xMm, ny:it.yMm };
+  if (window.pi_dragBegin) window.pi_dragBegin();   // S2-3: גרירה פעילה = פעולה קריטית
   document.addEventListener('mousemove', pi_canvasDragMove);
   document.addEventListener('mouseup', pi_canvasDragEnd);
   document.addEventListener('touchmove', pi_canvasDragMove, { passive:false });
@@ -26680,6 +27194,7 @@ function pi_mResizeStart(e){
   window._pi._drag = { mode:'resize', handle:handle, id:id, key:id, sx:pt.clientX, sy:pt.clientY,
     ox:it.xMm, oy:it.yMm, ow:it.widthMm, oh:it.heightMm, g:pi_curGeom(), moved:false,
     nx:it.xMm, ny:it.yMm, nw:it.widthMm, nh:it.heightMm };
+  if (window.pi_dragBegin) window.pi_dragBegin();   // S2-3: שינוי-גודל = פעולה קריטית
   document.addEventListener('mousemove', pi_canvasDragMove);
   document.addEventListener('mouseup', pi_canvasDragEnd);
   document.addEventListener('touchmove', pi_canvasDragMove, { passive:false });
@@ -26976,6 +27491,9 @@ function pi_badge(){
 }
 function pi_fmtDate(ms){ return ms ? new Date(ms).toLocaleDateString('he-IL') + ' ' + new Date(ms).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}) : '—'; }
 function pi_render(){
+  // S2-3: משקף את דגל _pi.dirty הקיים (טיוטת אימפוזיציה לא שמורה) למנגנון המרכזי מנקודה אחת.
+  // dirty=true נקבע בכל mutation; pi_saveDraft/autosave מאפסים ל-false וקוראים ל-pi_render → מנקה.
+  try { if (window._markDirty){ if (window._pi && window._pi.dirty) window._markDirty('imposition-builder'); else window._markClean('imposition-builder'); } } catch(e){}
   if (window._pi.view === 'manual') pi_renderManualWS();
   else if (window._pi.view === 'canvas') pi_renderCanvas();
   else if (window._pi.view === 'builder') pi_renderBuilder();
@@ -27978,6 +28496,7 @@ function pi_canvasDragStart(e){
   if (!it) return;
   var pt = e.touches ? e.touches[0] : e;
   window._pi._drag = { key:key, el:el, sx:pt.clientX, sy:pt.clientY, ox:it.xMm, oy:it.yMm, w:it.widthMm, h:it.heightMm, g:R.geom, moved:false, nx:it.xMm, ny:it.yMm };
+  if (window.pi_dragBegin) window.pi_dragBegin();   // S2-3: גרירה בקנבס = פעולה קריטית
   document.addEventListener('mousemove', pi_canvasDragMove);
   document.addEventListener('mouseup', pi_canvasDragEnd);
   document.addEventListener('touchmove', pi_canvasDragMove, { passive:false });
@@ -28071,7 +28590,7 @@ function pi_canvasDragEnd(){
   document.removeEventListener('mouseup', pi_canvasDragEnd);
   document.removeEventListener('touchmove', pi_canvasDragMove);
   document.removeEventListener('touchend', pi_canvasDragEnd);
-  var dr = window._pi._drag; window._pi._drag = null; if (!dr) return;
+  var dr = window._pi._drag; window._pi._drag = null; if (window.pi_dragEnd) window.pi_dragEnd(); if (!dr) return;
   var cur = window._pi.cur;
   if (dr.mode === 'resize'){
     if (dr.moved){ pi_selSet([dr.id]); window._pi.arrangeMsg = null; cur._edited = true; window._pi.dirty = true; }
