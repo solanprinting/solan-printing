@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784404348';
+window.APP_VERSION = '1784562965';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1608,6 +1608,7 @@ window._fbSnapshot = {};
     <button class="btn btn-outline-w" onclick="switchTab('papers')">📰 ניהול עיתונים</button>
     <button class="btn btn-outline-w" onclick="openImpositionTool()">✂️ קיפול לחוברת</button>
     <button class="btn btn-outline-w admin-only" id="cs-stock-btn" onclick="openCustStock()" style="position:relative">📦 מלאי לקוחות<span id="cs-stock-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#ef4444;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
+    <button class="btn btn-outline-w admin-only" id="mt-btn" onclick="_mtOpen()" title="משימות למנהל — אישורים" style="position:relative">🗂️ משימות מנהל<span id="mt-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#f59e0b;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w" id="pi-btn" onclick="pi_open()" title="תכנון דפוס — אימפוזיציה" style="position:relative">🖨️ תכנון דפוס<span id="pi-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#8b5cf6;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
     <button class="btn btn-outline-w" onclick="openOperatorView()">🏭 מסך דפסים</button>
     <button class="btn btn-outline-w admin-only" onclick="openOrderChecklist()" title="צ'ק ליסט אספקת הזמנות" style="position:relative">✅ אספקה<span id="ocl-badge" style="display:none;position:absolute;top:-6px;left:-6px;background:#f59e0b;color:#fff;border-radius:10px;font-size:.68rem;font-weight:800;padding:1px 6px;min-width:18px;text-align:center"></span></button>
@@ -2535,9 +2536,11 @@ window._fbSnapshot = {};
     </div>
     <div style="padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
       <button class="btn btn-clear" onclick="closeClerkList()">סגור</button>
+      <button class="btn btn-primary" onclick="_clerkImage()" title="שמור/שתף את הרשימה כתמונה מסודרת">📸 תמונה</button>
       <button class="btn btn-primary" onclick="_clerkCopy()">📋 העתק</button>
       <button class="btn btn-primary" onclick="_clerkPrint()">🖨️ הדפס</button>
       <button class="btn btn-primary" style="background:#25d366;border-color:#25d366" onclick="_clerkWhatsapp()">💬 וואטסאפ</button>
+      <button class="btn btn-primary" style="background:#1a1a4e;border-color:#1a1a4e" onclick="_clerkMarkSent()" title="סמן את העבודות שנבחרו כ'נשלחו לפקיד' כדי לא לשלוח שוב">✓ סמן כנשלחו</button>
     </div>
   </div>
 </div>
@@ -3430,7 +3433,7 @@ function applyPermissionsToUI() {
   var adminControls = document.querySelectorAll('.admin-only');
   adminControls.forEach(function(el){ el.style.display = isAdmin ? '' : 'none'; });
   // בדיקת מלאי לקוחות נמוך — תג על הכפתור (בטעינה, שקט; התראות חדשות יופיעו בפולינג)
-  if (isAdmin) setTimeout(function(){ try{ _csLowStockCheck({silent:true}); }catch(e){} }, 2500);
+  if (isAdmin) setTimeout(function(){ try{ _csLowStockCheck({silent:true}); }catch(e){} try{ _mtBadge(); }catch(e){} }, 2500);
   // תג התראות בכותרת — לרנדר בטעינה (הפולינג מדלג כשיומן השרת ריק, אז התג לא היה מופיע)
   try{ if (typeof _notifRenderBadge === 'function') _notifRenderBadge(); }catch(e){}
 
@@ -3629,6 +3632,7 @@ let quotes         = JSON.parse(localStorage.getItem('solanQuotes')         || '
 setTimeout(function(){ _loadTemplates(); }, 0);  // init templates
 let customers      = JSON.parse(localStorage.getItem('solanCustomers')      || '[]');
 let customerStock  = JSON.parse(localStorage.getItem('solanCustomerStock')  || '{}'); // מלאי סחורה לפי לקוח (קונסיגנציה) — מנהל בלבד
+let managerTasks   = JSON.parse(localStorage.getItem('solanManagerTasks')   || '[]'); // תור אישורי-מנהל (הכנסה למלאי לקוח וכו') — מנהל בלבד
 let orders         = JSON.parse(localStorage.getItem('solanOrders')         || '[]');
 let inventoryDeductions = JSON.parse(localStorage.getItem('solanInventoryDeductions') || '[]');
 // תעודות משלוח ללקוחות (פיננסי — מוצג למנהלים בלבד ברמת הממשק)
@@ -3645,6 +3649,9 @@ var DEFAULT_OFFSET_PRICING = {
   foldRates: { '4':0, '3':0, '2':0, '1':0 },           // קיפול — מחיר ל-1000 לפי מס' קיפולים
   bindRates: { '1':0, '2':0, '3':0, '4':0, '5':0, '6':0 }, // כריכה — מחיר ל-1000 לפי מס' תחנות (ריצות)
   bindFirstKMin: { '5':500, '6':600 }, // כריכה — מינימום לאלף הראשון לפי מס' תחנות
+  // מחיר ₪/טון לפי משקל הנייר — ברירת-מחדל כשלנייר מסוים אין tonPrice משלו.
+  // הסף העליון (maxGram) כולל: 170 גר' → מדרגה ראשונה (5000), 300 גר' → שנייה (5100).
+  tonTiers: [ { maxGram: 170, price: 5000 }, { maxGram: 300, price: 5100 } ],
   papers: [],            // [{name, sheet:'70×100', sheetW:70, sheetH:100, gram, tonPrice}]
   flatRates: {}          // מוצרים שטוחים — { <id>: { per1000, foldPer1000 } } לפי FLAT_PRODUCTS
 };
@@ -3682,6 +3689,18 @@ if (!quotePricing) quotePricing = JSON.parse(JSON.stringify(DEFAULT_OFFSET_PRICI
 // נדחוף מחירון ל-Firebase רק אחרי שנדע שהוא אמין — נמשך מהשרת או נשמר ידנית.
 // מונע מטאב עם ברירת-מחדל ריקה לדרוס מחירון תקין בשרת ("המחירים נמחקים אחרי זמן מה").
 window._quotePricingLoaded = false;
+// מדרגות מחיר-לטון לפי משקל (5000/5100) — השלמה למחירונים ישנים שנשמרו לפני התוספת.
+function _ensureTonTiers(pr){ if (pr && !Array.isArray(pr.tonTiers)) pr.tonTiers = JSON.parse(JSON.stringify(DEFAULT_OFFSET_PRICING.tonTiers)); return pr; }
+_ensureTonTiers(quotePricing);
+// מחיר ₪/טון לנייר: קודם tonPrice ידני של הנייר, אחרת מדרגה לפי משקל (gram).
+function _paperTonPrice(gram, paper, pricing){
+  if (paper && paper.tonPrice != null && paper.tonPrice !== '' && +paper.tonPrice > 0) return +paper.tonPrice;
+  var tiers = (pricing && Array.isArray(pricing.tonTiers) && pricing.tonTiers.length)
+    ? pricing.tonTiers : DEFAULT_OFFSET_PRICING.tonTiers;
+  var g = +gram || 0;
+  for (var i=0;i<tiers.length;i++){ if (g <= (+tiers[i].maxGram || 0)) return +tiers[i].price || 0; }
+  return +tiers[tiers.length-1].price || 0;   // מעל הסף העליון — המדרגה האחרונה
+}
 // מזהים שנמחקו לצמיתות — מסונכרן ל-Firebase כדי שמחיקה לא "תחזור" ע"י מכשיר/טאב אחר
 let deletedIds = JSON.parse(localStorage.getItem('solanDeletedIds') || '{}');
 function _markDeleted(coll, id){
@@ -3961,6 +3980,7 @@ function persist() {
   localStorage.setItem('solanMachineQueue',        JSON.stringify(machineQueue));
   localStorage.setItem('solanProductMemory',       JSON.stringify(productMemory));
   localStorage.setItem('solanCustomerStock',       JSON.stringify(customerStock));
+  localStorage.setItem('solanManagerTasks',        JSON.stringify(managerTasks));
   localStorage.setItem('solanUsers',               JSON.stringify(solanUsers));
   if (apiKey) localStorage.setItem('solanApiKey', apiKey);
   updateBadge();
@@ -3985,7 +4005,8 @@ function persist() {
       inventoryHistory: inventoryHistory, invoiceLogs: invoiceLogs,
       customers: customers,
       recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds,
-      machineQueue: machineQueue, productMemory: productMemory, customerStock: customerStock
+      machineQueue: machineQueue, productMemory: productMemory, customerStock: customerStock,
+      managerTasks: managerTasks
     };
     window._fbPendingPuts = window._fbPendingPuts || {};
     Object.keys(_paths).forEach(function(p) {
@@ -4467,31 +4488,118 @@ function openClerkList(){
   renderClerkList();
 }
 function closeClerkList(){ var m=document.getElementById('clerkListModal'); if(m) m.classList.remove('open'); }
-function _clerkText(){
+// עבודות שסופקו וממתינות לשליחה לפקיד (לא הושלמו ולא סומנו כנשלחו)
+function _clerkPendingRows(){
+  return (orders||[]).filter(function(o){ return o && !o._deleted && o.supplied && !o.clerkSent && !o.sentToClerk; });
+}
+// עבודות שכבר נשלחו לפקיד (חיווי "נשלח" — כדי לא לשלוח פעמיים)
+function _clerkSentRows(){
+  return (orders||[]).filter(function(o){ return o && !o._deleted && o.supplied && !o.clerkSent && o.sentToClerk; });
+}
+// שורות-טקסט של הרשימה (ניתן לבדיקה) — הנבחרות מבין הממתינות, ממוינות לפי לקוח
+function _clerkImageLines(){
   var sel = window._clerkSel || {};
-  var rows = orders.filter(function(o){ return o && !o._deleted && o.supplied && !o.clerkSent && sel[o.id] !== false; });
+  var rows = _clerkPendingRows().filter(function(o){ return sel[o.id] !== false; });
   rows.sort(function(a,b){ return String(a.customer||'').localeCompare(String(b.customer||''), 'he'); });
-  var lines = rows.map(function(o, i){
+  return rows.map(function(o, i){
     return (i+1) + '. ' + (o.customer||'—') + ' — ' + (o.desc||'') + ' — ' + (o.suppliedPackages!=null?o.suppliedPackages:'?') + ' חבילות';
   });
-  return 'רשימת אספקה · ' + new Date().toLocaleDateString('he-IL') + '\n' + (lines.join('\n') || '(לא נבחרו עבודות)') + '\n\nסה"כ ' + rows.length + ' עבודות';
+}
+function _clerkText(){
+  var lines = _clerkImageLines();
+  return 'רשימת אספקה · ' + new Date().toLocaleDateString('he-IL') + '\n' + (lines.join('\n') || '(לא נבחרו עבודות)') + '\n\nסה"כ ' + lines.length + ' עבודות';
 }
 function renderClerkList(){
   var box = document.getElementById('clerk-list-items'); if (!box) return;
-  var supplied = orders.filter(function(o){ return o && !o._deleted && o.supplied && !o.clerkSent; });
+  var supplied = _clerkPendingRows();
   supplied.sort(function(a,b){ return (b.suppliedAt||'') < (a.suppliedAt||'') ? -1 : 1; });
   if (!window._clerkSel) window._clerkSel = {};
-  if (!supplied.length){ box.innerHTML = '<div style="color:#999;padding:14px">אין עבודות מסומנות כסופקו</div>'; var pv0=document.getElementById('clerk-preview'); if(pv0) pv0.value=''; return; }
-  box.innerHTML = '<div style="font-size:.74rem;color:#777;margin-bottom:6px">בחר אילו עבודות לכלול ברשימה, וודא כמות החבילות:</div>' + supplied.map(function(o){
-    var checked = window._clerkSel[o.id] !== false;
-    return '<div style="display:flex;gap:9px;align-items:center;padding:8px 4px;border-bottom:1px solid #f0f0f0">' +
-      '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="_clerkToggle(\'' + o.id + '\', this.checked)" style="width:18px;height:18px;flex:none;cursor:pointer">' +
-      '<span style="flex:1;min-width:0"><b>' + (o.customer||'—') + '</b> <span style="color:#555;font-size:.85rem">' + (o.desc||'') + '</span></span>' +
-      '<input type="number" min="0" value="' + (o.suppliedPackages!=null?o.suppliedPackages:'') + '" onchange="_clerkSetPkg(\'' + o.id + '\', this.value)" style="width:66px;padding:4px 6px;border:1px solid #ccc;border-radius:6px;text-align:center;font-family:Heebo" placeholder="חב\'">' +
-      '<span style="font-size:.78rem;color:#777">חבילות</span>' +
-    '</div>';
-  }).join('');
+  var sentRows = _clerkSentRows();
+  sentRows.sort(function(a,b){ return (b.sentToClerkAt||'') < (a.sentToClerkAt||'') ? -1 : 1; });
+  var html = '';
+  if (!supplied.length){
+    html += '<div style="color:#999;padding:14px">אין עבודות חדשות לשליחה לפקיד</div>';
+  } else {
+    html += '<div style="font-size:.74rem;color:#777;margin-bottom:6px">בחר אילו עבודות לכלול ברשימה, וודא כמות החבילות:</div>' + supplied.map(function(o){
+      var checked = window._clerkSel[o.id] !== false;
+      return '<div style="display:flex;gap:9px;align-items:center;padding:8px 4px;border-bottom:1px solid #f0f0f0">' +
+        '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="_clerkToggle(\'' + o.id + '\', this.checked)" style="width:18px;height:18px;flex:none;cursor:pointer">' +
+        '<span style="flex:1;min-width:0"><b>' + (o.customer||'—') + '</b> <span style="color:#555;font-size:.85rem">' + (o.desc||'') + '</span></span>' +
+        '<input type="number" min="0" value="' + (o.suppliedPackages!=null?o.suppliedPackages:'') + '" onchange="_clerkSetPkg(\'' + o.id + '\', this.value)" style="width:66px;padding:4px 6px;border:1px solid #ccc;border-radius:6px;text-align:center;font-family:Heebo" placeholder="חב\'">' +
+        '<span style="font-size:.78rem;color:#777">חבילות</span>' +
+      '</div>';
+    }).join('');
+  }
+  // חיווי "כבר נשלח לפקיד" — כדי לא לשלוח שוב את אותה עבודה
+  if (sentRows.length){
+    html += '<div style="margin-top:14px;font-size:.76rem;font-weight:800;color:#166534">✓ כבר נשלחו לפקיד (' + sentRows.length + '):</div>' + sentRows.map(function(o){
+      var when = o.sentToClerkAt ? new Date(o.sentToClerkAt).toLocaleDateString('he-IL') : '';
+      return '<div style="display:flex;gap:9px;align-items:center;padding:6px 4px;border-bottom:1px solid #f0f7f0;background:#f6fbf6">' +
+        '<span style="flex:none;color:#16a34a;font-weight:800">✓</span>' +
+        '<span style="flex:1;min-width:0;color:#555"><b>' + (o.customer||'—') + '</b> <span style="font-size:.82rem">' + (o.desc||'') + '</span>' + (when?' <span style="font-size:.72rem;color:#999">· '+when+'</span>':'') + '</span>' +
+        '<button onclick="_clerkUnsend(\'' + o.id + '\')" title="החזר לרשימה (בטל סימון נשלח)" style="flex:none;padding:4px 9px;border:1px solid #d1d5db;border-radius:7px;background:#fff;cursor:pointer;font-size:.82rem">↩</button>' +
+      '</div>';
+    }).join('');
+  }
+  box.innerHTML = html;
   var pv=document.getElementById('clerk-preview'); if(pv) pv.value = _clerkText();
+}
+// סמן את העבודות שנבחרו כ"נשלחו לפקיד" — כדי שלא יישלחו שוב (חיווי + סינון)
+function _clerkMarkSent(){
+  var sel = window._clerkSel || {};
+  var rows = _clerkPendingRows().filter(function(o){ return sel[o.id] !== false; });
+  if (!rows.length){ showToast('לא נבחרו עבודות לסימון'); return; }
+  if (!confirm('לסמן ' + rows.length + ' עבודות כ"נשלחו לפקיד"? הן יורדו מהרשימה הפעילה ויעברו לחלק "כבר נשלחו".')) return;
+  var now = new Date().toISOString();
+  rows.forEach(function(o){ o.sentToClerk = true; o.sentToClerkAt = now; if ('_upd' in o) o._upd = Date.now(); });
+  persist();
+  renderClerkList();
+  if (typeof renderOrders === 'function') renderOrders();
+  showToast('✓ ' + rows.length + ' עבודות סומנו כנשלחו לפקיד');
+  try { if (typeof logActivity === 'function') logActivity('📤 נשלחו לפקיד', rows.length + ' עבודות'); } catch(e){}
+}
+function _clerkUnsend(id){
+  var o = (orders||[]).find(function(x){ return String(x.id) === String(id); }); if(!o) return;
+  o.sentToClerk = false; o.sentToClerkAt = null; if ('_upd' in o) o._upd = Date.now();
+  persist(); renderClerkList();
+  if (typeof renderOrders === 'function') renderOrders();
+}
+// ייצוא הרשימה כתמונה מסודרת (PNG) — שיתוף דרך הטלפון או הורדה. לשליחה לפקיד כמו שהיא נראית.
+function _clerkImage(){
+  var lines = _clerkImageLines();
+  if (!lines.length){ showToast('אין עבודות נבחרות לתמונה'); return; }
+  var pad=44, headH=118, rowH=40, footH=54, W=760;
+  var H = headH + lines.length*rowH + footH;
+  var cv=document.createElement('canvas'); var scale=2; cv.width=W*scale; cv.height=H*scale;
+  var ctx=cv.getContext('2d'); ctx.scale(scale,scale);
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#1a1a4e'; ctx.fillRect(0,0,W,8);
+  ctx.textAlign='right'; try{ ctx.direction='rtl'; }catch(e){}
+  ctx.fillStyle='#1a1a4e'; ctx.font='bold 30px Heebo,Arial'; ctx.fillText('רשימת אספקה לפקיד', W-pad, 56);
+  ctx.fillStyle='#c9a84c'; ctx.font='bold 20px Heebo,Arial'; ctx.fillText('סולן הדפסות · ' + new Date().toLocaleDateString('he-IL'), W-pad, 88);
+  ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(pad,headH-14); ctx.lineTo(W-pad,headH-14); ctx.stroke();
+  ctx.font='20px Heebo,Arial';
+  lines.forEach(function(ln, i){
+    var y=headH + i*rowH + 6;
+    if (i%2===1){ ctx.fillStyle='#f6f7fb'; ctx.fillRect(pad-8, y-24, W-2*pad+16, rowH-6); }
+    ctx.fillStyle='#222'; ctx.fillText(ln, W-pad, y);
+  });
+  ctx.fillStyle='#888'; ctx.font='16px Heebo,Arial';
+  ctx.fillText('סה"כ ' + lines.length + ' עבודות · נוצר מהאפליקציה', W-pad, H-22);
+  cv.toBlob(function(blob){
+    if (!blob){ showToast('⚠️ יצירת התמונה נכשלה'); return; }
+    var fname='רשימה-לפקיד-' + new Date().toISOString().slice(0,10) + '.png';
+    var file=null; try{ file=new File([blob], fname, { type:'image/png' }); }catch(e){}
+    if (file && navigator.share && (!navigator.canShare || navigator.canShare({ files:[file] }))){
+      navigator.share({ files:[file], title:'רשימת אספקה לפקיד', text:'רשימת אספקה לפקיד — סולן הדפסות' }).catch(function(e){ if(String(e&&e.name)!=='AbortError') _clerkImageDownload(blob, fname); });
+    } else { _clerkImageDownload(blob, fname); }
+  }, 'image/png');
+}
+function _clerkImageDownload(blob, fname){
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 60000);
+  showToast('📸 התמונה נשמרה — אפשר לצרף לפקיד');
 }
 function _clerkToggle(id, on){ window._clerkSel[id] = on; var pv=document.getElementById('clerk-preview'); if(pv) pv.value=_clerkText(); }
 function _clerkSetPkg(id, v){
@@ -5243,8 +5351,11 @@ function openLearnInsights(){
 var _aiqMsgs = [];   // היסטוריית שיחה (role/content) לשליחה ל-Claude
 function _aiQuoteSys(){
   var pr = quotePricing || DEFAULT_OFFSET_PRICING;
+  var tiers = (Array.isArray(pr.tonTiers)&&pr.tonTiers.length) ? pr.tonTiers : DEFAULT_OFFSET_PRICING.tonTiers;
+  var tierTxt = tiers.map(function(t){ return 'עד ' + t.maxGram + ' גר\' → ' + t.price + ' ₪/טון'; }).join(' · ');
   var papers = (pr.papers||[]).map(function(p){
-    return '- ' + (p.name||'?') + ' | גיליון ' + (p.sheetW||'?') + '×' + (p.sheetH||'?') + ' ס"מ | ' + (p.gram||'?') + ' גר/מ"ר | ' + (p.tonPrice||'?') + ' ₪ לטון';
+    var eff = _paperTonPrice(p.gram, p, pr);
+    return '- ' + (p.name||'?') + ' | גיליון ' + (p.sheetW||'?') + '×' + (p.sheetH||'?') + ' ס"מ | ' + (p.gram||'?') + ' גר/מ"ר | ' + eff + ' ₪ לטון' + (p.tonPrice ? '' : ' (לפי מדרגת-משקל)');
   }).join('\n') || '(לא הוזנו ניירות בתעריפון — בקש מהמשתמש להזין במחירון)';
   return 'אתה מתמחר מקצועי בבית דפוס אופסט בישראל. קבל מפרט עבודה בשפה חופשית, חשב עלות מדויקת לפי התעריפון, ונסח הצעת מחיר.\n\n'
     + '━━━ ידע מקצועי לחישוב — עקוב צעד-אחר-צעד ואל תדלג ━━━\n'
@@ -5255,7 +5366,8 @@ function _aiQuoteSys(){
     + '2) מספר ריצות (קונטרסים) = עיגול-מעלה(עמודים ÷ עמודים-לגיליון). דוגמה: 48 עמ\' A4 → ceil(48/16)=3 ריצות.\n'
     + '3) מספר גיליונות סה"כ = ריצות × (כמות-עותקים + פחת-לריצה). פחת-לריצה = ' + (pr.wastePerRun||0) + '.\n'
     + '4) טונאז\' נייר = גיליונות × (רוחב_ס"מ × גובה_ס"מ ÷ 10000) [מ"ר לגיליון] × משקל[גר/מ"ר] ÷ 1,000,000.\n'
-    + '   מחיר-נייר = טונאז\' × מחיר-לטון של אותו נייר.  (בדוק שהתוצאה הגיונית: 10,000 גיליון 70×100 ב-80 גר ≈ 0.56 טון.)\n'
+    + '   מחיר-לטון = אם לנייר יש מחיר-לטון מפורש בתעריפון השתמש בו, אחרת לפי מדרגת-משקל: ' + tierTxt + '.\n'
+    + '   מחיר-נייר = טונאז\' × מחיר-לטון.  (בדוק שהתוצאה הגיונית: 10,000 גיליון 70×100 ב-80 גר ≈ 0.56 טון.)\n'
     + '5) הדפסה: לכל ריצה — "אלף ראשון" (printFirstK, ובמתהפך printFirstKTurn) + "אלף רץ" (printRunningK) × עיגול-מעלה((עותקים-1000)/1000) אם מעל 1000. לוחות = platePrice × מספר-לוחות (צבעים×2 לריצה רגילה, צבעים×1 למתהפך).\n'
     + '6) קיפול: מספר-קיפולים = 4 לגיליון 32 עמ\', 3 לגיליון 16 עמ\'. מחיר = foldRates[מספר-קיפולים] × (כמות ÷ 1000).\n'
     + '7) כריכה: מספר-תחנות ≈ מספר-הריצות. מחיר = bindRates[תחנות] × (כמות ÷ 1000); לתחנות 5-6 יש מינימום לאלף הראשון (bindFirstKMin).\n\n'
@@ -5264,15 +5376,41 @@ function _aiQuoteSys(){
     + '• שיטת שאלה-אחר-שאלה: כשמתחילים ממעט מידע (למשל רק "חוברת A4") — אל תבקש הכל בבת אחת. שאל שאלה אחת קצרה בכל פעם, לפי הסדר: עמודים → סוג+משקל נייר → כמות → צבעים → צד-אחד/דו-צדדי/מתהפך → קיפול → כריכה. דלג על מה שכבר ידוע.\n'
     + '• חובה: בכל שאלה הוסף בשורה נפרדת אפשרויות-תשובה נפוצות ללחיצה, בפורמט המדויק הזה: [[אפשרויות: ערך1 | ערך2 | ערך3]] — למשל לעמודים: [[אפשרויות: 8 | 16 | 24 | 32 | 48]]. המשתמש ילחץ על אחת או יכתוב חופשי. אל תוסיף את שורת האפשרויות כשאתה מציג חישוב או הצעה סופית.\n'
     + '• אל תמציא נתונים חסרים — תמיד שאל.\n'
+    + '• כללי-עסק (ברירת-מחדל, אלא אם הלקוח אמר אחרת): (א) עבודה עם יותר מ-4 עמודים → כריכת-סיכות (saddle-stitch). (ב) כל עבודה שהולכת לכריכת-סיכות מודפסת דו-צדדי. אם ברירות-המחדל האלה חלות — ציין זאת בקצרה ("לפי 12 עמ\' → כריכת סיכות, דו-צדדי") ואל תשאל שוב על כריכה/צדדים אלא אם הלקוח רוצה לשנות.\n'
     + '• יש כל המידע? הצג פירוט שקוף: נייר (טונאז\'+מחיר) · הדפסה · לוחות · קיפול · כריכה → סכום ביניים · מע"מ 18% · סה"כ.\n'
     + '• מבקשים "הצעה"? נסח הצעה נקייה ללקוח (שם · תיאור · כמות · מחיר סופי · תוקף 14 יום). מבקשים תיקון? תקן.\n'
+    + '• כשאתה מציג הצעה סופית ללקוח — סיים בהודעת-וואטסאפ קצרה ומנוסחת-יפה עם אימוג\'ים, שאפשר להעתיק ולשלוח ישירות ללקוח. פורמט: שורת-פתיחה חמה 👋, שורת-מפרט (מוצר · כמות), שורת-מחיר 💰, שורת-תוקף ⏳, וסיום מזמין. דוגמה: "שלום 👋 הצעה ל-5,000 חוברות A4: 📘 ...\\n💰 סה\\"כ 4,200 ₪ (כולל מע\\"מ)\\n⏳ בתוקף 14 יום\\nנשמח להתקדם! 🙂".\n'
+    + '• צור-כרטיס: כשאתה מציג הצעה סופית, הוסף בשורה האחרונה בלבד בלוק-מפרט מוסתר בפורמט המדויק הזה (המערכת קוראת אותו כדי לפתוח כרטיס-עבודה — המשתמש לא רואה אותו כטקסט): [[כרטיס: שם=<לקוח או תיאור> | כמות=<מספר> | גודל=<גודל מוצר> | נייר=<שם נייר> | עמודים=<מספר> | צבעים=<מספר> | צדדים=<חד/דו/מתהפך> | קיפול=<כן/לא> | כריכה=<כן/לא> | הערות=<טקסט חופשי>]]. מלא רק שדות שידועים; דלג על לא-ידועים. אל תוסיף את הבלוק כשעדיין חסר מידע או כשזו רק שאלת-ביניים.\n'
     + '• ענה בעברית, קצר וברור. ציין תמיד באיזה נייר וגודל גיליון בחרת ולמה.\n\n'
     + 'התעריפון המלא (JSON — מקור-האמת למספרים):\n' + JSON.stringify(pr);
 }
 var _AIQ_GREET = 'שלום! כתוב לי מה העבודה — אפילו רק "חוברת A4" — ואשאל אותך שאלה-אחר-שאלה (עם אפשרויות ללחיצה) עד שיהיה לי כל המידע לתמחור.';
 function _aiqSave(){ try { localStorage.setItem('solanAiQuoteChat', JSON.stringify(_aiqMsgs)); } catch(e){} }
 function _aiqLoad(){ try { var s = JSON.parse(localStorage.getItem('solanAiQuoteChat')||'[]'); return Array.isArray(s)?s:[]; } catch(e){ return []; } }
-function _aiqClean(t){ return String(t||'').replace(/\[\[\s*אפשרויות\s*:[^\]]*\]\]/g,'').trim(); }
+function _aiqClean(t){ return String(t||'').replace(/\[\[\s*אפשרויות\s*:[^\]]*\]\]/g,'').replace(/\[\[\s*כרטיס\s*:[^\]]*\]\]/g,'').trim(); }
+// ── מפרט-כרטיס מובנה בתוך הצעת ה-AI: [[כרטיס: שם=.. | כמות=.. | ...]] → אובייקט ──
+function _aiqParseCardSpec(text){
+  var m = String(text||'').match(/\[\[\s*כרטיס\s*:\s*([^\]]+)\]\]/);
+  if (!m) return null;
+  var spec = {};
+  m[1].split('|').forEach(function(part){
+    var eq = part.indexOf('=');
+    if (eq < 0) return;
+    var k = part.slice(0,eq).trim(), v = part.slice(eq+1).trim();
+    if (!k || !v || v === '?') return;
+    spec[k] = v;
+  });
+  return Object.keys(spec).length ? spec : null;
+}
+// זיהוי צד (חד/דו/מתהפך) מטקסט חופשי → מפתח פנימי לרדיו-צבע/צד
+function _aiqSideKind(v){
+  var s = String(v||'');
+  if (/מתהפ|tumble|perfect/i.test(s)) return 'tumble';
+  if (/דו|2|double|duplex|שני/i.test(s)) return 'duplex';
+  if (/חד|1|single|אחד/i.test(s)) return 'single';
+  return '';
+}
+function _aiqYes(v){ return /כן|yes|true|✓|יש/i.test(String(v||'')); }
 function openAiQuote(){
   var box = document.getElementById('aiq-msgs'); if (box) box.innerHTML = '';
   _aiqMsgs = _aiqLoad();
@@ -5332,6 +5470,45 @@ function _aiqCopyQuote(){
   var txt=_aiqQuoteText(); if(!txt){ showToast('אין עדיין הצעה'); return; }
   try{ navigator.clipboard.writeText(txt).then(function(){ showToast('📋 ההצעה הועתקה'); },function(){ showToast('⚠️ העתק ידנית'); }); }
   catch(e){ showToast('⚠️ העתק ידנית'); }
+}
+// המפרט-המובנה של ההצעה האחרונה (מהודעת ה-AI האחרונה שכוללת בלוק [[כרטיס:...]])
+function _aiqLastSpec(){
+  for (var i=_aiqMsgs.length-1;i>=0;i--){
+    if (_aiqMsgs[i].role==='assistant'){ var s=_aiqParseCardSpec(_aiqMsgs[i].content); if (s) return s; }
+  }
+  return null;
+}
+// יצירת כרטיס-עבודה מההצעה שאושרה — ממלא את טופס הכרטיס לפי המפרט המובנה
+function _aiqCardFromQuote(){
+  var spec = _aiqLastSpec();
+  if (!spec){ showToast('אין עדיין הצעה סופית עם מפרט — בקש מה-AI "תן לי הצעה מסודרת"'); return; }
+  if (!confirm('ליצור כרטיס-עבודה מההצעה? הטופס יתמלא לפי המפרט וניתן לעריכה לפני שמירה.')) return;
+  try { closeAiQuote(); } catch(e){}
+  try { switchTab('new'); } catch(e){}
+  try { clearForm(); } catch(e){}
+  var set = function(id,v){ var e=document.getElementById(id); if(e && v!=null && v!=='') e.value=v; };
+  set('f-name',  spec['שם']);
+  set('f-copies',spec['כמות'] ? String(spec['כמות']).replace(/[^\d]/g,'') : '');
+  set('f-size',  spec['גודל']);
+  set('f-paper', spec['נייר']);
+  set('f-pages', spec['עמודים'] ? String(spec['עמודים']).replace(/[^\d]/g,'') : '');
+  // כללי-עסק: >4 עמודים → כריכת-סיכות → דו-צדדי
+  var pages = parseInt(spec['עמודים'],10) || 0;
+  var wantBind = _aiqYes(spec['כריכה']) || pages > 4;
+  var side = _aiqSideKind(spec['צדדים']);
+  if (wantBind && !side) side = 'duplex';
+  var bindEl=document.getElementById('f-needs-binding'); if(bindEl) bindEl.checked = wantBind;
+  var foldEl=document.getElementById('f-needs-folding'); if(foldEl) foldEl.checked = _aiqYes(spec['קיפול']);
+  var tumbEl=document.getElementById('f-tumble'); if(tumbEl && side==='tumble') tumbEl.checked = true;
+  // צבעים → רדיו-צבע אם קיים ערך תואם
+  if (spec['צבעים']){ var cv=String(spec['צבעים']).replace(/[^\d]/g,''); var cr=document.querySelector('input[name="color"][value="'+cv+'"]'); if(cr) cr.checked=true; }
+  // סיכום מלא ל"הערות פנימיות" כדי שלא יאבד מידע שאין לו שדה
+  var sideTxt = side==='tumble'?'מתהפך':(side==='duplex'?'דו-צדדי':(side==='single'?'חד-צדדי':(spec['צדדים']||'')));
+  var summary = 'נוצר מהצעת AI · ' + Object.keys(spec).map(function(k){return k+': '+spec[k];}).join(' · ');
+  var inNotes=document.getElementById('f-internal-notes'); if(inNotes) inNotes.value = (inNotes.value?inNotes.value+'\n':'') + summary;
+  if (spec['הערות']){ var nEl=document.getElementById('f-notes'); if(nEl && !nEl.value) nEl.value = spec['הערות']; }
+  try { window._cardFormBaselineNow && window._cardFormBaselineNow(); } catch(e){}
+  showToast('📋 כרטיס מולא מההצעה — בדוק, השלם ושמור' + (sideTxt?(' · '+sideTxt):''));
 }
 // טעינת pdf-lib על-פי דרישה (לא טעון בקובץ הראשי) — לשיתוף קובץ PDF במובייל
 var _pdflibP=null;
@@ -8680,6 +8857,7 @@ function _saveCardNew() {
       showPrintModal(card);
       clearForm();
       window._pendingDeduct = card;
+      try { _mtEnqueueFromCard(card); } catch(e){}          // #4: משימת-אישור מנהל (הכנסה למלאי לקוח) אם השם תואם
       setTimeout(function(){ _csCardHook(card); }, 700);   // הצע הוספת ייצור למלאי הלקוח אם השם תואם
     });
     return;
@@ -16869,6 +17047,7 @@ function saveOffsetPricing(){
     foldRates: { '4':_psVal('ps_fold4'), '3':_psVal('ps_fold3'), '2':_psVal('ps_fold2'), '1':_psVal('ps_fold1') },
     bindRates: { '1':_psVal('ps_bind1'), '2':_psVal('ps_bind2'), '3':_psVal('ps_bind3'), '4':_psVal('ps_bind4'), '5':_psVal('ps_bind5'), '6':_psVal('ps_bind6') },
     bindFirstKMin: { '5':_psVal('ps_bindMin5'), '6':_psVal('ps_bindMin6') },
+    tonTiers: (quotePricing && Array.isArray(quotePricing.tonTiers) && quotePricing.tonTiers.length) ? quotePricing.tonTiers : DEFAULT_OFFSET_PRICING.tonTiers,
     papers: _psPapers.filter(function(p){ return p.name || p.gram || p.tonPrice; }),
     flatRates: (function(){
       var fr = {};
@@ -17957,6 +18136,120 @@ function _csExportCsv(){
   a.download = 'מלאי ' + ((cust&&cust.name)||'לקוח') + '.csv'; a.click();
 }
 // ── קישור מכרטיס עבודה: אם שם הכרטיס תואם ללקוח עם מלאי — הצע לנכות ──
+// ═══════════════════════════════════════════════════════════════════════════
+//  תור אישורי-מנהל (Manager approval queue) — מנהל בלבד
+//  משימות שדורשות החלטת-מנהל, נוצרות אוטומטית מכרטיסים. כרגע: אישור הכנסה
+//  למלאי-לקוח (כמות מוצעת = גיליונות × כמות-בגיליון). ניתן לעריכה לפני אישור.
+// ═══════════════════════════════════════════════════════════════════════════
+function _mtIsAdmin(){ return !!(currentUser && currentUser.isAdmin); }
+function _mtGuard(){ if(!_mtIsAdmin()){ showToast('🔒 משימות מנהל למנהלים בלבד'); return false; } return true; }
+function _mtPending(){ return (managerTasks||[]).filter(function(t){ return t && t.status==='pending'; }); }
+function _mtBadge(){
+  var b = document.getElementById('mt-badge'); if(!b) return;
+  if(!_mtIsAdmin()){ b.style.display='none'; return; }
+  var n = _mtPending().length; b.textContent = n||''; b.style.display = n?'':'none';
+}
+// כמות מוצעת = גיליונות × כמות-בגיליון (up-count). sheetsMode: copies=גיליונות; אחרת copies=יחידות.
+function _mtCardUnits(card){
+  var perSheet = parseInt(card.perSheet,10) || 1;
+  var copies = parseInt(String(card.copies||'').replace(/[^\d]/g,''),10) || 0;
+  if(!copies) return { sheets:0, perSheet:perSheet, units:0 };
+  var sheets = card.sheetsMode ? copies : Math.ceil(copies/perSheet);
+  return { sheets:sheets, perSheet:perSheet, units:sheets*perSheet };
+}
+// יוצר משימת-אישור מכרטיס אם שמו תואם ללקוח-מלאי (כמו _csCardHook) ויש up-count
+function _mtEnqueueFromCard(card){
+  try{
+    if(!_mtIsAdmin() || !card || !card.name) return;
+    if(card.stockRefill && card.stockRefill.length) return;   // כרטיס שנוצר מהמלאי — כבר מקושר
+    var blob = _pmNorm([ card.name, card.placementDetails, card.notes, card.internalNotes, card.size, card.type, card.paper,
+      (card.combined||[]).map(function(x){ return (x.customer||'')+' '+(x.desc||''); }).join(' ') ].filter(Boolean).join(' '));
+    if(!blob) return;
+    var cust = _csCustomerList().find(function(c){ var cn=_pmNorm(c.name); return cn && cn.length>=2 && blob.indexOf(cn)>=0; });
+    if(!cust) return;
+    var st = customerStock[cust.id]; if(!st || !st.items || !st.items.length) return;
+    var u = _mtCardUnits(card); if(!u.units) return;
+    // דדופ: משימה שעדיין קיימת (ממתינה/אושרה) לאותו כרטיס+לקוח — לא ליצור שוב
+    if((managerTasks||[]).some(function(t){ return t && t.cardId===String(card.id) && t.custId===cust.id && t.type==='stock-approve' && t.status!=='dismissed'; })) return;
+    var nm = _pmNorm(card.name+' '+(card.placementDetails||''));
+    var best = st.items.find(function(it){ var xn=_pmNorm(it.name); return xn && nm.indexOf(xn)>=0; }) || (st.items.length===1 ? st.items[0] : null);
+    managerTasks.unshift({
+      id:_csUid('mt'), type:'stock-approve', status:'pending',
+      cardId:String(card.id), cardName:card.name, custId:cust.id, custName:cust.name,
+      itemId: best?best.id:'', suggestedUnits:u.units, sheets:u.sheets, perSheet:u.perSheet,
+      createdAt:Date.now(), updatedAt:Date.now(), by: currentUser?currentUser.name:''
+    });
+    if(managerTasks.length>200) managerTasks = managerTasks.slice(0,200);
+    try{ localStorage.setItem('solanManagerTasks', JSON.stringify(managerTasks)); }catch(e){}
+    if(typeof persist==='function') persist();
+    _mtBadge();
+    showToast('🗂️ משימת-מנהל חדשה: אישור הכנסה למלאי '+cust.name);
+    if(typeof _logActivity==='function') _logActivity('🗂️','משימת-מנהל: אישור מלאי '+cust.name, card.id);
+  }catch(e){}
+}
+function _mtOpen(){
+  if(!_mtGuard()) return;
+  var ex=document.getElementById('mtModal'); if(ex) ex.remove();
+  var html='<div id="mtModal" class="modal-overlay open" style="z-index:10001">'
+    +'<div class="modal-box" style="max-width:640px;width:95vw">'
+    +'<div class="modal-header"><span>🗂️ משימות למנהל — אישורים</span><button class="modal-close" onclick="document.getElementById(\'mtModal\').remove()">✕</button></div>'
+    +'<div id="mt-body" style="padding:14px 18px;max-height:72vh;overflow:auto"></div>'
+    +'</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  _mtRender();
+}
+function _mtRender(){
+  var body=document.getElementById('mt-body'); if(!body) return;
+  var pend=_mtPending();
+  if(!pend.length){ body.innerHTML='<div style="text-align:center;color:#888;padding:28px">אין משימות ממתינות 🎉</div>'; _mtBadge(); return; }
+  body.innerHTML = pend.map(function(t){
+    var st=customerStock[t.custId]||{items:[]};
+    var opts=(st.items||[]).map(function(it){ return '<option value="'+it.id+'"'+(it.id===t.itemId?' selected':'')+'>'+_esc(it.name)+'</option>'; }).join('');
+    return '<div style="border:1.5px solid #e5e7eb;border-radius:12px;padding:12px 14px;margin-bottom:10px;background:#fafbff">'
+      +'<div style="font-weight:900;color:#2d3561;margin-bottom:3px">📦 אישור הכנסה למלאי לקוח — '+_esc(t.custName)+'</div>'
+      +'<div style="font-size:.82rem;color:#666;margin-bottom:8px">כרטיס "'+_esc(t.cardName)+'" · '+_csNum(t.sheets)+' גיליונות × '+t.perSheet+' בגיליון = <b>'+_csNum(t.suggestedUnits)+' יח\'</b></div>'
+      +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+      +'<label style="font-size:.8rem;color:#555">כמות לאישור (יח\'):</label>'
+      +'<input type="number" min="0" step="any" id="mt-qty-'+t.id+'" value="'+t.suggestedUnits+'" class="fi" style="width:120px">'
+      +(opts?'<label style="font-size:.8rem;color:#555">פריט:</label><select id="mt-item-'+t.id+'" class="fi" style="min-width:150px">'+opts+'</select>':'<span style="color:#b91c1c;font-size:.8rem">אין פריטים ללקוח — הוסף במלאי לקוחות</span>')
+      +'</div>'
+      +'<div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end">'
+      +'<button class="btn btn-clear" style="font-size:.8rem" onclick="_mtDismiss(\''+t.id+'\')">✕ בטל משימה</button>'
+      +'<button class="btn btn-primary" style="font-size:.8rem" onclick="_mtApprove(\''+t.id+'\')">✓ אשר והוסף למלאי</button>'
+      +'</div></div>';
+  }).join('');
+  _mtBadge();
+}
+function _mtApprove(id){
+  if(!_mtGuard()) return;
+  var t=(managerTasks||[]).find(function(x){return x.id===id;}); if(!t) return;
+  var qtyEl=document.getElementById('mt-qty-'+id);
+  var units=parseFloat((qtyEl&&qtyEl.value||'0').toString().replace(/,/g,''))||0;
+  if(!(units>0)){ showToast('⚠️ הזן כמות לאישור'); return; }
+  var itemEl=document.getElementById('mt-item-'+id); var itemId=itemEl?itemEl.value:t.itemId;
+  var st=_csGet(t.custId); var it=(st.items||[]).find(function(x){return x.id===itemId;});
+  if(!it){ showToast('⚠️ בחר פריט מלאי'); return; }
+  var ps=Number(it.packSize)||1000; var packs=Math.round((units/ps)*100)/100;
+  it.qty=(Number(it.qty)||0)+packs;
+  st.log.unshift({ id:_csUid('m'), ts:Date.now(), delta:packs, itemId:it.id, itemName:it.name, qtyAfter:it.qty, note:'אושר ע"י מנהל (משימה)', cardId:t.cardId, by:currentUser?currentUser.name:'' });
+  if(st.log.length>300) st.log=st.log.slice(0,300);
+  _csTouch(t.custId);
+  t.status='approved'; t.approvedUnits=units; t.approvedItemId=itemId; t.approvedAt=Date.now(); t.updatedAt=Date.now();
+  try{ localStorage.setItem('solanCustomerStock', JSON.stringify(customerStock)); localStorage.setItem('solanManagerTasks', JSON.stringify(managerTasks)); }catch(e){}
+  if(typeof persist==='function') persist();
+  _mtBadge(); _mtRender();
+  if(typeof _csLowStockCheck==='function') _csLowStockCheck({silent:true});
+  showToast('✅ נוספו '+_csNum(units)+' יח\' למלאי '+t.custName);
+  if(typeof _logActivity==='function') _logActivity('📥','מנהל אישר '+_csNum(units)+' יח\' למלאי '+t.custName, t.cardId);
+}
+function _mtDismiss(id){
+  var t=(managerTasks||[]).find(function(x){return x.id===id;}); if(!t) return;
+  if(!confirm('לבטל את המשימה בלי להוסיף למלאי?')) return;
+  t.status='dismissed'; t.updatedAt=Date.now();
+  try{ localStorage.setItem('solanManagerTasks', JSON.stringify(managerTasks)); }catch(e){}
+  if(typeof persist==='function') persist();
+  _mtBadge(); _mtRender();
+}
 function _csCardHook(card){
   try{
     if(!(currentUser && currentUser.isAdmin)) return;
@@ -18880,6 +19173,21 @@ async function _fbPollAll() {
       }
       window._fbSnapshot.customerStock = JSON.stringify(customerStock);
     }
+    // משימות-מנהל — מיזוג לפי id (updatedAt מנצח; לא דריסת מערך)
+    var mtv = await _pollGet('managerTasks');
+    if (mtv !== null && !(_pend.managerTasks > 0)) {
+      var mtArr = Array.isArray(mtv) ? mtv : Object.keys(mtv).map(function(k){ return mtv[k]; });
+      var _mtChanged = false, _mtById = {};
+      (managerTasks||[]).forEach(function(t){ if(t&&t.id) _mtById[t.id]=t; });
+      mtArr.forEach(function(rt){ if(!rt||!rt.id) return; var l=_mtById[rt.id]; if(!l || (rt.updatedAt||0)>(l.updatedAt||0)){ _mtById[rt.id]=rt; _mtChanged=true; } });
+      if (_mtChanged) {
+        managerTasks = Object.keys(_mtById).map(function(k){ return _mtById[k]; }).sort(function(a,b){ return (b.createdAt||0)-(a.createdAt||0); });
+        localStorage.setItem('solanManagerTasks', JSON.stringify(managerTasks));
+        if (typeof _mtBadge==='function') _mtBadge();
+        if (document.getElementById('mtModal') && typeof _mtRender==='function') _mtRender();
+      }
+      window._fbSnapshot.managerTasks = JSON.stringify(managerTasks);
+    }
     // גדלי גיליון קבועים לאימפוזיציה — משותפים לכל המשתמשים
     var pshv = await _pollGet('piSheets');
     if (pshv !== null && !(_pend.piSheets > 0)) {
@@ -19005,7 +19313,7 @@ async function _fbPollAll() {
     // תעריפי תמחור עיתון/חוברת
     var qpv = await _pollGet('quotePricing');
     if (qpv !== null && typeof qpv === 'object' && !(_pend.quotePricing > 0)) {
-      quotePricing = qpv;
+      quotePricing = _ensureTonTiers(qpv);
       window._quotePricingLoaded = true;   // מחירון אמין מהשרת — מותר לדחוף מכאן ואילך
       localStorage.setItem('solanQuotePricing', JSON.stringify(quotePricing));
       window._fbSnapshot.quotePricing = JSON.stringify(quotePricing);
@@ -20440,8 +20748,11 @@ function renderDashPool() {
   if (!el) return;
   var queuedIds = {};
   (machineQueue||[]).filter(function(e){ return !e.done; }).forEach(function(e){ queuedIds[String(e.cardId)] = true; });
+  // "זמין" = עבודה שעדיין לא נכנסה לזרימת-העבודה. עבודות בהדפסה/בגימורים/הושלמו — או ששויכו
+  // למכונה (בתור) — כבר בזרימה ולא יופיעו כאן.
+  var _WF_STATUS = { inprogress:1, finishing:1, done:1, trash:1 };
   var pool = (cards||[]).filter(function(c){
-    if (c.status === 'done') return false;
+    if (_WF_STATUS[c.status]) return false;
     return !queuedIds[String(c.id)];
   }).sort(function(a,b){
     var da = a.deliveryDate||'9999', db = b.deliveryDate||'9999';
@@ -21362,6 +21673,12 @@ function _opPVBuild(ov){
     + _opPVbtn('🔍➕','הגדל').replace('<button','<button id="op-pv-zin"')
     + (multi ? _opPVbtn('⊞ כפולה','הצג שני עמודים').replace('<button','<button id="op-pv-spread"') : '')
     + (pv.pdfUrl ? _opPVbtn('📄 PDF','פתח PDF מלא').replace('<button','<button id="op-pv-pdf"') : '')
+    + '<select id="op-pv-sim" title="הדמיית מראה-בדפוס (קירוב ויזואלי — לא צבע מדויק)" style="height:38px;border:none;border-radius:8px;padding:0 8px;font-family:Heebo,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;background:#7c5a00;color:#fff">'
+      + '<option value="none">👁 תצוגה רגילה</option>'
+      + '<option value="newsprint">📰 הדמיה: עיתון</option>'
+      + '<option value="matt">📄 הדמיה: מט</option>'
+      + '<option value="coated">✨ הדמיה: כרומו</option>'
+      + '</select>'
     + _opPVbtn('🎨 ברזי צבע','מחשבון ברזי צבע').replace('<button','<button id="op-pv-ink"').replace('#1e3a5f','#7c5a00')
     + _opPVbtn('⛶','מסך מלא').replace('<button','<button id="op-pv-fs"')
     + _opPVbtn('✕','סגור').replace('<button','<button id="op-pv-close"').replace('#1e3a5f','#b91c1c');
@@ -21372,6 +21689,8 @@ function _opPVBuild(ov){
   ov.appendChild(_opInkPanelEl(pv.label));   // פאנל ברזי צבע (מתחת לפרופר, מוסתר עד שלוחצים)
   // wiring
   var on = function(id,fn){ var b=document.getElementById(id); if(b) b.onclick=fn; };
+  var simSel = document.getElementById('op-pv-sim');
+  if (simSel){ simSel.value = pv.sim || 'none'; simSel.onchange = function(){ window._opPV.sim = this.value; _opPVRender(); }; }
   on('op-pv-ink', _opInkToggle);
   on('op-pv-prev', function(){ _opPVNav(-1); });
   on('op-pv-next', function(){ _opPVNav(1); });
@@ -21395,9 +21714,10 @@ function _opPVRender(){
   if (pv.idx > pv.imgs.length-1) pv.idx = pv.imgs.length-1;
   var pages = inSpread ? [pv.imgs[pv.idx], pv.imgs[pv.idx+1]].filter(Boolean) : [pv.imgs[pv.idx]];
   var z = pv.zoom;
-  vp.innerHTML = '<div class="op-pv-stage" style="width:'+(z*100)+'%;height:'+(z*100)+'%;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;padding:10px;margin:auto">'
-    + pages.map(function(src){ return '<img class="op-pv-img" src="'+src+'" style="max-width:'+(inSpread?'49%':'100%')+';max-height:100%;object-fit:contain;background:#fff;box-shadow:0 3px 16px rgba(0,0,0,.55)">'; }).join('')
-    + '</div>';
+  vp.innerHTML = '<div class="op-pv-stage" style="position:relative;width:'+(z*100)+'%;height:'+(z*100)+'%;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;padding:10px;margin:auto">'
+    + pages.map(function(src){ return '<img class="op-pv-img" src="'+_opSimSrc(src)+'" style="max-width:'+(inSpread?'49%':'100%')+';max-height:100%;object-fit:contain;background:#fff;box-shadow:0 3px 16px rgba(0,0,0,.55)">'; }).join('')
+    + '</div>'
+    + (pv.sim && pv.sim!=='none' ? '<div style="position:absolute;top:6px;'+(inSpread?'left':'right')+':10px;background:rgba(124,90,0,.92);color:#fff;font-size:.72rem;font-weight:800;font-family:Heebo,sans-serif;padding:3px 9px;border-radius:7px;pointer-events:none">👁 הדמיה — קירוב, לא צבע מדויק</div>' : '');
   vp.scrollTop = (vp.scrollHeight - vp.clientHeight)/2;
   vp.scrollLeft = (vp.scrollWidth - vp.clientWidth)/2;
   // עדכון בורר/תווית עמוד
@@ -21469,6 +21789,64 @@ function _opProofOverlay(url, type, label, revoke) {
   var _ozInk=document.getElementById('op-oz-ink'); if(_ozInk) _ozInk.onclick = _opInkToggle;
   setTimeout(hide, 8000); // גיבוי אם onload לא נורה
   if (revoke) setTimeout(function(){ URL.revokeObjectURL(url); }, 120000);
+}
+// ── הדמיית מראה-בדפוס (soft-proof) — קירוב ויזואלי, לא צבע מדויק ────────────
+//    מעבד את תמונת הפרופר בקנבס: דחיסת-גאמוט (הפחתת רוויה), נקודת-לובן של הנייר
+//    (לבן→גוון-נייר, שחור→לא-שחור-מלא), ו-dot-gain (הכהיית גוונים-אמצעיים).
+//    ⚠️ אין דיוק ICC/CMYK אמיתי בדפדפן — זו הדמיה מסומנת בלבד.
+var _OP_SIM_PRESETS = {
+  none:      { label:'תצוגה רגילה' },
+  newsprint: { label:'עיתון (ניוזפרינט)', sat:0.66, dotGain:0.24, white:[231,226,213], black:[62,58,52] },
+  matt:      { label:'מט',                 sat:0.85, dotGain:0.12, white:[246,244,238], black:[34,33,32] },
+  coated:    { label:'כרומו (מבריק)',      sat:0.95, dotGain:0.06, white:[251,251,249], black:[22,22,24] }
+};
+// טרנספורם פיקסל טהור (0..255 → 0..255) — ניתן לבדיקה בלי DOM
+function _opSimPixel(r, g, b, ps){
+  r/=255; g/=255; b/=255;
+  var lum = 0.299*r + 0.587*g + 0.114*b;
+  var s = (ps.sat==null?1:ps.sat);
+  r = lum + (r-lum)*s; g = lum + (g-lum)*s; b = lum + (b-lum)*s;
+  var dg = ps.dotGain || 0;                       // dot-gain: מכהה גוונים-אמצעיים
+  var gain = function(v){ v = v - dg*v*(1-v); return v<0?0:(v>1?1:v); };
+  r=gain(r); g=gain(g); b=gain(b);
+  var wp = ps.white || [255,255,255], bp = ps.black || [0,0,0];   // מיפוי לטווח הנייר
+  r = bp[0] + r*(wp[0]-bp[0]); g = bp[1] + g*(wp[1]-bp[1]); b = bp[2] + b*(wp[2]-bp[2]);
+  var cl = function(v){ v=Math.round(v); return v<0?0:(v>255?255:v); };
+  return [cl(r), cl(g), cl(b)];
+}
+// מעבד תמונת-פרופר (data-URL) → data-URL מודמה. Promise. (data-URL = same-origin, אין taint)
+function _opSimProcess(src, presetKey){
+  return new Promise(function(res, rej){
+    var ps = _OP_SIM_PRESETS[presetKey];
+    if (!ps || presetKey === 'none') return res(src);
+    var im = new Image();
+    im.onload = function(){
+      try {
+        var maxW = 1400, sc = Math.min(1, maxW / (im.naturalWidth||1));
+        var W = Math.max(1, Math.round((im.naturalWidth||1)*sc)), H = Math.max(1, Math.round((im.naturalHeight||1)*sc));
+        var cv = document.createElement('canvas'); cv.width=W; cv.height=H;
+        var ctx = cv.getContext('2d'); ctx.drawImage(im, 0, 0, W, H);
+        var img = ctx.getImageData(0, 0, W, H), d = img.data;
+        for (var i=0; i<d.length; i+=4){ var o = _opSimPixel(d[i], d[i+1], d[i+2], ps); d[i]=o[0]; d[i+1]=o[1]; d[i+2]=o[2]; }
+        ctx.putImageData(img, 0, 0);
+        res(cv.toDataURL('image/jpeg', 0.9));
+      } catch(e){ rej(e); }
+    };
+    im.onerror = rej; im.src = src;
+  });
+}
+// מחזיר src מודמה אם מוכן במטמון; אחרת מחזיר מקור ומפעיל עיבוד ברקע → רינדור מחדש
+function _opSimSrc(src){
+  var pv = window._opPV; if (!pv || !pv.sim || pv.sim==='none') return src;
+  var key = pv.sim + '|' + src;
+  pv._simCache = pv._simCache || {}; pv._simPending = pv._simPending || {};
+  if (pv._simCache[key]) return pv._simCache[key];
+  if (!pv._simPending[key]){
+    pv._simPending[key] = 1;
+    _opSimProcess(src, pv.sim).then(function(url){ pv._simCache[key]=url; delete pv._simPending[key]; _opPVRender(); })
+      .catch(function(){ delete pv._simPending[key]; });
+  }
+  return src;   // עד שהעיבוד מוכן — מציג את המקור
 }
 // ── מחשבון ברזי צבע (Heidelberg) — אופציונלי, מתחת לפרופר ──────────────────
 var _opInk = { zones:32, C:0, M:0, Y:0, K:0, factor:100, keys:{C:{},M:{},Y:{},K:{}}, job:'', showPct:false };
@@ -22016,6 +22394,7 @@ setInterval(function(){ try { _pollScanStages(); } catch(e){} }, 20000);
       <button onclick="_aiqShareWhatsapp()" title="שלח את טקסט ההצעה בוואטסאפ" style="background:#25d366;border:none;color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">🟢 וואטסאפ (טקסט)</button>
       <button onclick="_aiqShareFile()" title="שתף את קובץ ה-PDF דרך תפריט השיתוף של הטלפון (וואטסאפ עם קובץ מצורף)" style="background:#128c7e;border:none;color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">📱 שתף PDF</button>
       <button onclick="_aiqCopyQuote()" title="העתק את טקסט ההצעה" style="background:#fff;border:1px solid #d1d5db;color:#374151;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">📋 העתק</button>
+      <button onclick="_aiqCardFromQuote()" title="פתח כרטיס-עבודה חדש עם המפרט מההצעה שאושרה" style="background:#2d3561;border:none;color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">🗂 צור כרטיס עבודה</button>
       <span style="align-self:center;font-size:.7rem;color:#9ca3af">פועל על ההצעה האחרונה של ה-AI</span>
     </div>
     <div style="display:flex;gap:8px;padding:12px 14px;border-top:1px solid #eee;align-items:flex-end">

@@ -396,6 +396,7 @@ $('go').onclick = async () => {
       const blob = new Blob([bytes], { type:'application/pdf' });
       const url = URL.createObjectURL(blob);
       const name = _file.name.replace(/\.pdf$/i,'') + ' — חוברת מקופלת.pdf';
+      window._foldedBytes = bytes; window._foldedName = name;   // לשיתוף "שלח כקובץ" (עוקף שרת-קבצים; טוב לאינטרנט-כשר)
       html += '<div class="ok">✓ קופלו '+report.signatures+' חתימות → '+report.pagesOut+' עמ\' בסדר קריאה.</div>'
         + '<a class="dl" href="'+url+'" download="'+name+'">⬇️ הורד את החוברת המקופלת</a>'
         + '<button class="btn" id="attachCardBtn" onclick="_attachToCard()" style="background:#4338ca;color:#fff;margin:8px 0 0 8px;padding:9px 16px">🔗 צרף לכרטיס עבודה</button>'
@@ -1204,6 +1205,7 @@ window._shareBooklet = _shareBooklet;
 function _shareDialog(link){
   var old = document.getElementById('shareDlg'); if (old) old.remove();
   var msg = 'שלום! מצורפת הגהה דיגיטלית של החוברת שלכם מסולן הדפסות.\nלחצו על הקישור כדי לדפדף בחוברת ולבדוק שהכל נכון:\n' + link;
+  var hasFile = !!(window._foldedBytes);   // אפשר לשלוח את החוברת כקובץ מצורף (עוקף שרת-הקבצים)
   var dlg = document.createElement('div');
   dlg.id = 'shareDlg';
   dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:flex;align-items:center;justify-content:center;direction:rtl';
@@ -1215,6 +1217,8 @@ function _shareDialog(link){
     + '<a target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(msg) + '" style="display:block;text-align:center;background:#25d366;color:#fff;font-weight:800;padding:12px;border-radius:10px;text-decoration:none">🟢 שלח בוואטסאפ</a>'
     + '<a href="mailto:?subject=' + encodeURIComponent('הגהה דיגיטלית — חוברת לבדיקה | סולן הדפסות') + '&body=' + encodeURIComponent(msg) + '" style="display:block;text-align:center;background:#2d3561;color:#fff;font-weight:800;padding:12px;border-radius:10px;text-decoration:none">✉️ שלח במייל</a>'
     + '<button id="shareCopy" style="background:#f3f4f6;border:1.5px solid #d1d5db;color:#111;font-weight:800;padding:12px;border-radius:10px;cursor:pointer;font-size:1rem">📋 העתק קישור</button>'
+    + (hasFile ? '<button id="shareFileBtn" style="background:#128c7e;border:none;color:#fff;font-weight:800;padding:12px;border-radius:10px;cursor:pointer;font-size:1rem">📎 שלח כקובץ מצורף</button>'
+        + '<div style="font-size:.76rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;line-height:1.5">💡 ללקוחות עם <b>אינטרנט כשר</b> (רימון/נטפרי): הקישור עלול להיחסם. שלחו את החוברת כ<b>קובץ מצורף</b> — מדיה של וואטסאפ בדרך-כלל עוברת את הסינון.</div>' : '')
     + '</div>'
     + '<input id="shareLinkInp" value="' + link.replace(/"/g,'&quot;') + '" readonly style="width:100%;margin-top:12px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;font-size:.78rem;direction:ltr;color:#555;box-sizing:border-box">'
     + '<button id="shareClose" style="margin-top:12px;background:none;border:none;color:#888;cursor:pointer;font-size:.9rem">סגור</button>'
@@ -1229,7 +1233,33 @@ function _shareDialog(link){
     if (!okCopy) { try { document.execCommand('copy'); okCopy = true; } catch(e){} }
     this.textContent = okCopy ? '✓ הקישור הועתק' : '⚠️ העתק ידנית מהשדה';
   };
+  var sf = document.getElementById('shareFileBtn');
+  if (sf) sf.onclick = function(){ _shareBookletFile(this); };
 }
+// שיתוף החוברת המקופלת כקובץ PDF מצורף (navigator.share). עוקף את משיכת-הקובץ משרת-הענן
+// → עובד גם ללקוחות עם אינטרנט-כשר שחוסם את firebasestorage. גיבוי: הורדה מקומית.
+async function _shareBookletFile(btn){
+  var bytes = window._foldedBytes; if (!bytes){ alert('קפל קודם את החוברת.'); return; }
+  var name = (window._foldedName || 'חוברת מקופלת.pdf');
+  var t0 = btn ? btn.textContent : '';
+  try {
+    var file = new File([bytes], name, { type:'application/pdf' });
+    if (navigator.share && (!navigator.canShare || navigator.canShare({ files:[file] }))){
+      if (btn){ btn.disabled = true; btn.textContent = '⏳ מכין קובץ...'; }
+      await navigator.share({ files:[file], title:'חוברת לבדיקה — סולן הדפסות', text:'מצורפת החוברת המקופלת לבדיקה 🙂' });
+    } else {
+      // דסקטופ/דפדפן ללא שיתוף-קבצים — הורדה מקומית, ואז המשתמש מצרף ידנית לוואטסאפ
+      var blob = new Blob([bytes], { type:'application/pdf' });
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 60000);
+      if (btn) btn.textContent = '✓ הורד — צרף ידנית לוואטסאפ';
+      return;
+    }
+  } catch(e){ if (String(e && e.name) !== 'AbortError') alert('השיתוף נכשל — נסה שוב או השתמש בקישור.'); }
+  finally { if (btn && btn.textContent === '⏳ מכין קובץ...') btn.textContent = t0; if (btn) btn.disabled = false; }
+}
+window._shareBookletFile = _shareBookletFile;
 
 // ── טעינה ישירה מפרופר של כרטיס: imposition-tool.html?proofUrl=<url>&type=<32|16perf|16p|8perf|8p>&name=<שם>&auto=1 ──
 (function(){
@@ -1248,7 +1278,24 @@ function _shareDialog(link){
         window._srcProofUrl = url;   // מקור מרוחק — שיתוף ללקוח לא צריך העלאה חוזרת
         if (qs.get('auto') !== '0') $('go').click();   // קיפול אוטומטי (אלא אם auto=0)
       })
-      .catch(function(e){ $('fileinfo').innerHTML = '⚠️ לא ניתן לטעון את הפרופר אוטומטית ('+(e.message||e)+'). גרור/בחר קובץ ידנית.'; });
+      .catch(function(e){
+        // "Failed to fetch"/TypeError = דחייה ברמת-רשת (לרוב סינון אינטרנט-כשר שחוסם את שרת-הקבצים),
+        // בניגוד לשגיאת-HTTP (למשל 404). מציגים הודעה מסבירה + דרכי-פעולה במקום טקסט-שגיאה גולמי.
+        var netBlock = (e && (e.name === 'TypeError' || /Failed to fetch|NetworkError|load failed/i.test(String(e.message||e))));
+        if (netBlock){
+          $('fileinfo').innerHTML =
+              '<div style="text-align:right;line-height:1.6;font-size:.92rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 14px">'
+            + '<b>⚠️ לא הצלחנו לטעון את החוברת אוטומטית.</b><br>'
+            + 'ייתכן שהחיבור שלכם (למשל <b>אינטרנט כשר</b> — רימון/נטפרי) חוסם את שרת-הקבצים.<br>'
+            + '<b>מה אפשר לעשות:</b><br>'
+            + '• בקשו מבית-הדפוס לשלוח את החוברת כ<b>קובץ מצורף בוואטסאפ</b> (בדרך-כלל עובר את הסינון), או<br>'
+            + '• פתחו את הקישור ב<b>דפדפן רגיל / חיבור אחר</b> (נתוני-סלולר), או<br>'
+            + '• אם יש לכם כבר קובץ החוברת — גררו/בחרו אותו כאן ידנית.'
+            + '</div>';
+        } else {
+          $('fileinfo').innerHTML = '⚠️ לא ניתן לטעון את הפרופר אוטומטית ('+(e.message||e)+'). גרור/בחר קובץ ידנית.';
+        }
+      });
   } catch(e){}
 })();
 </script>
