@@ -325,6 +325,11 @@ function render(rows) {
   const folders = [...byCustomer.entries()].map(([customer, items]) => `
     <details class="folder" open>
       <summary>📁 ${escapeHtml(customer)} <span class="count">(${items.length})</span></summary>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;padding:7px 10px 2px">
+        <button data-portal="${escapeHtml(customer)}" title="קישור קבוע לפורטל האישי של הלקוח">🔗 קישור-פורטל</button>
+        <button data-notice="${escapeHtml(customer)}" title="שלח דרישה שתופיע בפורטל הלקוח">📢 שלח דרישה</button>
+        <button data-apogee="${escapeHtml(customer)}" title="העלה פרופר-אפוגי לדפדוף+אישור בפורטל">📎 פרופר-אפוגי לפורטל</button>
+      </div>
       <table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
       <tbody>${items.map(rowHtml).join('')}</tbody></table>
     </details>`).join('');
@@ -332,6 +337,9 @@ function render(rows) {
   $('tableWrap').innerHTML = folders;
 
   document.querySelectorAll('[data-link]').forEach(b => b.onclick = () => shareLink(b.dataset.link));
+  document.querySelectorAll('[data-portal]').forEach(b => b.onclick = () => portalLink(b.dataset.portal));
+  document.querySelectorAll('[data-notice]').forEach(b => b.onclick = () => sendNotice(b.dataset.notice));
+  document.querySelectorAll('[data-apogee]').forEach(b => b.onclick = () => attachApogee(b.dataset.apogee));
   document.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => {
     const t = _genReg[b.dataset.gen];
     const sheet = parseInt(document.querySelector(`[data-sheet="${b.dataset.gen}"]`).value, 10);
@@ -359,6 +367,78 @@ async function downloadFile(url, name, btn) {
     downloadBlob(blob, name);
   } catch (e) { window.open(url, '_blank'); }
   if (btn) { btn.textContent = old; btn.disabled = false; }
+}
+
+// ── פורטל לקוח: קישור קבוע + דרישות + פרופר-אפוגי ──────────────────────────
+function _slug(s){ return String(s||'').trim().toLowerCase().replace(/[.#$\[\]\/\\]+/g,'').replace(/\s+/g,'_'); }
+async function portalLink(customer){
+  const slug = _slug(customer); if (!slug){ alert('שם לקוח חסר'); return; }
+  msg('מכין קישור פורטל…');
+  let rec = null;
+  try { rec = await (await fetch(await _au(`${_FBURL}/customerPortals/${slug}.json`))).json(); } catch(e){}
+  if (!rec || !rec.token){
+    rec = { name: customer, token: 'k'+Date.now().toString(36)+Math.random().toString(36).slice(2,10), createdAt: Date.now() };
+    await fetch(await _au(`${_FBURL}/customerPortals/${slug}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(rec) });
+  }
+  const base = location.href.replace(/[^/]+(\?.*)?$/, '');
+  const link = base + 'customer-portal.html?cust=' + encodeURIComponent(customer) + '&k=' + encodeURIComponent(rec.token);
+  shareLink(link); msg('✓ קישור הפורטל מוכן');
+}
+async function sendNotice(customer){
+  const slug = _slug(customer); if (!slug) return;
+  const text = prompt('דרישה ללקוח (תופיע בפורטל שלו כחיווי):\nלמשל: "יש פרופר לאישור" / "נדרשת החלפת עמוד 5"');
+  if (text == null) return; const t = String(text).trim(); if (!t) return;
+  const id = 'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  const type = /פרופר|אשר|אישור/.test(t) ? 'approve' : (/החלפ|החליף|עמוד/.test(t) ? 'replace' : 'note');
+  await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:t, type:type, at:Date.now(), done:false }) });
+  msg('✓ הדרישה נשלחה ללקוח');
+}
+async function attachApogee(customer){
+  const slug = _slug(customer); if (!slug) return;
+  const fold = prompt('סוג הקיפול של פרופר-האפוגי (32 / 16perf / 16p / 8perf / 8p / 4perf / 4p):', '32');
+  if (fold == null) return;
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf';
+  inp.onchange = async function(){
+    const f = inp.files && inp.files[0]; if (!f) return;
+    msg('מעלה פרופר-אפוגי…');
+    try {
+      const buf = new Uint8Array(await f.arrayBuffer());
+      const jobId = 'apogee_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+      const safe = (f.name||'apogee.pdf').replace(/[\\/:*?"<>|#%&{}]+/g,'_').slice(0,90);
+      const path = 'customerProofs/'+slug+'/'+jobId+'/'+safe;
+      const url = await uploadBytes(path, buf);
+      await fetch(await _au(`${_FBURL}/customerProofs/${jobId}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ customer:customer, title:'פרופר אפוגי — '+(f.name||''), status:'apogee', apogeeUrl:url, apogeeFold:(fold||'32'), apogeePath:path, source:'shop', createdAt:Date.now() }) });
+      const nid = 'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+      await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${nid}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:'יש פרופר חדש לאישור לדפוס', type:'approve', at:Date.now(), done:false }) });
+      msg('✓ הפרופר הועלה לפורטל הלקוח'); await loadProofs();
+    } catch(e){ console.error(e); msg('✗ העלאה נכשלה: ' + (e.message||e)); }
+  };
+  inp.click();
+}
+async function uploadBytes(path, bytes){
+  let lastErr;
+  for (const bucket of ['solan-printing.firebasestorage.app']){
+    for (let attempt=1; attempt<=3; attempt++){
+      try {
+        const json = await xhrPost('https://firebasestorage.googleapis.com/v0/b/'+bucket+'/o?name='+encodeURIComponent(path), bytes);
+        const token = (json.downloadTokens||'').split(',')[0] || '';
+        return 'https://firebasestorage.googleapis.com/v0/b/'+bucket+'/o/'+encodeURIComponent(path)+'?alt=media&token='+token;
+      } catch(e){ lastErr=e; if(e.code===403) throw e; await new Promise(r=>setTimeout(r, 1500*attempt)); }
+    }
+  }
+  throw lastErr || new Error('העלאה נכשלה');
+}
+function xhrPost(url, bytes){
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest(); xhr.open('POST', url); xhr.timeout = 0;
+    xhr.setRequestHeader('Content-Type', 'application/pdf');
+    const finishSend = (t) => { try { if (t) xhr.setRequestHeader('Authorization', 'Firebase ' + t); } catch(e){} (window._appCheckToken?window._appCheckToken():Promise.resolve(null)).then(function(act){ try{ if(act) xhr.setRequestHeader('X-Firebase-AppCheck', act); }catch(e){} xhr.send(bytes); }, function(){ xhr.send(bytes); }); };
+    xhr.onload = () => { if (xhr.status>=200 && xhr.status<300){ try{ resolve(JSON.parse(xhr.responseText)); }catch(e){ const er=new Error('bad'); er.code=xhr.status; reject(er); } return; } const er=new Error('Storage '+xhr.status); er.code=xhr.status; reject(er); };
+    xhr.onerror = () => { const e=new Error('שגיאת רשת'); e.code=0; reject(e); };
+    xhr.ontimeout = () => { const e=new Error('פג זמן'); e.code=408; reject(e); };
+    _fbAuthToken().then(finishSend, () => finishSend(null));
+  });
 }
 
 // מחיקת ריצה בודדת
