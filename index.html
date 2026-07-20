@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784570482';
+window.APP_VERSION = '1784572935';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -26620,6 +26620,7 @@ function pi_drawSheetSvg(g, scale, items, selKey, warnKeys, svgId){
     s += '<g data-item="' + key + '" transform="translate(' + (it.xMm*scale) + ',' + (it.yMm*scale) + ')" style="cursor:move">' +
       '<rect x="0" y="0" width="' + iw + '" height="' + ih + '" fill="' + fill + '" rx="2"/>' + imgTag +
       '<rect x="0" y="0" width="' + iw + '" height="' + ih + '" fill="none" stroke="' + stroke + '" stroke-width="' + sw + '" rx="2"/>' +
+      ((it.pageNumber != null) ? _piHeadRectSvg(it.rotation, iw, ih) : '') +   // סימון ראש-העמוד (מסלול כרטיס — עמודים)
       (prev ? '' : '<text x="' + (iw/2) + '" y="' + (ih/2 + 4) + '" text-anchor="middle" font-size="10" font-weight="800" fill="#4c1d95" font-family="Heebo" transform="rotate(' + (it.rotation===90?-90:(it.rotation===270?90:0)) + ',' + (iw/2) + ',' + (ih/2) + ')" style="pointer-events:none">' + escHtml(lbl) + '</text>') +
       ((it.rotation===90||it.rotation===270) ? '<text x="3" y="11" font-size="8" fill="#64748b" style="pointer-events:none">⟳</text>' : '') +
       ((key === _singleSel) ? _resizeHandles(key, iw, ih) : '') +
@@ -28518,14 +28519,16 @@ function pi_renderBuilder(){
         '<div style="font-size:.74rem;font-weight:700;color:#6b7280;margin-bottom:6px">' + sideLabel + '</div>' +
         '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
       grid.forEach(function(rowArr){
-        rowArr.forEach(function(local){
+        rowArr.forEach(function(local, c){
           var g = sig.pageMap[local - 1];
           var isSel = sel && sel.sig === si && sel.local === local;
           var blank = (g == null);
-          html += '<div onclick="pi_cellClick(' + si + ',' + local + ')" style="aspect-ratio:240/165;display:flex;align-items:center;justify-content:center;' +
+          var rawRot = (tpl.rot && tpl.rot[c] != null) ? tpl.rot[c] : 0;
+          var headBar = blank ? '' : '<div title="ראש העמוד" style="' + _piHeadBar(rawRot) + '"></div>';   // כיוון ראש-העמוד לפי הטמפלט
+          html += '<div onclick="pi_cellClick(' + si + ',' + local + ')" style="position:relative;aspect-ratio:240/165;display:flex;align-items:center;justify-content:center;' +
             'border:' + (isSel ? '2.5px solid #c9a84c' : (blank ? '1.5px dashed #d1d5db' : '1.5px solid #cbd5e1')) + ';border-radius:7px;cursor:pointer;' +
             'background:' + (isSel ? '#fffbeb' : (blank ? '#f8fafc' : '#fff')) + ';font-weight:800;font-size:1.02rem;color:' + (blank ? '#c0c4cc' : '#1a1a4e') + ';user-select:none">' +
-            (blank ? 'ריק' : g) + '</div>';
+            headBar + (blank ? 'ריק' : g) + '</div>';
         });
       });
       html += '</div></div>';
@@ -28807,6 +28810,27 @@ function pi_canvasSheetOptions(){
     }
   });
   return out;
+}
+// סימון ראש-העמוד: פס אדום על הקצה שאליו פונה ראש-העמוד, לפי סיבוב העמודה (זהה לגליף שבעורך-הטמפלט).
+// 0→ראש למעלה · 90→שמאל · 180→למטה · 270→ימין. משמש גם ברשת-הקונטרסים וגם בקנבס-המ״מ.
+function _piHeadBar(rot){
+  rot = ((Math.round(rot||0)%360)+360)%360;
+  var pos;
+  if (rot===90)      pos='top:9%;bottom:9%;left:0;width:5px';
+  else if (rot===270) pos='top:9%;bottom:9%;right:0;width:5px';
+  else if (rot===180) pos='left:9%;right:9%;bottom:0;height:5px';
+  else                pos='left:9%;right:9%;top:0;height:5px';
+  return 'position:absolute;'+pos+';background:#dc2626;border-radius:2px;pointer-events:none;z-index:2';
+}
+// אותו סימון בקנבס-המ״מ (SVG): פס אדום על קצה-הראש של תיבת-הפריט (iw×ih), לפי הסיבוב.
+function _piHeadRectSvg(rot, iw, ih){
+  rot = ((Math.round(rot||0)%360)+360)%360;
+  var b = Math.max(2.4, Math.min(iw, ih) * 0.05), mx = iw*0.09, my = ih*0.09, x, y, w, h;
+  if (rot===90)       { x=0;      y=my; w=b;        h=ih-2*my; }
+  else if (rot===270) { x=iw-b;   y=my; w=b;        h=ih-2*my; }
+  else if (rot===180) { x=mx;     y=ih-b; w=iw-2*mx; h=b; }
+  else                { x=mx;     y=0;  w=iw-2*mx;  h=b; }
+  return '<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+h.toFixed(1)+'" fill="#dc2626" rx="1" style="pointer-events:none"><title>ראש העמוד</title></rect>';
 }
 // פריטי הגיליון (base) — כל תא בגריד התבנית → פריט במ״מ בתוך אזור ההדפסה
 function pi_computeSheetItems(d, sig, side, g){

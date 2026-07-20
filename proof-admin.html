@@ -302,6 +302,40 @@ function render(rows) {
       return head + partRows;
     }
 
+    // ── פרופר-אפוגי שהעלה הדפוס — אישור/נעילה של הלקוח ──
+    if (p.apogeeUrl) {
+      const approved = !!p.apogeeApprovedAt;
+      const link = `${base}imposition-tool.html?proofUrl=${encodeURIComponent(p.apogeeUrl)}&type=${encodeURIComponent(p.apogeeFold||'32')}&auto=1&client=1`;
+      return `<tr>
+        <td><b>${escapeHtml(p.title || 'פרופר אפוגי')}</b></td>
+        <td><span class="badge ${approved?'b-approved':'b-wait'}">${approved ? '✓ אושר לדפוס · נעול' : 'ממתין לאישור הלקוח'}</span></td>
+        <td>נוצר: ${fmt(p.createdAt)}${approved ? `<div class="note" style="color:#16a34a">✓ ${escapeHtml(p.apogeeApprovedBy||'')} · ${fmt(p.apogeeApprovedAt)}</div>` : ''}</td>
+        <td><div class="acts">
+          <a href="${link}" target="_blank">📖 דפדף</a>
+          <a href="${p.apogeeUrl}" target="_blank">⬇ הורד</a>
+          ${approved ? `<button data-unlock="${p.id}" title="בטל נעילה — הלקוח יוכל לשנות/לאשר מחדש">🔓 פתח לשינויים</button>` : ''}
+          <button class="del" data-deljob="${p.id}" title="מחק פרופר">🗑</button>
+        </div></td></tr>`;
+    }
+
+    // ── עיתון שהעלה הלקוח מהפורטל — קבצים מקובצים תחת עיתון אחד (לא כבודדים) ──
+    if (p.files) {
+      const fkeys = Object.keys(p.files);
+      const dls = fkeys.map(k => { const fl = p.files[k]; return (fl && fl.fileUrl)
+        ? `<a href="${fl.fileUrl}" target="_blank" title="${escapeHtml(fl.fileName||'')}">⬇ ${escapeHtml((fl.fileName||'קובץ').slice(0,22))}</a>` : ''; }).join(' ');
+      const pf = (p.preflight && p.preflight.issueCount > 0)
+        ? `<div class="note" style="color:#b45309">⚠️ תקינות: ${escapeHtml((p.preflight.warnings||[]).join(' · '))}</div>`
+        : (p.preflight ? `<div class="note" style="color:#16a34a">✓ בדיקת תקינות עברה</div>` : '');
+      return `<tr>
+        <td><b>${escapeHtml(p.title || (p.customer ? p.customer + ' — עיתון' : 'עיתון'))}</b>
+          <span style="color:#9ca3af">(${fkeys.length} קבצים${p.issue ? ' · גיליון ' + escapeHtml(String(p.issue)) : ''})</span>${pf}</td>
+        <td><span class="badge b-wait">התקבל מהלקוח</span></td>
+        <td>נוצר: ${fmt(p.createdAt)}</td>
+        <td><div class="acts">${dls}
+          <button class="del" data-deljob="${p.id}" title="מחק עבודה וכל הקבצים">🗑</button>
+        </div></td></tr>`;
+    }
+
     // ── עבודה רגילה (עיתון מלא / ממתין) ──
     const [txt, cls] = STATUS[p.status] || ['—', ''];
     const gen = p.status === 'approved' ? genCell(p.fileUrl, p.title || p.customer || 'עיתון', p.id, null)
@@ -340,6 +374,7 @@ function render(rows) {
   document.querySelectorAll('[data-portal]').forEach(b => b.onclick = () => portalLink(b.dataset.portal));
   document.querySelectorAll('[data-notice]').forEach(b => b.onclick = () => sendNotice(b.dataset.notice));
   document.querySelectorAll('[data-apogee]').forEach(b => b.onclick = () => attachApogee(b.dataset.apogee));
+  document.querySelectorAll('[data-unlock]').forEach(b => b.onclick = () => unlockProof(b.dataset.unlock));
   document.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => {
     const t = _genReg[b.dataset.gen];
     const sheet = parseInt(document.querySelector(`[data-sheet="${b.dataset.gen}"]`).value, 10);
@@ -384,22 +419,60 @@ async function portalLink(customer){
   const link = base + 'customer-portal.html?cust=' + encodeURIComponent(customer) + '&k=' + encodeURIComponent(rec.token);
   shareLink(link); msg('✓ קישור הפורטל מוכן');
 }
-async function sendNotice(customer){
+function sendNotice(customer){
   const slug = _slug(customer); if (!slug) return;
-  const text = prompt('דרישה ללקוח (תופיע בפורטל שלו כחיווי):\nלמשל: "יש פרופר לאישור" / "נדרשת החלפת עמוד 5"');
-  if (text == null) return; const t = String(text).trim(); if (!t) return;
-  const id = 'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  const type = /פרופר|אשר|אישור/.test(t) ? 'approve' : (/החלפ|החליף|עמוד/.test(t) ? 'replace' : 'note');
-  await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:t, type:type, at:Date.now(), done:false }) });
-  msg('✓ הדרישה נשלחה ללקוח');
+  const ex = document.getElementById('notice-modal'); if (ex) ex.remove();
+  const bs = 'padding:6px 11px;border:1.5px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700;font-size:.8rem';
+  const html = '<div id="notice-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:center;justify-content:center;direction:rtl;padding:16px">'
+    + '<div style="background:#fff;border-radius:14px;max-width:450px;width:100%;padding:20px 22px;box-shadow:0 14px 44px rgba(0,0,0,.35)">'
+    + '<div style="font-weight:900;font-size:1.05rem;color:#2d3561;margin-bottom:8px">📢 דרישה ללקוח — ' + escapeHtml(customer) + '</div>'
+    + '<div style="font-size:.78rem;color:#666;margin-bottom:6px">בחר תבנית מהירה או כתוב חופשי:</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
+    +   '<button type="button" data-tpl="יש פרופר לאישור לדפוס" style="'+bs+'">📖 פרופר לאישור</button>'
+    +   '<button type="button" data-tpl="נדרשת החלפת עמוד" style="'+bs+'">🔁 החלפת עמוד</button>'
+    +   '<button type="button" data-tpl="חסר קובץ / נדרש קובץ נוסף" style="'+bs+'">📎 חסר קובץ</button>'
+    + '</div>'
+    + '<textarea id="notice-text" rows="3" placeholder="כתוב את הדרישה..." style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:9px;font-family:inherit;box-sizing:border-box;font-size:.95rem"></textarea>'
+    + '<div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px;flex-wrap:wrap">'
+    +   '<button type="button" id="notice-apogee" style="'+bs+';border-color:#99f6e4;color:#0f766e">📎 צרף פרופר-אפוגי במקום</button>'
+    +   '<div style="display:flex;gap:8px">'
+    +     '<button type="button" id="notice-cancel" style="'+bs+'">ביטול</button>'
+    +     '<button type="button" id="notice-send" style="padding:8px 18px;border:none;background:#1a1a4e;color:#fff;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:800;font-size:.85rem">שלח דרישה</button>'
+    +   '</div>'
+    + '</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  const ta = document.getElementById('notice-text');
+  document.querySelectorAll('#notice-modal [data-tpl]').forEach(function(b){ b.onclick = function(){ ta.value = ta.value ? (ta.value + ' · ' + b.dataset.tpl) : b.dataset.tpl; ta.focus(); }; });
+  document.getElementById('notice-cancel').onclick = function(){ document.getElementById('notice-modal').remove(); };
+  document.getElementById('notice-apogee').onclick = function(){ document.getElementById('notice-modal').remove(); attachApogee(customer); };
+  document.getElementById('notice-send').onclick = async function(){
+    const t = (ta.value||'').trim(); if (!t){ ta.focus(); return; }
+    document.getElementById('notice-modal').remove();
+    const id = 'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    const type = /פרופר|אשר|אישור/.test(t) ? 'approve' : (/החלפ|החליף|עמוד/.test(t) ? 'replace' : 'note');
+    await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:t, type:type, at:Date.now(), done:false }) });
+    msg('✓ הדרישה נשלחה ללקוח');
+  };
 }
-async function attachApogee(customer){
+// פתיחת פרופר-נעול לשינויים — מסיר את האישור כדי שהלקוח יוכל לשנות/לאשר מחדש
+async function unlockProof(id){
+  const p = _allRows.find(r => r.id === id); if (!p) return;
+  if (!confirm('לפתוח את הפרופר לשינויים? הנעילה תוסר והלקוח יוכל לאשר מחדש.')) return;
+  await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ apogeeApprovedAt:null, apogeeApprovedBy:null, reopenedAt:Date.now() }) });
+  try { const slug = _slug(p.customer||''); if (slug){ const nid='n'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${nid}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:'הפרופר נפתח מחדש — נא לבדוק ולאשר', type:'approve', at:Date.now(), done:false }) }); } } catch(e){}
+  msg('🔓 הפרופר נפתח לשינויים'); await loadProofs();
+}
+function attachApogee(customer){
   const slug = _slug(customer); if (!slug) return;
-  const fold = prompt('סוג הקיפול של פרופר-האפוגי (32 / 16perf / 16p / 8perf / 8p / 4perf / 4p):', '32');
-  if (fold == null) return;
+  // פותחים את בורר-הקובץ ישירות על הלחיצה (prompt לפני click חוסם את חלון-ההעלאה בחלק מהדפדפנים);
+  // סוג-הקיפול נשאל אחרי בחירת הקובץ. ה-input מצורף ל-DOM כדי ש-click יעבוד בכל דפדפן.
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf';
+  inp.style.display = 'none'; document.body.appendChild(inp);
   inp.onchange = async function(){
-    const f = inp.files && inp.files[0]; if (!f) return;
+    const f = inp.files && inp.files[0]; inp.remove(); if (!f) return;
+    const fold = prompt('סוג הקיפול של פרופר-האפוגי (32 / 16perf / 16p / 8perf / 8p / 4perf / 4p):', '32');
+    if (fold == null) return;
     msg('מעלה פרופר-אפוגי…');
     try {
       const buf = new Uint8Array(await f.arrayBuffer());
