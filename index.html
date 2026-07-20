@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784566723';
+window.APP_VERSION = '1784569117';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21654,7 +21654,7 @@ function _opProofImagesOverlay(pagesUrl, pdfUrl, type, label) {
   fetch(pagesUrl).then(function(r){ return r.json(); }).then(function(imgs){
     var l = document.getElementById('op-proof-loading'); if (l) l.remove();
     if (!Array.isArray(imgs) || !imgs.length) { if (pdfUrl){ _opCloseProof(); _opRenderPdfToImages(pdfUrl, type||'application/pdf', label); } return; }
-    window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: pdfUrl, type: type, label: label };
+    window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: pdfUrl, type: type, label: label, sim: _opPaperToPreset(window._opProofPaper||'') };
     _opInk.previewSrc = null; _opInk._hiResIdx = undefined;   // איפוס תצוגת ברזי-צבע ברזולוציה גבוהה לפרופר חדש
     _opPVBuild(ov);
   }).catch(function(){
@@ -21681,7 +21681,7 @@ function _opRenderPdfToImages(url, type, label){
           pdf.cleanup && pdf.cleanup();
           var l = document.getElementById('op-proof-loading'); if (l) l.remove();
           if (!imgs.length){ _opCloseProof(); _opProofOverlay(url, type, label, false); return; }
-          window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label };
+          window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label, sim: _opPaperToPreset(window._opProofPaper||'') };
           _opInk.previewSrc = null; _opInk._hiResIdx = undefined;
           _opPVBuild(ov);
           return;
@@ -21722,9 +21722,9 @@ function _opPVBuild(ov){
     + (pv.pdfUrl ? _opPVbtn('📄 PDF','פתח PDF מלא').replace('<button','<button id="op-pv-pdf"') : '')
     + '<select id="op-pv-sim" title="הדמיית מראה-בדפוס (קירוב ויזואלי — לא צבע מדויק)" style="height:38px;border:none;border-radius:8px;padding:0 8px;font-family:Heebo,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;background:#7c5a00;color:#fff">'
       + '<option value="none">👁 תצוגה רגילה</option>'
-      + '<option value="newsprint">📰 הדמיה: עיתון</option>'
+      + '<option value="chromo">✨ הדמיה: כרומו נטול-עץ</option>'
       + '<option value="matt">📄 הדמיה: מט</option>'
-      + '<option value="coated">✨ הדמיה: כרומו</option>'
+      + '<option value="brown">🟫 הדמיה: נייר חום</option>'
       + '</select>'
     + _opPVbtn('🎨 ברזי צבע','מחשבון ברזי צבע').replace('<button','<button id="op-pv-ink"').replace('#1e3a5f','#7c5a00')
     + _opPVbtn('⛶','מסך מלא').replace('<button','<button id="op-pv-fs"')
@@ -21841,12 +21841,21 @@ function _opProofOverlay(url, type, label, revoke) {
 //    מעבד את תמונת הפרופר בקנבס: דחיסת-גאמוט (הפחתת רוויה), נקודת-לובן של הנייר
 //    (לבן→גוון-נייר, שחור→לא-שחור-מלא), ו-dot-gain (הכהיית גוונים-אמצעיים).
 //    ⚠️ אין דיוק ICC/CMYK אמיתי בדפדפן — זו הדמיה מסומנת בלבד.
+// הניירות שאנחנו מדפיסים עליהם עיתונים: כרומו נטול-עץ, ונייר חום. (ניוזפרינט לא בשימוש — הוסר.)
 var _OP_SIM_PRESETS = {
-  none:      { label:'תצוגה רגילה' },
-  newsprint: { label:'עיתון (ניוזפרינט)', sat:0.66, dotGain:0.24, white:[231,226,213], black:[62,58,52] },
-  matt:      { label:'מט',                 sat:0.85, dotGain:0.12, white:[246,244,238], black:[34,33,32] },
-  coated:    { label:'כרומו (מבריק)',      sat:0.95, dotGain:0.06, white:[251,251,249], black:[22,22,24] }
+  none:   { label:'תצוגה רגילה' },
+  chromo: { label:'כרומו נטול-עץ', sat:0.96, dotGain:0.05, white:[252,251,248], black:[20,20,22] },
+  matt:   { label:'מט',            sat:0.86, dotGain:0.11, white:[247,245,240], black:[30,29,28] },
+  brown:  { label:'נייר חום',      sat:0.60, dotGain:0.18, white:[196,168,126], black:[64,50,34] }
 };
+// זיהוי פריסט מתוך מחרוזת-הנייר של הכרטיס (חום → brown, נטול-עץ/כרומו → chromo, מט → matt)
+function _opPaperToPreset(paper){
+  var p = String(paper||'');
+  if (/חום|קרפט|kraft|brown/i.test(p)) return 'brown';
+  if (/מט(?![א-ת])|matt|matte/i.test(p)) return 'matt';   // "מט" כמילה (לא חלק ממילה אחרת); \b לא אמין אחרי אותיות עבריות
+  if (/נטול[- ]?עץ|נטולת[- ]?עץ|נ\s*\/\s*ע|wood.?free|כרומו|coat|גלוס|gloss|מבריק/i.test(p)) return 'chromo';
+  return 'none';
+}
 // טרנספורם פיקסל טהור (0..255 → 0..255) — ניתן לבדיקה בלי DOM
 function _opSimPixel(r, g, b, ps){
   r/=255; g/=255; b/=255;
@@ -22074,6 +22083,7 @@ function _opViewProof(cardId, runKey) {
   // חסינות לכפילויות: אם לכרטיס עצמו אין פרופר — לוקחים מכרטיס אחר עם אותו שם שיש לו
   var c = _opProofCardFor(c0) || c0;
   cardId = c ? c.id : cardId;
+  window._opProofPaper = (c && c.paper) || (c0 && c0.paper) || '';   // לזיהוי-אוטומטי של פריסט הדמיית-הנייר לפי מפרט הכרטיס
   // מוצאים את הפרופר הטוב ביותר לעבודה: קודם של הריצה הספציפית, אחרת פרופר יחיד של הכרטיס,
   // אחרת הפרופר הראשון של ריצה כלשהי — כדי שגם ריצה בלי פרופר משלה תציג את פרופר הכרטיס.
   var rec = null, legacyKey = runKey;
@@ -24441,13 +24451,14 @@ function pi_pdfThumb(buf, pageNum){
   return pdfjsLib.getDocument({ data: buf.slice ? buf.slice(0) : buf }).promise
     .then(function(pdf){ var pn = Math.min(Math.max(1, pageNum||1), pdf.numPages||1); return pdf.getPage(pn); })
     .then(function(page){
-      // רזולוציה גבוהה כדי שהגרפיקה על הגיליון תיראה חדה גם בזום (עד ~2000px בצד הארוך)
-      var v1 = page.getViewport({ scale:1 }), scale = Math.min(6, 2000 / Math.max(v1.width, v1.height, 1));
+      // רזולוציה גבוהה כדי שהגרפיקה על הגיליון תיראה חדה גם בזום (עד ~3000px בצד הארוך)
+      var v1 = page.getViewport({ scale:1 }), scale = Math.min(9, 3000 / Math.max(v1.width, v1.height, 1));
       var vp = page.getViewport({ scale: scale }), c = document.createElement('canvas');
       c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
       var ctx = c.getContext('2d');
       try { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; } catch(e){}
-      return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function(){ return c.toDataURL('image/jpeg', 0.92); });
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);   // רקע לבן — JPEG בלי שקיפות שחורה
+      return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function(){ return c.toDataURL('image/jpeg', 0.95); });
     }).catch(function(){ return null; });
 }
 function pi_previewFromFile(file){
@@ -26039,6 +26050,70 @@ function pi_manualAddItem(fileId, xMm, yMm){
   f.quantity = (cur.items||[]).filter(function(it){ return it.fileId === f.id; }).length;   // הכמות = כמה עותקים בפועל על הגיליון
   cur._edited = true; window._pi.dirty = true; pi_selSet([id]); window._pi.arrangeMsg = null; pi_render();
 }
+// המידות הגדולות ביותר (שומרות יחס) שבהן `target` עותקים נכנסים באזור W×H. פונקציה טהורה (נבדקת).
+// מחזיר {wMm,hMm,scale,count} או null אם גם בהקטנה משמעותית אי-אפשר.
+function pi_shrinkForCount(w, h, W, H, gap, target){
+  if (!(target >= 1) || !(w > 0 && h > 0)) return null;
+  if ((pi_nupFit(w, h, W, H, gap).count || 0) >= target)
+    return { wMm: w, hMm: h, scale: 1, count: pi_nupFit(w, h, W, H, gap).count };   // כבר נכנס בגודל מלא
+  var lo = 0.05, hi = 1, best = 0;
+  for (var i = 0; i < 28; i++){
+    var mid = (lo + hi) / 2;
+    var wf = Math.round(w * mid * 10) / 10, hf = Math.round(h * mid * 10) / 10;
+    if (wf > 0 && hf > 0 && (pi_nupFit(wf, hf, W, H, gap).count || 0) >= target){ best = mid; lo = mid; }
+    else hi = mid;
+  }
+  if (!best) return null;
+  var wf = Math.floor(w * best * 10) / 10, hf = Math.floor(h * best * 10) / 10;
+  var guard = 0;
+  while ((pi_nupFit(wf, hf, W, H, gap).count || 0) < target && guard++ < 60){
+    wf = Math.round(wf * 0.99 * 10) / 10; hf = Math.round(hf * 0.99 * 10) / 10;
+    if (wf <= 0 || hf <= 0) return null;
+  }
+  var c = pi_nupFit(wf, hf, W, H, gap).count || 0;
+  if (c < target) return null;
+  return { wMm: wf, hMm: hf, scale: best, count: c };
+}
+// משנה את מידות הקובץ + כל הפריטים הקיימים שלו (שומר על סיבוב הפריט)
+function pi_shrinkFileTo(f, wMm, hMm, cur){
+  f.widthMm = wMm; f.heightMm = hMm;
+  (cur.items || []).forEach(function(it){
+    if (it.fileId !== f.id) return;
+    if (it.rotation % 180 !== 0){ it.widthMm = hMm; it.heightMm = wMm; }
+    else { it.widthMm = wMm; it.heightMm = hMm; }
+  });
+}
+// דיאלוג "מעבר לקיבולת" — נותן לבחור: הקטנה כדי להכניס את הכמות המבוקשת / מילוי בגודל מלא / ביטול
+function pi_qtyOverCapModal(fileId, target, maxFit, shr){
+  var cur = window._pi.cur; if (!cur) return;
+  var f = (cur.files || []).find(function(x){ return x.id === fileId; }); if (!f) return;
+  var ex = document.getElementById('pi-qtycap-modal'); if (ex) ex.remove();
+  var curSz = Math.round(f.widthMm) + '×' + Math.round(f.heightMm) + ' מ״מ';
+  var shrBtn = (shr && shr.wMm > 0)
+    ? '<button onclick="pi_qtyCapShrink(\'' + fileId + '\',' + target + ',' + shr.wMm + ',' + shr.hMm + ')" style="display:block;width:100%;margin-bottom:9px;padding:12px;border:none;border-radius:9px;background:#c2410c;color:#fff;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.92rem">▽ הקטן ל-<b>' + shr.wMm + '×' + shr.hMm + '</b> מ״מ והכנס <b>' + target + '</b> עותקים</button>'
+    : '<div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:9px 11px;margin-bottom:9px;font-size:.84rem;font-weight:700">⚠️ גם בהקטנה לא ניתן להכניס ' + target + ' עותקים בגיליון הזה (יותר מדי / גיליון קטן).</div>';
+  var html = '<div id="pi-qtycap-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10050;display:flex;align-items:center;justify-content:center;direction:rtl;padding:16px" onclick="if(event.target===this)this.remove()">'
+    + '<div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:20px 22px;box-shadow:0 14px 44px rgba(0,0,0,.35);font-family:Heebo">'
+    + '<div style="font-weight:900;font-size:1.08rem;color:#2d3561;margin-bottom:6px">כמות מעבר לקיבולת הגיליון</div>'
+    + '<div style="font-size:.86rem;color:#555;line-height:1.6;margin-bottom:14px">בגודל הנוכחי (' + curSz + ') נכנסים בגיליון עד <b>' + maxFit + '</b> עותקים, וביקשת <b>' + target + '</b>.<br>כדי להכניס ' + target + ' צריך להקטין את מידות הקובץ:</div>'
+    + shrBtn
+    + '<button onclick="pi_qtyCapFull(\'' + fileId + '\',' + maxFit + ')" style="display:block;width:100%;margin-bottom:9px;padding:11px;border:1.5px solid #cbd5e1;background:#fff;color:#334155;font-weight:800;cursor:pointer;font-family:Heebo;font-size:.9rem">▦ השאר בגודל מלא ומלא ' + maxFit + ' עותקים</button>'
+    + '<button onclick="document.getElementById(\'pi-qtycap-modal\').remove();pi_render();" style="display:block;width:100%;padding:9px;border:none;background:none;color:#64748b;font-weight:700;cursor:pointer;font-family:Heebo;font-size:.86rem">ביטול</button>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function pi_qtyCapShrink(fileId, target, wMm, hMm){
+  var cur = window._pi.cur; if (!cur) return;
+  var f = (cur.files || []).find(function(x){ return x.id === fileId; }); if (!f) return;
+  pi_shrinkFileTo(f, wMm, hMm, cur);
+  var m = document.getElementById('pi-qtycap-modal'); if (m) m.remove();
+  pi_manualSetFileQty(fileId, target, true);   // עכשיו נכנס בגודל המוקטן
+  showToast('▽ הוקטן ל-' + wMm + '×' + hMm + ' מ״מ · ' + target + ' עותקים');
+}
+function pi_qtyCapFull(fileId, maxFit){
+  var m = document.getElementById('pi-qtycap-modal'); if (m) m.remove();
+  pi_manualSetFileQty(fileId, maxFit, true);
+}
 // שינוי כמות עותקים של קובץ על הגיליון — מוסיף/מסיר עותקים כדי להגיע למספר שנבחר (ומסדר מחדש בהוספה)
 function pi_manualSetFileQty(fileId, v, skipCap){
   var cur = window._pi.cur; if (!cur) return;
@@ -26055,8 +26130,10 @@ function pi_manualSetFileQty(fileId, v, skipCap){
     var maxFit = (pi_nupFit(f.widthMm, f.heightMm, g.printableWidthMm, g.printableHeightMm, g.minGapMm).count || 1) - otherItems;
     if (maxFit < 1) maxFit = 1;
     if (target > maxFit && !skipCap){
-      if (!confirm('בגיליון נכנסים עד ' + maxFit + ' עותקים בגודל מלא, והזנת ' + target + '.\n\nלמלא את הגיליון ב-' + maxFit + ' עותקים?\n(את כמות ההזמנה הכוללת — "🖨️ דף עבודה" מחשב לכמה גיליונות להדפיס.)')){ pi_render(); return; }
-      target = maxFit;
+      // מעבר לקיבולת: מציעים הקטנה כדי להכניס את הכמות המבוקשת (עם המידות האפשריות), או מילוי בגודל מלא
+      var _shr = pi_shrinkForCount(f.widthMm, f.heightMm, g.printableWidthMm, g.printableHeightMm, g.minGapMm, target);
+      pi_qtyOverCapModal(fileId, target, maxFit, _shr);
+      return;
     }
     for (var i = have; i < target; i++){
       cur.items.push({ id: 'it' + Date.now() + i + Math.random().toString(36).slice(2,4), fileId: f.id,
