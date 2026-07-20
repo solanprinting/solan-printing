@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784564722';
+window.APP_VERSION = '1784566723';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -7812,6 +7812,11 @@ function editCard(id) {
   setVal('f-internal-notes', c.internalNotes);
   setVal('f-machine',       c.machine);
   setVal('f-placement-details', c.placementDetails);
+  // הצג את שדה "מפרט פלייסמנטים" בעריכה — ה-wrap מוסתר כברירת-מחדל, ובעריכה לא נקרא pickSize
+  // שמציג אותו, ולכן הרשימה "נעלמה" בצפייה/עריכה. מציגים אם יש תוכן או שהגודל הוא פלייסמנטים.
+  var _pdwEdit = document.getElementById('placement-details-wrap');
+  if (_pdwEdit && ((c.placementDetails && c.placementDetails.trim()) || /פלייסמנט/.test(c.size||'')))
+    _pdwEdit.style.display = '';
   // checkboxes
   if (document.getElementById('f-needs-folding')) document.getElementById('f-needs-folding').checked = !!c.needsFolding;
   if (document.getElementById('f-needs-binding')) document.getElementById('f-needs-binding').checked = !!c.needsBinding;
@@ -8693,25 +8698,34 @@ function _pmShowReminder(k, mem, missing){
     + '<div style="margin-bottom:8px">'+missHtml+'</div>'
     + prevDetails + prevNotes
     + '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-start">'
-    + '<button onclick="_pmApplyReminder()" style="padding:9px 16px;border:none;background:#f0c040;color:#4a3800;border-radius:8px;cursor:pointer;font-weight:800;font-family:Heebo,sans-serif">✓ הוסף למפרט</button>'
+    + '<button onclick="_pmApplyReminder()" style="padding:9px 16px;border:none;background:#f0c040;color:#4a3800;border-radius:8px;cursor:pointer;font-weight:800;font-family:Heebo,sans-serif">✓ הוסף לכרטיס</button>'
     + '<button onclick="_pmDismissReminder()" style="padding:9px 16px;border:1.5px solid #e2e8f0;background:#fff;border-radius:8px;cursor:pointer;font-weight:700;font-family:Heebo,sans-serif">דלג</button>'
     + '</div></div></div>';
   document.body.insertAdjacentHTML('beforeend', html);
 }
 function _pmApplyReminder(){
   var a = window._pmActive; if (!a) return;
+  var add = a.missing.join(' · ');
+  // ניתוב לשדה הנכון: בעבודת-פלייסמנט → "מפרט פלייסמנטים"; אחרת (עיתון וכו') → "הערות".
+  // (קודם התזכורת נכנסה תמיד ל-placementDetails, ולכן בעיתון הופיע "מפרט פלייסמנטים 25 בחבילה".)
+  var sizeVal = (document.getElementById('f-size')||{value:''}).value || '';
   var pdEl = document.getElementById('f-placement-details');
-  var wrap = document.getElementById('placement-details-wrap');
-  if (pdEl){
-    if (wrap) wrap.style.display = '';
-    var cur = pdEl.value.trim();
-    var add = a.missing.join(' · ');
-    pdEl.value = cur ? (cur + ' · ' + add) : add;
+  var isPlacement = /פלייסמנט/.test(sizeVal) || (pdEl && pdEl.value.trim());
+  var target, label;
+  if (isPlacement && pdEl){
+    var wrap = document.getElementById('placement-details-wrap'); if (wrap) wrap.style.display = '';
+    target = pdEl; label = 'למפרט';
+  } else {
+    target = document.getElementById('f-notes'); label = 'להערות';
+  }
+  if (target){
+    var cur = (target.value||'').trim();
+    target.value = cur ? (cur + ' · ' + add) : add;
   }
   window._pmDismissed[a.k] = 1;
   var m = document.getElementById('placement-check-modal'); if (m) m.remove();
   window._pmActive = null;
-  showToast('✅ נוסף למפרט');
+  showToast('✅ נוסף ' + label);
 }
 function _pmDismissReminder(){
   var a = window._pmActive; if (a) window._pmDismissed[a.k] = 1;
@@ -15902,6 +15916,14 @@ function getInvoiceIssues(inv, allInvs) {
   return issues;
 }
 
+// ספירת פלייסמנטים בפועל מתוך רשימת-המפרט (למשל "3 עידית · 2 שיבא · 1 שיבא קטן" = 6).
+// לכל פריט: המספר המוביל אם קיים, אחרת 1.
+function _placementCount(pd){
+  var items = String(pd||'').split(/[·,;|\n]+/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var sum = 0;
+  items.forEach(function(it){ var m = it.match(/^\s*(\d+)/); sum += m ? parseInt(m[1],10) : 1; });
+  return sum;
+}
 function validateCard(card) {
   var warns = [];
   var copies = parseInt(card.copies) || 0;
@@ -15964,6 +15986,32 @@ function validateCard(card) {
                ' בגיליון, הוזן: ' + plN + ' בגיליון' });
         break;
       }
+    }
+  }
+
+  // ── בדיקת עקביות מול רשימת-הפלייסמנטים בפועל (מונע: נבחר 70×100 ל-5 פלייסמנטים, או ששכחו פלייסמנט) ──
+  if (card.placementDetails && card.placementDetails.trim()) {
+    var _plCount = _placementCount(card.placementDetails);
+    var _plP = (card.paper || '');
+    var _is88  = /70\s*[*x×]\s*88/.test(_plP);
+    var _is100 = /70\s*[*x×]\s*100/.test(_plP);
+    var _plNm  = (card.size || '').match(/(\d+)\s*בגיליון/);
+    var _plNsel = _plNm ? parseInt(_plNm[1], 10) : 0;
+    if (_plCount > 0) {
+      // כלל-נייר: עד 5 פלייסמנטים (30×40) → 70×88; 6 ומעלה (או +פלייסמנט קטן) → 70×100
+      if (_plCount <= 5 && _is100)
+        warns.push({ code: 'placement_list_paper', sev: 'warn',
+          msg: '⚠️ יש ' + _plCount + ' פלייסמנטים ברשימה — בדרך-כלל מדפיסים על נייר 70×88, אך הוזן 70×100. לבדוק.' });
+      if (_plCount >= 6 && _is88)
+        warns.push({ code: 'placement_list_paper', sev: 'warn',
+          msg: '⚠️ יש ' + _plCount + ' פלייסמנטים ברשימה — צריך נייר 70×100 (הוזן 70×88).' });
+      // ספירה מול "N בגיליון" שנבחר — יותר מדי, או ששכחו פלייסמנט מהרשימה
+      if (_plNsel && _plCount > _plNsel)
+        warns.push({ code: 'placement_list_count', sev: 'warn',
+          msg: '⚠️ יש ' + _plCount + ' פלייסמנטים ברשימה אך נבחר "' + _plNsel + ' בגיליון" — לא כולם ייכנסו לגיליון.' });
+      if (_plNsel && _plCount < _plNsel)
+        warns.push({ code: 'placement_list_count', sev: 'warn',
+          msg: 'ℹ️ יש ' + _plCount + ' פלייסמנטים ברשימה אך נבחר "' + _plNsel + ' בגיליון" — ודא שלא נשכח פלייסמנט מהעבודה.' });
     }
   }
 
