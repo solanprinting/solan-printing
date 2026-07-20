@@ -358,6 +358,69 @@ async function fold(arrayBuffer, opts){
   return { bytes, report };
 }
 
+// ── בונה PDF "כפולות-קורא" מתוך החוברת המקופלת (וקטורי — חד, בלי פיקסול) ──
+//    שער (עמוד 1) בודד, אחר-כך כפולות בסדר קריאה עברי (RTL): בכל כפולה המספר
+//    הנמוך מימין והגבוה משמאל, והעמוד האחרון בודד. תואם בדיוק לצופה-הדפדוף (_fbShowing).
+// קבוצות-הכפולה (RTL): [0] בודד, אחר-כך [1,2],[3,4],..., עמוד אחרון בודד.
+// זהה לחלוקת צופה-הדפדוף (_fbShowing) — כך שההורדה תואמת למה שרואים על המסך. פונקציה טהורה.
+function _spreadGroups(n){
+  const g = [];
+  if (n <= 0) return g;
+  g.push([0]);
+  for (let k=1; k<n; k+=2) g.push(k+1 < n ? [k, k+1] : [k]);
+  return g;
+}
+// תיבת-חיתוך (clip) לעמוד בכפולה, לפי תפקיד ומצב-גלישות. Bpt = בליד לצד (נקודות).
+// תמיד חותך את בליד-השדרה כדי שהעמודים בכפולה יהיו צמודים; במצב "בלי גלישות" חותך גם
+// את הבליד החיצוני (נטו מלא); במצב "עם גלישות" שומר את הבליד החיצוני + צלבי החיתוך.
+function _spreadClipBox(pw, ph, Bpt, role, withBleed){
+  if (!(Bpt > 0)) Bpt = 0;
+  if (!withBleed) return { left:Bpt, bottom:Bpt, right:pw-Bpt, top:ph-Bpt };   // נטו — חותך את כל הבליד
+  if (role === 'right') return { left:Bpt, bottom:0, right:pw, top:ph };         // עם גלישות, חותך שדרה שמאלית (הפנימית)
+  if (role === 'left')  return { left:0, bottom:0, right:pw-Bpt, top:ph };        // עם גלישות, חותך שדרה ימנית (הפנימית)
+  return { left:0, bottom:0, right:pw, top:ph };                                  // בודד — בליד מלא + צלבים
+}
+async function buildSpreadsPdf(foldedBytes, opts){
+  opts = opts || {};
+  const withBleed = !!opts.bleed;
+  const src = await PDFDocument.load(foldedBytes, { ignoreEncryption:true });
+  const n = src.getPageCount();
+  if (n <= 0) return foldedBytes;
+  const out = await PDFDocument.create();
+  const srcPages = src.getPages();
+  const pw = srcPages[0].getWidth(), ph = srcPages[0].getHeight();
+  const Bpt = Math.max(0, (pw - TRIM_W*MM) / 2);   // בליד לצד (נקודות); 0 אם הקובץ נטו
+  const emb = (idx, role) => out.embedPage(srcPages[idx], _spreadClipBox(pw, ph, Bpt, role, withBleed));
+  const drawSingle = async (idx) => { const e = await emb(idx, 'single'); const p = out.addPage([e.width, e.height]); p.drawPage(e, { x:0, y:0 }); };
+  const drawPair   = async (lo, hi) => {
+    const er = await emb(lo, 'right'), el = await emb(hi, 'left');   // נמוך=ימין, גבוה=שמאל
+    const p = out.addPage([er.width + el.width, Math.max(er.height, el.height)]);
+    p.drawPage(er, { x:el.width, y:0 });   // ימין
+    p.drawPage(el, { x:0, y:0 });           // שמאל — צמוד לימין (בליד-השדרה נחתך משניהם)
+  };
+  const groups = _spreadGroups(n);
+  for (const grp of groups){ if (grp.length === 1) await drawSingle(grp[0]); else await drawPair(grp[0], grp[1]); }
+  return await out.save();
+}
+// הורדת גרסת-הכפולות (RTL). נבנית לפי דרישה מהחוברת המקופלת ששמורה ב-window._foldedBytes.
+async function _dlSpreads(btn){
+  if (!window._foldedBytes){ alert('קפל קודם את החוברת.'); return; }
+  const sel = document.getElementById('spreadsBleed');
+  const withBleed = !!(sel && sel.value === 'bleed');
+  const t0 = btn ? btn.textContent : '';
+  if (btn){ btn.disabled = true; btn.textContent = '⏳ מכין כפולות…'; }
+  try {
+    const sp = await buildSpreadsPdf(window._foldedBytes, { bleed: withBleed });
+    const blob = new Blob([sp], { type:'application/pdf' });
+    const name = (window._foldedName || 'חוברת.pdf').replace(/\.pdf$/i,'') + (withBleed ? ' — כפולות (גלישות).pdf' : ' — כפולות.pdf');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 60000);
+  } catch(e){ console.error(e); alert('בניית הכפולות נכשלה: ' + (e.message||e)); }
+  finally { if (btn){ btn.disabled = false; btn.textContent = t0; } }
+}
+window._dlSpreads = _dlSpreads;
+
 // ── UI ──
 const $ = id => document.getElementById(id);
 let _file = null;
@@ -398,7 +461,12 @@ $('go').onclick = async () => {
       const name = _file.name.replace(/\.pdf$/i,'') + ' — חוברת מקופלת.pdf';
       window._foldedBytes = bytes; window._foldedName = name;   // לשיתוף "שלח כקובץ" (עוקף שרת-קבצים; טוב לאינטרנט-כשר)
       html += '<div class="ok">✓ קופלו '+report.signatures+' חתימות → '+report.pagesOut+' עמ\' בסדר קריאה.</div>'
-        + '<a class="dl" href="'+url+'" download="'+name+'">⬇️ הורד את החוברת המקופלת</a>'
+        + '<button class="btn" id="dlSpreadsBtn" onclick="_dlSpreads(this)" style="background:#16a34a;color:#fff;margin:8px 8px 0 0;padding:9px 16px" title="PDF בכפולות-קורא (RTL): שער ואחורי בודדים, השאר כפולות">⬇️ הורד כפולות-קורא (PDF)</button>'
+        + '<select id="spreadsBleed" title="בחר תצוגה להורדת-הכפולות" style="margin:8px 8px 0 0;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-family:inherit;font-size:.9rem;cursor:pointer">'
+          + '<option value="net">נטו — בלי גלישות</option>'
+          + '<option value="bleed">עם גלישות + צלבי חיתוך</option>'
+          + '</select>'
+        + '<a class="dl" href="'+url+'" download="'+name+'" title="עמודים בודדים בסדר קריאה">⬇️ עמודים בודדים</a>'
         + '<button class="btn" id="attachCardBtn" onclick="_attachToCard()" style="background:#4338ca;color:#fff;margin:8px 0 0 8px;padding:9px 16px">🔗 צרף לכרטיס עבודה</button>'
         + (window._clientMode ? '' : '<button class="btn" id="shareBookletBtn" onclick="_shareBooklet()" style="background:#16a34a;color:#fff;margin:8px 0 0 8px;padding:9px 16px">📤 שלח ללקוח</button>')
         + '<div style="margin-top:14px;font-weight:800;color:var(--press)">📖 דפדוף בחוברת (כפולות):</div>'
@@ -462,8 +530,8 @@ async function _fbImg(i){
   // רזולוציית רינדור: דגימת-על גבוהה (לפחות ×2.2 מגובה התצוגה, ועד dpr המסך) לחדות מרבית של טקסט עיתון.
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
   const dispH = Math.min((window.innerHeight || 900) * 0.62, 900);
-  const targetH = Math.min(Math.max(dispH * dpr, dispH * 2.2) * 1.35, 3800);   // תקרה למניעת עומס זיכרון
-  const sc = Math.max(2, Math.min(8, targetH / v1.height));
+  const targetH = Math.min(Math.max(dispH * dpr, dispH * 2.7) * 1.4, 4600);   // דגימת-על גבוהה יותר לחדות; תקרה למניעת עומס זיכרון
+  const sc = Math.max(2.4, Math.min(10, targetH / v1.height));
   const vp = page.getViewport({scale:sc});
   const cv = document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height);
   const ctx = cv.getContext('2d');
