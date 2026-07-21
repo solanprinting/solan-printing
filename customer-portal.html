@@ -73,11 +73,15 @@
     </div>
 
     <div class="card">
-      <h2>📤 העלאת קבצים לדפוס</h2>
-      <div style="font-size:.84rem;color:#6b7280;margin-bottom:9px">גררו או בחרו קובצי PDF — הם יישלחו ישירות לבית הדפוס.</div>
-      <div id="up-drop">📎 בחרו / גררו קבצים לכאן</div>
-      <input type="file" id="up-input" accept="application/pdf" multiple hidden>
-      <div id="up-list"></div>
+      <h2>📤 העלאת עיתון לדפוס</h2>
+      <div style="font-size:.84rem;color:#6b7280;margin-bottom:11px">העלו את קובצי העיתון, <b>דפדפו בו וסדרו את העמודים</b>, ואשרו לדפוס — בדיוק כמו תמיד.</div>
+      <button id="new-np-btn" class="btn btn-primary" style="width:100%;padding:14px;font-size:1rem">➕ העלה עיתון חדש — עם דפדוף ועריכת עמודים</button>
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer;font-size:.82rem;color:#6b7280">או: העלאה מהירה (בלי דפדוף)</summary>
+        <div id="up-drop" style="margin-top:9px">📎 בחרו / גררו קבצים לכאן</div>
+        <input type="file" id="up-input" accept="application/pdf" multiple hidden>
+        <div id="up-list"></div>
+      </details>
     </div>
 
     <div class="card">
@@ -217,18 +221,21 @@ async function loadHistory(){
       acts += '<a class="btn btn-dl" href="'+esc(p.apogeeUrl)+'" download>⬇ הורד</a>';
       if (!p.apogeeApprovedAt) acts += '<button class="btn btn-approve" onclick="approveApogee(\''+p._id+'\')">✓ אשר לדפוס</button>';
     } else if (p.files){
-      // עיתון שהעלה הלקוח — כל הקבצים מקובצים יחד
+      // העלאה-מהירה ישנה — קבצים מקובצים (הורדה בלבד)
       Object.keys(p.files).forEach(function(k){ var fl=p.files[k]; if(fl&&fl.fileUrl) acts += '<a class="btn btn-dl" href="'+esc(fl.fileUrl)+'" download title="'+esc(fl.fileName||'')+'">⬇ '+esc((fl.fileName||'קובץ').slice(0,16))+'</a>'; });
-    } else if (p.fileUrl){
-      acts += '<a class="btn btn-v" target="_blank" rel="noopener" href="proof-viewer.html?id='+encodeURIComponent(p._id)+'">👁 צפה</a>';
-      acts += '<a class="btn btn-dl" href="'+esc(p.fileUrl)+'" download>⬇ הורד</a>';
+    } else {
+      // עיתון proof-client — דפדוף + עריכת עמודים (המערכת המוכרת ללקוח)
+      var _hasContent = p.fileUrl || p.parts || p.status === 'approved';
+      if (_hasContent) acts += '<a class="btn btn-v" target="_blank" rel="noopener" href="proof-viewer.html?id='+encodeURIComponent(p._id)+'">👁 דפדף בעיתון</a>';
+      if (!(p.apogeeApprovedAt || p.status === 'approved')) acts += '<a class="btn btn-primary" href="proof-client.html?id='+encodeURIComponent(p._id)+'&back='+encodeURIComponent(location.href)+'">✏️ ערוך / העלה</a>';
     }
     var cnt = p.fileCount || (p.files ? Object.keys(p.files).length : 0);
-    var locked = !!p.apogeeApprovedAt;   // אושר לדפוס → נעול לשינויים (עד שהדפוס יפתח)
+    var locked = !!p.apogeeApprovedAt || p.status === 'approved';   // אושר לדפוס → נעול לשינויים (עד שהדפוס יפתח)
     var lockNote = locked ? '<div style="font-size:.74rem;color:#166534;margin-top:3px">🔒 נעול לדפוס — לשינויים פנו לבית הדפוס</div>' : '';
     var rowStyle = locked ? 'border-inline-start:4px solid #16a34a;background:#f6fbf6;padding-inline-start:9px;border-radius:8px' : '';
+    var _appDate = locked ? new Date(p.apogeeApprovedAt || p.approvedAt || p.createdAt).toLocaleDateString('he-IL') : '';
     return '<div class="row" style="'+rowStyle+'"><div class="main"><div class="title">'+(locked?'✅ ':'')+esc(p.title || (p.customer? p.customer+' — עיתון' : 'עיתון'))+'</div>'
-      + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(locked?'אושר '+new Date(p.apogeeApprovedAt).toLocaleDateString('he-IL'):'')+'</div>'+lockNote+'</div>'
+      + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(locked?'אושר '+_appDate:'')+'</div>'+lockNote+'</div>'
       + '<span class="badge '+(locked?'b-approved':b.cls)+'" style="'+(locked?'font-size:.78rem;padding:4px 11px':'')+'">'+(locked?'✓ אושר לדפוס':b.txt)+'</span>'
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">'+acts+'</div></div>';
   }).join('');
@@ -252,7 +259,20 @@ async function approveApogee(id){
 }
 
 // ── העלאת קבצים חדשים לדפוס — מקובצים תחת עיתון/גיליון אחד ──
+// עיתון חדש עם הדפדוף ועריכת-העמודים (מערכת proof-client הקיימת) — יוצר רשומה ופותח את העורך
+async function _newNewspaper(){
+  var meta = await _askNewspaper(0);   // 0 = לפני העלאה; בוחרים שם עיתון + גיליון
+  if (!meta) return;
+  showOv('פותח עורך…', true);
+  var id = 'np_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+  try {
+    await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ customer:(_portalRec&&_portalRec.name)||CUST, title:meta.title, issue:meta.issue||'', status:'awaiting', source:'portal', createdAt:Date.now() }) });
+    location.href = 'proof-client.html?id='+encodeURIComponent(id)+'&back='+encodeURIComponent(location.href);
+  } catch(e){ showOv('',false); toast('⚠️ לא ניתן לפתוח — נסו שוב'); }
+}
 function wireUpload(){
+  var nb = $('new-np-btn'); if (nb) nb.onclick = _newNewspaper;
   var drop = $('up-drop'), inp = $('up-input');
   drop.onclick = function(){ inp.click(); };
   ['dragover','dragenter'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('over'); }); });
@@ -269,7 +289,7 @@ function _askNewspaper(count){
     var html='<div id="np-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:95;display:flex;align-items:center;justify-content:center;direction:rtl;padding:16px">'
       +'<div style="background:#fff;border-radius:14px;max-width:400px;width:100%;padding:20px 22px;box-shadow:0 14px 44px rgba(0,0,0,.35)">'
       +'<div style="font-weight:900;font-size:1.05rem;color:#2d3561;margin-bottom:4px">📰 איזה עיתון אתם מעלים?</div>'
-      +'<div style="font-size:.82rem;color:#666;margin-bottom:12px">'+count+' הקבצים ישוייכו יחד לעיתון אחד (לא כקבצים בודדים).</div>'
+      +'<div style="font-size:.82rem;color:#666;margin-bottom:12px">'+(count ? (count+' הקבצים ישוייכו יחד לעיתון אחד (לא כקבצים בודדים).') : 'בחרו את שם העיתון והגיליון, ואז תוכלו להעלות ולדפדף.')+'</div>'
       +'<label style="font-size:.8rem;font-weight:700;color:#374151">שם העיתון</label>'
       +'<input id="np-title" value="'+esc(defName)+'" style="width:100%;margin:4px 0 10px;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:9px;font-family:inherit;font-size:.95rem;box-sizing:border-box">'
       +'<label style="font-size:.8rem;font-weight:700;color:#374151">מספר גיליון</label>'
