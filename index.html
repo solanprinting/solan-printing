@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784630217';
+window.APP_VERSION = '1784631487';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6191,7 +6191,15 @@ var RUN_AB_EXTRAS = [
   { key:'custom',      label:'עלון בגודל מצויין' }
 ];
 
-function buildRuns(totalPages, copies, fullSheet) {
+// פירוק שארית לחתימות-סיכות חוקיות בלבד {16,8,4} (חמדני). אין חתימת 12 בכריכת-סיכות — 12=8+4.
+function _sigParts(n){
+  var sizes = [16,8,4], out = [], rest = n;
+  for (var i=0;i<sizes.length;i++){ while (rest >= sizes[i]){ out.push(sizes[i]); rest -= sizes[i]; } }
+  if (rest > 0) out.push(rest);   // fallback (לא אמור לקרות כשn כפולה של 4)
+  return out;
+}
+function _partFolds(p){ return p===32?'4 קיפולים':p===16?'3 קיפולים':p===8?'2 קיפולים':p===4?'1 קיפול':''; }
+function buildRuns(totalPages, copies, fullSheet, splitRemainder) {
   const halfSheet    = fullSheet / 2;
   const quarterSheet = fullSheet / 4;
 
@@ -6208,7 +6216,16 @@ function buildRuns(totalPages, copies, fullSheet) {
     layers.push(16);                        // 16 — ריצה 2 (פנימית)
   } else {
     const rem = totalPages % fullSheet;
-    if (rem !== 0) layers.push(rem);        // שכבה חלקית — ברירת מחדל: ריצה 1
+    if (rem !== 0) {
+      const parts = _sigParts(rem);         // שארית → חתימות חוקיות {16,8,4}; 12→[8,4]
+      if (parts.length > 1 && !splitRemainder) {
+        // ברירת מחדל: השארית הלא-חוקית (למשל 12) = גיליון A+B משולב אחד (8+4)
+        layers.push({ pages: rem, abParts: parts });
+      } else {
+        // פיצול מפורש (או שארית חוקית יחידה) — כל חלק כריצה נפרדת; הקטן ראשון (ריצה 1)
+        parts.slice().reverse().forEach(function(p){ layers.push(p); });
+      }
+    }
     let inner = totalPages - rem;
     while (inner > 0) { layers.push(fullSheet); inner -= fullSheet; }
   }
@@ -6217,7 +6234,9 @@ function buildRuns(totalPages, copies, fullSheet) {
   let front = 1;
   let back  = totalPages;
 
-  return layers.map((layerPages, i) => {
+  return layers.map((L, i) => {
+    const layerPages = (L && typeof L === 'object') ? L.pages : L;
+    const abParts    = (L && typeof L === 'object') ? L.abParts : null;
     const isLast = (i === layers.length - 1);
     const half   = layerPages / 2;
 
@@ -6266,6 +6285,8 @@ function buildRuns(totalPages, copies, fullSheet) {
       runCopies   = Math.ceil(copies / upCount);        // כמות גיליונות = עותקים ÷ פעמים בגיליון
       front     += half;
       back      -= half;
+      // גיליון A+B משולב (שארית לא-חוקית, למשל 12=8+4): גיליון אחד, כל הכמות, קיפול לכל חלק
+      if (abParts){ upCount = 1; runCopies = copies; folds = abParts.map(_partFolds).join(' + '); }
     }
 
     return {
@@ -6278,6 +6299,7 @@ function buildRuns(totalPages, copies, fullSheet) {
       abMandatory: abMandatory,
       abEligible: abEligible,
       abEnabled: abEnabled,
+      abParts: abParts || null,
       abExtras: [],
       abExtraCustomSize: '',
       manualExtra: '',
@@ -6343,7 +6365,7 @@ function calcRuns() {
   if (_ssRow) _ssRow.style.display = _ssFits ? 'flex' : 'none';
   if (!_ssFits && _ssBox) _ssBox.checked = false;
   // הדגל משפיע על התצוגה בלבד (גיליון משותף A+B) — הריצות נשארות מפוצלות עם הטווח הנכון
-  currentRuns = buildRuns(pages, copies, fs);
+  currentRuns = buildRuns(pages, copies, fs, !!window._splitRemainder);
   currentRuns.forEach(r=>{
     if(prev[r.num]) r.machine=prev[r.num];
     if(prevTumble[r.num]) r.tumble=true;
@@ -6554,7 +6576,7 @@ function _renderCurrentRunsOutput() {
           '<strong>ריצה '+(i+1)+'</strong>'+
         '</div>'+
       '</td>'+
-      '<td>'+r.pages+' עמ\'</td>'+
+      '<td>'+(r.abParts ? ('<b style="color:#6d28d9">'+r.abParts.join('+')+'</b> עמ\' <span style="font-size:.68rem;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px;font-weight:800;white-space:nowrap">🗞️ A+B</span>') : (r.pages+' עמ\''))+'</td>'+
       '<td style="font-size:.8rem;color:#444">'+r.pageRange+'</td>'+
       '<td><strong>'+r.copies.toLocaleString()+'</strong></td>'+
       '<td style="font-size:.76rem;color:#888">'+r.folds+'</td>'+
@@ -6579,9 +6601,26 @@ function _renderCurrentRunsOutput() {
       '<span>ריצות: <strong>'+currentRuns.length+'</strong></span>'+
       '<span>עמודים: <strong>'+_runsPages+'</strong></span>'+
       '<span>עותקים: <strong>'+_runsCopies.toLocaleString()+'</strong></span>'+
-    '</div></div>';
+    '</div>'+
+    _remainderToggleHtml()+
+    '</div>';
 }
 
+// מתג שארית: גיליון A+B משולב (למשל 8+4) ⇄ פיצול לריצות נפרדות (4 ו-8). מוצג רק כשיש שארית לא-חוקית.
+function _remainderToggleHtml(){
+  var rem = (_runsFs > 0) ? (_runsPages % _runsFs) : 0;
+  var parts = rem > 0 ? _sigParts(rem) : [];
+  if (parts.length < 2) return '';
+  var split = !!window._splitRemainder;
+  var asc = parts.slice().reverse().join(' + '), desc = parts.join('+');
+  var label = split ? ('🔗 אחד לגיליון A+B ('+desc+')') : ('✂️ פצל לריצות נפרדות ('+asc+')');
+  var note  = split ? ('כרגע: '+parts.length+' ריצות נפרדות ('+asc+')') : ('כרגע: גיליון A+B משולב אחד ('+desc+')');
+  return '<div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#faf5ff;border:1px solid #e9d5ff;border-radius:8px;padding:7px 11px">'+
+    '<span style="font-size:.78rem;color:#6d28d9;font-weight:700">🗞️ שארית '+rem+' עמ\' = '+desc+' (אין חתימת '+rem+' בכריכת-סיכות) · '+note+'</span>'+
+    '<button type="button" onclick="_toggleSplitRemainder()" style="margin-inline-start:auto;padding:5px 12px;border:1.5px solid #c4b5fd;background:#fff;color:#6d28d9;border-radius:7px;cursor:pointer;font-family:Heebo,sans-serif;font-weight:800;font-size:.78rem;white-space:nowrap">'+label+'</button>'+
+  '</div>';
+}
+function _toggleSplitRemainder(){ window._splitRemainder = !window._splitRemainder; calcRuns(); }
 function toggleRunAB(i) {
   var r = currentRuns[i];
   if (!r || !r.abEligible) return; // רק בריצה חלקית אופציונלית
@@ -7360,7 +7399,7 @@ function quickCard(newspaperId, pages) {
   else if (/64[\s×x*]?90|a4|240[\s×x*]?330|330[\s×x*]?240/.test(size)) fs=16;
 
   if (fs && copies && pages) {
-    currentRuns = buildRuns(pages, copies, fs);
+    currentRuns = buildRuns(pages, copies, fs, !!window._splitRemainder);
   } else {
     currentRuns = [];
   }
@@ -7514,7 +7553,7 @@ function _updateRunsCopies(val) {
   // שמור בחירות מכונה ונייר קיימות (ישירות מהמודל, לא מה-DOM)
   const prevMach = {}, prevPaper = {}, prevPaperOpen = {};
   currentRuns.forEach(r => { prevMach[r.num] = r.machine; prevPaper[r.num] = r.paper; prevPaperOpen[r.num] = r._paperOpen; });
-  currentRuns = buildRuns(pages, newCopies, fs);
+  currentRuns = buildRuns(pages, newCopies, fs, !!window._splitRemainder);
   currentRuns.forEach(r => {
     if (prevMach[r.num]) r.machine = prevMach[r.num];
     if (prevPaper[r.num]) r.paper = prevPaper[r.num];
@@ -7993,6 +8032,7 @@ function editCard(id) {
   setVal('f-pages-note',    c.pagesNote||'');
   setVal('f-sheet-pages',   c.sheetPages ? String(c.sheetPages) : '');   // עמודים-בגיליון ידני (מידות חריגות)
   var _spfEdit = document.getElementById('sheet-pages-field'); if (_spfEdit && (parseInt(c.sheetPages)||0) >= 2) _spfEdit.style.display = '';   // הצג בעריכה אם נשמר ערך ידני
+  window._splitRemainder = !!c.splitRemainder;   // העדפת פיצול-שארית (A+B משולב / ריצות נפרדות)
   var _ssb=document.getElementById('f-single-sheet'); if(_ssb) _ssb.checked = !!c.singleSheet;
   setVal('f-size',          c.size);
   setTimeout(function(){ _updateA4A5Picker((document.getElementById('f-size')||{}).value||''); }, 0);
@@ -8062,6 +8102,7 @@ function clearForm() {
   ['f-name','f-type','f-order-date','f-delivery-date','f-copies','f-copies-mult','f-pages','f-pages-note','f-sheet-pages','f-size','f-paper','f-notes','f-internal-notes','f-machine','f-placement-details']
     .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   var _spfClr=document.getElementById('sheet-pages-field'); if(_spfClr) _spfClr.style.display='none';
+  window._splitRemainder = false;   // כרטיס חדש — ברירת מחדל: גיליון A+B משולב
   document.querySelectorAll('input[name="color"]').forEach(r=>r.checked=false);
   ['f-needs-folding','f-needs-binding','f-single-sheet','f-all-paper'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=false; });
   var _apClr = document.getElementById('f-copies'); if (_apClr) { _apClr.disabled = false; _apClr.style.opacity = ''; }
@@ -9049,6 +9090,7 @@ function _saveCardNew() {
     pages:        document.getElementById('f-pages').value,
     pagesNote:    (document.getElementById('f-pages-note')||{value:''}).value.trim(),
     sheetPages:   parseInt((document.getElementById('f-sheet-pages')||{value:''}).value)||0,   // עמודים-בגיליון ידני (מידות חריגות)
+    splitRemainder: !!window._splitRemainder,   // שארית: פיצול לריצות נפרדות (במקום גיליון A+B משולב)
     color:        getColor(),
     size:         document.getElementById('f-size').value.trim(),
     paper:        document.getElementById('f-paper').value.trim(),
@@ -9118,6 +9160,7 @@ function buildTempCard() {
     pages:        document.getElementById('f-pages').value,
     pagesNote:    (document.getElementById('f-pages-note')||{value:''}).value.trim(),
     sheetPages:   parseInt((document.getElementById('f-sheet-pages')||{value:''}).value)||0,   // עמודים-בגיליון ידני (מידות חריגות)
+    splitRemainder: !!window._splitRemainder,   // שארית: פיצול לריצות נפרדות (במקום גיליון A+B משולב)
     color:        getColor(),
     size:         document.getElementById('f-size').value.trim(),
     paper:        document.getElementById('f-paper').value.trim(),
