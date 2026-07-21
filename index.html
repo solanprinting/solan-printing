@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784624758';
+window.APP_VERSION = '1784625424';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1933,7 +1933,8 @@ window._fbSnapshot = {};
           <span style="font-weight:400;font-size:.76rem;color:#92400e">(המידות לא זוהו — הזן ידנית ולפי זה יחולקו הריצות)</span></label>
         <input class="fi" type="number" id="f-sheet-pages" min="2" step="1" placeholder="למשל 16 · 24 · 32"
           oninput="calcRuns()" style="border-color:#f59e0b;background:#fffbeb;max-width:220px">
-        <div style="font-size:.76rem;color:#92400e;margin-top:5px;line-height:1.5">מספר הריצות = עיגול-מעלה של (עמודים ÷ עמודים-בגיליון). לדוגמה: 48 עמ' ÷ 16 בגיליון = 3 ריצות.</div>
+        <div id="sheet-pages-hint" style="display:none;font-size:.78rem;color:#166534;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:5px 9px;margin-top:6px"></div>
+        <div style="font-size:.76rem;color:#92400e;margin-top:5px;line-height:1.5">מספר הריצות = עיגול-מעלה של (עמודים ÷ עמודים-בגיליון). לדוגמה: 48 עמ' ÷ 16 בגיליון = 3 ריצות. <b>המערכת תזכור את הגודל ותציע אותו בעתיד.</b></div>
       </div>
 
       <div class="field" id="machine-field">
@@ -3151,6 +3152,7 @@ let machineQueue = JSON.parse(localStorage.getItem('solanMachineQueue') || '[]')
 let historyDB = JSON.parse(localStorage.getItem('solanHistory')   || '{}');
 let printLog  = JSON.parse(localStorage.getItem('solanPrintLog') || '[]');
 let productMemory = JSON.parse(localStorage.getItem('solanProductMemory') || '{}'); // זיכרון דרישות לפי מוצר/פלייסמנט (לתזכורות בבניית כרטיס)
+let sheetSizeMemory = JSON.parse(localStorage.getItem('solanSheetSizes') || '{}'); // זיכרון "עמודים בגיליון" לפי גודל-עיתון חריג (הצעה אוטומטית בעתיד)
 
 // ===================================================================
 // USER & PERMISSIONS SYSTEM
@@ -3987,6 +3989,7 @@ function persist() {
   localStorage.setItem('solanRecurringJobs',       JSON.stringify(recurringJobs));
   localStorage.setItem('solanMachineQueue',        JSON.stringify(machineQueue));
   localStorage.setItem('solanProductMemory',       JSON.stringify(productMemory));
+  localStorage.setItem('solanSheetSizes',          JSON.stringify(sheetSizeMemory));
   localStorage.setItem('solanCustomerStock',       JSON.stringify(customerStock));
   localStorage.setItem('solanManagerTasks',        JSON.stringify(managerTasks));
   localStorage.setItem('solanUsers',               JSON.stringify(solanUsers));
@@ -4014,7 +4017,7 @@ function persist() {
       customers: customers,
       recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds,
       machineQueue: machineQueue, productMemory: productMemory, customerStock: customerStock,
-      managerTasks: managerTasks
+      managerTasks: managerTasks, sheetSizeMemory: sheetSizeMemory
     };
     window._fbPendingPuts = window._fbPendingPuts || {};
     Object.keys(_paths).forEach(function(p) {
@@ -6152,6 +6155,15 @@ function calcRuns() {
     // מידות לא סטנדרטיות — המערכת לא יודעת כמה עמודים בגיליון. שואלים את המשתמש (שדה "עמודים בגיליון").
     if (_spField) _spField.style.display='';
     var _sp = _spEl ? parseInt(_spEl.value,10) : 0;
+    var _hintEl = document.getElementById('sheet-pages-hint');
+    // אם אין ערך אבל המערכת זוכרת את הגודל הזה מהעבר — הצע אוטומטית
+    if ((!_sp || _sp < 2) && _spEl) {
+      var _rem = _sheetSizeRecall(size);
+      if (_rem >= 2) {
+        _spEl.value = _rem; _sp = _rem;
+        if (_hintEl) { _hintEl.style.display=''; _hintEl.textContent = '💡 לפי היסטוריה: ' + _rem + ' עמ\' בגיליון (מולא אוטומטית — אפשר לשנות)'; }
+      } else if (_hintEl) { _hintEl.style.display='none'; }
+    } else if (_hintEl) { _hintEl.style.display='none'; }
     if (_sp && _sp >= 2) { fs=_sp; lbl='מותאם — ' + _sp + ' עמ\' לגיליון'; }
     else { field.style.display='none'; currentRuns=[]; return; }   // עדיין לא הוזן — השדה מוצג עם הנחיה
   }
@@ -8671,6 +8683,27 @@ function _productMemoryLearn(card){
     window._fbPut('productMemory', productMemory);
   }
 }
+// ── זיכרון "עמודים בגיליון" לפי גודל-עיתון חריג ──────────────────────────
+// המערכת לומדת: כשמזינים ידנית עמודים-בגיליון לגודל שלא מזוהה, זוכרת אותו ומציעה בעתיד.
+function _normSizeKey(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,'').replace(/["'״׳]/g,'').replace(/[×x*]/g,'x'); }
+function _sheetSizeRecall(size){
+  var k = _normSizeKey(size); if (!k) return 0;
+  var m = sheetSizeMemory[k];
+  return (m && m.perSheet >= 2) ? m.perSheet : 0;
+}
+function _sheetSizeLearn(size, perSheet){
+  var k = _normSizeKey(size); perSheet = parseInt(perSheet,10);
+  if (!k || !(perSheet >= 2)) return;
+  var prev = sheetSizeMemory[k];
+  if (prev && prev.perSheet === perSheet) return;   // ללא שינוי
+  sheetSizeMemory[k] = { size: String(size||'').trim(), perSheet: perSheet, updatedAt: Date.now() };
+  try { localStorage.setItem('solanSheetSizes', JSON.stringify(sheetSizeMemory)); } catch(e){}
+  if (_fbConnected && !window._isMachineView && window._fbPut) {
+    window._fbSnapshot = window._fbSnapshot || {};
+    window._fbSnapshot.sheetSizeMemory = JSON.stringify(sheetSizeMemory);
+    window._fbPut('sheetSizeMemory', sheetSizeMemory);
+  }
+}
 // "פיסות דרישה" זכורות (אריזה/כמויות/נייר וכו')
 // רק פיסות שנראות כדרישה קבועה (אריזה/גימור/כריכה) — לא כמויות "N מוצר" של הכרטיס הקודם
 var _PM_REQ_RE = /אריז|חביל|קרטון|כרוך|עטיפ|ספיר|למינ|כמות|כריכ|דבק|סיכ|ביג|פרפור|נומר|מספור|חיתוך|לחתוך|קיפול|לקפל/;
@@ -8889,6 +8922,7 @@ function _saveCardNew() {
       _stampWeekDone(card.name);   // חיווי ירוק קבוע ביומן — שורד גם מחיקת הכרטיס
       _autoQueueAssignedRuns(card);
       _productMemoryLearn(card);
+      _sheetSizeLearn(card.size, card.sheetPages);   // זכור גודל-חריג → עמודים-בגיליון (הצעה בעתיד)
       persist();
       _logActivity('🆕', 'עבודה "'+card.name+'" נוצרה', card.id);
       showPrintModal(card);
@@ -19227,6 +19261,18 @@ async function _fbPollAll() {
       });
       if (_changed) localStorage.setItem('solanProductMemory', JSON.stringify(productMemory));
       window._fbSnapshot.productMemory = JSON.stringify(productMemory);
+    }
+    // זיכרון גדלים-חריגים (עמודים בגיליון) — מיזוג לפי updatedAt (לא דריסה)
+    var ssv = await _pollGet('sheetSizeMemory');
+    if (ssv !== null && typeof ssv === 'object' && !(_pend.sheetSizeMemory > 0)) {
+      var _ssChanged = false;
+      Object.keys(ssv).forEach(function(k){
+        var s = ssv[k]; if (!s) return;
+        var l = sheetSizeMemory[k];
+        if (!l || (s.updatedAt||0) > (l.updatedAt||0)) { sheetSizeMemory[k] = s; _ssChanged = true; }
+      });
+      if (_ssChanged) localStorage.setItem('solanSheetSizes', JSON.stringify(sheetSizeMemory));
+      window._fbSnapshot.sheetSizeMemory = JSON.stringify(sheetSizeMemory);
     }
     // מלאי לקוחות — מיזוג לפי updatedAt לכל לקוח (לא דריסה)
     var csv2 = await _pollGet('customerStock');
