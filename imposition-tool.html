@@ -295,6 +295,7 @@ function _applyTplOverrides(templates, overrides){
       templates[k] = { N: ov.N, sides: ov.sides, rot: ov.rot, grids: ov.grids, custom: true, label: ov.label || k };
       if (ov.geom) templates[k].geom = ov.geom;
       if (ov.sizeLabel) templates[k].sizeLabel = ov.sizeLabel;
+      if (ov.rotGrids) templates[k].rotGrids = ov.rotGrids;   // סיבוב פר-תא (ראש-אל-ראש)
     }
   });
 }
@@ -354,6 +355,23 @@ async function foldSignatureGeneric(out, sidePages, tpl, map, firstSideIsFront, 
   const embeds = [];
   for (let i=0;i<sidePages.length;i++) embeds.push(await out.embedPage(sidePages[i]));
   const ref = sidePages[0];
+  const mb = ref.getMediaBox();
+  const mwmm = mb.width/MM, mhmm = mb.height/MM;
+  // מרכוז: מדיית הפרופר בדרך-כלל גדולה מפריסת-הטמפלט (סימני-דפוס/דש) — בלי הפיצוי הזה
+  // כל התאים זזים והעמודים יוצאים חתוכים. + תיקון א-סימטריה (דש) לפי TrimBox — כמו בנתיב המקורי.
+  let offX = (mwmm - g.sheetWmm)/2, offY = (mhmm - g.sheetHmm)/2;
+  try {
+    let nb = null; try { nb = ref.getTrimBox(); } catch(e){}
+    if (!nb || nb.width >= mb.width - 1){ try { nb = ref.getCropBox(); } catch(e){} }
+    if (nb && nb.width < mb.width - 1){
+      const leftM  = (nb.x - mb.x)/MM;
+      const rightM = ((mb.x + mb.width) - (nb.x + nb.width))/MM;
+      const topM   = ((mb.y + mb.height) - (nb.y + nb.height))/MM;
+      const botM   = (nb.y - mb.y)/MM;
+      if (Math.abs(leftM - rightM) >= 1) offX += (leftM - rightM) / 2;
+      if (Math.abs(topM  - botM)  >= 1) offY += (topM  - botM)  / 2;
+    }
+  } catch(e){}
   const sheetHpt = ref.getHeight();
   const B = (bleedMm > 0) ? bleedMm : 0;
   const OUTW = (g.trimWmm + 2*B)*MM, OUTH = (g.trimHmm + 2*B)*MM, ocx = OUTW/2, ocy = OUTH/2;
@@ -362,9 +380,12 @@ async function foldSignatureGeneric(out, sidePages, tpl, map, firstSideIsFront, 
     let sideIdx = pos.side;
     if (tpl.sides === 2 && !firstSideIsFront) sideIdx = 1 - sideIdx;
     const embed = embeds[sideIdx] || embeds[0];
-    const cx = g.colX[pos.col], cy = g.rowY[pos.row];               // מרכז התא במ״מ (cy מלמעלה)
+    const cx = g.colX[pos.col] + offX, cy = g.rowY[pos.row] + offY;  // מרכז התא במ״מ (cy מלמעלה), ממורכז במדיה
     const scx = cx*MM, scy = sheetHpt - cy*MM;                       // → נקודות, origin תחתון-שמאלי
-    const theta = -(((tpl.rot && tpl.rot[pos.col]) || 0));           // ביטול סיבוב-התא → עמוד ישר
+    // סיבוב פר-תא (rotGrids[side][row][col]) אם קיים — פריסות ראש-אל-ראש (שורה עליונה 180°); אחרת פר-עמודה
+    const rg = tpl.rotGrids && tpl.rotGrids[pos.side];
+    const cellRot = (rg && rg[pos.row] && rg[pos.row][pos.col] != null) ? rg[pos.row][pos.col] : ((tpl.rot && tpl.rot[pos.col]) || 0);
+    const theta = -cellRot;                                          // ביטול סיבוב-התא → עמוד ישר
     const c = Math.cos(theta*Math.PI/180), s = Math.sin(theta*Math.PI/180);
     const page = out.addPage([OUTW, OUTH]);
     page.drawPage(embed, { x: ocx - (scx*c - scy*s), y: ocy - (scx*s + scy*c), rotate: degrees(theta), xScale: 1, yScale: 1 });
@@ -541,6 +562,7 @@ function _tplSave(){
     _tplOverrides[type] = { grids: grids, N: tpl.N, sides: tpl.sides, rot: tpl.rot, label: tpl.label, custom: true };
     if (tpl.geom) _tplOverrides[type].geom = tpl.geom;
     if (tpl.sizeLabel) _tplOverrides[type].sizeLabel = tpl.sizeLabel;
+    if (tpl.rotGrids) _tplOverrides[type].rotGrids = tpl.rotGrids;
   }
   else
     _tplOverrides[type] = { grids: grids };
@@ -627,13 +649,14 @@ function _tplGeomFromItems(items){
   var colX = _tplClusters(xs, xspread*0.06 + 2);                 // שמאל→ימין
   var rowY = _tplClusters(ys, yspread*0.06 + 2);                 // מלמעלה→למטה (y כבר הפוך: קטן=למעלה)
   var cols = colX.length, rows = rowY.length;
-  var grid = [], rot = new Array(cols).fill(0);
-  for (var r=0;r<rows;r++){ grid.push(new Array(cols).fill(0)); }
+  var grid = [], rot = new Array(cols).fill(0), rotGrid = [];
+  for (var r=0;r<rows;r++){ grid.push(new Array(cols).fill(0)); rotGrid.push(new Array(cols).fill(0)); }
   items.forEach(function(it){
     var c = _nearest(colX, it.xMm), rr = _nearest(rowY, it.yMm);
     grid[rr][c] = it.n; rot[c] = _normRot90(it.rot);
+    rotGrid[rr][c] = _normRot90(it.rot);   // סיבוב פר-תא — פריסות ראש-אל-ראש (שורה עליונה 180°) שונות בין שורות
   });
-  return { grid:grid, rot:rot, colX:colX, rowY:rowY, rows:rows, cols:cols };
+  return { grid:grid, rot:rot, rotGrid:rotGrid, colX:colX, rowY:rowY, rows:rows, cols:cols };
 }
 function _normRot90(deg){ var r = Math.round((deg||0)/90)*90; r = ((r%360)+360)%360; if (r===270) r=-90; return r; }
 async function _tplImportPdf(file){
@@ -643,7 +666,7 @@ async function _tplImportPdf(file){
     var buf = await file.arrayBuffer();
     var pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
     var sides = Math.min(pdf.numPages, 2);
-    var grids = [], rotOut = null, colX = null, rowY = null, trimW = 0, trimH = 0, sheetW = 0, sheetH = 0;
+    var grids = [], rotGrids = [], rotOut = null, colX = null, rowY = null, trimW = 0, trimH = 0, sheetW = 0, sheetH = 0;
     for (var s=1; s<=sides; s++){
       var page = await pdf.getPage(s);
       var vp = page.getViewport({ scale: 1 });
@@ -672,6 +695,7 @@ async function _tplImportPdf(file){
       var geom = _tplGeomFromItems(nums);
       if (!geom){ alert('נכשל בזיהוי הרשת (עמוד '+s+').'); return; }
       grids.push(geom.grid);
+      rotGrids.push(geom.rotGrid);   // סיבוב פר-תא לכל צד
       if (s===1){ rotOut = geom.rot; colX = geom.colX; rowY = geom.rowY; }
     }
     var N = 0; grids.forEach(function(gr){ gr.forEach(function(row){ row.forEach(function(v){ if (v>N) N=v; }); }); });
@@ -679,10 +703,10 @@ async function _tplImportPdf(file){
     var sizeLabel = trimW + '×' + trimH;
     var name = sizeLabel + ' · ' + N + ' עמ\'' + (sides===2 ? ' פרפקטור' : ' מתהפך');
     var key = 'imp' + N + '_' + Math.random().toString(36).slice(2,6);
-    var tpl = { N:N, sides:sides, rot:rotOut, grids:grids, custom:true, label:name, sizeLabel:sizeLabel,
+    var tpl = { N:N, sides:sides, rot:rotOut, rotGrids:rotGrids, grids:grids, custom:true, label:name, sizeLabel:sizeLabel,
       geom: { colX:colX, rowY:rowY, trimWmm:trimW, trimHmm:trimH, sheetWmm:sheetW, sheetHmm:sheetH } };
     TEMPLATES[key] = tpl;
-    _tplOverrides[key] = { grids:grids, N:N, sides:sides, rot:rotOut, label:name, custom:true, sizeLabel:sizeLabel, geom: tpl.geom };
+    _tplOverrides[key] = { grids:grids, N:N, sides:sides, rot:rotOut, rotGrids:rotGrids, label:name, custom:true, sizeLabel:sizeLabel, geom: tpl.geom };
     try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
     _tplAddOption(key, name);
     $('sheet').value = key;
@@ -736,7 +760,8 @@ function _tbFromTpl(key){
   return { key:key, name:(t.label||key).replace(/ \(מותאם\)$/,''),
     trimW: g.trimWmm||165, trimH: g.trimHmm||240, sheetW: g.sheetWmm||1000, sheetH: g.sheetHmm||700,
     cols:cols, rows:rows, sides:t.sides||t.grids.length,
-    rot: (t.rot||[]).slice(0,cols), grids: JSON.parse(JSON.stringify(t.grids)) };
+    rot: (t.rot||[]).slice(0,cols), grids: JSON.parse(JSON.stringify(t.grids)),
+    rotGrids: t.rotGrids ? JSON.parse(JSON.stringify(t.rotGrids)) : null };
 }
 function _tbGeom(s){
   // עמודים צמודים (0 מרווח) — כריכת סיכות: עמודי-השדרה צמודים. הבלוק ממורכז בגיליון.
@@ -766,14 +791,31 @@ function _tbNormalize(s){
     s.grids[si]=ng;
   }
   s.grids.length = s.sides;
+  // רשת-סיבובים פר-תא (אם קיימת) — מותאמת למימדים; תא חסר מקבל את סיבוב-העמודה
+  if (s.rotGrids){
+    for (var si2=0; si2<s.sides; si2++){
+      var rg = s.rotGrids[si2] || [];
+      var nrg = [];
+      for (var r2=0;r2<s.rows;r2++){ var rrow=[]; for (var c3=0;c3<s.cols;c3++){ var ev=(rg[r2]&&rg[r2][c3]!=null)?rg[r2][c3]:(s.rot[c3]||0); rrow.push(ev); } nrg.push(rrow); }
+      s.rotGrids[si2]=nrg;
+    }
+    s.rotGrids.length = s.sides;
+  }
+}
+// סיבוב-תא אפקטיבי: פר-תא (rotGrids) אם קיים, אחרת סיבוב-העמודה
+function _tbCellRotOf(s, side, r, c){
+  var rg = s.rotGrids && s.rotGrids[side];
+  return (rg && rg[r] && rg[r][c]!=null) ? rg[r][c] : (s.rot[c]||0);
 }
 function _tbBuildTpl(s){
   _tbNormalize(s);
   var N = 0; s.grids.forEach(function(g){ g.forEach(function(row){ row.forEach(function(v){ v=parseInt(v,10)||0; if(v>N)N=v; }); }); });
   var grids = s.grids.map(function(g){ return g.map(function(row){ return row.map(function(v){ return parseInt(v,10)||0; }); }); });
   var name = (s.name||'').trim() || (s.trimW+'×'+s.trimH+' · '+N+' עמ\'');
-  return { N:N, sides:s.sides, rot:s.rot.map(function(x){return parseInt(x,10)||0;}), grids:grids, custom:true,
+  var tpl = { N:N, sides:s.sides, rot:s.rot.map(function(x){return parseInt(x,10)||0;}), grids:grids, custom:true,
     label:name, sizeLabel:(s.trimW+'×'+s.trimH), geom:_tbGeom(s) };
+  if (s.rotGrids) tpl.rotGrids = JSON.parse(JSON.stringify(s.rotGrids));   // סיבוב פר-תא (ראש-אל-ראש)
+  return tpl;
 }
 function _tbOpen(key){
   _tbState = key ? _tbFromTpl(key) : (_tbState || _tbDefault());
@@ -863,11 +905,13 @@ function _tbSideSvg(s, side, g, sc){
   svg+='<rect x="0" y="0" width="'+SW+'" height="'+SH+'" fill="#fff" stroke="#1f2937" stroke-width="1"/>';
   for (var r=0;r<s.rows;r++){ for (var c=0;c<s.cols;c++){
     var n=(grid[r]&&grid[r][c])||0;
-    var rot=((s.rot[c]||0)%360+360)%360;
+    var rot=((_tbCellRotOf(s, side, r, c)||0)%360+360)%360;   // סיבוב פר-תא (ראש-אל-ראש: שורות שונות)
     var fw=(rot===90||rot===270)?g.trimHmm:g.trimWmm, fh=(rot===90||rot===270)?g.trimWmm:g.trimHmm;
     var cx=g.colX[c]*sc, cy=g.rowY[r]*sc, w=fw*sc, h=fh*sc, x=cx-w/2, y=cy-h/2;
-    var click = s.numMode ? ' onclick="_tbNumClick('+side+','+r+','+c+')" style="cursor:pointer"' : '';
-    svg+='<g'+click+'>';
+    // לחיצה: במצב-מספור = מספור; אחרת = סיבוב התא (90° בכל לחיצה)
+    var click = s.numMode ? ' onclick="_tbNumClick('+side+','+r+','+c+')" style="cursor:pointer"'
+                          : ' onclick="_tbCellRot('+side+','+r+','+c+')" style="cursor:pointer"';
+    svg+='<g'+click+'><title>'+(s.numMode?'לחץ למספור':'לחץ לסיבוב העמוד 90°')+'</title>';
     svg+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+h.toFixed(1)+'" fill="'+(s.numMode?'#f0fdf4':'#ede9fe')+'" stroke="'+(s.numMode?'#34d399':'#94a3b8')+'" stroke-width="1" rx="2"/>';
     var b=Math.max(2.5,Math.min(w,h)*0.09);
     var hb = rot===0?('x="'+(x+w*0.12)+'" y="'+y+'" width="'+(w*0.76)+'" height="'+b+'"')
@@ -892,7 +936,26 @@ function _tbPreviewSvg(s){
   out+='<div style="font-size:.68rem;color:#9ca3af">הפס האדום = ראש-העמוד · עמוד '+g.trimWmm+'×'+g.trimHmm+' מ״מ · עמודים צמודים (כריכת-סיכות: 0 מרווח בשדרה)'+(s.numMode?' · 🔢 לחץ על קובייה למספור':'')+'.</div>';
   return out;
 }
-function _tbCycleRot(c){ var s=_tbState; var order=[0,90,180,270]; var cur=((s.rot[c]||0)%360+360)%360; s.rot[c]=order[(order.indexOf(cur)+1)%4]; _tbRender(); }
+function _tbCycleRot(c){
+  var s=_tbState; var order=[0,90,180,270]; var cur=((s.rot[c]||0)%360+360)%360;
+  var nv=order[(order.indexOf(cur)+1)%4];
+  s.rot[c]=nv;
+  // כפתור-עמודה מיישר את כל התאים בעמודה לסיבוב הזה (בכל הצדדים)
+  if (s.rotGrids) s.rotGrids.forEach(function(rg){ (rg||[]).forEach(function(row){ if(row) row[c]=nv; }); });
+  _tbRender();
+}
+// סיבוב תא בודד (לחיצה על קובייה שלא במצב-מספור) — לפריסות ראש-אל-ראש שבהן שורות שונות בסיבוב
+function _tbCellRot(side, r, c){
+  var s=_tbState;
+  if (!s.rotGrids){   // יצירת רשת-סיבובים מ-סיבובי-העמודות הקיימים
+    s.rotGrids=[];
+    for (var si=0; si<s.sides; si++){ var g=[]; for (var r2=0;r2<s.rows;r2++){ var row=[]; for (var c2=0;c2<s.cols;c2++) row.push(s.rot[c2]||0); g.push(row); } s.rotGrids.push(g); }
+  }
+  var order=[0,90,180,270]; var cur=((_tbCellRotOf(s,side,r,c)||0)%360+360)%360;
+  if(!s.rotGrids[side]) s.rotGrids[side]=[]; if(!s.rotGrids[side][r]) s.rotGrids[side][r]=[];
+  s.rotGrids[side][r][c]=order[(order.indexOf(cur)+1)%4];
+  _tbRender();
+}
 function _tbToggleNum(){ var s=_tbState; s.numMode=!s.numMode; if(s.numMode && !s.numNext) s.numNext=1; _tbRender(); }
 // מספור מהיר: קובייה מקבלת את המספר הנוכחי; בפרפקטור הקובייה שמאחור (אותו מיקום בצד השני) מקבלת +1; מתקדם
 function _tbNumClick(side, r, c){
@@ -915,6 +978,7 @@ function _tbSave(){
   var key = _tbState.key || ('bld'+tpl.N+'_'+Math.random().toString(36).slice(2,6));
   TEMPLATES[key]=tpl;
   _tplOverrides[key]={ grids:tpl.grids, N:tpl.N, sides:tpl.sides, rot:tpl.rot, label:tpl.label, custom:true, sizeLabel:tpl.sizeLabel, geom:tpl.geom };
+  if (tpl.rotGrids) _tplOverrides[key].rotGrids = tpl.rotGrids;
   try{ localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); }catch(e){}
   _tplAddOption(key, tpl.label);
   $('sheet').value=key;
@@ -932,7 +996,8 @@ async function _tbTest(){
       var grid=tpl.grids[si];
       for (var r=0;r<grid.length;r++){ for (var c=0;c<grid[r].length;c++){
         var n=grid[r][c]; if(!n) continue;
-        var rot=((tpl.rot[c]||0)%360+360)%360;
+        var _rg=tpl.rotGrids && tpl.rotGrids[si];
+        var rot=(((_rg && _rg[r] && _rg[r][c]!=null) ? _rg[r][c] : (tpl.rot[c]||0))%360+360)%360;   // פר-תא אם קיים
         var cx=g.colX[c]*MM, cy=(g.sheetHmm - g.rowY[r])*MM;
         var fw=((rot===90||rot===270)?g.trimHmm:g.trimWmm)*MM, fh=((rot===90||rot===270)?g.trimWmm:g.trimHmm)*MM;
         page.drawRectangle({ x:cx-fw/2, y:cy-fh/2, width:fw, height:fh, borderColor:rgb(0.55,0.55,0.6), borderWidth:0.8 });
@@ -952,7 +1017,7 @@ async function _tbTest(){
     await showFlipbook(res.bytes, res.report && res.report.lip);
   }catch(e){ console.error(e); alert('בדיקת הטמפלט נכשלה: '+(e&&e.message||e)); }
 }
-window._tbOpen=_tbOpen; window._tbRender=_tbRender; window._tbCycleRot=_tbCycleRot; window._tbSetCell=_tbSetCell; window._tbSave=_tbSave; window._tbTest=_tbTest; window._tbRefreshPreview=_tbRefreshPreview; window._tbToggleNum=_tbToggleNum; window._tbNumClick=_tbNumClick;
+window._tbOpen=_tbOpen; window._tbRender=_tbRender; window._tbCycleRot=_tbCycleRot; window._tbSetCell=_tbSetCell; window._tbSave=_tbSave; window._tbTest=_tbTest; window._tbRefreshPreview=_tbRefreshPreview; window._tbToggleNum=_tbToggleNum; window._tbNumClick=_tbNumClick; window._tbCellRot=_tbCellRot;
 // ── בורר-חוברת מודרך: גודל + מספר-עמודים → מחפש טמפלט מתאים (מובנה או מיובא) ──
 function _bkSizeOf(tpl){ return (tpl && tpl.sizeLabel) || (tpl && tpl.custom && !tpl.geom ? 'מותאם' : '165×240'); }
 function _bkMeta(){
