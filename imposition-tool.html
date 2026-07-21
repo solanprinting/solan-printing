@@ -69,6 +69,8 @@
         </select>
         <button type="button" id="tplEditBtn" onclick="_tplEdit()" title="ערוך את סדר-העמודים של הטמפלט ושמור אותו" style="margin-top:6px;padding:6px 12px;border:1.5px solid #c9a84c;background:#fdf6e3;color:#7c5a00;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">✏️ ערוך טמפלט</button>
         <button type="button" id="tplNewBtn" onclick="_tplNew()" title="צור טמפלט חדש לסוג-עבודה שאין לו טמפלט מוכן" style="margin-top:6px;padding:6px 12px;border:1.5px solid #16a34a;background:#f0fdf4;color:#166534;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">➕ טמפלט חדש</button>
+        <button type="button" id="tplImpBtn" onclick="document.getElementById('tplImpFile').click()" title="טען טמפלט מקובץ PDF של פריסה (למשל גודל עיתון חדש) — המערכת קוראת את סדר-העמודים והגיאומטריה" style="margin-top:6px;padding:6px 12px;border:1.5px solid #2563eb;background:#eff6ff;color:#1e40af;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">📥 טען טמפלט מ-PDF</button>
+        <input type="file" id="tplImpFile" accept="application/pdf" style="display:none" onchange="if(this.files&&this.files[0]){_tplImportPdf(this.files[0]);this.value='';}">
       </div>
       <div class="opt"><label>צד ראשון בקובץ:</label>
         <select id="firstside"><option value="0" selected>קדמי (עמ' 1)</option><option value="1">אחורי</option></select>
@@ -279,8 +281,10 @@ function _applyTplOverrides(templates, overrides){
       if (Array.isArray(ov.grids) && ov.grids.length === templates[k].grids.length)
         templates[k].grids = ov.grids;
     } else if (ov.custom && Array.isArray(ov.grids) && ov.grids.length){
-      // טמפלט שנוצר ידנית ע"י המשתמש — משחזרים את ההגדרה המלאה
+      // טמפלט שנוצר ידנית / יובא מ-PDF — משחזרים את ההגדרה המלאה (כולל geom אם יש)
       templates[k] = { N: ov.N, sides: ov.sides, rot: ov.rot, grids: ov.grids, custom: true, label: ov.label || k };
+      if (ov.geom) templates[k].geom = ov.geom;
+      if (ov.sizeLabel) templates[k].sizeLabel = ov.sizeLabel;
     }
   });
 }
@@ -332,9 +336,34 @@ async function foldSignature(out, sidePages, tpl, map, firstSideIsFront, bleedMm
   }
 }
 
+// קיפול גנרי לפי גיאומטריה שיובאה מקובץ-הטמפלט (tpl.geom): מרכזי-עמודות/שורות + גודל-נטו,
+// במקום הקבועים המקובעים (COLCX/ROWCY/TRIM). מאפשר קיפול של גדלים חדשים (למשל 202×288, עמודים זקופים).
+// לכל עמוד-קריאה: מזיזים את הגיליון כך שמרכז-התא נופל במרכז-הפלט, ומבטלים את סיבוב-התא (theta=-rot) → עמוד ישר.
+async function foldSignatureGeneric(out, sidePages, tpl, map, firstSideIsFront, bleedMm){
+  const g = tpl.geom;
+  const embeds = [];
+  for (let i=0;i<sidePages.length;i++) embeds.push(await out.embedPage(sidePages[i]));
+  const ref = sidePages[0];
+  const sheetHpt = ref.getHeight();
+  const B = (bleedMm > 0) ? bleedMm : 0;
+  const OUTW = (g.trimWmm + 2*B)*MM, OUTH = (g.trimHmm + 2*B)*MM, ocx = OUTW/2, ocy = OUTH/2;
+  for (let n = 1; n <= tpl.N; n++){
+    const pos = map[n]; if (!pos) continue;
+    let sideIdx = pos.side;
+    if (tpl.sides === 2 && !firstSideIsFront) sideIdx = 1 - sideIdx;
+    const embed = embeds[sideIdx] || embeds[0];
+    const cx = g.colX[pos.col], cy = g.rowY[pos.row];               // מרכז התא במ״מ (cy מלמעלה)
+    const scx = cx*MM, scy = sheetHpt - cy*MM;                       // → נקודות, origin תחתון-שמאלי
+    const theta = -(((tpl.rot && tpl.rot[pos.col]) || 0));           // ביטול סיבוב-התא → עמוד ישר
+    const c = Math.cos(theta*Math.PI/180), s = Math.sin(theta*Math.PI/180);
+    const page = out.addPage([OUTW, OUTH]);
+    page.drawPage(embed, { x: ocx - (scx*c - scy*s), y: ocy - (scx*s + scy*c), rotate: degrees(theta), xScale: 1, yScale: 1 });
+  }
+}
 async function fold(arrayBuffer, opts){
   opts = opts || {};
   const tpl = TEMPLATES[opts.type || '32']; const map = _buildMap(tpl);
+  const _foldSig = tpl.geom ? foldSignatureGeneric : foldSignature;   // טמפלט מיובא (geom) → קיפול גנרי
   const firstSideIsFront = (opts.firstSide || 0) === 0;
   const src = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   const pages = src.getPages();
@@ -343,7 +372,9 @@ async function fold(arrayBuffer, opts){
   const report = { sheets: pages.length, signatures: 0, pagesOut: 0, leftover: 0, sizeWarn: null, rotWarn: false };
   if (pages.length){
     const w = pages[0].getWidth()/MM, h = pages[0].getHeight()/MM;
-    if (Math.abs(w-1000) > 60 || Math.abs(h-700) > 60) report.sizeWarn = Math.round(w)+'×'+Math.round(h)+' מ"מ';
+    // אזהרת-גודל רק לטמפלטים המובנים (גיליון 70×100); טמפלט מיובא נושא את גודל-הגיליון שלו
+    const _expW = tpl.geom ? (tpl.geom.sheetWmm||w) : 1000, _expH = tpl.geom ? (tpl.geom.sheetHmm||h) : 700;
+    if (Math.abs(w-_expW) > 60 || Math.abs(h-_expH) > 60) report.sizeWarn = Math.round(w)+'×'+Math.round(h)+' מ"מ';
     // קובץ ששמור עם דגל סיבוב (Rotate 90/270) — ההטמעה מתעלמת מהדגל והקיפול יצא שגוי
     try { const ra = pages[0].getRotation && pages[0].getRotation().angle; if (ra && ra % 360 !== 0) report.rotWarn = ra; } catch(e){}
     // זיהוי דש סיכות מהפרופר: אסימטריה אופקית בין גבול הגיליון (MediaBox) לאזור הנטו (TrimBox/CropBox).
@@ -360,7 +391,7 @@ async function fold(arrayBuffer, opts){
     } catch(e){}
   }
   for (let s = 0; s + per <= pages.length; s += per){
-    await foldSignature(out, pages.slice(s, s+per), tpl, map, firstSideIsFront, opts.bleedMm || 0);
+    await _foldSig(out, pages.slice(s, s+per), tpl, map, firstSideIsFront, opts.bleedMm || 0);
     report.signatures++; report.pagesOut += tpl.N;
   }
   report.leftover = pages.length % per;
@@ -496,8 +527,11 @@ function _tplReadGrids(){
 function _tplSave(){
   var type=$('sheet').value, tpl=TEMPLATES[type], grids=_tplReadGrids();
   tpl.grids = grids;
-  if (tpl.custom)   // טמפלט מותאם-אישית — שומרים את ההגדרה המלאה כדי שישוחזר בטעינה
+  if (tpl.custom){   // טמפלט מותאם-אישית / מיובא — שומרים את ההגדרה המלאה כדי שישוחזר בטעינה
     _tplOverrides[type] = { grids: grids, N: tpl.N, sides: tpl.sides, rot: tpl.rot, label: tpl.label, custom: true };
+    if (tpl.geom) _tplOverrides[type].geom = tpl.geom;
+    if (tpl.sizeLabel) _tplOverrides[type].sizeLabel = tpl.sizeLabel;
+  }
   else
     _tplOverrides[type] = { grids: grids };
   try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
@@ -559,9 +593,94 @@ function _tplNew(){
   _tplNote('➕ טמפלט "'+name+'" נוצר — כעת ערוך את סדר-העמודים לפי הקיפול');
   _tplEdit();
 }
+// ── ייבוא טמפלט מקובץ-PDF של פריסה (למשל גודל עיתון חדש) ──────────────────────
+// מקבץ פריטי-טקסט (מספרי-עמוד עם מיקום/סיבוב) לרשת: grid[row][col]=עמוד + מרכזי-עמודות/שורות במ״מ.
+// טהור וניתן-לבדיקה. tol יחסי לפיזור כדי לעמוד בגדלים/רזולוציות שונים.
+function _tplClusters(vals, tol){
+  var sorted = vals.slice().sort(function(a,b){ return a-b; }), groups = [];
+  sorted.forEach(function(v){
+    var g = null; for (var i=0;i<groups.length;i++){ if (Math.abs(groups[i].c - v) <= tol){ g = groups[i]; break; } }
+    if (g){ g.vals.push(v); g.c = g.vals.reduce(function(a,b){return a+b;},0)/g.vals.length; }
+    else groups.push({ c:v, vals:[v] });
+  });
+  return groups.map(function(g){ return g.c; }).sort(function(a,b){ return a-b; });
+}
+function _nearest(arr, v){ var bi=0, bd=Infinity; for (var i=0;i<arr.length;i++){ var d=Math.abs(arr[i]-v); if (d<bd){ bd=d; bi=i; } } return bi; }
+// items: [{n, xMm, yMm (מרכז-תא, y מלמעלה), rot}] → { grid, rot, colX, rowY, rows, cols }
+function _tplGeomFromItems(items){
+  if (!items || !items.length) return null;
+  var xs = items.map(function(i){ return i.xMm; }), ys = items.map(function(i){ return i.yMm; });
+  var xspread = (Math.max.apply(null,xs)-Math.min.apply(null,xs)) || 1;
+  var yspread = (Math.max.apply(null,ys)-Math.min.apply(null,ys)) || 1;
+  var colX = _tplClusters(xs, xspread*0.06 + 2);                 // שמאל→ימין
+  var rowY = _tplClusters(ys, yspread*0.06 + 2);                 // מלמעלה→למטה (y כבר הפוך: קטן=למעלה)
+  var cols = colX.length, rows = rowY.length;
+  var grid = [], rot = new Array(cols).fill(0);
+  for (var r=0;r<rows;r++){ grid.push(new Array(cols).fill(0)); }
+  items.forEach(function(it){
+    var c = _nearest(colX, it.xMm), rr = _nearest(rowY, it.yMm);
+    grid[rr][c] = it.n; rot[c] = _normRot90(it.rot);
+  });
+  return { grid:grid, rot:rot, colX:colX, rowY:rowY, rows:rows, cols:cols };
+}
+function _normRot90(deg){ var r = Math.round((deg||0)/90)*90; r = ((r%360)+360)%360; if (r===270) r=-90; return r; }
+async function _tplImportPdf(file){
+  if (!window.pdfjsLib){ alert('pdf.js לא נטען — לא ניתן לייבא. נסה לרענן.'); return; }
+  _tplNote('📥 קורא את קובץ הטמפלט…');
+  try {
+    var buf = await file.arrayBuffer();
+    var pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+    var sides = Math.min(pdf.numPages, 2);
+    var grids = [], rotOut = null, colX = null, rowY = null, trimW = 0, trimH = 0, sheetW = 0, sheetH = 0;
+    for (var s=1; s<=sides; s++){
+      var page = await pdf.getPage(s);
+      var vp = page.getViewport({ scale: 1 });
+      var HptToMm = 1 / MM;
+      if (!sheetW){ sheetW = Math.round(vp.width * HptToMm); sheetH = Math.round(vp.height * HptToMm); }
+      var tc = await page.getTextContent();
+      var allText = tc.items.map(function(t){ return t.str; }).join(' ');
+      if (!trimW){ var mm = allText.match(/(\d{2,4})\s*mm\s*[x×]\s*(\d{2,4})\s*mm/i); if (mm){ trimW = parseInt(mm[1],10); trimH = parseInt(mm[2],10); } }
+      // פריטי מספר-עמוד = מספרים בפונט הגדול (הכיתוב "NNN mm" קטן בהרבה)
+      var raw = [];
+      tc.items.forEach(function(t){
+        var str = (t.str||'').trim(); if (!/^\d{1,3}$/.test(str)) return;
+        var tr = t.transform, fs = Math.hypot(tr[0], tr[1]);
+        raw.push({ n: parseInt(str,10), tr: tr, w: t.width||0, h: t.height||fs, fs: fs });
+      });
+      if (!raw.length){ alert('לא זוהו מספרי-עמודים בקובץ (עמוד '+s+'). ודא שזה קובץ-פריסה עם מספרי-עמוד.'); return; }
+      var maxFs = raw.reduce(function(m,r){ return Math.max(m, r.fs); }, 0);
+      var nums = raw.filter(function(r){ return r.fs >= maxFs*0.5; }).map(function(r){
+        var tr = r.tr;
+        // מרכז הגליף (מתוקן לרוחב/גובה) בנקודות → מ״מ. y הופך למלמעלה: yMm = sheetH - yUp.
+        var cxPt = tr[4] + (r.w/2)*Math.cos(Math.atan2(tr[1],tr[0])) - 0;
+        var cyPt = tr[5] + (r.h*0.35);
+        var xMm = cxPt / MM, yUpMm = cyPt / MM;
+        return { n: r.n, xMm: xMm, yMm: (sheetH - yUpMm), rot: Math.round(Math.atan2(tr[1],tr[0]) * 180/Math.PI) };
+      });
+      var geom = _tplGeomFromItems(nums);
+      if (!geom){ alert('נכשל בזיהוי הרשת (עמוד '+s+').'); return; }
+      grids.push(geom.grid);
+      if (s===1){ rotOut = geom.rot; colX = geom.colX; rowY = geom.rowY; }
+    }
+    var N = 0; grids.forEach(function(gr){ gr.forEach(function(row){ row.forEach(function(v){ if (v>N) N=v; }); }); });
+    if (!trimW || !trimH){ trimW = trimW || 165; trimH = trimH || 240; }
+    var sizeLabel = trimW + '×' + trimH;
+    var name = sizeLabel + ' · ' + N + ' עמ\'' + (sides===2 ? ' פרפקטור' : ' מתהפך');
+    var key = 'imp' + N + '_' + Math.random().toString(36).slice(2,6);
+    var tpl = { N:N, sides:sides, rot:rotOut, grids:grids, custom:true, label:name, sizeLabel:sizeLabel,
+      geom: { colX:colX, rowY:rowY, trimWmm:trimW, trimHmm:trimH, sheetWmm:sheetW, sheetHmm:sheetH } };
+    TEMPLATES[key] = tpl;
+    _tplOverrides[key] = { grids:grids, N:N, sides:sides, rot:rotOut, label:name, custom:true, sizeLabel:sizeLabel, geom: tpl.geom };
+    try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
+    _tplAddOption(key, name);
+    $('sheet').value = key;
+    _tplNote('📥 יובא טמפלט "'+name+'" (גיליון '+sheetW+'×'+sheetH+' מ״מ) — בדוק את סדר-העמודים בעורך, וקפל פרופר-בדיקה לאימות');
+    _tplEdit();
+  } catch(e){ console.error(e); alert('ייבוא הטמפלט נכשל: ' + (e && e.message || e)); }
+}
 // טוען אפשרויות של טמפלטים-מותאמים אישית לתפריט בעליית-הכלי
 Object.keys(_tplOverrides).forEach(function(k){ var ov=_tplOverrides[k]; if(ov && ov.custom) _tplAddOption(k, ov.label||k); });
-window._tplEdit=_tplEdit; window._tplSave=_tplSave; window._tplReset=_tplReset; window._tplNew=_tplNew;
+window._tplEdit=_tplEdit; window._tplSave=_tplSave; window._tplReset=_tplReset; window._tplNew=_tplNew; window._tplImportPdf=_tplImportPdf;
 
 let _file = null;
 $('file').onchange = e => { window._srcProofUrl = null; setFile(e.target.files[0]); };
