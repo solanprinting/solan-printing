@@ -56,8 +56,16 @@
       <input type="file" id="file" accept="application/pdf" hidden>
     </div>
     <div class="opts">
-      <div class="opt"><label>סוג הפריסה:</label>
-        <select id="sheet">
+      <div class="opt" style="min-width:280px">
+        <label>בחר חוברת — גודל + עמודים:</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select id="bkSize" onchange="_bkSizeChange()" style="flex:1;min-width:130px"></select>
+          <select id="bkPages" onchange="_bkMatch()" style="flex:1;min-width:110px"></select>
+        </div>
+        <div id="bkMatch" style="margin-top:8px;font-size:.85rem;line-height:1.5"></div>
+      </div>
+      <div class="opt"><label>טמפלט (מתקדם):</label>
+        <select id="sheet" onchange="_bkSyncFromSheet()">
           <option value="32" selected>32 עמ' — פרפקטור (8 צבעים)</option>
           <option value="32p">32 עמ' — 4 צבעים (קדמי+אחורי)</option>
           <option value="16perf">16 עמ' — פרפקטור (8 צבעים)</option>
@@ -547,6 +555,7 @@ function _tplReset(){
     try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
     var opt=$('sheet').querySelector('option[value="'+type+'"]'); if(opt) opt.remove();
     $('sheet').selectedIndex=0;
+    try { _bkPopulate(); } catch(e){}
     var dlg2=document.getElementById('tplEditDlg'); if(dlg2) dlg2.remove();
     _tplNote('🗑 הטמפלט נמחק');
     return;
@@ -590,6 +599,7 @@ function _tplNew(){
   try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
   _tplAddOption(key, name);
   $('sheet').value=key;
+  try { _bkPopulate(); _bkSyncFromSheet(); } catch(e){}
   _tplNote('➕ טמפלט "'+name+'" נוצר — כעת ערוך את סדר-העמודים לפי הקיפול');
   _tplEdit();
 }
@@ -674,12 +684,71 @@ async function _tplImportPdf(file){
     try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
     _tplAddOption(key, name);
     $('sheet').value = key;
+    try { _bkPopulate(); _bkSyncFromSheet(); } catch(e){}
     _tplNote('📥 יובא טמפלט "'+name+'" (גיליון '+sheetW+'×'+sheetH+' מ״מ) — בדוק את סדר-העמודים בעורך, וקפל פרופר-בדיקה לאימות');
     _tplEdit();
   } catch(e){ console.error(e); alert('ייבוא הטמפלט נכשל: ' + (e && e.message || e)); }
 }
+// ── בורר-חוברת מודרך: גודל + מספר-עמודים → מחפש טמפלט מתאים (מובנה או מיובא) ──
+function _bkSizeOf(tpl){ return (tpl && tpl.sizeLabel) || (tpl && tpl.custom && !tpl.geom ? 'מותאם' : '165×240'); }
+function _bkMeta(){
+  var sel = $('sheet'); if (!sel) return [];
+  return Array.prototype.map.call(sel.options, function(o){
+    var tpl = TEMPLATES[o.value] || {};
+    return { key:o.value, N: tpl.N||0, size:_bkSizeOf(tpl), text:(o.textContent||'').replace(/^🧩\s*/,'').trim() };
+  });
+}
+function _bkSizeLabel(s){ return s==='165×240' ? '165×240 (סטנדרטי)' : (s==='מותאם' ? 'מותאם' : s + ' מ״מ'); }
+function _bkPopulate(){
+  var szSel = $('bkSize'); if (!szSel) return;
+  var meta = _bkMeta(), prevSz = szSel.value;
+  var sizes = []; meta.forEach(function(m){ if (sizes.indexOf(m.size) < 0) sizes.push(m.size); });
+  sizes.sort(function(a,b){ return a==='165×240' ? -1 : (b==='165×240' ? 1 : String(a).localeCompare(String(b))); });
+  szSel.innerHTML = sizes.map(function(s){ return '<option value="'+s+'">'+_bkSizeLabel(s)+'</option>'; }).join('');
+  if (sizes.indexOf(prevSz) >= 0) szSel.value = prevSz;
+  _bkFillPages(); _bkMatch();
+}
+function _bkFillPages(prefer){
+  var pgSel = $('bkPages'), szSel = $('bkSize'); if (!pgSel || !szSel) return;
+  var sz = szSel.value, prev = prefer || pgSel.value;
+  var Ns = []; _bkMeta().forEach(function(m){ if (m.size===sz && m.N>0 && Ns.indexOf(m.N)<0) Ns.push(m.N); });
+  Ns.sort(function(a,b){ return a-b; });
+  pgSel.innerHTML = Ns.map(function(n){ return '<option value="'+n+'">'+n+' עמ\'</option>'; }).join('');
+  if (prev && Ns.indexOf(parseInt(prev,10)) >= 0) pgSel.value = String(prev);
+}
+function _bkSizeChange(){ _bkFillPages(); _bkMatch(); }
+function _bkRefold(){ try { if (_file && $('go') && !$('go').disabled) $('go').click(); } catch(e){} }
+function _bkMatch(){
+  var box = $('bkMatch'); if (!box) return;
+  var szSel=$('bkSize'), pgSel=$('bkPages');
+  var sz = szSel?szSel.value:'', pg = pgSel?parseInt(pgSel.value,10):0;
+  var matches = _bkMeta().filter(function(m){ return m.size===sz && m.N===pg; });
+  if (!matches.length){
+    box.innerHTML = '<span style="color:#b91c1c;font-weight:800">✗ אין טמפלט מתאים ל-'+_bkSizeLabel(sz)+' · '+pg+' עמ\'</span>'
+      + '<div style="color:#92400e;margin-top:3px">ייבא טמפלט מקובץ-פריסה (📥 <b>טען טמפלט מ-PDF</b>) או צור חדש (➕ <b>טמפלט חדש</b>).</div>';
+    return;
+  }
+  var cur = $('sheet').value;
+  if (!matches.some(function(m){ return m.key===cur; })){ $('sheet').value = matches[0].key; _bkRefold(); }
+  var chips = matches.map(function(m){
+    var on = ($('sheet').value === m.key);
+    return '<button type="button" onclick="_bkPick(\''+m.key+'\')" style="padding:5px 11px;border:1.5px solid '+(on?'#16a34a':'#cbd5e1')+';background:'+(on?'#dcfce7':'#fff')+';color:'+(on?'#166534':'#334155')+';border-radius:16px;cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:700;margin:3px 4px 0 0">'+(on?'✓ ':'')+m.text+'</button>';
+  }).join('');
+  box.innerHTML = '<span style="color:#166534;font-weight:800">✓ יש טמפלט מתאים — כעת העלה פרופר מתאים לקיפול.</span>'
+    + (matches.length>1 ? '<div style="margin-top:4px;color:#475569;font-size:.78rem">בחר סוג הדפסה:</div>' : '')
+    + '<div style="margin-top:3px">'+chips+'</div>';
+}
+function _bkPick(key){ $('sheet').value = key; _bkRefold(); _bkMatch(); }
+// כשמשנים ידנית את בורר-הטמפלט המתקדם — משקפים בבורר-החוברת
+function _bkSyncFromSheet(){
+  var tpl = TEMPLATES[$('sheet').value] || {}, size = _bkSizeOf(tpl), szSel = $('bkSize');
+  if (szSel && Array.prototype.some.call(szSel.options, function(o){ return o.value===size; })){ szSel.value = size; _bkFillPages(String(tpl.N)); }
+  _bkRefold(); _bkMatch();
+}
+window._bkMatch=_bkMatch; window._bkSizeChange=_bkSizeChange; window._bkPick=_bkPick; window._bkSyncFromSheet=_bkSyncFromSheet;
 // טוען אפשרויות של טמפלטים-מותאמים אישית לתפריט בעליית-הכלי
 Object.keys(_tplOverrides).forEach(function(k){ var ov=_tplOverrides[k]; if(ov && ov.custom) _tplAddOption(k, ov.label||k); });
+_bkPopulate();
 window._tplEdit=_tplEdit; window._tplSave=_tplSave; window._tplReset=_tplReset; window._tplNew=_tplNew; window._tplImportPdf=_tplImportPdf;
 
 let _file = null;
@@ -1593,7 +1662,7 @@ window._shareBookletFile = _shareBookletFile;
   try {
     var qs = new URLSearchParams(location.search);
     var url = qs.get('proofUrl'); if (!url) return;
-    var type = qs.get('type'); if (type && TEMPLATES[type]) $('sheet').value = type;
+    var type = qs.get('type'); if (type && TEMPLATES[type]){ $('sheet').value = type; try { _bkSyncFromSheet(); } catch(e){} }
     var fside = qs.get('firstside'); if (fside==='0'||fside==='1') $('firstside').value = fside;
     var mir = qs.get('mirror'); if (mir==='0'||mir==='1') $('mirror').value = mir;
     var nm = qs.get('name') || 'פרופר.pdf';
