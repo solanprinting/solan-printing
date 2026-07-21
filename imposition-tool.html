@@ -747,10 +747,12 @@ function _tbOpen(key){
   document.body.appendChild(d);
   _tbRender();
 }
-function _tbNum(label, val, oninput, w){
+function _tbNum(label, val, code, w, evt){
+  evt = evt || 'onchange';   // מבנה (עמודות/שורות) = onchange (בלי איבוד-פוקוס); מידות = oninput→רק תצוגה
   return '<label style="display:flex;flex-direction:column;gap:2px;font-size:.72rem;color:#555;font-weight:700">'+label
-    +'<input type="number" value="'+val+'" oninput="'+oninput+'" style="width:'+(w||64)+'px;padding:5px 7px;border:1.5px solid #cbd5e1;border-radius:6px;font-family:inherit;text-align:center"></label>';
+    +'<input type="number" value="'+val+'" '+evt+'="'+code+'" style="width:'+(w||64)+'px;padding:5px 7px;border:1.5px solid #cbd5e1;border-radius:6px;font-family:inherit;text-align:center"></label>';
 }
+function _tbRefreshPreview(){ var p=document.getElementById('tbPreview'); if(p) p.innerHTML=_tbPreviewSvg(_tbState); }
 function _tbRender(){
   var s=_tbState; _tbNormalize(s);
   var body=document.getElementById('tbBody'); if(!body) return;
@@ -758,12 +760,12 @@ function _tbRender(){
   var opts='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:12px">'
     +'<label style="display:flex;flex-direction:column;gap:2px;font-size:.72rem;color:#555;font-weight:700;flex:1;min-width:150px">שם הטמפלט'
     +'<input type="text" value="'+(s.name||'').replace(/"/g,'&quot;')+'" oninput="_tbState.name=this.value" placeholder="למשל: פלסטיק טיים 12 עמ\'" style="padding:5px 8px;border:1.5px solid #cbd5e1;border-radius:6px;font-family:inherit"></label>'
-    +_tbNum('עמוד רוחב מ״מ', s.trimW, '_tbState.trimW=+this.value||0;_tbRender()')
-    +_tbNum('עמוד גובה מ״מ', s.trimH, '_tbState.trimH=+this.value||0;_tbRender()')
-    +_tbNum('גיליון רוחב מ״מ', s.sheetW, '_tbState.sheetW=+this.value||0;_tbRender()')
-    +_tbNum('גיליון גובה מ״מ', s.sheetH, '_tbState.sheetH=+this.value||0;_tbRender()')
-    +_tbNum('עמודות', s.cols, '_tbState.cols=Math.max(1,+this.value||1);_tbRender()',52)
-    +_tbNum('שורות', s.rows, '_tbState.rows=Math.max(1,+this.value||1);_tbRender()',52)
+    +_tbNum('עמוד רוחב מ״מ', s.trimW, '_tbState.trimW=+this.value||0;_tbRefreshPreview()', 64, 'oninput')
+    +_tbNum('עמוד גובה מ״מ', s.trimH, '_tbState.trimH=+this.value||0;_tbRefreshPreview()', 64, 'oninput')
+    +_tbNum('גיליון רוחב מ״מ', s.sheetW, '_tbState.sheetW=+this.value||0;_tbRefreshPreview()', 64, 'oninput')
+    +_tbNum('גיליון גובה מ״מ', s.sheetH, '_tbState.sheetH=+this.value||0;_tbRefreshPreview()', 64, 'oninput')
+    +_tbNum('עמודות', s.cols, '_tbState.cols=Math.max(1,+this.value||1);_tbRender()', 52, 'onchange')
+    +_tbNum('שורות', s.rows, '_tbState.rows=Math.max(1,+this.value||1);_tbRender()', 52, 'onchange')
     +'<label style="display:flex;flex-direction:column;gap:2px;font-size:.72rem;color:#555;font-weight:700">צדדים'
     +'<select onchange="_tbState.sides=+this.value;_tbRender()" style="padding:5px 7px;border:1.5px solid #cbd5e1;border-radius:6px;font-family:inherit">'
     +'<option value="1"'+(s.sides===1?' selected':'')+'>1 — מתהפך</option><option value="2"'+(s.sides===2?' selected':'')+'>2 — פרפקטור</option></select></label>'
@@ -793,7 +795,7 @@ function _tbRender(){
   }
   editor+='</div>';
   // תצוגה חיה (SVG)
-  editor+='<div style="flex:1;min-width:280px">'+_tbPreviewSvg(s)+'</div>';
+  editor+='<div id="tbPreview" style="flex:1;min-width:280px">'+_tbPreviewSvg(s)+'</div>';
   editor+='</div>';
   // כפתורים
   var btns='<div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap">'
@@ -873,7 +875,7 @@ async function _tbTest(){
     await showFlipbook(res.bytes, res.report && res.report.lip);
   }catch(e){ console.error(e); alert('בדיקת הטמפלט נכשלה: '+(e&&e.message||e)); }
 }
-window._tbOpen=_tbOpen; window._tbRender=_tbRender; window._tbCycleRot=_tbCycleRot; window._tbSetCell=_tbSetCell; window._tbSave=_tbSave; window._tbTest=_tbTest;
+window._tbOpen=_tbOpen; window._tbRender=_tbRender; window._tbCycleRot=_tbCycleRot; window._tbSetCell=_tbSetCell; window._tbSave=_tbSave; window._tbTest=_tbTest; window._tbRefreshPreview=_tbRefreshPreview;
 // ── בורר-חוברת מודרך: גודל + מספר-עמודים → מחפש טמפלט מתאים (מובנה או מיובא) ──
 function _bkSizeOf(tpl){ return (tpl && tpl.sizeLabel) || (tpl && tpl.custom && !tpl.geom ? 'מותאם' : '165×240'); }
 function _bkMeta(){
