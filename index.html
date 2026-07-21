@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784632007';
+window.APP_VERSION = '1784632960';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6199,6 +6199,13 @@ function _sigParts(n){
   return out;
 }
 function _partFolds(p){ return p===32?'4 קיפולים':p===16?'3 קיפולים':p===8?'2 קיפולים':p===4?'1 קיפול':''; }
+// תווית עמודים לריצה — ריצה משולבת מוצגת בבירור כ"8+4" (לא "12"), כי אין חתימת 12 בכריכת-סיכות
+function _runPagesLabel(r){
+  if (r && r.abParts && r.abParts.length > 1) return r.abParts.join('+');
+  if (r && r.pages === 12) return '8+4';
+  return (r && r.pages != null && r.pages !== '') ? r.pages : '';
+}
+function _runIsAB(r){ return !!(r && ((r.abParts && r.abParts.length > 1) || r.pages === 12)); }
 function buildRuns(totalPages, copies, fullSheet, splitRemainder) {
   const halfSheet    = fullSheet / 2;
   const quarterSheet = fullSheet / 4;
@@ -6576,7 +6583,7 @@ function _renderCurrentRunsOutput() {
           '<strong>ריצה '+(i+1)+'</strong>'+
         '</div>'+
       '</td>'+
-      '<td>'+(r.abParts ? ('<b style="color:#6d28d9">'+r.abParts.join('+')+'</b> עמ\' <span style="font-size:.68rem;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px;font-weight:800;white-space:nowrap">🗞️ A+B</span>') : (r.pages+' עמ\''))+'</td>'+
+      '<td>'+(_runIsAB(r) ? ('<b style="color:#6d28d9">'+_runPagesLabel(r)+'</b> עמ\' <span style="font-size:.68rem;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px;font-weight:800;white-space:nowrap">🗞️ A+B</span>') : (r.pages+' עמ\''))+'</td>'+
       '<td style="font-size:.8rem;color:#444">'+r.pageRange+'</td>'+
       '<td><strong>'+r.copies.toLocaleString()+'</strong></td>'+
       '<td style="font-size:.76rem;color:#888">'+r.folds+'</td>'+
@@ -7481,7 +7488,7 @@ function openRunsModal(n, pages) {
             <button type="button" title="פצל ריצה לשתי ריצות" onclick="_toggleSplitRun(${i})"
               style="font-size:.68rem;padding:1px 7px;border:1px solid #fcd34d;border-radius:4px;background:#fef3c7;color:#92400e;cursor:pointer;font-family:Heebo,sans-serif;font-weight:700">✂️ פצל</button>
           </div>
-          <div class="run-detail">${r.pages} עמ' · ${r.pageRange} · ${r.folds}${r.abEnabled ? ' · <span style="color:#7c3aed;font-weight:700">🗞️ A+B</span>' : ''}</div>
+          <div class="run-detail">${_runPagesLabel(r)} עמ'${_runIsAB(r) ? ' <span style="font-size:.68rem;font-weight:800;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px">🗞️ A+B</span>' : ''} · ${r.pageRange} · ${r.folds}${(r.abEnabled && !_runIsAB(r)) ? ' · <span style="color:#7c3aed;font-weight:700">🗞️ A+B</span>' : ''}</div>
           <div id="split-run-${i}" style="display:none;margin-top:7px;padding:8px 10px;background:#fef9c3;border:1.5px solid #fcd34d;border-radius:7px">
             <div style="font-size:.74rem;font-weight:700;color:#92400e;margin-bottom:6px">✂️ פצל ${r.pages} עמ' לשתי ריצות:</div>
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -9301,7 +9308,7 @@ function buildPrintCard(c) {
     return `
     <tr>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd"><strong>ריצה ${r.num}</strong></td>
-      <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.pages ? r.pages+' עמ\'' : '—'}${(r.upCount && r.upCount>1) ? ` <span style="font-size:.7rem;font-weight:700;color:#6d28d9;white-space:nowrap">· ×${r.upCount} בגיליון</span>` : ''}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.pages ? _runPagesLabel(r)+' עמ\''+(_runIsAB(r)?' <span style="font-size:.66rem;font-weight:800;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px;white-space:nowrap">🗞️ A+B</span>' : '') : '—'}${(r.upCount && r.upCount>1) ? ` <span style="font-size:.7rem;font-weight:700;color:#6d28d9;white-space:nowrap">· ×${r.upCount} בגיליון</span>` : ''}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-size:.8rem">${r.pageRange||'—'}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-weight:700">${(c.singleSheet && _runs.length>1) ? '<span style="font-size:.72rem;font-weight:700;color:#6d28d9">גיליון משותף</span>' : (r.copies?parseInt(r.copies).toLocaleString():'—')}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.folds||'—'}${r.tumble?' <span style="color:#1d4ed8;font-weight:600;font-size:.65rem"> · מתהפך</span>':''}</td>
@@ -9319,7 +9326,7 @@ function buildPrintCard(c) {
 
   // גיליון משותף A+B: כל העמודים מודפסים על גיליון אחד ונחתכים אחר כך לריצות
   const _combined = !!c.singleSheet && _hasRuns;
-  const _runBreak = _runs.map(function(r){ return r.pages; }).join('+');   // לדוגמה "8+16"
+  const _runBreak = _runs.map(function(r){ return _runPagesLabel(r); }).join('+');   // לדוגמה "8+4+16"
   // תוספות A+B (פלאייר/פלייסמנט/מלל) שנוספו לגיליון — לאיסוף להערות
   const _abExtrasText = (function(){
     var out=[];
@@ -9381,7 +9388,7 @@ function buildPrintCard(c) {
   }
   // גיליון משותף A+B — שורת פירוט להערות: הריצות שייחתכו + התוספת שנוספה לגיליון
   const _combinedNote = _combined
-    ? ('🗞️ גיליון משותף A+B · ייחתך ל: ' + _runs.map(function(r){ return r.pages+' עמ\''; }).join(' + ')
+    ? ('🗞️ גיליון משותף A+B · ייחתך ל: ' + _runs.map(function(r){ return _runPagesLabel(r)+' עמ\''; }).join(' + ')
        + (_abExtrasText.length ? ' · תוספת בגיליון: ' + _abExtrasText.join(', ') : ''))
     : '';
   // כפל סוגים (✖️N) — תווית בלבד: אותו כרטיס לכמה סוגים (למשל 6 עיתונים שונים)
@@ -14975,7 +14982,7 @@ function _jobCardHtml(c) {
       </div>
       ${c.notes?'<div style="padding:7px 16px;font-size:.84rem;color:var(--gray);border-bottom:1px solid var(--line)"><strong>הערות:</strong> '+escHtml(c.notes).replace(/\n/g,'<br>')+'</div>':''}
       ${c.internalNotes?'<div style="padding:7px 16px;font-size:.84rem;background:#fffbeb;border-bottom:1px solid #fde68a;color:#92400e"><strong>🔒 פנימי:</strong> '+escHtml(c.internalNotes)+'</div>':''}
-      ${(c.runs&&c.runs.length)?'<div class="jc-runs">'+c.runs.map(r=>'<span class="run-chip">ריצה '+r.num+': '+r.pages+' עמ\' · '+r.copies.toLocaleString()+' יח\''+(r.machine?' · '+r.machine:'')+'</span>').join('')+'</div>':''}
+      ${(c.runs&&c.runs.length)?'<div class="jc-runs">'+c.runs.map(r=>'<span class="run-chip">ריצה '+r.num+': '+_runPagesLabel(r)+' עמ\''+(_runIsAB(r)?' 🗞️A+B':'')+' · '+r.copies.toLocaleString()+' יח\''+(r.machine?' · '+r.machine:'')+'</span>').join('')+'</div>':''}
       <div class="jc-actions">
         <button class="btn btn-sm" style="background:#f0f4ff;color:#2d3561;border:1.5px solid #c0ccf0" onclick="editCard(${c.id})">✏️ ערוך</button>
         <button class="btn btn-sm" style="background:#f0fdf4;color:#0f6347;border:1.5px solid #6ee7b7" onclick="showPrintModal(cards.find(c=>c.id===${c.id}))">👁️ צפה</button>
@@ -20493,7 +20500,7 @@ function renderDashTodayWeekly() {
       // יש כרטיס — הצג את הריצות עם בורר מכונה לכל אחת
       var runs = (card.runs && card.runs.length) ? card.runs : null;
       var runsHtml = runs
-        ? runs.map(function(r,ri){ return _runMachineSelect(card.id, ri, r.machine||'', 'ריצה ' + (r.num||(ri+1)) + ' · ' + (r.pages||'?') + ' עמ\''); }).join('')
+        ? runs.map(function(r,ri){ return _runMachineSelect(card.id, ri, r.machine||'', 'ריצה ' + (r.num||(ri+1)) + ' · ' + (_runPagesLabel(r)||'?') + ' עמ\''+(_runIsAB(r)?' (A+B)':'')); }).join('')
         : _runMachineSelect(card.id, -1, card.machine||'', 'מכונה');
       var viewEdit = '<div style="display:flex;gap:4px;margin-top:6px">'
         + '<button onclick="showPrintModal(cards.find(function(c){return c.id===' + card.id + '}))" '
