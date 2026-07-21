@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784620019';
+window.APP_VERSION = '1784624758';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1926,6 +1926,14 @@ window._fbSnapshot = {};
         <label>מס' עמודים</label>
         <input class="fi" type="number" id="f-pages" placeholder="32" min="1" oninput="calcRuns()">
         <input class="fi" type="text" id="f-pages-note" placeholder="מלל חופשי ליד מס' העמודים (אופציונלי)" style="margin-top:6px;font-size:.9rem">
+      </div>
+
+      <div class="field full" id="sheet-pages-field" style="display:none">
+        <label style="color:#b45309;display:flex;align-items:center;gap:6px">📐 כמה עמודים בגיליון?
+          <span style="font-weight:400;font-size:.76rem;color:#92400e">(המידות לא זוהו — הזן ידנית ולפי זה יחולקו הריצות)</span></label>
+        <input class="fi" type="number" id="f-sheet-pages" min="2" step="1" placeholder="למשל 16 · 24 · 32"
+          oninput="calcRuns()" style="border-color:#f59e0b;background:#fffbeb;max-width:220px">
+        <div style="font-size:.76rem;color:#92400e;margin-top:5px;line-height:1.5">מספר הריצות = עיגול-מעלה של (עמודים ÷ עמודים-בגיליון). לדוגמה: 48 עמ' ÷ 16 בגיליון = 3 ריצות.</div>
       </div>
 
       <div class="field" id="machine-field">
@@ -6129,15 +6137,24 @@ function calcRuns() {
   let fs=0, lbl='';
   // סוגי עבודה בלי ריצות הדפסה: עלון/פלאייר מתקפל, כרטיס, פוסטר, מדבקה, דף — מוצר פשוט,
   // לא פרסום כרוך/מקופל עם חלוקה לריצות. (מונע ש"A3 קיפול לA4" יוצג בטעות כעיתון 16 עמ'.)
+  const _spField = document.getElementById('sheet-pages-field');
+  const _spEl = document.getElementById('f-sheet-pages');
+  const _hideSP = function(){ if (_spField) _spField.style.display='none'; };
   const _noRunsType = /עלון|פלא?ייר|פלייר|flyer|leaflet|כרטיס|ביקור|פוסטר|poster|מדבק|סטיקר|sticker|פלייסמנט|פלסמנט/.test(type);
-  if (_noRunsType) { if (field) field.style.display='none'; currentRuns=[]; return; }
+  if (_noRunsType) { if (field) field.style.display='none'; _hideSP(); currentRuns=[]; return; }
   const _is32 = /70[\s×x*]?100|100[\s×x*]?70|16[.,]5[\s×x*]?24|24[\s×x*]?16|165[\s×x*]?240|240[\s×x*]?165|^a5$|עיתון\s*a5/.test(size);
   // עיתון A4 = 16 עמ' לגיליון · עיתון A5 = 32 עמ' לגיליון (עם חלוקה לריצות). "A4" רגיל = פלאייר/דף — בלי ריצות.
   const _is16 = /64[\s×x*]?90|90[\s×x*]?64|240[\s×x*]?330|330[\s×x*]?240|עיתון\s*a4|a3\s*קיפול/.test(size);
-  if (!copies||!pages) { field.style.display='none'; currentRuns=[]; return; }
-  if (_is32) { fs=32; lbl=(/a5/.test(size)?'A5':'70×100') + ' — 32 עמ\' לגיליון'; }
-  else if (_is16) { fs=16; lbl='64×90/A4/240×330 — 16 עמ\' לגיליון'; }
-  else { field.style.display='none'; currentRuns=[]; return; }
+  if (!copies||!pages) { field.style.display='none'; _hideSP(); currentRuns=[]; return; }
+  if (_is32) { fs=32; lbl=(/a5/.test(size)?'A5':'70×100') + ' — 32 עמ\' לגיליון'; _hideSP(); }
+  else if (_is16) { fs=16; lbl='64×90/A4/240×330 — 16 עמ\' לגיליון'; _hideSP(); }
+  else {
+    // מידות לא סטנדרטיות — המערכת לא יודעת כמה עמודים בגיליון. שואלים את המשתמש (שדה "עמודים בגיליון").
+    if (_spField) _spField.style.display='';
+    var _sp = _spEl ? parseInt(_spEl.value,10) : 0;
+    if (_sp && _sp >= 2) { fs=_sp; lbl='מותאם — ' + _sp + ' עמ\' לגיליון'; }
+    else { field.style.display='none'; currentRuns=[]; return; }   // עדיין לא הוזן — השדה מוצג עם הנחיה
+  }
 
   // preserve machine + tumble + A+B + extras choices
   const prev = {}, prevTumble = {}, prevAB = {}, prevExtras = {}, prevExtraSize = {}, prevManual = {}, prevUp = {}, prevPaper = {};
@@ -7806,6 +7823,8 @@ function editCard(id) {
   setTimeout(_updCopiesMult, 0);
   setVal('f-pages',         c.pages);
   setVal('f-pages-note',    c.pagesNote||'');
+  setVal('f-sheet-pages',   c.sheetPages ? String(c.sheetPages) : '');   // עמודים-בגיליון ידני (מידות חריגות)
+  var _spfEdit = document.getElementById('sheet-pages-field'); if (_spfEdit && (parseInt(c.sheetPages)||0) >= 2) _spfEdit.style.display = '';   // הצג בעריכה אם נשמר ערך ידני
   var _ssb=document.getElementById('f-single-sheet'); if(_ssb) _ssb.checked = !!c.singleSheet;
   setVal('f-size',          c.size);
   setTimeout(function(){ _updateA4A5Picker((document.getElementById('f-size')||{}).value||''); }, 0);
@@ -7872,8 +7891,9 @@ function editCard(id) {
 function clearForm() {
   window._editingCardId = null;
   var _upBtn = document.getElementById('card-uplink-btn'); if (_upBtn) _upBtn.style.display = 'none';
-  ['f-name','f-type','f-order-date','f-delivery-date','f-copies','f-copies-mult','f-pages','f-pages-note','f-size','f-paper','f-notes','f-internal-notes','f-machine','f-placement-details']
+  ['f-name','f-type','f-order-date','f-delivery-date','f-copies','f-copies-mult','f-pages','f-pages-note','f-sheet-pages','f-size','f-paper','f-notes','f-internal-notes','f-machine','f-placement-details']
     .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  var _spfClr=document.getElementById('sheet-pages-field'); if(_spfClr) _spfClr.style.display='none';
   document.querySelectorAll('input[name="color"]').forEach(r=>r.checked=false);
   ['f-needs-folding','f-needs-binding','f-single-sheet','f-all-paper'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=false; });
   var _apClr = document.getElementById('f-copies'); if (_apClr) { _apClr.disabled = false; _apClr.style.opacity = ''; }
@@ -8839,6 +8859,7 @@ function _saveCardNew() {
     allPaper:     !!(document.getElementById('f-all-paper')&&document.getElementById('f-all-paper').checked),
     pages:        document.getElementById('f-pages').value,
     pagesNote:    (document.getElementById('f-pages-note')||{value:''}).value.trim(),
+    sheetPages:   parseInt((document.getElementById('f-sheet-pages')||{value:''}).value)||0,   // עמודים-בגיליון ידני (מידות חריגות)
     color:        getColor(),
     size:         document.getElementById('f-size').value.trim(),
     paper:        document.getElementById('f-paper').value.trim(),
@@ -8906,6 +8927,7 @@ function buildTempCard() {
     allPaper:     !!(document.getElementById('f-all-paper')&&document.getElementById('f-all-paper').checked),
     pages:        document.getElementById('f-pages').value,
     pagesNote:    (document.getElementById('f-pages-note')||{value:''}).value.trim(),
+    sheetPages:   parseInt((document.getElementById('f-sheet-pages')||{value:''}).value)||0,   // עמודים-בגיליון ידני (מידות חריגות)
     color:        getColor(),
     size:         document.getElementById('f-size').value.trim(),
     paper:        document.getElementById('f-paper').value.trim(),
