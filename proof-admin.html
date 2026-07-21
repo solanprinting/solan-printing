@@ -426,6 +426,7 @@ function sendNotice(customer){
   const html = '<div id="notice-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:center;justify-content:center;direction:rtl;padding:16px">'
     + '<div style="background:#fff;border-radius:14px;max-width:450px;width:100%;padding:20px 22px;box-shadow:0 14px 44px rgba(0,0,0,.35)">'
     + '<div style="font-weight:900;font-size:1.05rem;color:#2d3561;margin-bottom:8px">📢 דרישה ללקוח — ' + escapeHtml(customer) + '</div>'
+    + '<div id="notice-open" style="margin-bottom:10px"></div>'
     + '<div style="font-size:.78rem;color:#666;margin-bottom:6px">בחר תבנית מהירה או כתוב חופשי:</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
     +   '<button type="button" data-tpl="יש פרופר לאישור לדפוס" style="'+bs+'">📖 פרופר לאישור</button>'
@@ -453,6 +454,23 @@ function sendNotice(customer){
     await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:t, type:type, at:Date.now(), done:false }) });
     msg('✓ הדרישה נשלחה ללקוח');
   };
+  _noticeLoadOpen(slug);   // מציג דרישות פתוחות + כפתור "בוצע"
+}
+// טוען דרישות פתוחות של הלקוח ומאפשר לסמן שבוצעו
+async function _noticeLoadOpen(slug){
+  const box = document.getElementById('notice-open'); if (!box) return;
+  let obj = null; try { obj = await (await fetch(await _au(`${_FBURL}/customerNotices/${slug}.json`))).json(); } catch(e){}
+  const open = Object.keys(obj||{}).map(k => Object.assign({ _id:k }, obj[k])).filter(n => n && n.text && !n.done).sort((a,b)=>(b.at||0)-(a.at||0));
+  if (!open.length){ box.innerHTML = ''; return; }
+  box.innerHTML = '<div style="font-size:.76rem;font-weight:800;color:#92400e;margin-bottom:5px">דרישות פתוחות:</div>'
+    + open.map(n => '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 9px;margin-bottom:5px">'
+      + '<span style="font-size:.82rem;color:#78350f">' + escapeHtml(n.text) + '</span>'
+      + '<button data-notedone="' + n._id + '" style="flex:none;padding:4px 10px;border:none;background:#16a34a;color:#fff;border-radius:7px;cursor:pointer;font-family:inherit;font-weight:700;font-size:.76rem">✓ בוצע</button></div>').join('');
+  box.querySelectorAll('[data-notedone]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${b.dataset.notedone}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ done:true, doneAt:Date.now() }) });
+    _noticeLoadOpen(slug); msg('✓ הדרישה סומנה כבוצעה');
+  });
 }
 // פתיחת פרופר-נעול לשינויים — מסיר את האישור כדי שהלקוח יוכל לשנות/לאשר מחדש
 async function unlockProof(id){

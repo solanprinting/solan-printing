@@ -62,7 +62,8 @@
   .thumb .n { position:absolute; top:5px; right:5px; background:var(--press); color:#fff; font-size:.82rem; font-weight:800; border-radius:14px; padding:2px 9px; box-shadow:0 1px 3px rgba(0,0,0,.4); }
   .thumb .tools { position:absolute; bottom:0; left:0; right:0; display:flex; }
   .thumb .tools button { flex:1; border:none; padding:6px 0; font-size:.82rem; font-weight:700; cursor:pointer; color:#fff; }
-  .thumb .rep { background:rgba(45,53,97,.92); } .thumb .rm { background:rgba(220,38,38,.92); }
+  .thumb .rep { background:rgba(45,53,97,.92); } .thumb .rm { background:rgba(220,38,38,.92); } .thumb .blk { background:rgba(217,119,6,.92); }
+  .thumb .n { cursor:pointer; }
 
   #viewer { flex:1; min-width:0; background:#fff; border-radius:10px; }
   /* gap:0 — שני העמודים נוגעים נטו-לנטו, כך שתמונה הנפרשת על כפולה מתחברת ברצף */
@@ -74,6 +75,7 @@
   /* תצוגת "גלישות": חיתוך נטו רק בצד השדרה (חיבור נקי); בצדדים החיצוניים בליד + צלבי חיתוך + מסגרת trim — כדי לבדוק שיש מספיק גלישות */
   #spread .mediacrop { display:block; height:78vh; width:auto; max-width:48vw; background-color:#fff; background-repeat:no-repeat; }
   #spread .trimframe { position:absolute; box-sizing:border-box; pointer-events:none; }
+  #spread .cmark { position:absolute; background:#111; pointer-events:none; }
   #spread .pgdel { position:absolute; top:8px; left:8px; width:34px; height:34px; border:none; border-radius:50%;
     background:rgba(220,38,38,.92); color:#fff; font-size:1.05rem; font-weight:800; cursor:pointer; line-height:1;
     box-shadow:0 2px 6px rgba(0,0,0,.35); z-index:3; }
@@ -163,6 +165,7 @@
           <button id="vprev">‹ הקודם</button>
           <span id="vlabel"></span>
           <button id="vnext">הבא ›</button>
+          <button id="vbleed" title="הצג/הסתר גלישות + צלבי חיתוך (סביב, לא בחיבור בין העמודים)">🔲 גלישות + צלבים</button>
           <button id="vfs">⛶ מסך מלא</button>
         </div>
         <div class="legend"><b>– – –</b> קו חיתוך נטו (TrimBox)</div>
@@ -781,12 +784,15 @@ function renderSidebar() {
     const d = document.createElement('div');
     d.className = 'thumb' + (active.includes(idx) ? ' active' : '');
     d.draggable = true; d.dataset.uid = p.uid;
-    d.innerHTML = `<img src="${p.displaySrc||p.src}" alt=""><span class="n">${labels[idx]}</span>
+    d.innerHTML = `<img src="${p.displaySrc||p.src}" alt=""><span class="n" title="לחצו להעברת העמוד למיקום אחר">${labels[idx]}</span>
       ${p.isSpread ? '<span style="position:absolute;top:4px;left:4px;background:#1d4ed8;color:#fff;font-size:.62rem;font-weight:800;border-radius:5px;padding:1px 6px">📖 כפולה</span>' : ''}
-      <div class="tools"><button class="rep">החלף</button><button class="rm">מחק</button></div>`;
-    d.onclick = e => { if (!e.target.closest('.tools')) { vIndex = alignSpread(idx); renderViewer(); renderSidebar(); } };
+      ${p.blank ? '<span style="position:absolute;top:4px;left:4px;background:#64748b;color:#fff;font-size:.62rem;font-weight:800;border-radius:5px;padding:1px 6px">ריק</span>' : ''}
+      <div class="tools"><button class="rep">החלף</button><button class="blk">רוקן</button><button class="rm">מחק</button></div>`;
+    d.onclick = e => { if (!e.target.closest('.tools') && !e.target.closest('.n')) { vIndex = alignSpread(idx); renderViewer(); renderSidebar(); } };
     d.querySelector('.rep').onclick = e => { e.stopPropagation(); replacePage(p.uid); };
+    d.querySelector('.blk').onclick = e => { e.stopPropagation(); blankPage(p.uid); };
     d.querySelector('.rm').onclick  = e => { e.stopPropagation(); removePage(p.uid); };
+    d.querySelector('.n').onclick   = e => { e.stopPropagation(); const t = prompt('להעביר עמוד זה למיקום (1–' + pages.length + '):', String(idx+1)); if (t != null) movePageTo(p.uid, t); };
     bindDnD(d); sb.appendChild(d);
   });
   $('approve').disabled = pages.length === 0;
@@ -796,6 +802,24 @@ function removePage(uid) {
   pages = pages.filter(p => p.uid !== uid);
   if (vIndex >= pages.length) vIndex = Math.max(0, pages.length - 1);
   renderAll();
+}
+// תמונת "עמוד ריק" — SVG לבן (מוצג בסרגל ובדפדוף)
+const _BLANK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="210" height="297"><rect width="210" height="297" fill="#fff" stroke="#e5e7eb" stroke-width="2"/><text x="105" y="150" text-anchor="middle" fill="#cbd5e1" font-size="22" font-family="Arial">ריק</text></svg>');
+// רוקן עמוד — מוחק את התוכן אך משאיר את העמוד במקומו כ"עמוד ריק" (הפגינציה נשמרת)
+function blankPage(uid) {
+  const p = pages.find(x => x.uid === uid); if (!p) return;
+  p.blank = true; p.fileId = null; p.pageIndex = 0; p.isSpread = false; p.spreadKeep = null; p.trimFrac = null; p.wmm = null; p.hmm = null;
+  p.src = _BLANK_IMG; p.displaySrc = null;
+  renderAll();
+}
+// העברת עמוד למיקום נבחר (קליק במקום גרירה) — targetPos הוא מיקום 1-מבוסס ברשימת העמודים
+function movePageTo(uid, targetPos) {
+  const from = pages.findIndex(p => p.uid === uid); if (from < 0) return;
+  let to = (parseInt(targetPos, 10) || 0) - 1;
+  to = Math.max(0, Math.min(pages.length - 1, to));
+  if (to === from) return;
+  const [m] = pages.splice(from, 1); pages.splice(to, 0, m);
+  vIndex = alignSpread(to); renderAll();
 }
 
 let _repUid = null;
@@ -874,6 +898,23 @@ function _pageNetSpec(tf, spine){
   const trimL = (tf.l - shownL) / shownW, trimR = (tf.l + tf.w - shownL) / shownW;
   return { arr, sizeW, posX, frame: { left: trimL*100, top: tf.t*100, width: (trimR-trimL)*100, height: tf.h*100, skip: spine } };
 }
+window._pcShowBleed = false;   // ברירת-מחדל: תצוגה נטו נקייה (הלקוח בוחר להציג גלישות+צלבים)
+// צלבי-חיתוך בפינות ה-trim (מדלג על צד השדרה, כדי שלא יופיעו בחיבור בין העמודים). f = frame ב-%.
+function _pcCropMarks(f){
+  const arm = 9, gap = 1, r = (f.left + f.width), b = (f.top + f.height);
+  const H = (leftCss, topPct) => `<div class="cmark" style="${leftCss};top:calc(${topPct}% - .7px);width:${arm}px;height:1.4px"></div>`;
+  const V = (leftPct, topCss) => `<div class="cmark" style="left:calc(${leftPct}% - .7px);${topCss};width:1.4px;height:${arm}px"></div>`;
+  let out = '';
+  if (f.skip !== 'left'){
+    out += H(`left:calc(${f.left}% - ${gap+arm}px)`, f.top) + V(f.left, `top:calc(${f.top}% - ${gap+arm}px)`);
+    out += H(`left:calc(${f.left}% - ${gap+arm}px)`, b)     + V(f.left, `top:calc(${b}% + ${gap}px)`);
+  }
+  if (f.skip !== 'right'){
+    out += H(`left:calc(${r}% + ${gap}px)`, f.top) + V(r, `top:calc(${f.top}% - ${gap+arm}px)`);
+    out += H(`left:calc(${r}% + ${gap}px)`, b)     + V(r, `top:calc(${b}% + ${gap}px)`);
+  }
+  return out;
+}
 function renderViewer() {
   const spread = $('spread');
   if (!pages.length) { spread.innerHTML = '<div class="ph">העלו קבצים כדי לצפות ולדפדף</div>'; $('vlabel').textContent=''; return; }
@@ -890,8 +931,8 @@ function renderViewer() {
   spread.innerHTML = s.map((i, pos) => {
     const p = pages[i];
     const tf = p.trimFrac;
-    if (tf && (tf.w < 1 || tf.h < 1)) {
-      // חיתוך נטו רק בשדרה; בצדדים החיצוניים בליד + צלבים + מסגרת trim (אותה תצוגה שהמדפיס רואה)
+    if (tf && (tf.w < 1 || tf.h < 1) && window._pcShowBleed) {
+      // עם גלישות + צלבי חיתוך — חיתוך נטו רק בשדרה (חיבור נקי בין העמודים); בליד + צלבים מסביב
       const spine = two ? (pos === 0 ? 'left' : 'right') : 'left';
       const sp = _pageNetSpec({ l:tf.l, t:tf.t, w:tf.w, h:tf.h, wmm:p.wmm, hmm:p.hmm }, spine);
       const mc = `aspect-ratio:${sp.arr.toFixed(4)};background-image:url('${p.displaySrc||p.src}');`
@@ -902,8 +943,20 @@ function renderViewer() {
       const fst = `left:${f.left.toFixed(2)}%;top:${f.top.toFixed(2)}%;width:${f.width.toFixed(2)}%;height:${f.height.toFixed(2)}%;${fb}`;
       return `<div class="pagewrap">`
         + `<div class="page" data-idx="${i}" data-uid="${p.uid}">`
-        + `<div class="mediacrop" style="${mc}"></div><div class="trimframe" style="${fst}"></div>`
-        + `<button class="pgdel" title="מחק עמוד זה" data-uid="${p.uid}">✕</button></div>`
+        + `<div class="mediacrop" style="${mc}"></div><div class="trimframe" style="${fst}"></div>${_pcCropMarks(f)}`
+        + `<button class="pgdel" title="רוקן עמוד זה — יישאר ריק" data-uid="${p.uid}">✕</button></div>`
+        + `<div class="pgnum">${p.isSpread ? '📖 כפולה — עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
+    }
+    if (tf && (tf.w < 1 || tf.h < 1)) {
+      // נטו (ברירת-מחדל) — חיתוך לגודל הסופי בכל הצדדים, בלי בליד/צלבים (תצוגה נקייה)
+      const sizeW = 100 / tf.w, sizeH = 100 / tf.h;
+      const posX = tf.w < 1 ? tf.l / (1 - tf.w) * 100 : 0, posY = tf.h < 1 ? tf.t / (1 - tf.h) * 100 : 0;
+      const mc = `aspect-ratio:${(tf.wmm / tf.hmm).toFixed(4)};background-image:url('${p.displaySrc||p.src}');`
+        + `background-size:${sizeW.toFixed(3)}% ${sizeH.toFixed(3)}%;background-position:${posX.toFixed(3)}% ${posY.toFixed(3)}%;`;
+      return `<div class="pagewrap">`
+        + `<div class="page" data-idx="${i}" data-uid="${p.uid}">`
+        + `<div class="mediacrop" style="${mc}"></div>`
+        + `<button class="pgdel" title="רוקן עמוד זה — יישאר ריק" data-uid="${p.uid}">✕</button></div>`
         + `<div class="pgnum">${p.isSpread ? '📖 כפולה — עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
     }
     return `<div class="pagewrap">`
@@ -912,9 +965,9 @@ function renderViewer() {
       + `<button class="pgdel" title="מחק עמוד זה" data-uid="${p.uid}">✕</button></div>`
       + `<div class="pgnum">${p.isSpread ? '📖 כפולה — עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
   }).join('');
-  // כפתור מחיקה לכל עמוד בדפדוף
+  // כפתור מחיקה בדפדוף → מרוקן את העמוד (נשאר ריק, הפגינציה נשמרת)
   spread.querySelectorAll('.pgdel').forEach(b => {
-    b.onclick = e => { e.stopPropagation(); removePage(+b.dataset.uid); };
+    b.onclick = e => { e.stopPropagation(); blankPage(+b.dataset.uid); };
   });
   // יעד גרירה: גרירת ממוזערת בודדת מהסרגל אל עמוד בדפדוף → מעבירה אותה למקום הזה
   spread.querySelectorAll('.page').forEach(pg => {
@@ -941,6 +994,13 @@ function step(d) {
 }
 $('vprev').onclick = () => step(-1);
 $('vnext').onclick = () => step(+1);
+$('vbleed').onclick = function(){
+  window._pcShowBleed = !window._pcShowBleed;
+  this.style.background = window._pcShowBleed ? '#2d3561' : '';
+  this.style.color = window._pcShowBleed ? '#fff' : '';
+  this.textContent = window._pcShowBleed ? '🔲 מסתיר גלישות' : '🔲 גלישות + צלבים';
+  renderViewer();
+};
 $('vfs').onclick = () => {
   const v = $('viewer');
   if (document.fullscreenElement) document.exitFullscreen();
@@ -972,7 +1032,14 @@ $('approve').onclick = async () => {
     showOverlay('מרכיב קובץ…', true);
     const out = await PDFLib.PDFDocument.create();
     const cache = new Map();
+    // גודל-ייחוס לעמודים ריקים — מהעמוד הראשון שיש לו מקור (אחרת A4)
+    let _refW = 595.28, _refH = 841.89;
     for (const p of pages) {
+      if (p.blank || !p.fileId || !sources.get(p.fileId)) continue;
+      try { const l0 = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); const g0 = l0.getPage(p.pageIndex || 0); _refW = p.isSpread ? g0.getWidth()/2 : g0.getWidth(); _refH = g0.getHeight(); break; } catch(e){}
+    }
+    for (const p of pages) {
+      if (p.blank || !p.fileId || !sources.get(p.fileId)) { out.addPage([_refW, _refH]); continue; }   // עמוד ריק (לבן)
       let lib = cache.get(p.fileId);
       if (!lib) { lib = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); cache.set(p.fileId, lib); }
       if (p.isSpread) {

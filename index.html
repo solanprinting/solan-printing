@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784606151';
+window.APP_VERSION = '1784617432';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6822,9 +6822,11 @@ function _cardDoneThisWeek(name) {
 function _stampWeekDone(name) {
   if (!name) return;
   var nm = String(name).trim(), now = Date.now();
-  (weeklyJobs||[]).forEach(function(w){ if (w && String(w.name||'').trim() === nm) w.cardCreatedAt = now; });
-  (newspapers||[]).forEach(function(n){ if (n && String(n.name||'').trim() === nm) n.cardCreatedAt = now; });
-  (flyers||[]).forEach(function(f){ if (f && String(f.name||'').trim() === nm) f.cardCreatedAt = now; });
+  // חשוב: מעדכנים גם _upd — אחרת מיזוג-הסנכרון (weeklyJobs ממוזג לפי _upd) דורס את חותמת
+  // cardCreatedAt בנתון-שרת ישן, והסימון הירוק "חוזר" להיות לא-מסומן. (תיקון החזרה של הירוקים.)
+  (weeklyJobs||[]).forEach(function(w){ if (w && String(w.name||'').trim() === nm){ w.cardCreatedAt = now; w._upd = now; } });
+  (newspapers||[]).forEach(function(n){ if (n && String(n.name||'').trim() === nm){ n.cardCreatedAt = now; n._upd = now; } });
+  (flyers||[]).forEach(function(f){ if (f && String(f.name||'').trim() === nm){ f.cardCreatedAt = now; f._upd = now; } });
 }
 
 // החלפת סימון ידני "נוצר כרטיס" (ירוק) לעבודה לפי שם
@@ -13885,7 +13887,7 @@ function makeCardWeekly(cardId) {
     <div class="modal-overlay open" id="weekly-day-modal" onclick="if(event.target===this)closeWeeklyDayModal()">
       <div class="modal" style="max-width:380px">
         <div class="modal-header">
-          <h3>📅 "${escHtml(c.name||'')}" — עבודה שבועית</h3>
+          <h3>📌 "${escHtml(c.name||'')}" — הפוך לקבוע</h3>
           <button class="modal-close" onclick="closeWeeklyDayModal()">×</button>
         </div>
         <div class="modal-body" style="padding:16px 20px">
@@ -13917,30 +13919,30 @@ function closeWeeklyDayModal() {
 function confirmMakeCardWeekly(cardId, day) {
   const c = cards.find(x => x.id === cardId);
   if (!c) return;
-  weeklyJobs.push({
-    id:            Date.now(),
-    day:           day,
-    name:          c.name || '',
-    customer:      c.customer || '',
-    type:          c.type || '',
-    machine:       c.machine || '',
-    copies:        c.copies || '',
-    pages:         c.pages || '',
-    color:         c.color || '',
-    size:          c.size || '',
-    paper:         c.paper || '',
-    notes:         c.notes || '',
-    internalNotes: c.internalNotes || '',
-    needsFolding:  c.needsFolding || false,
-    needsBinding:  c.needsBinding || false,
-    _upd:          Date.now()
-  });
+  var now = Date.now(), t = String(c.type||''), label;
+  // ניתוב לפי סוג-העבודה: עיתון → רשימת העיתונים השבועיים · עלון → עלונים · אחר → יומן שבועי כללי
+  if (/עיתון/.test(t)) {
+    newspapers.push({ id:now, name:c.name||'', day:day, type:c.type||'עיתון', size:c.size||'', paper:c.paper||'',
+      copies:c.copies||'', color:c.color||'', notes:c.notes||'', internalNotes:c.internalNotes||'', cardCreatedAt:now, _upd:now });
+    label = 'רשימת העיתונים השבועיים';
+  } else if (/עלון|פליי?ר/.test(t)) {
+    flyers.push({ id:now, name:c.name||'', paper:c.paper||'', copies:c.copies||'', color:c.color||'', size:c.size||'',
+      day:day, perSheet:c.perSheet||1, cardCreatedAt:now, _upd:now });
+    label = 'רשימת העלונים השבועיים';
+  } else {
+    weeklyJobs.push({ id:now, day:day, name:c.name||'', customer:c.customer||'', type:c.type||'', machine:c.machine||'',
+      copies:c.copies||'', pages:c.pages||'', color:c.color||'', size:c.size||'', paper:c.paper||'', notes:c.notes||'',
+      internalNotes:c.internalNotes||'', needsFolding:c.needsFolding||false, needsBinding:c.needsBinding||false, cardCreatedAt:now, _upd:now });
+    label = 'היומן השבועי';
+  }
   persist();
-  _logActivity('📅', 'עבודה "' + (c.name||'') + '" נוספה ליומן השבועי (' + day + ')');
+  _logActivity('📌', 'עבודה "' + (c.name||'') + '" הפכה לקבועה ← ' + label + ' (' + day + ')');
   renderWeek();
   renderWeeklyJobMgmt();
+  if (typeof renderPaperMgmt === 'function') renderPaperMgmt();
+  if (typeof renderFlyerMgmt === 'function') renderFlyerMgmt();
   switchTab('week');
-  showToast('✅ "' + (c.name||'') + '" יופיע כל שבוע ביום ' + day);
+  showToast('📌 "' + (c.name||'') + '" נוסף ל' + label + ' · יופיע כל שבוע ביום ' + day);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -14267,7 +14269,7 @@ function renderWeeklyJobMgmt() {
   const el = document.getElementById('weekly-job-mgmt-list');
   if (!el) return;
   if (!weeklyJobs.length) {
-    el.innerHTML = '<div class="empty-state"><div class="icon">🔁</div><p>אין עבודות שבועיות — לחץ "📅 הפוך לעבודה שבועית" בכרטיס עבודה</p></div>';
+    el.innerHTML = '<div class="empty-state"><div class="icon">🔁</div><p>אין עבודות שבועיות — לחץ "📌 הפוך לקבוע" בכרטיס עבודה</p></div>';
     return;
   }
   const byDay = {};
@@ -14722,7 +14724,7 @@ function _jobCardHtml(c) {
         <button class="btn btn-sm" style="background:#eef2ff;color:#4338ca;border:1.5px solid #c7d2fe" onclick="emailCard(${c.id})">✉️ מייל</button>
         <button class="btn btn-sm" style="background:#f1f5f9;color:#334155;border:1.5px solid #cbd5e1" onclick="downloadCardPdf(${c.id})">⬇️ הורדה</button>
         <button class="btn btn-sm" style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0" onclick="duplicateCard(${c.id})">📋 שכפל</button>
-        <button class="btn btn-sm" style="background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa" onclick="makeCardWeekly(${c.id})" title="הכרטיס יחזור כל שבוע ביומן השבועי">📅 הפוך לעבודה שבועית</button>
+        <button class="btn btn-sm" style="background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa" onclick="makeCardWeekly(${c.id})" title="העבודה תיכנס לרשימה הקבועה לפי סוגה (עיתון→עיתונים · עלון→עלונים) ותופיע כל שבוע">📌 הפוך לקבוע</button>
         <button class="btn btn-sm btn-danger" onclick="deleteCard(${c.id})">מחק</button>
       </div>
     </div>`;
@@ -26076,9 +26078,14 @@ function pi_shrinkForCount(w, h, W, H, gap, target){
 }
 // משנה את מידות הקובץ + כל הפריטים הקיימים שלו (שומר על סיבוב הפריט)
 function pi_shrinkFileTo(f, wMm, hMm, cur){
+  // חשוב: מקטינים את הבליד באותו יחס כמו המידות. אחרת האריזה (trim-shared: step=w−2·bleed)
+  // מחשבת חיתוך-משותף עם בליד לא-תואם → הפרופר יוצא לא-מיושר למרות שבמסך זה נראה בשורה.
+  var oldW = f.widthMm || wMm, scale = (oldW > 0) ? (wMm / oldW) : 1;
   f.widthMm = wMm; f.heightMm = hMm;
+  if (f.srcBleedMm) f.srcBleedMm = Math.round(f.srcBleedMm * scale * 100) / 100;
   (cur.items || []).forEach(function(it){
     if (it.fileId !== f.id) return;
+    if (it.bleedMm) it.bleedMm = Math.round(it.bleedMm * scale * 100) / 100;
     if (it.rotation % 180 !== 0){ it.widthMm = hMm; it.heightMm = wMm; }
     else { it.widthMm = wMm; it.heightMm = hMm; }
   });

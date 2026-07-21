@@ -70,6 +70,7 @@
     <div id="notices" class="notice hidden">
       <h2>🔔 דרישות מבית הדפוס</h2>
       <ul id="notices-list"></ul>
+      <div id="notices-acts" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"></div>
     </div>
 
     <div class="card">
@@ -201,8 +202,22 @@ async function loadNotices(){
     var icon = n.type==='approve' ? '📖' : (n.type==='replace' ? '🔁' : '📌');
     return '<li>'+icon+' '+esc(n.text)+'</li>';
   }).join('');
+  // כפתורי-פעולה: אישור פרופר / צירוף קבצים (עמוד חדש)
+  var hasApprove = open.some(function(n){ return n.type==='approve'; });
+  $('notices-acts').innerHTML =
+    (hasApprove ? '<button class="btn btn-approve" style="padding:9px 14px" onclick="_portalApproveFromNotice()">✓ אשר את הפרופר לדפוס</button>' : '')
+    + '<button class="btn btn-primary" style="padding:9px 14px" onclick="_newNewspaper()">📎 צרף קבצים / שלח עמוד חדש</button>';
   $('notices').classList.remove('hidden');
 }
+// מאשר פרופר-אפוגי ממתין ישירות מהדרישה (אם יש בדיוק אחד); אחרת מפנה להיסטוריה
+async function _portalApproveFromNotice(){
+  var all = null; try { all = await (await fetch(await _au(`${_FBURL}/customerProofs.json`))).json(); } catch(e){}
+  var pend = _portalFilterProofs(all, SLUG).filter(function(p){ return p.apogeeUrl && !p.apogeeApprovedAt; });
+  if (!pend.length){ toast('אין פרופר שממתין לאישור'); return; }
+  if (pend.length === 1){ approveApogee(pend[0]._id); }
+  else { toast('יש כמה פרופרים — אשרו מהרשימה למטה'); var h=$('history'); if(h) h.scrollIntoView({ behavior:'smooth' }); }
+}
+window._portalApproveFromNotice = _portalApproveFromNotice;
 
 async function loadHistory(){
   let all = null;
@@ -253,8 +268,14 @@ async function approveApogee(id){
     await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ apogeeApprovedAt: now, apogeeApprovedBy: name }) });
     // רשומת-אישור קבועה (בית הדפוס מנטר את bookletApprovals ומקבל התראה)
     await fetch(await _au(`${_FBURL}/bookletApprovals/portal_${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, at:now, fileName:(CUST+' — פרופר'), foldType:'', ua:navigator.userAgent, source:'portal' }) });
+    // סגירת דרישות-אישור פתוחות (הפרופר אושר) — בית הדפוס יראה שהן בוצעו
+    try {
+      var nobj = await (await fetch(await _au(`${_FBURL}/customerNotices/${SLUG}.json`))).json();
+      var keys = Object.keys(nobj||{}).filter(function(k){ var n=nobj[k]; return n && n.type==='approve' && !n.done; });
+      for (var ki=0; ki<keys.length; ki++){ await fetch(await _au(`${_FBURL}/customerNotices/${SLUG}/${keys[ki]}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ done:true, doneAt:now }) }); }
+    } catch(e){}
     showOv('', false); toast('✓ הפרופר אושר — תודה!');
-    await loadHistory();
+    await Promise.all([ loadHistory(), loadNotices() ]);
   } catch(e){ showOv('', false); toast('⚠️ האישור נכשל — נסו שוב'); }
 }
 
