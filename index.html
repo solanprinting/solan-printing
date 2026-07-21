@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784632960';
+window.APP_VERSION = '1784633941';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6206,6 +6206,23 @@ function _runPagesLabel(r){
   return (r && r.pages != null && r.pages !== '') ? r.pages : '';
 }
 function _runIsAB(r){ return !!(r && ((r.abParts && r.abParts.length > 1) || r.pages === 12)); }
+// טווח-עמודים נפרד לכל חלק בריצה משולבת, לפי מיקום הריצה (front/back). החלק הקטן חיצוני.
+function _abPartRangesFor(abParts, front, back){
+  var _pf = front, _pb = back, _pr = [];
+  abParts.slice().reverse().forEach(function(p){
+    var _h = p/2, _fe = _pf + _h - 1, _bs = _pb - _h + 1;
+    var _rng = (_fe + 1 === _bs) ? ("עמ' " + _pf + '–' + _pb) : ("עמ' " + _pf + '–' + _fe + " + עמ' " + _bs + '–' + _pb);
+    _pr.push({ pages: p, range: _rng });
+    _pf += _h; _pb -= _h;
+  });
+  return _pr.reverse();
+}
+// טווח-עמודים לריצה — לריצה משולבת (8+4) מציג טווח נפרד לכל חלק, אחרת הטווח הרגיל
+function _runRangeText(r){
+  if (r && r.abPartRanges && r.abPartRanges.length)
+    return r.abPartRanges.map(function(pr){ return pr.pages + ' עמ\': ' + String(pr.range||'').replace(/עמ' /g,''); }).join(' · ');
+  return (r && r.pageRange) || '';
+}
 function buildRuns(totalPages, copies, fullSheet, splitRemainder) {
   const halfSheet    = fullSheet / 2;
   const quarterSheet = fullSheet / 4;
@@ -6244,6 +6261,7 @@ function buildRuns(totalPages, copies, fullSheet, splitRemainder) {
   return layers.map((L, i) => {
     const layerPages = (L && typeof L === 'object') ? L.pages : L;
     const abParts    = (L && typeof L === 'object') ? L.abParts : null;
+    let abPartRanges = null;   // טווח-עמודים נפרד לכל חלק בריצה משולבת (8+4)
     const isLast = (i === layers.length - 1);
     const half   = layerPages / 2;
 
@@ -6290,10 +6308,14 @@ function buildRuns(totalPages, copies, fullSheet, splitRemainder) {
             : (fullSheet === 32 ? '2 קיפולים' : '1 קיפול');
       upCount     = Math.round(fullSheet / layerPages); // ברירת מחדל: ממלא את הגיליון (8 עמ'→4 פעמים)
       runCopies   = Math.ceil(copies / upCount);        // כמות גיליונות = עותקים ÷ פעמים בגיליון
+      // גיליון A+B משולב (שארית לא-חוקית, למשל 12=8+4): גיליון אחד, כל הכמות, קיפול לכל חלק,
+      // וטווח-עמודים נפרד לכל חלק (החלק הקטן חיצוני — זהה לסדר הפיצול), לפני קידום המצביעים.
+      if (abParts){
+        upCount = 1; runCopies = copies; folds = abParts.map(_partFolds).join(' + ');
+        abPartRanges = _abPartRangesFor(abParts, front, back);   // טווח נפרד לכל חלק (8+4)
+      }
       front     += half;
       back      -= half;
-      // גיליון A+B משולב (שארית לא-חוקית, למשל 12=8+4): גיליון אחד, כל הכמות, קיפול לכל חלק
-      if (abParts){ upCount = 1; runCopies = copies; folds = abParts.map(_partFolds).join(' + '); }
     }
 
     return {
@@ -6307,6 +6329,7 @@ function buildRuns(totalPages, copies, fullSheet, splitRemainder) {
       abEligible: abEligible,
       abEnabled: abEnabled,
       abParts: abParts || null,
+      abPartRanges: abPartRanges || null,
       abExtras: [],
       abExtraCustomSize: '',
       manualExtra: '',
@@ -6584,7 +6607,7 @@ function _renderCurrentRunsOutput() {
         '</div>'+
       '</td>'+
       '<td>'+(_runIsAB(r) ? ('<b style="color:#6d28d9">'+_runPagesLabel(r)+'</b> עמ\' <span style="font-size:.68rem;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px;font-weight:800;white-space:nowrap">🗞️ A+B</span>') : (r.pages+' עמ\''))+'</td>'+
-      '<td style="font-size:.8rem;color:#444">'+r.pageRange+'</td>'+
+      '<td style="font-size:.8rem;color:#444">'+_runRangeText(r)+'</td>'+
       '<td><strong>'+r.copies.toLocaleString()+'</strong></td>'+
       '<td style="font-size:.76rem;color:#888">'+r.folds+'</td>'+
       '<td>'+
@@ -6687,6 +6710,7 @@ function _recalcPageRanges() {
       r.pageRange = (fEnd + 1 === bStart)
         ? "עמ' " + front + '–' + back
         : "עמ' " + front + '–' + fEnd + " + עמ' " + bStart + '–' + back;
+      if (r.abParts && r.abParts.length > 1) r.abPartRanges = _abPartRangesFor(r.abParts, front, back);
       front += half;
       back  -= half;
     }
@@ -6918,7 +6942,8 @@ function getEffectiveRuns() {
         pageRange = "עמ' " + start + '–' + end;
         _nextPage = end + 1;
       }
-      return {
+      // ריצה משולבת (8+4): שומרים את חלוקת החלקים והטווח-הנפרד שכבר חושבו (לא דורסים בטווח רצוף)
+      return Object.assign({
         num: i+1,
         pages: pages,
         copies: parseInt(r.copies)||0,
@@ -6932,7 +6957,7 @@ function getEffectiveRuns() {
         abExtras: (r.abExtras||[]).slice(),
         abExtraCustomSize: r.abExtraCustomSize||'',
         manualExtra: r.manualExtra||''
-      };
+      }, (r.abParts && r.abParts.length>1) ? { abParts: r.abParts, abPartRanges: r.abPartRanges||null, pageRange: (r.pageRange||pageRange) } : {});
     });
   }
   // אם אין ריצות ידניות — השתמש בריצות אוטומטיות
@@ -7488,7 +7513,7 @@ function openRunsModal(n, pages) {
             <button type="button" title="פצל ריצה לשתי ריצות" onclick="_toggleSplitRun(${i})"
               style="font-size:.68rem;padding:1px 7px;border:1px solid #fcd34d;border-radius:4px;background:#fef3c7;color:#92400e;cursor:pointer;font-family:Heebo,sans-serif;font-weight:700">✂️ פצל</button>
           </div>
-          <div class="run-detail">${_runPagesLabel(r)} עמ'${_runIsAB(r) ? ' <span style="font-size:.68rem;font-weight:800;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px">🗞️ A+B</span>' : ''} · ${r.pageRange} · ${r.folds}${(r.abEnabled && !_runIsAB(r)) ? ' · <span style="color:#7c3aed;font-weight:700">🗞️ A+B</span>' : ''}</div>
+          <div class="run-detail">${_runPagesLabel(r)} עמ'${_runIsAB(r) ? ' <span style="font-size:.68rem;font-weight:800;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px">🗞️ A+B</span>' : ''} · ${_runRangeText(r)} · ${r.folds}${(r.abEnabled && !_runIsAB(r)) ? ' · <span style="color:#7c3aed;font-weight:700">🗞️ A+B</span>' : ''}</div>
           <div id="split-run-${i}" style="display:none;margin-top:7px;padding:8px 10px;background:#fef9c3;border:1.5px solid #fcd34d;border-radius:7px">
             <div style="font-size:.74rem;font-weight:700;color:#92400e;margin-bottom:6px">✂️ פצל ${r.pages} עמ' לשתי ריצות:</div>
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -8096,7 +8121,8 @@ function editCard(id) {
   // runs
   if (c.runs && c.runs.length) {
     manualRuns = c.runs.map(function(r){ return { id: Date.now()+Math.random(), pages: r.pages||'', copies: r.copies||'', machine: r.machine||'', paper: r.paper||'', tumble: !!r.tumble,
-      upCount: r.upCount||'', abEnabled: !!r.abEnabled, abExtras: (r.abExtras||[]).slice(), abExtraCustomSize: r.abExtraCustomSize||'', manualExtra: r.manualExtra||'', folds: r.folds||'' }; });
+      upCount: r.upCount||'', abEnabled: !!r.abEnabled, abExtras: (r.abExtras||[]).slice(), abExtraCustomSize: r.abExtraCustomSize||'', manualExtra: r.manualExtra||'', folds: r.folds||'',
+      abParts: r.abParts||null, abPartRanges: r.abPartRanges||null, pageRange: r.pageRange||'' }; });
     renderManualRuns();
   }
   // mark as editing
@@ -9309,7 +9335,7 @@ function buildPrintCard(c) {
     <tr>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd"><strong>ריצה ${r.num}</strong></td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.pages ? _runPagesLabel(r)+' עמ\''+(_runIsAB(r)?' <span style="font-size:.66rem;font-weight:800;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px;white-space:nowrap">🗞️ A+B</span>' : '') : '—'}${(r.upCount && r.upCount>1) ? ` <span style="font-size:.7rem;font-weight:700;color:#6d28d9;white-space:nowrap">· ×${r.upCount} בגיליון</span>` : ''}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-size:.8rem">${r.pageRange||'—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-size:.8rem">${_runRangeText(r)||'—'}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-weight:700">${(c.singleSheet && _runs.length>1) ? '<span style="font-size:.72rem;font-weight:700;color:#6d28d9">גיליון משותף</span>' : (r.copies?parseInt(r.copies).toLocaleString():'—')}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.folds||'—'}${r.tumble?' <span style="color:#1d4ed8;font-weight:600;font-size:.65rem"> · מתהפך</span>':''}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-weight:700">${r.machine||'—'}</td>
