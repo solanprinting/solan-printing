@@ -79,6 +79,7 @@
         <button type="button" id="tplNewBtn" onclick="_tplNew()" title="צור טמפלט חדש לסוג-עבודה שאין לו טמפלט מוכן" style="margin-top:6px;padding:6px 12px;border:1.5px solid #16a34a;background:#f0fdf4;color:#166534;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">➕ טמפלט חדש</button>
         <button type="button" id="tplImpBtn" onclick="document.getElementById('tplImpFile').click()" title="טען טמפלט מקובץ PDF של פריסה (למשל גודל עיתון חדש) — המערכת קוראת את סדר-העמודים והגיאומטריה" style="margin-top:6px;padding:6px 12px;border:1.5px solid #2563eb;background:#eff6ff;color:#1e40af;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">📥 טען טמפלט מ-PDF</button>
         <button type="button" id="tplBuildBtn" onclick="_tbOpen()" title="בונה-טמפלטים ויזואלי — קבע גודל, סדר-עמודים וסיבוב לכל עמוד, ראה תצוגה חיה, בדוק עם גיליון ממוספר ושמור" style="margin-top:6px;padding:6px 12px;border:1.5px solid #7c3aed;background:#f5f3ff;color:#5b21b6;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">🛠️ בונה טמפלטים</button>
+        <button type="button" id="tplMngBtn" onclick="_tplManage()" title="נהל טמפלטים שמורים — ערוך או מחק" style="margin-top:6px;padding:6px 12px;border:1.5px solid #dc2626;background:#fef2f2;color:#991b1b;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">🗑 נהל/מחק טמפלטים</button>
         <input type="file" id="tplImpFile" accept="application/pdf" style="display:none" onchange="if(this.files&&this.files[0]){_tplImportPdf(this.files[0]);this.value='';}">
       </div>
       <div class="opt"><label>צד ראשון בקובץ:</label>
@@ -690,6 +691,38 @@ async function _tplImportPdf(file){
     _tplEdit();
   } catch(e){ console.error(e); alert('ייבוא הטמפלט נכשל: ' + (e && e.message || e)); }
 }
+// ── ניהול/מחיקת טמפלטים שמורים ──────────────────────────────────────────────
+function _tplManage(){
+  var old=document.getElementById('tplMngDlg'); if(old) old.remove();
+  var keys=Object.keys(_tplOverrides).filter(function(k){ return _tplOverrides[k] && _tplOverrides[k].custom; });
+  var rows = keys.length ? keys.map(function(k){
+    var o=_tplOverrides[k], N=o.N||''; var sz=o.sizeLabel?(' · '+o.sizeLabel+' מ״מ'):'';
+    return '<div style="display:flex;align-items:center;gap:8px;border:1px solid #e5e7eb;border-radius:9px;padding:9px 11px;margin-bottom:7px">'
+      +'<span style="flex:1;min-width:0"><b>'+(o.label||k).replace(/</g,'&lt;')+'</b><span style="color:#6b7280;font-size:.78rem"> — '+N+' עמ\''+sz+(o.geom?' · geom':'')+'</span></span>'
+      +'<button onclick="_tbOpen(\''+k+'\');var d=document.getElementById(\'tplMngDlg\');if(d)d.remove()" style="padding:5px 11px;border:1.5px solid #c4b5fd;background:#f5f3ff;color:#5b21b6;border-radius:7px;cursor:pointer;font-family:inherit;font-weight:700;font-size:.8rem">✏️ ערוך</button>'
+      +'<button onclick="_tplDeleteKey(\''+k+'\')" style="padding:5px 11px;border:1.5px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:7px;cursor:pointer;font-family:inherit;font-weight:800;font-size:.8rem">🗑 מחק</button>'
+    +'</div>';
+  }).join('') : '<div style="color:#9ca3af;padding:16px;text-align:center;font-size:.9rem">אין טמפלטים מותאמים שמורים. (הטמפלטים המובנים אינם ניתנים למחיקה.)</div>';
+  var d=document.createElement('div'); d.id='tplMngDlg';
+  d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:660;display:flex;align-items:center;justify-content:center;direction:rtl;padding:16px';
+  d.onclick=function(e){ if(e.target===d) d.remove(); };
+  d.innerHTML='<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:88vh;overflow:auto;padding:18px 20px;box-shadow:0 14px 44px rgba(0,0,0,.4)">'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div style="font-weight:900;font-size:1.1rem;color:#991b1b">🗑 ניהול טמפלטים שמורים ('+keys.length+')</div>'
+    +'<button onclick="document.getElementById(\'tplMngDlg\').remove()" style="margin-inline-start:auto;background:none;border:none;font-size:1.4rem;cursor:pointer;color:#888">✕</button></div>'
+    +rows+'</div>';
+  document.body.appendChild(d);
+}
+function _tplDeleteKey(k){
+  var o=_tplOverrides[k]; if(!confirm('למחוק את הטמפלט "'+((o&&o.label)||k)+'"? פעולה בלתי-הפיכה.')) return;
+  delete TEMPLATES[k]; delete _tplOverrides[k];
+  try{ localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); }catch(e){}
+  var opt=$('sheet').querySelector('option[value="'+k+'"]'); if(opt) opt.remove();
+  if($('sheet').value===k) $('sheet').selectedIndex=0;
+  try{ _bkPopulate(); }catch(e){}
+  _tplNote('🗑 הטמפלט נמחק');
+  _tplManage();
+}
+window._tplManage=_tplManage; window._tplDeleteKey=_tplDeleteKey;
 // ══════════ בונה-טמפלטים ויזואלי (כמו Preps) — גודל + סדר-עמודים + סיבוב, תצוגה חיה, בדיקה, שמירה ══════════
 var _tbState = null;
 function _tbDefault(){
@@ -778,6 +811,15 @@ function _tbRender(){
     rotRow+='<button type="button" onclick="_tbCycleRot('+c+')" title="עמודה '+(c+1)+' — לחץ לסיבוב" style="min-width:56px;padding:6px 8px;border:1.5px solid #c4b5fd;background:#f5f3ff;color:#5b21b6;border-radius:7px;cursor:pointer;font-family:inherit;font-weight:800;font-size:.82rem">ע\'-'+(c+1)+' '+arrow+' '+rr+'°</button>';
   }
   rotRow+='</div></div>';
+  // כלי מספור-מהיר: לחיצה על קובייה בתצוגה → מקבלת את המספר הנוכחי; בפרפקטור הקובייה שמאחור מקבלת +1
+  var nn = s.numNext||1;
+  var numRow='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:'+(s.numMode?'#ecfdf5':'#f8fafc')+';border:1px solid '+(s.numMode?'#6ee7b7':'#e5e7eb')+';border-radius:8px;padding:8px 11px;margin-bottom:10px">'
+    +'<button type="button" onclick="_tbToggleNum()" style="padding:6px 13px;border:1.5px solid '+(s.numMode?'#16a34a':'#cbd5e1')+';background:'+(s.numMode?'#16a34a':'#fff')+';color:'+(s.numMode?'#fff':'#334155')+';border-radius:7px;cursor:pointer;font-family:inherit;font-weight:800;font-size:.82rem">'+(s.numMode?'✓ מצב מספור פעיל':'🔢 מספור מהיר')+'</button>'
+    +(s.numMode
+      ? '<label style="display:flex;align-items:center;gap:5px;font-size:.78rem;font-weight:700;color:#065f46">המספר הבא:<input type="number" min="1" value="'+nn+'" onchange="_tbState.numNext=Math.max(1,+this.value||1);_tbRender()" style="width:64px;padding:5px 7px;border:1.5px solid #6ee7b7;border-radius:6px;font-family:inherit;text-align:center;font-weight:800"></label>'
+        +'<span style="font-size:.74rem;color:#065f46;flex:1;min-width:150px">לחץ על קובייה בתצוגה → מקבלת <b>'+nn+'</b>'+(s.sides===2?(' והקובייה שמאחור <b>'+(nn+1)+'</b>'):'')+' → עובר ל-<b>'+(nn+(s.sides===2?2:1))+'</b>.</span>'
+      : '<span style="font-size:.74rem;color:#6b7280">הדלק כדי למספר בלחיצות: קובייה מקבלת את המספר'+(s.sides===2?', הקובייה שמאחור +1':'')+', וממשיך אוטומטית.</span>')
+    +'</div>';
   // עורך רשת + תצוגה חיה זה-לצד-זה
   var editor='<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">';
   // רשת מספרי-עמוד לכל צד
@@ -803,35 +845,55 @@ function _tbRender(){
     +'<button onclick="document.getElementById(\'tbDlg\').remove()" style="padding:9px 14px;border:1.5px solid #e2e8f0;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700">ביטול</button>'
     +'<button onclick="_tbSave()" style="padding:9px 20px;border:none;background:#7c3aed;color:#fff;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:800">💾 שמור טמפלט</button>'
     +'</div>';
-  body.innerHTML = opts+rotRow+editor+btns;
+  body.innerHTML = opts+rotRow+numRow+editor+btns;
 }
-function _tbPreviewSvg(s){
-  var g=_tbGeom(s);
-  var maxW=360, maxH=300, sc=Math.min(maxW/(g.sheetWmm||1), maxH/(g.sheetHmm||1));
-  var SW=g.sheetWmm*sc, SH=g.sheetHmm*sc;
-  var svg='<div style="font-size:.76rem;font-weight:800;color:#374151;margin-bottom:5px">תצוגה חיה — צד קדמי ('+g.sheetWmm+'×'+g.sheetHmm+' מ״מ)</div>';
-  svg+='<svg width="'+Math.round(SW)+'" height="'+Math.round(SH)+'" viewBox="0 0 '+SW+' '+SH+'" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px">';
+function _tbSideSvg(s, side, g, sc){
+  var SW=g.sheetWmm*sc, SH=g.sheetHmm*sc, grid=s.grids[side]||[];
+  var svg='<svg width="'+Math.round(SW)+'" height="'+Math.round(SH)+'" viewBox="0 0 '+SW+' '+SH+'" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px">';
   svg+='<rect x="0" y="0" width="'+SW+'" height="'+SH+'" fill="#fff" stroke="#1f2937" stroke-width="1"/>';
-  var grid=s.grids[0]||[];
   for (var r=0;r<s.rows;r++){ for (var c=0;c<s.cols;c++){
     var n=(grid[r]&&grid[r][c])||0;
     var rot=((s.rot[c]||0)%360+360)%360;
     var fw=(rot===90||rot===270)?g.trimHmm:g.trimWmm, fh=(rot===90||rot===270)?g.trimWmm:g.trimHmm;
     var cx=g.colX[c]*sc, cy=g.rowY[r]*sc, w=fw*sc, h=fh*sc, x=cx-w/2, y=cy-h/2;
-    svg+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+h.toFixed(1)+'" fill="#ede9fe" stroke="#94a3b8" stroke-width="1" rx="2"/>';
-    // פס-ראש אדום לפי הסיבוב (0→עליון,90→שמאל,180→תחתון,270→ימין)
+    var click = s.numMode ? ' onclick="_tbNumClick('+side+','+r+','+c+')" style="cursor:pointer"' : '';
+    svg+='<g'+click+'>';
+    svg+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+h.toFixed(1)+'" fill="'+(s.numMode?'#f0fdf4':'#ede9fe')+'" stroke="'+(s.numMode?'#34d399':'#94a3b8')+'" stroke-width="1" rx="2"/>';
     var b=Math.max(2.5,Math.min(w,h)*0.09);
     var hb = rot===0?('x="'+(x+w*0.12)+'" y="'+y+'" width="'+(w*0.76)+'" height="'+b+'"')
            : rot===180?('x="'+(x+w*0.12)+'" y="'+(y+h-b)+'" width="'+(w*0.76)+'" height="'+b+'"')
            : rot===90?('x="'+x+'" y="'+(y+h*0.12)+'" width="'+b+'" height="'+(h*0.76)+'"')
            : ('x="'+(x+w-b)+'" y="'+(y+h*0.12)+'" width="'+b+'" height="'+(h*0.76)+'"');
     svg+='<rect '+hb+' fill="#dc2626" rx="1"/>';
-    svg+='<text x="'+cx.toFixed(1)+'" y="'+(cy+4).toFixed(1)+'" text-anchor="middle" font-size="14" font-weight="800" fill="#4c1d95" font-family="Heebo">'+(n||'')+'</text>';
+    svg+='<text x="'+cx.toFixed(1)+'" y="'+(cy+4).toFixed(1)+'" text-anchor="middle" font-size="14" font-weight="800" fill="#4c1d95" font-family="Heebo" style="pointer-events:none">'+(n||'')+'</text>';
+    svg+='</g>';
   }}
-  svg+='</svg><div style="font-size:.68rem;color:#9ca3af;margin-top:4px">הפס האדום = ראש-העמוד. עמוד רוחב×גובה = '+g.trimWmm+'×'+g.trimHmm+' מ״מ.</div>';
+  svg+='</svg>';
   return svg;
 }
+function _tbPreviewSvg(s){
+  var g=_tbGeom(s);
+  var maxW=340, maxH=(s.sides===2?200:260), sc=Math.min(maxW/(g.sheetWmm||1), maxH/(g.sheetHmm||1));
+  var out='';
+  for (var side=0; side<s.sides; side++){
+    var label = s.sides===2 ? (side===0?'Side A (צד קדמי)':'Side B (צד אחורי)') : 'גיליון מתהפך (צד אחד)';
+    out+='<div style="margin-bottom:10px"><div style="font-size:.76rem;font-weight:800;color:'+(side===0?'#374151':'#0f766e')+';margin-bottom:4px">'+label+' — '+g.sheetWmm+'×'+g.sheetHmm+' מ״מ</div>'+_tbSideSvg(s, side, g, sc)+'</div>';
+  }
+  out+='<div style="font-size:.68rem;color:#9ca3af">הפס האדום = ראש-העמוד · עמוד '+g.trimWmm+'×'+g.trimHmm+' מ״מ'+(s.numMode?' · 🔢 לחץ על קובייה למספור':'')+'.</div>';
+  return out;
+}
 function _tbCycleRot(c){ var s=_tbState; var order=[0,90,180,270]; var cur=((s.rot[c]||0)%360+360)%360; s.rot[c]=order[(order.indexOf(cur)+1)%4]; _tbRender(); }
+function _tbToggleNum(){ var s=_tbState; s.numMode=!s.numMode; if(s.numMode && !s.numNext) s.numNext=1; _tbRender(); }
+// מספור מהיר: קובייה מקבלת את המספר הנוכחי; בפרפקטור הקובייה שמאחור (אותו מיקום בצד השני) מקבלת +1; מתקדם
+function _tbNumClick(side, r, c){
+  var s=_tbState; if(!s.numMode) return;
+  var n=s.numNext||1;
+  if(!s.grids[side]) s.grids[side]=[]; if(!s.grids[side][r]) s.grids[side][r]=[];
+  s.grids[side][r][c]=n;
+  if (s.sides===2){ var ob=1-side; if(!s.grids[ob]) s.grids[ob]=[]; if(!s.grids[ob][r]) s.grids[ob][r]=[]; s.grids[ob][r][c]=n+1; }
+  s.numNext = n + (s.sides===2?2:1);
+  _tbRender();
+}
 function _tbSetCell(si,r,c,v){ var s=_tbState; if(!s.grids[si]) s.grids[si]=[]; if(!s.grids[si][r]) s.grids[si][r]=[]; s.grids[si][r][c]=parseInt(v,10)||0; _tbRender(); }
 function _tbSave(){
   var tpl=_tbBuildTpl(_tbState);
@@ -875,7 +937,7 @@ async function _tbTest(){
     await showFlipbook(res.bytes, res.report && res.report.lip);
   }catch(e){ console.error(e); alert('בדיקת הטמפלט נכשלה: '+(e&&e.message||e)); }
 }
-window._tbOpen=_tbOpen; window._tbRender=_tbRender; window._tbCycleRot=_tbCycleRot; window._tbSetCell=_tbSetCell; window._tbSave=_tbSave; window._tbTest=_tbTest; window._tbRefreshPreview=_tbRefreshPreview;
+window._tbOpen=_tbOpen; window._tbRender=_tbRender; window._tbCycleRot=_tbCycleRot; window._tbSetCell=_tbSetCell; window._tbSave=_tbSave; window._tbTest=_tbTest; window._tbRefreshPreview=_tbRefreshPreview; window._tbToggleNum=_tbToggleNum; window._tbNumClick=_tbNumClick;
 // ── בורר-חוברת מודרך: גודל + מספר-עמודים → מחפש טמפלט מתאים (מובנה או מיובא) ──
 function _bkSizeOf(tpl){ return (tpl && tpl.sizeLabel) || (tpl && tpl.custom && !tpl.geom ? 'מותאם' : '165×240'); }
 function _bkMeta(){
