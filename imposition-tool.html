@@ -687,8 +687,8 @@ async function _tplImportPdf(file){
     _tplAddOption(key, name);
     $('sheet').value = key;
     try { _bkPopulate(); _bkSyncFromSheet(); } catch(e){}
-    _tplNote('📥 יובא טמפלט "'+name+'" (גיליון '+sheetW+'×'+sheetH+' מ״מ) — בדוק את סדר-העמודים בעורך, וקפל פרופר-בדיקה לאימות');
-    _tplEdit();
+    _tplNote('📥 יובא טמפלט "'+name+'" (גיליון '+sheetW+'×'+sheetH+' מ״מ) — נפתח בבונה לסידור העמודים. בדוק סדר/סיבוב ולחץ 🧪 בדוק');
+    _tbOpen(key);   // פתיחה בבונה: אפשר לסדר את העמודים, לכוון סיבוב, ולבדוק
   } catch(e){ console.error(e); alert('ייבוא הטמפלט נכשל: ' + (e && e.message || e)); }
 }
 // ── ניהול/מחיקת טמפלטים שמורים ──────────────────────────────────────────────
@@ -739,9 +739,18 @@ function _tbFromTpl(key){
     rot: (t.rot||[]).slice(0,cols), grids: JSON.parse(JSON.stringify(t.grids)) };
 }
 function _tbGeom(s){
-  var colX = [], rowY = [];
-  for (var c=0;c<s.cols;c++) colX.push(Math.round(s.sheetW*(c+0.5)/s.cols));
-  for (var r=0;r<s.rows;r++) rowY.push(Math.round(s.sheetH*(r+0.5)/s.rows));
+  // עמודים צמודים (0 מרווח) — כריכת סיכות: עמודי-השדרה צמודים. הבלוק ממורכז בגיליון.
+  // רוחב-תא לפי הסיבוב של העמודה (90°/270° → גובה-העמוד הופך לרוחב). גובה-שורה אחיד = מקסימום.
+  var pw = [], maxH = 0, rot = s.rot || [];
+  for (var c=0;c<s.cols;c++){
+    var rr=((rot[c]||0)%360+360)%360;
+    var w=(rr===90||rr===270)?s.trimH:s.trimW, h=(rr===90||rr===270)?s.trimW:s.trimH;
+    pw.push(w); if (h>maxH) maxH=h;
+  }
+  var totalW = pw.reduce(function(a,b){ return a+b; }, 0), totalH = s.rows*maxH;
+  var sx = (s.sheetW - totalW)/2, sy = (s.sheetH - totalH)/2;
+  var colX = [], x = sx; for (var c2=0;c2<s.cols;c2++){ colX.push(Math.round(x + pw[c2]/2)); x += pw[c2]; }
+  var rowY = []; for (var r=0;r<s.rows;r++) rowY.push(Math.round(sy + (r+0.5)*maxH));
   return { colX:colX, rowY:rowY, trimWmm:s.trimW, trimHmm:s.trimH, sheetWmm:s.sheetW, sheetHmm:s.sheetH };
 }
 function _tbNormalize(s){
@@ -880,7 +889,7 @@ function _tbPreviewSvg(s){
     var label = s.sides===2 ? (side===0?'Side A (צד קדמי)':'Side B (צד אחורי)') : 'גיליון מתהפך (צד אחד)';
     out+='<div style="margin-bottom:10px"><div style="font-size:.76rem;font-weight:800;color:'+(side===0?'#374151':'#0f766e')+';margin-bottom:4px">'+label+' — '+g.sheetWmm+'×'+g.sheetHmm+' מ״מ</div>'+_tbSideSvg(s, side, g, sc)+'</div>';
   }
-  out+='<div style="font-size:.68rem;color:#9ca3af">הפס האדום = ראש-העמוד · עמוד '+g.trimWmm+'×'+g.trimHmm+' מ״מ'+(s.numMode?' · 🔢 לחץ על קובייה למספור':'')+'.</div>';
+  out+='<div style="font-size:.68rem;color:#9ca3af">הפס האדום = ראש-העמוד · עמוד '+g.trimWmm+'×'+g.trimHmm+' מ״מ · עמודים צמודים (כריכת-סיכות: 0 מרווח בשדרה)'+(s.numMode?' · 🔢 לחץ על קובייה למספור':'')+'.</div>';
   return out;
 }
 function _tbCycleRot(c){ var s=_tbState; var order=[0,90,180,270]; var cur=((s.rot[c]||0)%360+360)%360; s.rot[c]=order[(order.indexOf(cur)+1)%4]; _tbRender(); }
