@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784625424';
+window.APP_VERSION = '1784626135';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1772,6 +1772,10 @@ window._fbSnapshot = {};
         <button class="btn btn-tpl" onclick="openApplyTemplateModal()"
           style="font-size:.82rem;background:#f0f4ff;color:#2d3561;border:1.5px solid #c0ccf0;border-radius:8px;padding:5px 14px;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">
           🗂️ בחר מתבנית
+        </button>
+        <button onclick="openAiCard()"
+          style="font-size:.82rem;background:#f5f3ff;color:#6d28d9;border:1.5px solid #c4b5fd;border-radius:8px;padding:5px 14px;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">
+          🤖 עוזר ליצירת כרטיס
         </button>
         <button id="card-uplink-btn" onclick="pi_cardUploadLink(window._editingCardId)"
           style="display:none;font-size:.82rem;background:#f0fdfa;color:#0f766e;border:1.5px solid #5eead4;border-radius:8px;padding:5px 14px;font-family:Heebo,sans-serif;font-weight:700;cursor:pointer">
@@ -5632,6 +5636,158 @@ function _aiQuoteSend(){
   })
   .catch(function(e){ _aiQuoteAppend('assistant', '⚠️ ' + (window._aiFriendlyError ? window._aiFriendlyError(e) : 'לא ניתן להשלים את הבקשה כרגע.')); })
   .finally(function(){ if (btn) btn.disabled = false; if (st) st.textContent = ''; });
+}
+
+// ══════ עוזר יצירת כרטיס — כלי שיחתי לומד (משתמש בהיסטוריה + זיכרון גדלים/מוצרים) ══════
+var _aicMsgs = [];
+// הקשר-למידה: לקוחות מוכרים + גדלים-חריגים שנלמדו + כרטיסים אחרונים → הצעות חכמות
+function _aicLearnedContext(){
+  var out = [];
+  try {
+    var profs = (typeof _learnProfiles === 'function') ? _learnProfiles() : {};
+    var arr = Object.keys(profs).map(function(k){ return profs[k]; }).filter(function(p){ return p && p.count>=1; })
+      .sort(function(a,b){ return b.count-a.count; }).slice(0,12);
+    if (arr.length) out.push('לקוחות מוכרים (שם — נייר/גודל/כמות/סוג טיפוסיים):\n' + arr.map(function(p){
+      return '- ' + p.label + ': ' + [p.topPaper,p.topSize,(p.typicalCopies?p.typicalCopies+' עותקים':''),p.topType].filter(Boolean).join(' · '); }).join('\n'));
+  } catch(e){}
+  try {
+    var ss = Object.keys(sheetSizeMemory||{}).map(function(k){ return sheetSizeMemory[k]; }).filter(function(x){ return x && x.perSheet>=2; }).slice(0,20);
+    if (ss.length) out.push('גדלים-חריגים שנלמדו (גודל → עמודים בגיליון):\n' + ss.map(function(s){ return '- ' + s.size + ' → ' + s.perSheet; }).join('\n'));
+  } catch(e){}
+  try {
+    var recent = (cards||[]).slice(0,12).map(function(c){ return '- ' + (c.name||'') + ' | ' + (c.type||'') + ' | ' + (c.size||'') + ' | ' + (c.pages||'?') + ' עמ\' | ' + (c.copies||'?') + ' עותקים | ' + (c.paper||''); });
+    if (recent.length) out.push('כרטיסים אחרונים (ללמידת סגנון — אל תעתיק, למד):\n' + recent.join('\n'));
+  } catch(e){}
+  return out.length ? ('\n\n━━━ נתונים שנלמדו (להצעות חכמות; אל תמציא) ━━━\n' + out.join('\n\n')) : '';
+}
+function _aicSys(){
+  return 'אתה עוזר מקצועי של בית דפוס אופסט בישראל ("סולן הדפסות"). המטרה: לעזור למשתמש (עובד/מנהל) להכין כרטיס-עבודה מלא ונכון, ולהדריך אותו בזרימת-העבודה. קבל תיאור חופשי, שאל שאלות מנחות, והצע ערכים חכמים לפי הידע המקצועי וההיסטוריה.\n\n'
+    + '━━━ שדות הכרטיס ━━━\n'
+    + 'שם-לקוח/תיאור · סוג (עיתון/עלון/חוברת/פלאייר/כרטיס/פוסטר/מדבקה) · גודל · נייר (סוג+משקל) · כמות · מספר-עמודים · צבעים (1=ש/ל, 4=פרוצס) · צדדים (חד/דו/מתהפך) · מכונה (4 צבעים=רולנד / 8 צבעים=הايدلברג) · קיפול · כריכה · עמודים-בגיליון (רק לגודל לא-סטנדרטי) · הערות.\n\n'
+    + '━━━ ידע מקצועי (ברירות-מחדל, אלא אם נאמר אחרת) ━━━\n'
+    + '• A4 → 16 עמ\' בגיליון (נייר 64×90) · A5 או 16.5×24 ס"מ → 32 עמ\' בגיליון (נייר 70×100).\n'
+    + '• יותר מ-4 עמודים → כריכת-סיכות → מודפס דו-צדדי. ציין זאת בקצרה ואל תשאל שוב אלא אם רוצים לשנות.\n'
+    + '• מספר ריצות = עיגול-מעלה(עמודים ÷ עמודים-בגיליון).\n'
+    + '• אם הגודל לא-סטנדרטי (לא A4/A5/70×100/64×90) — שאל כמה עמודים נכנסים בגיליון (שדה "עמודים-בגיליון"). אם הגודל מופיע ב"גדלים שנלמדו" — הצע את הערך משם.\n'
+    + '• 8 צבעים = הايدلברג (מתהפך/דו-צדדי במעבר אחד) · 4 צבעים = רולנד.\n\n'
+    + '━━━ אופן העבודה ━━━\n'
+    + '• שאל שאלה אחת קצרה בכל פעם, לפי הסדר: שם/לקוח → סוג → גודל → עמודים → נייר → כמות → צבעים → (אם צריך) עמודים-בגיליון. דלג על מה שכבר ידוע או שאפשר להסיק.\n'
+    + '• בכל שאלה הוסף בשורה נפרדת אפשרויות ללחיצה בפורמט המדויק: [[אפשרויות: א | ב | ג]]. אל תוסיף אותן כשאתה מסכם את הכרטיס הסופי.\n'
+    + '• אם שם-הלקוח מופיע ב"לקוחות מוכרים" — הצע את הערכים הטיפוסיים שלו ("לפי ההיסטוריה של X בד\\"כ...") ובקש אישור, אל תמציא.\n'
+    + '• כשיש מספיק מידע — הצג סיכום קצר וברור של הכרטיס, וסיים בשורה האחרונה בלבד בבלוק מובנה (המשתמש לא רואה אותו כטקסט): [[כרטיס: שם=<> | סוג=<> | כמות=<מספר> | גודל=<> | נייר=<> | עמודים=<מספר> | עמודים-בגיליון=<מספר אם לא-סטנדרטי> | צבעים=<1/4> | צדדים=<חד/דו/מתהפך> | מכונה=<4 צבעים/8 צבעים> | קיפול=<כן/לא> | כריכה=<כן/לא> | הערות=<טקסט>]]. מלא רק שדות ידועים; דלג על לא-ידועים. אל תוסיף את הבלוק בשאלת-ביניים.\n'
+    + '• ענה בעברית, קצר ומעשי. עזור גם בזרימת-עבודה (הזכר קיפול/כריכה/אריזה כשרלוונטי).'
+    + _aicLearnedContext();
+}
+var _AIC_GREET = 'שלום! ספר לי מה צריך להכין — אפילו במשפט אחד (למשל "עיתון לבית כנסת, 16 עמ\', 3000 עותקים") — ואשאל אותך שאלה-אחר-שאלה (עם אפשרויות ללחיצה) עד שיהיה כרטיס מלא. אני זוכר לקוחות וגדלים מהעבר ומציע לפי זה.';
+function _aicSave(){ try { localStorage.setItem('solanAiCardChat', JSON.stringify(_aicMsgs)); } catch(e){} }
+function _aicLoad(){ try { var s = JSON.parse(localStorage.getItem('solanAiCardChat')||'[]'); return Array.isArray(s)?s:[]; } catch(e){ return []; } }
+function _aicAppend(role, text){
+  var box = document.getElementById('aic-msgs'); if (!box) return null;
+  var mine = (role === 'user');
+  var b = document.createElement('div');
+  b.style.cssText = 'max-width:88%;padding:9px 12px;border-radius:12px;white-space:pre-wrap;font-size:.93rem;line-height:1.55;'
+    + (mine ? 'align-self:flex-start;background:#6d28d9;color:#fff' : 'align-self:flex-end;background:#fff;border:1px solid #e5e7eb;color:#111');
+  b.textContent = text;
+  box.appendChild(b); box.scrollTop = box.scrollHeight;
+  return b;
+}
+function _aicRenderOptions(optsStr){
+  var box = document.getElementById('aic-msgs'); if (!box) return;
+  var opts = optsStr.split('|').map(function(s){ return s.trim(); }).filter(Boolean);
+  if (!opts.length) return;
+  var wrap = document.createElement('div'); wrap.className = 'aic-opts';
+  wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-self:flex-end;max-width:90%;margin:-2px 0 2px';
+  opts.forEach(function(o){
+    var b = document.createElement('button'); b.type = 'button'; b.textContent = o;
+    b.style.cssText = 'padding:6px 13px;border:1.5px solid #c4b5fd;border-radius:16px;background:#f5f3ff;color:#6d28d9;font-weight:700;cursor:pointer;font-family:inherit;font-size:.86rem';
+    b.onclick = function(){ var input=document.getElementById('aic-input'); if(input) input.value=o; Array.prototype.forEach.call(wrap.querySelectorAll('button'),function(x){ x.disabled=true; if(x.textContent===o){x.style.background='#6d28d9';x.style.color='#fff';} else {x.style.opacity='.4';} }); _aiCardSend(); };
+    wrap.appendChild(b);
+  });
+  box.appendChild(wrap); box.scrollTop = box.scrollHeight;
+}
+function _aicClean(t){ return String(t||'').replace(/\[\[\s*אפשרויות\s*:[^\]]*\]\]/g,'').replace(/\[\[\s*כרטיס\s*:[^\]]*\]\]/g,'').trim(); }
+function openAiCard(){
+  var box = document.getElementById('aic-msgs'); if (box) box.innerHTML = '';
+  _aicMsgs = _aicLoad();
+  if (_aicMsgs.length){
+    _aicMsgs.forEach(function(m){ if (m.role==='user') _aicAppend('user', m.content); else _aicAppend('assistant', _aicClean(m.content) || m.content); });
+    var last = _aicMsgs[_aicMsgs.length-1];
+    if (last && last.role==='assistant'){ var mo=String(last.content||'').match(/\[\[\s*אפשרויות\s*:\s*([^\]]+)\]\]/); if (mo) _aicRenderOptions(mo[1]); }
+  } else { _aicAppend('assistant', _AIC_GREET); }
+  document.getElementById('aiCardModal').style.display = 'flex';
+  try { window._aiStartHealthPolling && window._aiStartHealthPolling(); } catch(e){}
+  setTimeout(function(){ var i=document.getElementById('aic-input'); if(i) i.focus(); var b=document.getElementById('aic-msgs'); if(b) b.scrollTop=b.scrollHeight; }, 60);
+}
+function _aiCardNew(){
+  if (_aicMsgs.length && !confirm('להתחיל שיחה חדשה? השיחה הנוכחית תימחק.')) return;
+  _aicMsgs = []; _aicSave();
+  var box = document.getElementById('aic-msgs'); if (box) box.innerHTML = '';
+  _aicAppend('assistant', _AIC_GREET);
+}
+function closeAiCard(){ var m=document.getElementById('aiCardModal'); if (m) m.style.display='none'; try { window._aiStopHealthPolling && window._aiStopHealthPolling(); } catch(e){} }
+function _aiCardSend(){
+  var input = document.getElementById('aic-input');
+  var txt = (input && input.value || '').trim();
+  if (!txt) return;
+  input.value = '';
+  try { document.querySelectorAll('#aic-msgs .aic-opts button').forEach(function(b){ b.disabled = true; }); } catch(e){}
+  _aicAppend('user', txt);
+  _aicMsgs.push({ role:'user', content: txt }); _aicSave();
+  var btn = document.getElementById('aic-send'); if (btn) btn.disabled = true;
+  var st = document.getElementById('aic-status'); if (st) st.textContent = '🤖 חושב...';
+  _aiRequest({ model:'claude-opus-4-8', max_tokens:1400, system:_aicSys(), messages:_aicMsgs })
+  .then(function(data){
+    if (data.type === 'error') throw new Error((data.error && data.error.message) || 'API error');
+    var reply = ''; (data.content || []).forEach(function(bk){ if (bk && bk.type === 'text') reply += bk.text; });
+    if (!reply.trim()) reply = '(לא התקבלה תשובה — נסה שוב)';
+    _aicMsgs.push({ role:'assistant', content: reply }); _aicSave();
+    var _opts = reply.match(/\[\[\s*אפשרויות\s*:\s*([^\]]+)\]\]/);
+    _aicAppend('assistant', _aicClean(reply) || reply);
+    if (_opts) _aicRenderOptions(_opts[1]);
+    if (_aiqParseCardSpec(reply)){ var st2=document.getElementById('aic-status'); if(st2) st2.textContent='✓ יש מפרט כרטיס — לחץ "🗂 מלא את הכרטיס"'; }
+  })
+  .catch(function(e){ _aicAppend('assistant', '⚠️ ' + (window._aiFriendlyError ? window._aiFriendlyError(e) : 'לא ניתן להשלים את הבקשה כרגע.')); })
+  .finally(function(){ if (btn) btn.disabled = false; });
+}
+function _aicLastSpec(){
+  for (var i=_aicMsgs.length-1;i>=0;i--){ if (_aicMsgs[i].role==='assistant'){ var s=_aiqParseCardSpec(_aicMsgs[i].content); if (s) return s; } }
+  return null;
+}
+// מילוי טופס הכרטיס לפי המפרט שהעוזר סיכם
+function _aicCreateCard(){
+  var spec = _aicLastSpec();
+  if (!spec){ showToast('עוד אין מפרט כרטיס — המשך את השיחה עד שהעוזר יסכם'); return; }
+  try { closeAiCard(); } catch(e){}
+  try { switchTab('new'); } catch(e){}
+  try { clearForm(); } catch(e){}
+  var set = function(id,v){ var e=document.getElementById(id); if(e && v!=null && v!=='') e.value=v; };
+  set('f-name', spec['שם']);
+  if (spec['סוג']) set('f-type', spec['סוג']);
+  set('f-copies', spec['כמות'] ? String(spec['כמות']).replace(/[^\d]/g,'') : '');
+  set('f-size', spec['גודל']);
+  set('f-paper', spec['נייר']);
+  set('f-pages', spec['עמודים'] ? String(spec['עמודים']).replace(/[^\d]/g,'') : '');
+  if (spec['עמודים-בגיליון']){ var spv=String(spec['עמודים-בגיליון']).replace(/[^\d]/g,''); if (spv) set('f-sheet-pages', spv); }
+  if (spec['מכונה']){ var mv=spec['מכונה']; var mm=/8/.test(mv)?'מכונה 8 צבעים':(/4/.test(mv)?'מכונה 4 צבעים':''); if(mm) set('f-machine', mm); }
+  var pages = parseInt(spec['עמודים'],10)||0;
+  var wantBind = _aiqYes(spec['כריכה']) || pages>4;
+  var side = _aiqSideKind(spec['צדדים']); if (wantBind && !side) side='duplex';
+  var bindEl=document.getElementById('f-needs-binding'); if(bindEl) bindEl.checked=wantBind;
+  var foldEl=document.getElementById('f-needs-folding'); if(foldEl) foldEl.checked=_aiqYes(spec['קיפול']);
+  try { toggleMachineTumble(); } catch(e){}
+  var tumbEl=document.getElementById('f-tumble'); if(tumbEl && side==='tumble') tumbEl.checked=true;
+  // צבע → ערכי הרדיו של טופס הכרטיס (פרוצס צד אחד / פרוצס 2 צדדים / שחור לבן)
+  var cn = parseInt(String(spec['צבעים']||'').replace(/[^\d]/g,''),10);
+  var colorVal = '';
+  if (cn === 1) colorVal = 'שחור לבן';
+  else if (spec['צבעים'] || side) colorVal = (side==='duplex'||side==='tumble') ? 'פרוצס 2 צדדים' : 'פרוצס צד אחד';
+  if (colorVal){ var cr=document.querySelector('input[name="color"][value="'+colorVal+'"]'); if(cr) cr.checked=true; }
+  var summary = 'נוצר מעוזר-כרטיס AI · ' + Object.keys(spec).map(function(k){ return k+': '+spec[k]; }).join(' · ');
+  var inNotes=document.getElementById('f-internal-notes'); if(inNotes) inNotes.value=(inNotes.value?inNotes.value+'\n':'')+summary;
+  if (spec['הערות']){ var nEl=document.getElementById('f-notes'); if(nEl && !nEl.value) nEl.value=spec['הערות']; }
+  try { calcRuns(); } catch(e){}
+  try { window._cardFormBaselineNow && window._cardFormBaselineNow(); } catch(e){}
+  showToast('🗂 הכרטיס מולא לפי העוזר — בדוק, השלם ושמור');
 }
 
 function _orderSendToClaude(opts){
@@ -22458,6 +22614,30 @@ setInterval(function(){ try { _pollScanStages(); } catch(e){} }, 20000);
     <div style="display:flex;gap:8px;padding:12px 14px;border-top:1px solid #eee;align-items:flex-end">
       <textarea id="aiq-input" rows="2" placeholder="כתוב את מפרט העבודה... (למשל: 5000 עלונים A4, כרומו מט 135, 4 צבעים דו-צדדי, קיפול אחד)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();_aiQuoteSend();}" style="flex:1;resize:none;padding:9px 11px;border:1px solid #d1d5db;border-radius:9px;font-size:.95rem;font-family:inherit;box-sizing:border-box"></textarea>
       <button onclick="_aiQuoteSend()" id="aiq-send" class="btn btn-primary" style="white-space:nowrap">שלח ▸</button>
+    </div>
+  </div>
+</div>
+
+<!-- מודל עוזר יצירת כרטיס -->
+<div id="aiCardModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9100;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;width:min(680px,96vw);height:min(88vh,760px);display:flex;flex-direction:column;direction:rtl;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:#6d28d9;color:#fff">
+      <strong style="font-size:1.05rem">🤖 עוזר ליצירת כרטיס עבודה</strong>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="_aiCardNew()" title="התחל שיחה חדשה" style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.82rem;white-space:nowrap">🗑 שיחה חדשה</button>
+        <button onclick="closeAiCard()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;line-height:1">✕</button>
+      </div>
+    </div>
+    <div id="aic-msgs" style="flex:1;overflow-y:auto;padding:16px;background:#f7f7fb;display:flex;flex-direction:column;gap:10px"></div>
+    <div id="aic-status" style="padding:0 16px;font-size:.8rem;color:#6d28d9;min-height:16px"></div>
+    <div id="ai-svc-card" style="display:none;padding:2px 16px 6px;font-size:.76rem"></div>
+    <div style="display:flex;gap:7px;padding:0 14px 4px;flex-wrap:wrap;align-items:center">
+      <button onclick="_aicCreateCard()" title="מלא את טופס הכרטיס לפי השיחה" style="background:#2d3561;border:none;color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.8rem">🗂 מלא את הכרטיס</button>
+      <span style="font-size:.7rem;color:#9ca3af">ממלא את הטופס לפי השיחה — לעריכה ושמירה ידנית</span>
+    </div>
+    <div style="display:flex;gap:8px;padding:12px 14px;border-top:1px solid #eee;align-items:flex-end">
+      <textarea id="aic-input" rows="2" placeholder="ספר לי מה צריך... (למשל: עיתון לבית כנסת, 5000 עותקים, 16 עמ')" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();_aiCardSend();}" style="flex:1;resize:none;padding:9px 11px;border:1px solid #d1d5db;border-radius:9px;font-size:.95rem;font-family:inherit;box-sizing:border-box"></textarea>
+      <button onclick="_aiCardSend()" id="aic-send" class="btn btn-primary" style="white-space:nowrap">שלח ▸</button>
     </div>
   </div>
 </div>
