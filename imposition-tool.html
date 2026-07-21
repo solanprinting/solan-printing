@@ -68,6 +68,7 @@
           <option value="4p">4 עמ' — מתהפך (4 צבעים)</option>
         </select>
         <button type="button" id="tplEditBtn" onclick="_tplEdit()" title="ערוך את סדר-העמודים של הטמפלט ושמור אותו" style="margin-top:6px;padding:6px 12px;border:1.5px solid #c9a84c;background:#fdf6e3;color:#7c5a00;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">✏️ ערוך טמפלט</button>
+        <button type="button" id="tplNewBtn" onclick="_tplNew()" title="צור טמפלט חדש לסוג-עבודה שאין לו טמפלט מוכן" style="margin-top:6px;padding:6px 12px;border:1.5px solid #16a34a;background:#f0fdf4;color:#166534;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">➕ טמפלט חדש</button>
       </div>
       <div class="opt"><label>צד ראשון בקובץ:</label>
         <select id="firstside"><option value="0" selected>קדמי (עמ' 1)</option><option value="1">אחורי</option></select>
@@ -273,8 +274,14 @@ function _applyTplOverrides(templates, overrides){
   if (!overrides) return;
   Object.keys(overrides).forEach(function(k){
     var ov = overrides[k];
-    if (templates[k] && ov && Array.isArray(ov.grids) && ov.grids.length === templates[k].grids.length)
-      templates[k].grids = ov.grids;
+    if (!ov) return;
+    if (templates[k]){
+      if (Array.isArray(ov.grids) && ov.grids.length === templates[k].grids.length)
+        templates[k].grids = ov.grids;
+    } else if (ov.custom && Array.isArray(ov.grids) && ov.grids.length){
+      // טמפלט שנוצר ידנית ע"י המשתמש — משחזרים את ההגדרה המלאה
+      templates[k] = { N: ov.N, sides: ov.sides, rot: ov.rot, grids: ov.grids, custom: true, label: ov.label || k };
+    }
   });
 }
 _applyTplOverrides(TEMPLATES, _tplOverrides);
@@ -471,7 +478,7 @@ function _tplEdit(){
     +(isOverridden?'<div style="font-size:.76rem;color:#166534;background:#f0fdf4;border:1px solid #86efac;border-radius:7px;padding:6px 9px;margin-bottom:10px">✓ טמפלט זה כבר נערך ונשמר (שונה מברירת-המחדל).</div>':'')
     +sidesHtml
     +'<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap">'
-    +'<button onclick="_tplReset()" style="padding:9px 14px;border:1.5px solid #e2e8f0;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700">↺ אפס לברירת-מחדל</button>'
+    +'<button onclick="_tplReset()" style="padding:9px 14px;border:1.5px solid #e2e8f0;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700">'+(tpl.custom?'🗑 מחק טמפלט':'↺ אפס לברירת-מחדל')+'</button>'
     +'<button onclick="document.getElementById(\'tplEditDlg\').remove()" style="padding:9px 14px;border:1.5px solid #e2e8f0;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700">ביטול</button>'
     +'<button onclick="_tplSave()" style="padding:9px 18px;border:none;background:#16a34a;color:#fff;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:800">💾 שמור טמפלט</button>'
     +'</div></div></div>';
@@ -487,16 +494,29 @@ function _tplReadGrids(){
   return grids;
 }
 function _tplSave(){
-  var type=$('sheet').value, grids=_tplReadGrids();
-  TEMPLATES[type].grids = grids;
-  _tplOverrides[type] = { grids: grids };
+  var type=$('sheet').value, tpl=TEMPLATES[type], grids=_tplReadGrids();
+  tpl.grids = grids;
+  if (tpl.custom)   // טמפלט מותאם-אישית — שומרים את ההגדרה המלאה כדי שישוחזר בטעינה
+    _tplOverrides[type] = { grids: grids, N: tpl.N, sides: tpl.sides, rot: tpl.rot, label: tpl.label, custom: true };
+  else
+    _tplOverrides[type] = { grids: grids };
   try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
   var dlg=document.getElementById('tplEditDlg'); if(dlg) dlg.remove();
   _tplNote('💾 הטמפלט נשמר — ישמש גם בעתיד');
   if (_file && $('go') && !$('go').disabled) $('go').click();   // קפל מחדש עם הטמפלט המעודכן אם כבר יש קובץ
 }
 function _tplReset(){
-  var type=$('sheet').value;
+  var type=$('sheet').value, tpl=TEMPLATES[type];
+  if (tpl && tpl.custom){   // טמפלט מותאם-אישית — "אפס" = מחיקת הטמפלט
+    if(!confirm('למחוק את הטמפלט "'+_tplLabel()+'"?')) return;
+    delete TEMPLATES[type]; delete _tplOverrides[type];
+    try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
+    var opt=$('sheet').querySelector('option[value="'+type+'"]'); if(opt) opt.remove();
+    $('sheet').selectedIndex=0;
+    var dlg2=document.getElementById('tplEditDlg'); if(dlg2) dlg2.remove();
+    _tplNote('🗑 הטמפלט נמחק');
+    return;
+  }
   if(!confirm('לאפס את הטמפלט "'+_tplLabel()+'" לברירת-המחדל של המערכת?')) return;
   TEMPLATES[type].grids = JSON.parse(JSON.stringify(_DEFAULT_TEMPLATES[type].grids));
   delete _tplOverrides[type];
@@ -505,7 +525,43 @@ function _tplReset(){
   _tplEdit();
   if (_file && $('go') && !$('go').disabled) $('go').click();
 }
-window._tplEdit=_tplEdit; window._tplSave=_tplSave; window._tplReset=_tplReset;
+// ── יצירת טמפלט חדש (לסוג-עבודה שאין לו טמפלט מוכן) ──
+function _tplAddOption(key, label){
+  var sel=$('sheet'); if(!sel) return;
+  if (sel.querySelector('option[value="'+key+'"]')) return;
+  var o=document.createElement('option'); o.value=key; o.textContent='🧩 '+label; sel.appendChild(o);
+}
+function _tplNew(){
+  var name=prompt('שם הטמפלט החדש (לדוגמה: עיתון 24 עמ\'):','');
+  if(name==null || !name.trim()) return;
+  name=name.trim();
+  var N=parseInt(prompt('כמה עמודים סה\"כ בטמפלט? (לדוגמה 24):',''),10);
+  if(!(N>0)){ alert('מספר עמודים לא תקין'); return; }
+  var sides=confirm('האם זו הדפסת פרפקטור / A+B (שני צדדים)?\n\nאישור = כן (2 צדדים)\nביטול = גיליון מתהפך (צד אחד)') ? 2 : 1;
+  var cols=parseInt(prompt('כמה עמודות (עמודים לרוחב הגיליון)? בד\"כ 4:','4'),10);
+  if(!(cols>0)) cols=4;
+  var perSide=Math.ceil(N/sides);
+  var rows=Math.max(1, Math.ceil(perSide/cols));
+  // גריד התחלתי ממולא ברצף — המשתמש יתקן את סדר-הקיפול בעורך
+  var grids=[], pg=1;
+  for(var s=0;s<sides;s++){
+    var g=[];
+    for(var r=0;r<rows;r++){ var row=[]; for(var c=0;c<cols;c++){ row.push(pg<=N?pg:0); pg++; } g.push(row); }
+    grids.push(g);
+  }
+  var rot=[]; for(var c2=0;c2<cols;c2++) rot.push(c2%2===0?90:-90);
+  var key='c'+N+'_'+Math.random().toString(36).slice(2,6);
+  TEMPLATES[key]={ N:N, sides:sides, rot:rot, grids:grids, custom:true, label:name };
+  _tplOverrides[key]={ grids:grids, N:N, sides:sides, rot:rot, label:name, custom:true };
+  try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
+  _tplAddOption(key, name);
+  $('sheet').value=key;
+  _tplNote('➕ טמפלט "'+name+'" נוצר — כעת ערוך את סדר-העמודים לפי הקיפול');
+  _tplEdit();
+}
+// טוען אפשרויות של טמפלטים-מותאמים אישית לתפריט בעליית-הכלי
+Object.keys(_tplOverrides).forEach(function(k){ var ov=_tplOverrides[k]; if(ov && ov.custom) _tplAddOption(k, ov.label||k); });
+window._tplEdit=_tplEdit; window._tplSave=_tplSave; window._tplReset=_tplReset; window._tplNew=_tplNew;
 
 let _file = null;
 $('file').onchange = e => { window._srcProofUrl = null; setFile(e.target.files[0]); };

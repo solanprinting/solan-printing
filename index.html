@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784617432';
+window.APP_VERSION = '1784620019';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21656,7 +21656,7 @@ function _opProofImagesOverlay(pagesUrl, pdfUrl, type, label) {
   fetch(pagesUrl).then(function(r){ return r.json(); }).then(function(imgs){
     var l = document.getElementById('op-proof-loading'); if (l) l.remove();
     if (!Array.isArray(imgs) || !imgs.length) { if (pdfUrl){ _opCloseProof(); _opRenderPdfToImages(pdfUrl, type||'application/pdf', label); } return; }
-    window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: pdfUrl, type: type, label: label, sim: _opPaperToPreset(window._opProofPaper||'') };
+    window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: pdfUrl, type: type, label: label };
     _opInk.previewSrc = null; _opInk._hiResIdx = undefined;   // איפוס תצוגת ברזי-צבע ברזולוציה גבוהה לפרופר חדש
     _opPVBuild(ov);
   }).catch(function(){
@@ -21677,25 +21677,28 @@ function _opRenderPdfToImages(url, type, label){
   fetch(url).then(function(r){ return r.arrayBuffer(); })
     .then(function(buf){ return pdfjsLib.getDocument({ data: buf }).promise; })
     .then(function(pdf){
-      var imgs = [], RENDER_H = 2200, n = pdf.numPages;
+      var imgs = [], RENDER_H = 2900, n = pdf.numPages;   // רזולוציית רינדור גבוהה יותר → פרופר חד יותר
       (function step(i){
         if (i > n){
           pdf.cleanup && pdf.cleanup();
           var l = document.getElementById('op-proof-loading'); if (l) l.remove();
           if (!imgs.length){ _opCloseProof(); _opProofOverlay(url, type, label, false); return; }
-          window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label, sim: _opPaperToPreset(window._opProofPaper||'') };
+          window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label };
           _opInk.previewSrc = null; _opInk._hiResIdx = undefined;
           _opPVBuild(ov);
           return;
         }
         pdf.getPage(i).then(function(page){
           var v1 = page.getViewport({ scale: 1 });
-          var scale = Math.min(3.0, RENDER_H / v1.height);
+          var scale = Math.min(4.0, RENDER_H / v1.height);
           var vp = page.getViewport({ scale: scale });
           var c = document.createElement('canvas');
           c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
-          return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function(){
-            imgs.push(c.toDataURL('image/jpeg', 0.92));
+          var _cx = c.getContext('2d');
+          try { _cx.imageSmoothingEnabled = true; _cx.imageSmoothingQuality = 'high'; } catch(e){}
+          _cx.fillStyle = '#fff'; _cx.fillRect(0, 0, c.width, c.height);   // רקע לבן (JPEG בלי שקיפות)
+          return page.render({ canvasContext: _cx, viewport: vp }).promise.then(function(){
+            imgs.push(c.toDataURL('image/jpeg', 0.96));
             page.cleanup && page.cleanup(); step(i + 1);
           });
         }).catch(function(e){ console.warn('pdf page render failed', e); step(i + 1); });
@@ -21722,12 +21725,6 @@ function _opPVBuild(ov){
     + _opPVbtn('🔍➕','הגדל').replace('<button','<button id="op-pv-zin"')
     + (multi ? _opPVbtn('⊞ כפולה','הצג שני עמודים').replace('<button','<button id="op-pv-spread"') : '')
     + (pv.pdfUrl ? _opPVbtn('📄 PDF','פתח PDF מלא').replace('<button','<button id="op-pv-pdf"') : '')
-    + '<select id="op-pv-sim" title="הדמיית מראה-בדפוס (קירוב ויזואלי — לא צבע מדויק)" style="height:38px;border:none;border-radius:8px;padding:0 8px;font-family:Heebo,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;background:#7c5a00;color:#fff">'
-      + '<option value="none">👁 תצוגה רגילה</option>'
-      + '<option value="chromo">✨ הדמיה: כרומו נטול-עץ</option>'
-      + '<option value="matt">📄 הדמיה: מט</option>'
-      + '<option value="brown">🟫 הדמיה: נייר חום</option>'
-      + '</select>'
     + _opPVbtn('🎨 ברזי צבע','מחשבון ברזי צבע').replace('<button','<button id="op-pv-ink"').replace('#1e3a5f','#7c5a00')
     + _opPVbtn('⛶','מסך מלא').replace('<button','<button id="op-pv-fs"')
     + _opPVbtn('✕','סגור').replace('<button','<button id="op-pv-close"').replace('#1e3a5f','#b91c1c');
@@ -21738,8 +21735,6 @@ function _opPVBuild(ov){
   ov.appendChild(_opInkPanelEl(pv.label));   // פאנל ברזי צבע (מתחת לפרופר, מוסתר עד שלוחצים)
   // wiring
   var on = function(id,fn){ var b=document.getElementById(id); if(b) b.onclick=fn; };
-  var simSel = document.getElementById('op-pv-sim');
-  if (simSel){ simSel.value = pv.sim || 'none'; simSel.onchange = function(){ window._opPV.sim = this.value; _opPVRender(); }; }
   on('op-pv-ink', _opInkToggle);
   on('op-pv-prev', function(){ _opPVNav(-1); });
   on('op-pv-next', function(){ _opPVNav(1); });
@@ -21764,9 +21759,8 @@ function _opPVRender(){
   var pages = inSpread ? [pv.imgs[pv.idx], pv.imgs[pv.idx+1]].filter(Boolean) : [pv.imgs[pv.idx]];
   var z = pv.zoom;
   vp.innerHTML = '<div class="op-pv-stage" style="position:relative;width:'+(z*100)+'%;height:'+(z*100)+'%;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;padding:10px;margin:auto">'
-    + pages.map(function(src){ return '<img class="op-pv-img" src="'+_opSimSrc(src)+'" style="max-width:'+(inSpread?'49%':'100%')+';max-height:100%;object-fit:contain;background:#fff;box-shadow:0 3px 16px rgba(0,0,0,.55)">'; }).join('')
-    + '</div>'
-    + (pv.sim && pv.sim!=='none' ? '<div style="position:absolute;top:6px;'+(inSpread?'left':'right')+':10px;background:rgba(124,90,0,.92);color:#fff;font-size:.72rem;font-weight:800;font-family:Heebo,sans-serif;padding:3px 9px;border-radius:7px;pointer-events:none">👁 הדמיה — קירוב, לא צבע מדויק</div>' : '');
+    + pages.map(function(src){ return '<img class="op-pv-img" src="'+src+'" style="max-width:'+(inSpread?'49%':'100%')+';max-height:100%;object-fit:contain;background:#fff;box-shadow:0 3px 16px rgba(0,0,0,.55)">'; }).join('')
+    + '</div>';
   vp.scrollTop = (vp.scrollHeight - vp.clientHeight)/2;
   vp.scrollLeft = (vp.scrollWidth - vp.clientWidth)/2;
   // עדכון בורר/תווית עמוד
@@ -21839,73 +21833,8 @@ function _opProofOverlay(url, type, label, revoke) {
   setTimeout(hide, 8000); // גיבוי אם onload לא נורה
   if (revoke) setTimeout(function(){ URL.revokeObjectURL(url); }, 120000);
 }
-// ── הדמיית מראה-בדפוס (soft-proof) — קירוב ויזואלי, לא צבע מדויק ────────────
-//    מעבד את תמונת הפרופר בקנבס: דחיסת-גאמוט (הפחתת רוויה), נקודת-לובן של הנייר
-//    (לבן→גוון-נייר, שחור→לא-שחור-מלא), ו-dot-gain (הכהיית גוונים-אמצעיים).
-//    ⚠️ אין דיוק ICC/CMYK אמיתי בדפדפן — זו הדמיה מסומנת בלבד.
-// הניירות שאנחנו מדפיסים עליהם עיתונים: כרומו נטול-עץ, ונייר חום. (ניוזפרינט לא בשימוש — הוסר.)
-var _OP_SIM_PRESETS = {
-  none:   { label:'תצוגה רגילה' },
-  chromo: { label:'כרומו נטול-עץ', sat:0.96, dotGain:0.05, white:[252,251,248], black:[20,20,22] },
-  matt:   { label:'מט',            sat:0.86, dotGain:0.11, white:[247,245,240], black:[30,29,28] },
-  brown:  { label:'נייר חום',      sat:0.60, dotGain:0.18, white:[196,168,126], black:[64,50,34] }
-};
-// זיהוי פריסט מתוך מחרוזת-הנייר של הכרטיס (חום → brown, נטול-עץ/כרומו → chromo, מט → matt)
-function _opPaperToPreset(paper){
-  var p = String(paper||'');
-  if (/חום|קרפט|kraft|brown/i.test(p)) return 'brown';
-  if (/מט(?![א-ת])|matt|matte/i.test(p)) return 'matt';   // "מט" כמילה (לא חלק ממילה אחרת); \b לא אמין אחרי אותיות עבריות
-  if (/נטול[- ]?עץ|נטולת[- ]?עץ|נ\s*\/\s*ע|wood.?free|כרומו|coat|גלוס|gloss|מבריק/i.test(p)) return 'chromo';
-  return 'none';
-}
-// טרנספורם פיקסל טהור (0..255 → 0..255) — ניתן לבדיקה בלי DOM
-function _opSimPixel(r, g, b, ps){
-  r/=255; g/=255; b/=255;
-  var lum = 0.299*r + 0.587*g + 0.114*b;
-  var s = (ps.sat==null?1:ps.sat);
-  r = lum + (r-lum)*s; g = lum + (g-lum)*s; b = lum + (b-lum)*s;
-  var dg = ps.dotGain || 0;                       // dot-gain: מכהה גוונים-אמצעיים
-  var gain = function(v){ v = v - dg*v*(1-v); return v<0?0:(v>1?1:v); };
-  r=gain(r); g=gain(g); b=gain(b);
-  var wp = ps.white || [255,255,255], bp = ps.black || [0,0,0];   // מיפוי לטווח הנייר
-  r = bp[0] + r*(wp[0]-bp[0]); g = bp[1] + g*(wp[1]-bp[1]); b = bp[2] + b*(wp[2]-bp[2]);
-  var cl = function(v){ v=Math.round(v); return v<0?0:(v>255?255:v); };
-  return [cl(r), cl(g), cl(b)];
-}
-// מעבד תמונת-פרופר (data-URL) → data-URL מודמה. Promise. (data-URL = same-origin, אין taint)
-function _opSimProcess(src, presetKey){
-  return new Promise(function(res, rej){
-    var ps = _OP_SIM_PRESETS[presetKey];
-    if (!ps || presetKey === 'none') return res(src);
-    var im = new Image();
-    im.onload = function(){
-      try {
-        var maxW = 1400, sc = Math.min(1, maxW / (im.naturalWidth||1));
-        var W = Math.max(1, Math.round((im.naturalWidth||1)*sc)), H = Math.max(1, Math.round((im.naturalHeight||1)*sc));
-        var cv = document.createElement('canvas'); cv.width=W; cv.height=H;
-        var ctx = cv.getContext('2d'); ctx.drawImage(im, 0, 0, W, H);
-        var img = ctx.getImageData(0, 0, W, H), d = img.data;
-        for (var i=0; i<d.length; i+=4){ var o = _opSimPixel(d[i], d[i+1], d[i+2], ps); d[i]=o[0]; d[i+1]=o[1]; d[i+2]=o[2]; }
-        ctx.putImageData(img, 0, 0);
-        res(cv.toDataURL('image/jpeg', 0.9));
-      } catch(e){ rej(e); }
-    };
-    im.onerror = rej; im.src = src;
-  });
-}
-// מחזיר src מודמה אם מוכן במטמון; אחרת מחזיר מקור ומפעיל עיבוד ברקע → רינדור מחדש
-function _opSimSrc(src){
-  var pv = window._opPV; if (!pv || !pv.sim || pv.sim==='none') return src;
-  var key = pv.sim + '|' + src;
-  pv._simCache = pv._simCache || {}; pv._simPending = pv._simPending || {};
-  if (pv._simCache[key]) return pv._simCache[key];
-  if (!pv._simPending[key]){
-    pv._simPending[key] = 1;
-    _opSimProcess(src, pv.sim).then(function(url){ pv._simCache[key]=url; delete pv._simPending[key]; _opPVRender(); })
-      .catch(function(){ delete pv._simPending[key]; });
-  }
-  return src;   // עד שהעיבוד מוכן — מציג את המקור
-}
+// (הדמיית מראה-בדפוס הוסרה — הלקוחות מעדיפים צבעים חזקים ובולטים, וההדמיה ריככה
+//  את הצבע וגם עיבוד-הקנבס פגע בחדות הפרופר. הצופה מציג תמיד את התמונה המקורית.)
 // ── מחשבון ברזי צבע (Heidelberg) — אופציונלי, מתחת לפרופר ──────────────────
 var _opInk = { zones:32, C:0, M:0, Y:0, K:0, factor:100, keys:{C:{},M:{},Y:{},K:{}}, job:'', showPct:false };
 var _OP_INK_META = [
@@ -22085,7 +22014,6 @@ function _opViewProof(cardId, runKey) {
   // חסינות לכפילויות: אם לכרטיס עצמו אין פרופר — לוקחים מכרטיס אחר עם אותו שם שיש לו
   var c = _opProofCardFor(c0) || c0;
   cardId = c ? c.id : cardId;
-  window._opProofPaper = (c && c.paper) || (c0 && c0.paper) || '';   // לזיהוי-אוטומטי של פריסט הדמיית-הנייר לפי מפרט הכרטיס
   // מוצאים את הפרופר הטוב ביותר לעבודה: קודם של הריצה הספציפית, אחרת פרופר יחיד של הכרטיס,
   // אחרת הפרופר הראשון של ריצה כלשהי — כדי שגם ריצה בלי פרופר משלה תציג את פרופר הכרטיס.
   var rec = null, legacyKey = runKey;
@@ -22095,7 +22023,10 @@ function _opViewProof(cardId, runKey) {
   var pagesUrl  = rec && rec.pagesUrl;
   var directUrl = rec && rec.url;
   var directType= rec && rec.type;
-  // תצוגה מהירה מתמונות (אם קיים cache) — כמעט מיידי, בלי הורדת PDF כבד
+  // מסך-הדפסים (QC) — מעדיפים רינדור PDF ברזולוציה גבוהה לפרופר חד; ה-cache (רזולוציה נמוכה
+  // שנשמרה בהעלאה) מרכך את התמונה, ולכן הוא רק גיבוי כשאין PDF.
+  var isPdfDirect = directUrl && ((directType||'').indexOf('pdf') !== -1 || /\.pdf(\?|#|$)/i.test(directUrl));
+  if (isPdfDirect) { _opRenderPdfToImages(directUrl, directType, runKey || 'פרופר'); return; }
   if (pagesUrl) { _opProofImagesOverlay(pagesUrl, directUrl || '', directType, runKey || 'פרופר'); return; }
   if (directUrl) { _opRenderPdfToImages(directUrl, directType, runKey || 'פרופר'); return; }
   // פרופר ישן (legacy) — base64 ב-RTDB
@@ -24070,8 +24001,21 @@ var PI_TPL = {
   p:    { 32:'32p', 16:'16p', 8:'8p', 4:'4p' }             // 4 צבעים — 32 דו-צדדי (2 מעברים); 16/8/4 מתהפכים
 };
 function pi_tplLabel(t){
+  var T = window._pi && window._pi.templates || {};
+  if (T[t] && T[t].custom) return (T[t].label || t) + ' (מותאם)';
   return { '32':'32 עמ\' פרפקטור', '16perf':'16 עמ\' פרפקטור', '16p':'16 עמ\' מתהפך',
            '8perf':'8 עמ\' פרפקטור', '8p':'8 עמ\' מתהפך', '4perf':'4 עמ\' פרפקטור', '4p':'4 עמ\' מתהפך' }[t] || t;
+}
+// טמפלט מותאם-אישית שנוצר ידנית (בכלי-הקיפול) שמתאים בדיוק ל-n עמודים במשפחה הזו.
+// כשקיים כזה — כל העבודה נכנסת בקונטרס/גיליון אחד (סט לוחות אחד), במקום פיצול חמדני.
+function pi_customTplFor(family, n){
+  var T = window._pi && window._pi.templates || {};
+  var wantSides = family === 'perf' ? 2 : 1;
+  for (var k in T){
+    var t = T[k];
+    if (t && t.custom && t.N === n && (t.sides || (t.grids && t.grids.length)) === wantSides) return k;
+  }
+  return null;
 }
 // חלוקת עמודים לקונטרסים לפי המשפחה (חמדנית; בגרנולריות 4 תמיד מתפרקת נקי)
 function pi_splitPages(count, family){
@@ -27959,9 +27903,25 @@ function pi_open(){
     if (v && typeof v === 'object'){ window._pi.proofs = v; pi_render(); pi_badge(); }
   });
 }
+// ממזג טמפלטים מותאמים-אישית (+עריכות) מ-localStorage לתוך המטמון — כדי שטמפלט שנוצר
+// בכלי-הקיפול (חלון/iframe אחר) יגיע למתכנן גם אם ה-iframe כבר נטען קודם. same-origin.
+function pi_mergeCustomTemplates(){
+  if (!window._pi.templates) return;
+  try {
+    var ov = JSON.parse(localStorage.getItem('solanFoldTemplates') || '{}') || {};
+    Object.keys(ov).forEach(function(k){
+      var o = ov[k]; if (!o) return;
+      if (o.custom && Array.isArray(o.grids) && o.grids.length){
+        window._pi.templates[k] = { N:o.N, sides:o.sides, rot:o.rot, grids:o.grids, custom:true, label:o.label||k };
+      } else if (window._pi.templates[k] && Array.isArray(o.grids) && o.grids.length === (window._pi.templates[k].grids||[]).length){
+        window._pi.templates[k].grids = o.grids;   // עריכת טמפלט קיים
+      }
+    });
+  } catch(e){}
+}
 // מקור אמת יחיד לתבניות: קריאת TEMPLATES מכלי הקיפול דרך iframe נסתר (same-origin)
 function pi_loadTemplates(cb){
-  if (window._pi.templates){ if (cb) cb(); return; }
+  if (window._pi.templates){ pi_mergeCustomTemplates(); if (cb) cb(); return; }
   var f = document.getElementById('pi-tpl-frame');
   if (!f){
     f = document.createElement('iframe');
@@ -27973,11 +27933,19 @@ function pi_loadTemplates(cb){
   (function check(){
     try {
       var t = f.contentWindow && f.contentWindow.TEMPLATES;
-      if (t && t['32']){ window._pi.templates = t; if (cb) cb(); return; }
+      if (t && t['32']){ window._pi.templates = t; pi_mergeCustomTemplates(); if (cb) cb(); return; }
     } catch(e){}
     if (++tries < 40) setTimeout(check, 250);
     else if (cb) cb();   // כישלון — הבונה יציג הודעת טעינה עם נסיון חוזר
   })();
+}
+// פותח את כלי-הקיפול לניהול טמפלטים (יצירה/עריכה) — כולל סוגי-עבודה חדשים
+function pi_openTemplateTool(){
+  window._pi.templates = null;   // כדי שייטען מחדש עם הטמפלט החדש כשחוזרים
+  var url = 'imposition-tool.html?v=' + (window.APP_VERSION || '1');
+  var w = window.open(url, '_blank');
+  if (!w){ showToast('⚠️ החלון נחסם — אשר חלונות קופצים ונסה שוב'); return; }
+  showToast('🧩 נפתח כלי הטמפלטים — צור/ערוך ושמור, ואז חזור לתכנון');
 }
 function pi_close(){ if (window._isPlanningView) return; var m = document.getElementById('piModal'); if (m) m.classList.remove('open'); }
 // מצב "אפליקציית אימפוזיציה" (?planning=1): רק חלון האימפוזיציה, ממלא את המסך, בלי האפליקציה מאחוריו
@@ -28020,6 +27988,7 @@ function pi_renderList(){
       '<button onclick="pi_howItWorks()" style="flex:none;padding:6px 12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;color:#0f766e;font-weight:800;font-size:.78rem;cursor:pointer;font-family:Heebo">❔ איך זה עובד</button>' +
       '<button onclick="pi_setSimpleMode(' + (simple ? 'false' : 'true') + ')" title="' + (simple ? 'הצג בקרות מתקדמות' : 'הסתר בקרות מתקדמות') + '" style="flex:none;padding:6px 12px;border:1px solid ' + (simple ? '#fcd34d' : '#c7d2fe') + ';border-radius:8px;background:' + (simple ? '#fffbeb' : '#eef2ff') + ';color:' + (simple ? '#92400e' : '#3730a3') + ';font-weight:800;font-size:.78rem;cursor:pointer;font-family:Heebo">' + (simple ? '🛠️ מתקדם' : '🔰 פשוט') + '</button>' +
       (simple ? '' : '<button onclick="pi_showFeatures()" title="רשימת התכונות — קיים ומתוכנן" style="flex:none;padding:6px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6d28d9;font-weight:800;font-size:.78rem;cursor:pointer;font-family:Heebo">📋 תכונות</button>') +
+      (simple ? '' : '<button onclick="pi_openTemplateTool()" title="צור או ערוך טמפלטים לקיפול — כולל סוגי-עבודה חדשים שאין להם טמפלט מוכן" style="flex:none;padding:6px 12px;border:1px solid #86efac;border-radius:8px;background:#f0fdf4;color:#166534;font-weight:800;font-size:.78rem;cursor:pointer;font-family:Heebo">🧩 טמפלטים</button>') +
     '</div>' +
     // שני מסלולים — בחירה ברורה לעובד
     '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">' +
@@ -28078,7 +28047,9 @@ function pi_renderList(){
   // פרופילי מכונה — הגדרה מתקדמת, מוסתרת מהעובד במצב פשוט
   var profs = Object.keys(window._pi.profiles).map(function(k){ return window._pi.profiles[k]; }).filter(function(p){ return p && !p._deleted; });
   if (!simple){
-  html += '<div style="font-weight:800;color:#6d28d9;font-size:.95rem;margin:18px 0 8px">⚙️ פרופילי מכונה (' + profs.length + ')</div>';
+  var _profOpen = false; try { _profOpen = localStorage.getItem('solanPiProfOpen') === '1'; } catch(e){}
+  html += '<details style="margin:18px 0 0"' + (_profOpen ? ' open' : '') + ' ontoggle="try{localStorage.setItem(\'solanPiProfOpen\',this.open?\'1\':\'0\')}catch(e){}">'
+        + '<summary style="font-weight:800;color:#6d28d9;font-size:.95rem;cursor:pointer;padding:5px 0;user-select:none">⚙️ פרופילי מכונה (' + profs.length + ') — לחצו להצגה/הסתרה</summary>';
   html += profs.map(function(p){
     var mChk = PI_METHODS.map(function(m){
       var on = (p.allowedMethods||[]).indexOf(m.id) !== -1;
@@ -28098,6 +28069,7 @@ function pi_renderList(){
     '</div>';
   }).join('');
   html += '<div style="font-size:.72rem;color:#9ca3af;margin-top:12px">בונה לוחות מבוסס כרטיס עבודה — הכרטיס הוא מקור האמת. טיוטה נשמרת ומסונכרנת; אישור מסמן תוכנית לוחות מאושרת.</div>';
+  html += '</details>';
   }   // end !simple (profiles)
   body.innerHTML = html;
   // מדריך פתיחה בפעם הראשונה (פעם אחת לכל דפדפן)
@@ -28174,6 +28146,18 @@ function pi_newDraft(unit){
 // חלוקה לקונטרסים + מפת עמודים (pageMap[מקומי-1] = עמוד גלובלי; null = ריק)
 function pi_buildSignatures(d){
   var family = pi_familyFor(d.method);
+  var padded = Math.ceil(d.pagesIn / 4) * 4;
+  // אם קיים טמפלט מותאם-אישית שמתאים בדיוק לכל העבודה — קונטרס אחד, גיליון אחד, סט לוחות אחד.
+  // (למשל 24 עמ' = 16+8 על אותו גיליון → 8 לוחות בלבד בפרפקטור, ולא 2 סטים)
+  var customKey = pi_customTplFor(family, padded);
+  if (customKey){
+    d.family = family; d.pages = padded; d.blanks = padded - d.pagesIn;
+    var pm0 = [];
+    for (var p0 = 1; p0 <= padded; p0++) pm0.push(p0 <= d.pagesIn ? p0 : null);
+    d.signatures = [{ idx: 1, template: customKey, n: padded, family: family, start: 1, pageMap: pm0, custom: true }];
+    pi_numberPlates(d);
+    return;
+  }
   var sp = pi_splitPages(d.pagesIn, family);
   d.family = family; d.pages = sp.padded; d.blanks = sp.blanks;
   d.signatures = [];
@@ -28379,6 +28363,14 @@ function pi_setPages(v){
   cur.pagesIn = n; cur._edited = false; cur.replacements = []; cur.itemOverrides = {}; pi_rebuild(cur);
   window._pi.dirty = true; window._pi.sel = null; pi_render();
 }
+// מרווח בין עמודים בקונטרס (מ״מ). 0 = צמוד (כריכת סיכות — השדרה ללא רווח, ברירת-מחדל).
+// מקור-אמת יחיד: משפיע גם על התצוגה (רשת+מ״מ) וגם על PDF ההפקה.
+function pi_setGap(v){
+  var cur = window._pi.cur; if (!cur) return;
+  var n = parseFloat(v); if (isNaN(n) || n < 0) n = 0; if (n > 30) n = 30;
+  cur.gapMm = Math.round(n * 10) / 10;
+  window._pi.dirty = true; pi_render();
+}
 // החלפת עמודים: לחיצה ראשונה בוחרת, שנייה מחליפה (גם בין קונטרסים)
 function pi_cellClick(sigIdx, local){
   var cur = window._pi.cur; if (!cur) return;
@@ -28480,6 +28472,8 @@ function pi_renderBuilder(){
           '</select></label>' +
         '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777">עמודים' +
           '<input type="number" min="1" value="' + cur.pagesIn + '" onchange="pi_setPages(this.value)" style="width:72px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>') +
+      '<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#777" title="מרווח בין העמודים על הגיליון. 0 = צמוד (כריכת סיכות — השדרה ללא רווח). הגדל למרווח-חיתוך.">מרווח מ״מ' +
+        '<input type="number" min="0" max="30" step="0.5" value="' + (cur.gapMm != null ? cur.gapMm : 0) + '" onchange="pi_setGap(this.value)" style="width:64px;padding:6px 8px;border:1px solid #ddd;border-radius:7px;font-family:Heebo;text-align:center"></label>' +
       (prof ? '<span style="font-size:.72rem;color:#6b7280;margin-right:auto">גיליון ' + (prof.sheetW||100) + '×' + (prof.sheetH||70) + ' ס"מ · ' + (prof.colors||'') + ' צבעים</span>' : '') +
     '</div>';
   // סיכום לוחות
@@ -28492,6 +28486,16 @@ function pi_renderBuilder(){
       '<select onchange="pi_setColors(this.value)" style="border:none;background:none;font-family:Heebo;font-size:.76rem;font-weight:700;color:#5b21b6;cursor:pointer"><option value="cmyk"' + (cur.colorMode!=='k'?' selected':'') + '>CMYK</option><option value="k"' + (cur.colorMode==='k'?' selected':'') + '>שחור בלבד</option></select></label>' +
     (cur.fromRuns ? '<span style="font-size:.72rem;color:#9ca3af;align-self:center">נבנה ממבנה הריצות בכרטיס</span>' : '') +
   '</div>';
+  // אין טמפלט שמכניס את כל העבודה לגיליון אחד → הצע לבנות טמפלט מתאים (למשל 24 עמ' = 16+8 על גיליון אחד → סט לוחות אחד)
+  if (!cur.fromRuns && cur.signatures.length > 1){
+    var _padded = Math.ceil((cur.pagesIn||0)/4)*4, _fam = pi_familyFor(cur.method);
+    if (!pi_customTplFor(_fam, _padded)){
+      html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:8px 11px;margin-bottom:10px;font-size:.8rem">' +
+        '<span style="flex:1;min-width:170px;color:#1e40af;font-weight:700">🧩 העבודה מתחלקת ל-' + cur.signatures.length + ' קונטרסים (' + totalPlates + ' פלטות). אם כל ה-' + _padded + ' עמ\' נכנסים על <b>גיליון אחד</b> — בנה טמפלט מותאם ל-' + _padded + ' עמ\' והמערכת תתכנן <b>סט לוחות אחד</b>.</span>' +
+        '<button onclick="pi_openTemplateTool()" style="flex:none;border:none;background:#2563eb;color:#fff;border-radius:7px;padding:6px 12px;cursor:pointer;font-family:Heebo;font-weight:800;font-size:.76rem">➕ בנה טמפלט ל-' + _padded + ' עמ\'</button>' +
+      '</div>';
+    }
+  }
   // קובץ סדר-קריאה → גרפיקה אמיתית ב-PDF הדפוס (אחרת: תצוגת מספרים לתכנון)
   html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:' + (cur.readingUrl?'#f0fdf4':'#fffbeb') + ';border:1px solid ' + (cur.readingUrl?'#bbf7d0':'#fde68a') + ';border-radius:9px;padding:8px 11px;margin-bottom:10px;font-size:.8rem">' +
     (cur.readingUrl
@@ -28525,7 +28529,7 @@ function pi_renderBuilder(){
       html += '<div style="padding:10px 12px">' +
         '<div style="font-size:.74rem;font-weight:700;color:#6b7280;margin-bottom:6px">' + sideLabel + '</div>' +
         // direction:ltr — עמודה 0 משמאל, זהה לתצוגת-המ״מ (SVG). בלי זה ה-CSS-grid זורם RTL (עמודה 0 מימין) והתצוגות יוצאות ראי-מראה.
-        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;direction:ltr">';
+        '<div style="display:grid;grid-template-columns:repeat(' + (grid[0]||[]).length + ',1fr);gap:' + ((cur.gapMm > 0) ? '5px' : '0') + ';direction:ltr">';
       grid.forEach(function(rowArr){
         rowArr.forEach(function(local, c){
           var g = sig.pageMap[local - 1];
@@ -28844,7 +28848,10 @@ function _piHeadRectSvg(rot, iw, ih){
 function pi_computeSheetItems(d, sig, side, g){
   var T = window._pi.templates || {}, tpl = T[sig.template];
   if (!tpl || !tpl.grids[side]) return [];
-  var grid = tpl.grids[side], rows = grid.length, cols = grid[0].length, gap = g.minGapMm;
+  // מרווח בין עמודים בקונטרס מקופל: ברירת-מחדל 0 (עמודים צמודים — כריכת סיכות, השדרה ללא רווח).
+  // המשתמש יכול להגדיר מרווח (d.gapMm) לחיתוך/גנג; מקור-אמת יחיד לתצוגה ולהפקה כאחד.
+  var grid = tpl.grids[side], rows = grid.length, cols = grid[0].length;
+  var gap = (d && typeof d.gapMm === 'number') ? Math.max(0, d.gapMm) : 0;
   var cellW = (g.printableWidthMm - (cols-1)*gap) / cols;
   var cellH = (g.printableHeightMm - (rows-1)*gap) / rows;
   var items = [];
@@ -28898,9 +28905,12 @@ function pi_validateItems(items, g){
       if (!sharedOK) w.push({ level:'error', key:a.key, key2:b.key, type:'overlap', text:'עמודים ' + pi_pgLabel(a) + ' ו-' + pi_pgLabel(b) + ' חופפים' });
       continue;
     }
+    // מרווח נדרש = ההגדרה של המשתמש (cur.gapMm). 0 = צמוד מכוון (כריכת סיכות) → אין אזהרת-מרווח.
+    var _cur = (typeof window !== 'undefined' && window._pi) ? window._pi.cur : null;
+    var reqGap = (_cur && typeof _cur.gapMm === 'number') ? _cur.gapMm : 0;
     var dx = ox < 0 ? -ox : 0, dy = oy < 0 ? -oy : 0;
-    if ((oy > E && dx > E && dx < g.minGapMm - E) || (ox > E && dy > E && dy < g.minGapMm - E))
-      w.push({ level:'warn', key:a.key, key2:b.key, type:'gap', text:'מרווח קטן מ-' + g.minGapMm + ' מ״מ בין ' + pi_pgLabel(a) + ' ו-' + pi_pgLabel(b) });
+    if (reqGap > 0 && ((oy > E && dx > E && dx < reqGap - E) || (ox > E && dy > E && dy < reqGap - E)))
+      w.push({ level:'warn', key:a.key, key2:b.key, type:'gap', text:'מרווח קטן מ-' + reqGap + ' מ״מ בין ' + pi_pgLabel(a) + ' ו-' + pi_pgLabel(b) });
   }}
   return w;
 }
@@ -28961,6 +28971,10 @@ function pi_renderCanvas(){
   // בורר גיליון/צד
   panel += '<select onchange="pi_setCanvasKey(this.value)" style="padding:7px 9px;border:1px solid #ddd;border-radius:8px;font-family:Heebo;font-weight:700;font-size:.82rem">' +
     opts.map(function(o){ return '<option value="' + o.key + '"' + (o.key===ck?' selected':'') + '>' + o.text + '</option>'; }).join('') + '</select>';
+  // מרווח בין עמודים (0 = צמוד — כריכת סיכות)
+  panel += '<label style="display:flex;align-items:center;gap:7px;background:#faf7ff;border:1px solid #ede9fe;border-radius:9px;padding:7px 11px;font-size:.78rem;color:#4c1d95;font-weight:700" title="מרווח בין העמודים על הגיליון. 0 = צמוד (השדרה בכריכת-סיכות ללא רווח).">מרווח בין עמודים (מ״מ)' +
+    '<input type="number" min="0" max="30" step="0.5" value="' + (cur.gapMm != null ? cur.gapMm : 0) + '" onchange="pi_setGap(this.value)" style="width:64px;padding:5px 7px;border:1px solid #c4b5fd;border-radius:7px;font-family:Heebo;text-align:center;font-weight:800">' +
+    '<span style="font-size:.7rem;color:#7c3aed;font-weight:600">0 = צמוד</span></label>';
   // תג בעיות + ניצול
   panel += '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
     (errN ? '<span style="background:#fee2e2;color:#991b1b;border-radius:7px;padding:5px 11px;font-weight:800;font-size:.82rem">⛔ ' + errN + ' בעיות</span>'
@@ -28973,7 +28987,7 @@ function pi_renderCanvas(){
     '<b style="color:#111827">חוקי מכונה (מ״מ)</b><br>' +
     'גיליון: ' + g.sheetWidthMm + '×' + g.sheetHeightMm + ' · הדפסה: ' + Math.round(g.printableWidthMm) + '×' + Math.round(g.printableHeightMm) + '<br>' +
     'גריפר: ' + g.gripperMm + ' · שוליים: ' + g.marginTopMm + '/' + g.marginBottomMm + '/' + g.marginLeftMm + '/' + g.marginRightMm + '<br>' +
-    'מרווח מינ\': ' + g.minGapMm + ' · בליד: ' + g.defaultBleedMm + '<br>' +
+    'מרווח בין עמודים: ' + (cur.gapMm != null ? cur.gapMm : 0) + (((cur.gapMm||0)===0)?' (צמוד)':'') + ' · בליד: ' + g.defaultBleedMm + '<br>' +
     '<span style="color:#9ca3af">קנה מידה: 1 מ״מ = ' + scale.toFixed(2) + ' px (1:' + Math.round(1/scale) + ')</span>' +
   '</div>';
   // פרטי פריט נבחר + עריכה
