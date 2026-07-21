@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784631487';
+window.APP_VERSION = '1784632007';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -7457,6 +7457,9 @@ function openRunsModal(n, pages) {
   if (currentRuns.length) {
     bodyHTML += currentRuns.map((r,i) => {
       const defPaper = r.paper || defaultPapers[i] || paperForThis || '';
+      // באג: הנייר-ברירת-מחדל (למשל 130 גר' לריצה 1 של "דירה בשקל") הוצג אך לא נשמר על הריצה,
+      // ולכן ההדפסה נפלה חזרה לנייר הכרטיס (105). מחייבים אותו על הריצה → תצוגה=שמירה=הדפסה.
+      if (!r.paper && defPaper) r.paper = defPaper;
       const _paperOpen = !!r._paperOpen;
       const _paperLabel = defPaper ? escHtml(defPaper) : 'ברירת מחדל';
       const _abInner = _runAbInnerHtml(r, i);
@@ -7679,8 +7682,10 @@ function confirmRunsAndSave() {
     createdAt:    new Date().toLocaleDateString('he-IL'),
     runs:         currentRuns.map(function(r) {
       var inp = document.getElementById('run-paper-' + r.num);
+      // עורך-הנייר גלוי + מלא → ערך המשתמש; אחרת הנייר-לריצה שכבר נקבע (למשל 130 גר' לריצה 1),
+      // ורק אם אין — נייר הכרטיס. (הבאג: כאן נפל תמיד ל-_paperUsed והתעלם מ-130 המוצג.)
       var runPaper = inp && inp.style.display !== 'none' && inp.value.trim()
-        ? inp.value.trim() : _paperUsed;
+        ? inp.value.trim() : (r.paper || _paperUsed);
       return Object.assign({}, r, { paper: runPaper, color: n.color });
     })
   };
