@@ -25,6 +25,24 @@
   .opts{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-size:.9rem;align-items:center}
   .opt{display:flex;align-items:center;gap:8px}
   select{padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:.9rem;background:#fff}
+  /* בורר ראשי — רק גודל + עמודים (בולט וברור) */
+  .primary{display:flex;flex-wrap:wrap;gap:16px;margin-top:18px}
+  .pfield{flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px}
+  .pfield label{font-weight:800;color:var(--press);font-size:.9rem}
+  .pfield select{padding:12px 14px;font-size:1.05rem;font-weight:700;border:2px solid var(--gold-light);border-radius:10px;background:#fffdf7;cursor:pointer}
+  .pfield select:hover{border-color:var(--gold)}
+  #bkMatch{margin-top:12px;font-size:.9rem;line-height:1.6}
+  /* חיווי סוג-הדפסה שזוהה מהשם */
+  .detect{margin-top:10px;font-size:.92rem;font-weight:800;border-radius:10px;padding:9px 13px;line-height:1.5}
+  .detect.perf{background:#eef2ff;border:1.5px solid #c7d2fe;color:#3730a3}
+  .detect.turn{background:#fef3c7;border:1.5px solid #fcd34d;color:#92400e}
+  .detect.none{background:#f1f5f9;border:1.5px solid #e2e8f0;color:#475569;font-weight:600}
+  /* אזור אפשרויות מתקדמות — מקופל כברירת-מחדל */
+  details.adv{margin-top:20px;border-top:1px dashed var(--line);padding-top:6px}
+  details.adv>summary{cursor:pointer;font-weight:800;color:#475569;font-size:.85rem;list-style:none;user-select:none;padding:8px 0}
+  details.adv>summary::-webkit-details-marker{display:none}
+  details.adv>summary::before{content:'▸';color:var(--gold);margin-inline-end:6px;display:inline-block;transition:transform .12s}
+  details.adv[open]>summary::before{transform:rotate(90deg)}
   .btn{border:none;border-radius:10px;padding:13px 22px;font-size:1rem;font-weight:800;cursor:pointer;font-family:inherit}
   .btn-go{background:var(--gold);color:#3a2e00;width:100%;margin-top:16px}
   .btn-go:disabled{opacity:.5;cursor:default}
@@ -55,53 +73,64 @@
       <span class="muted">גיליון 70×100 פרוס (צד קדמי + אחורי) — בדיוק כמו שיוצא מ-Apogee. הכלי "מקפל" אותו לחוברת בסדר קריאה.</span>
       <input type="file" id="file" accept="application/pdf" hidden>
     </div>
-    <div class="opts">
-      <div class="opt" style="min-width:280px">
-        <label>בחר חוברת — גודל + עמודים:</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <select id="bkSize" onchange="_bkSizeChange()" style="flex:1;min-width:130px"></select>
-          <select id="bkPages" onchange="_bkMatch()" style="flex:1;min-width:110px"></select>
-        </div>
-        <div id="bkMatch" style="margin-top:8px;font-size:.85rem;line-height:1.5"></div>
+    <!-- בורר ראשי: רק גודל החוברת + מספר עמודים. סוג-ההדפסה (פרפקטור 8 צבעים / 4 צבעים) מזוהה אוטומטית משם הקובץ. -->
+    <div class="primary">
+      <div class="pfield">
+        <label>📐 גודל החוברת</label>
+        <select id="bkSize" onchange="_bkSizeChange()"></select>
       </div>
-      <div class="opt"><label>טמפלט (מתקדם):</label>
-        <select id="sheet" onchange="_bkSyncFromSheet()">
-          <option value="32" selected>32 עמ' — פרפקטור (8 צבעים)</option>
-          <option value="32p">32 עמ' — 4 צבעים (קדמי+אחורי)</option>
-          <option value="16perf">16 עמ' — פרפקטור (8 צבעים)</option>
-          <option value="16p">16 עמ' — מתהפך (4 צבעים)</option>
-          <option value="8perf">8 עמ' — פרפקטור (8 צבעים)</option>
-          <option value="8p">8 עמ' — מתהפך (4 צבעים)</option>
-          <option value="4perf">4 עמ' — פרפקטור (8 צבעים)</option>
-          <option value="4p">4 עמ' — מתהפך (4 צבעים)</option>
-        </select>
-        <button type="button" id="tplEditBtn" onclick="_tplEdit()" title="ערוך את סדר-העמודים של הטמפלט ושמור אותו" style="margin-top:6px;padding:6px 12px;border:1.5px solid #c9a84c;background:#fdf6e3;color:#7c5a00;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">✏️ ערוך טמפלט</button>
-        <button type="button" id="tplNewBtn" onclick="_tplNew()" title="צור טמפלט חדש לסוג-עבודה שאין לו טמפלט מוכן" style="margin-top:6px;padding:6px 12px;border:1.5px solid #16a34a;background:#f0fdf4;color:#166534;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">➕ טמפלט חדש</button>
-        <button type="button" id="tplImpBtn" onclick="document.getElementById('tplImpFile').click()" title="טען טמפלט מקובץ PDF של פריסה (למשל גודל עיתון חדש) — המערכת קוראת את סדר-העמודים והגיאומטריה" style="margin-top:6px;padding:6px 12px;border:1.5px solid #2563eb;background:#eff6ff;color:#1e40af;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">📥 טען טמפלט מ-PDF</button>
-        <button type="button" id="tplBuildBtn" onclick="_tbOpen()" title="בונה-טמפלטים ויזואלי — קבע גודל, סדר-עמודים וסיבוב לכל עמוד, ראה תצוגה חיה, בדוק עם גיליון ממוספר ושמור" style="margin-top:6px;padding:6px 12px;border:1.5px solid #7c3aed;background:#f5f3ff;color:#5b21b6;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">🛠️ בונה טמפלטים</button>
-        <button type="button" id="tplMngBtn" onclick="_tplManage()" title="נהל טמפלטים שמורים — ערוך או מחק" style="margin-top:6px;padding:6px 12px;border:1.5px solid #dc2626;background:#fef2f2;color:#991b1b;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">🗑 נהל/מחק טמפלטים</button>
-        <input type="file" id="tplImpFile" accept="application/pdf" style="display:none" onchange="if(this.files&&this.files[0]){_tplImportPdf(this.files[0]);this.value='';}">
-      </div>
-      <div class="opt"><label>צד ראשון בקובץ:</label>
-        <select id="firstside"><option value="0" selected>קדמי (עמ' 1)</option><option value="1">אחורי</option></select>
-      </div>
-      <div class="opt"><label>היפוך מראה:</label>
-        <select id="mirror"><option value="0" selected>לא</option><option value="1">כן — פרופר הפוך (Wrong-reading)</option></select>
-      </div>
-      <div class="opt"><label>גודל עמוד בתצוגה:</label>
-        <select id="viewsize"><option value="0" selected>נטו (טרים בלבד)</option><option value="3">ברוטו +3 מ״מ (עם בליד)</option><option value="5">ברוטו +5 מ״מ (עם בליד)</option></select>
-      </div>
-      <div class="opt"><label>דש סיכות (lip):</label>
-        <select id="showlip" onchange="if(_FB)_fbRender()"><option value="0" selected>לא</option><option value="1">כן — הצג דש (15/5 מ״מ)</option></select>
-      </div>
-      <div class="opt"><label>צד הדש (15 מ״מ):</label>
-        <select id="lipside" onchange="if(_FB)_fbRender()"><option value="auto" selected>אוטומטי — מהפרופר</option><option value="right">ימין</option><option value="left">שמאל</option></select>
+      <div class="pfield">
+        <label>📄 מספר עמודים</label>
+        <select id="bkPages" onchange="_bkMatch()"></select>
       </div>
     </div>
-    <div class="muted" id="fileinfo" style="margin-top:10px"></div>
+    <div class="muted" id="fileinfo" style="margin-top:12px"></div>
+    <div id="detectBox"></div>
+    <div id="bkMatch"></div>
     <button class="btn btn-go" id="go" disabled>📖 קפל לחוברת</button>
     <div id="log"></div>
     <div id="result"></div>
+
+    <details class="adv">
+      <summary>⚙️ אפשרויות מתקדמות · בחירת טמפלט וכיוון (בדרך-כלל אין צורך)</summary>
+      <div class="opts">
+        <div class="opt"><label>טמפלט:</label>
+          <select id="sheet" onchange="_bkSyncFromSheet()">
+            <option value="32" selected>32 עמ' — פרפקטור (8 צבעים)</option>
+            <option value="32p">32 עמ' — 4 צבעים (קדמי+אחורי)</option>
+            <option value="16perf">16 עמ' — פרפקטור (8 צבעים)</option>
+            <option value="16p">16 עמ' — מתהפך (4 צבעים)</option>
+            <option value="8perf">8 עמ' — פרפקטור (8 צבעים)</option>
+            <option value="8p">8 עמ' — מתהפך (4 צבעים)</option>
+            <option value="4perf">4 עמ' — פרפקטור (8 צבעים)</option>
+            <option value="4p">4 עמ' — מתהפך (4 צבעים)</option>
+          </select>
+        </div>
+        <div class="opt" style="flex-wrap:wrap;gap:6px">
+          <button type="button" id="tplEditBtn" onclick="_tplEdit()" title="ערוך את סדר-העמודים של הטמפלט ושמור אותו" style="padding:6px 12px;border:1.5px solid #c9a84c;background:#fdf6e3;color:#7c5a00;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">✏️ ערוך טמפלט</button>
+          <button type="button" id="tplNewBtn" onclick="_tplNew()" title="צור טמפלט חדש לסוג-עבודה שאין לו טמפלט מוכן" style="padding:6px 12px;border:1.5px solid #16a34a;background:#f0fdf4;color:#166534;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">➕ טמפלט חדש</button>
+          <button type="button" id="tplImpBtn" onclick="document.getElementById('tplImpFile').click()" title="טען טמפלט מקובץ PDF של פריסה (למשל גודל עיתון חדש) — המערכת קוראת את סדר-העמודים והגיאומטריה" style="padding:6px 12px;border:1.5px solid #2563eb;background:#eff6ff;color:#1e40af;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">📥 טען טמפלט מ-PDF</button>
+          <button type="button" id="tplBuildBtn" onclick="_tbOpen()" title="בונה-טמפלטים ויזואלי — קבע גודל, סדר-עמודים וסיבוב לכל עמוד, ראה תצוגה חיה, בדוק עם גיליון ממוספר ושמור" style="padding:6px 12px;border:1.5px solid #7c3aed;background:#f5f3ff;color:#5b21b6;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">🛠️ בונה טמפלטים</button>
+          <button type="button" id="tplMngBtn" onclick="_tplManage()" title="נהל טמפלטים שמורים — ערוך או מחק" style="padding:6px 12px;border:1.5px solid #dc2626;background:#fef2f2;color:#991b1b;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700">🗑 נהל/מחק טמפלטים</button>
+          <input type="file" id="tplImpFile" accept="application/pdf" style="display:none" onchange="if(this.files&&this.files[0]){_tplImportPdf(this.files[0]);this.value='';}">
+        </div>
+        <div class="opt"><label>צד ראשון בקובץ:</label>
+          <select id="firstside"><option value="0" selected>קדמי (עמ' 1)</option><option value="1">אחורי</option></select>
+        </div>
+        <div class="opt"><label>היפוך מראה:</label>
+          <select id="mirror"><option value="0" selected>לא</option><option value="1">כן — פרופר הפוך (Wrong-reading)</option></select>
+        </div>
+        <div class="opt"><label>גודל עמוד בתצוגה:</label>
+          <select id="viewsize"><option value="0" selected>נטו (טרים בלבד)</option><option value="3">ברוטו +3 מ״מ (עם בליד)</option><option value="5">ברוטו +5 מ״מ (עם בליד)</option></select>
+        </div>
+        <div class="opt"><label>דש סיכות (lip):</label>
+          <select id="showlip" onchange="if(_FB)_fbRender()"><option value="0" selected>לא</option><option value="1">כן — הצג דש (15/5 מ״מ)</option></select>
+        </div>
+        <div class="opt"><label>צד הדש (15 מ״מ):</label>
+          <select id="lipside" onchange="if(_FB)_fbRender()"><option value="auto" selected>אוטומטי — מהפרופר</option><option value="right">ימין</option><option value="left">שמאל</option></select>
+        </div>
+      </div>
+    </details>
   </div>
 
   <div class="card">
@@ -1047,6 +1076,37 @@ function _bkFillPages(prefer){
 }
 function _bkSizeChange(){ _bkFillPages(); _bkMatch(); }
 function _bkRefold(){ try { if (_file && $('go') && !$('go').disabled) $('go').click(); } catch(e){} }
+// סיווג טמפלט לפי הטקסט שלו: פרפקטור (8 צבעים) מול 4-צבעים/מתהפך
+function _bkClassify(m){
+  var t = String(m && m.text || '');
+  if (/פרפקטור/.test(t)) return 'perf';
+  if (/מתהפך|4\s*צבע/.test(t)) return 'turn';
+  return 'other';
+}
+// זיהוי סוג-ההדפסה משם-הקובץ: 'perf' (8 צבעים/פרפקטור) · 'turn' (4 צבעים/מתהפך) · null (לא ודאי)
+function _detectPrintKindFromName(name){
+  var s = String(name || '');
+  var perf = /פרפקטור|perfect(?:or|ing)?|היידלברג|heidelberg/i.test(s)
+          || /(^|[^0-9])8\s*[-]?\s*(?:צבע|צבעים|colou?rs?|c(?![a-z]))/i.test(s)
+          || /\b8c\b/i.test(s);
+  var turn = /מתהפך|tumble|\bturn(?:ed)?\b|רולנד|roland/i.test(s)
+          || /(^|[^0-9])4\s*[-]?\s*(?:צבע|צבעים|colou?rs?|c(?![a-z]))/i.test(s)
+          || /\b4c\b/i.test(s);
+  if (perf && !turn) return 'perf';
+  if (turn && !perf) return 'turn';
+  return null;
+}
+// חיווי למשתמש: איזה סוג-הדפסה נבחר ומאיפה (מהשם / אוטומטי / ידני)
+function _renderDetectBox(){
+  var box = $('detectBox'); if (!box) return;
+  if (!_file){ box.innerHTML = ''; return; }
+  var k = window._detectedKind, fromName = window._detectedFromName;
+  if (!k){ try { k = _bkClassify(_bkMeta().filter(function(m){ return m.key===$('sheet').value; })[0]); } catch(e){ k='other'; } }
+  var src = fromName ? 'זוהה מהשם' : 'נבחר';
+  if (k === 'perf')      box.innerHTML = '<div class="detect perf">🖨️ '+src+': <b>פרפקטור — 8 צבעים</b> · קובץ דו-צדדי (קדמי + אחורי)</div>';
+  else if (k === 'turn') box.innerHTML = '<div class="detect turn">🖨️ '+src+': <b>4 צבעים — מתהפך</b></div>';
+  else                   box.innerHTML = '<div class="detect none">🖨️ סוג-ההדפסה לא זוהה משם-הקובץ — נבחר אוטומטית. ניתן לשנות ב"אפשרויות מתקדמות".</div>';
+}
 function _bkMatch(){
   var box = $('bkMatch'); if (!box) return;
   var szSel=$('bkSize'), pgSel=$('bkPages');
@@ -1058,16 +1118,23 @@ function _bkMatch(){
     return;
   }
   var cur = $('sheet').value;
-  if (!matches.some(function(m){ return m.key===cur; })){ $('sheet').value = matches[0].key; _bkRefold(); }
+  // אם זוהה סוג-הדפסה (מהשם או בבחירה ידנית) — העדף את הטמפלט התואם
+  var want = window._detectedKind || null;
+  var pref = want ? matches.filter(function(m){ return _bkClassify(m)===want; })[0] : null;
+  if (pref && pref.key !== cur){ $('sheet').value = pref.key; cur = pref.key; _bkRefold(); }
+  else if (!matches.some(function(m){ return m.key===cur; })){ $('sheet').value = (pref||matches[0]).key; cur = $('sheet').value; _bkRefold(); }
   var chips = matches.map(function(m){
     var on = ($('sheet').value === m.key);
     return '<button type="button" onclick="_bkPick(\''+m.key+'\')" style="padding:5px 11px;border:1.5px solid '+(on?'#16a34a':'#cbd5e1')+';background:'+(on?'#dcfce7':'#fff')+';color:'+(on?'#166534':'#334155')+';border-radius:16px;cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:700;margin:3px 4px 0 0">'+(on?'✓ ':'')+m.text+'</button>';
   }).join('');
-  box.innerHTML = '<span style="color:#166534;font-weight:800">✓ יש טמפלט מתאים — כעת העלה פרופר מתאים לקיפול.</span>'
-    + (matches.length>1 ? '<div style="margin-top:4px;color:#475569;font-size:.78rem">בחר סוג הדפסה:</div>' : '')
-    + '<div style="margin-top:3px">'+chips+'</div>';
+  box.innerHTML = '<span style="color:#166534;font-weight:800">✓ יש טמפלט מתאים'+(window._fileLoaded?'':' — כעת העלה את הפרופר')+'.</span>'
+    + (matches.length>1 ? '<div style="margin-top:4px;color:#475569;font-size:.78rem">סוג-ההדפסה נבחר אוטומטית — לשינוי ידני לחץ:</div><div style="margin-top:3px">'+chips+'</div>' : '');
 }
-function _bkPick(key){ $('sheet').value = key; _bkRefold(); _bkMatch(); }
+function _bkPick(key){
+  $('sheet').value = key;
+  try { var m = _bkMeta().filter(function(x){ return x.key===key; })[0]; if (m){ window._detectedKind = _bkClassify(m); window._detectedFromName = false; } } catch(e){}
+  _bkRefold(); _bkMatch(); _renderDetectBox();
+}
 // כשמשנים ידנית את בורר-הטמפלט המתקדם — משקפים בבורר-החוברת
 function _bkSyncFromSheet(){
   var tpl = TEMPLATES[$('sheet').value] || {}, size = _bkSizeOf(tpl), szSel = $('bkSize');
@@ -1087,11 +1154,19 @@ $('drop').onclick = () => $('file').click();
 ['dragleave','drop'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.remove('over');}));
 $('drop').addEventListener('drop', e=>{ if(e.dataTransfer.files[0]) { window._srcProofUrl = null; setFile(e.dataTransfer.files[0]); } });
 
-function setFile(f){
+function setFile(f, opts){
   if (!f || f.type!=='application/pdf'){ $('fileinfo').textContent='⚠️ יש לבחור קובץ PDF.'; return; }
-  _file = f; $('go').disabled = false;
+  _file = f; window._fileLoaded = true; $('go').disabled = false;
   $('fileinfo').innerHTML = '📄 <b>'+f.name+'</b> · '+(f.size/1024/1024).toFixed(1)+'MB';
   $('result').innerHTML=''; $('log').textContent='';
+  // זיהוי סוג-ההדפסה (פרפקטור 8 צבעים / 4 צבעים) משם-הקובץ — כדי שהמשתמש יבחר רק גודל + עמודים.
+  // בטעינה מכרטיס (keepType) הסוג כבר נקבע במפורש — לא דורסים אותו.
+  if (!(opts && opts.keepType)){
+    window._detectedKind = _detectPrintKindFromName(f.name);
+    window._detectedFromName = !!window._detectedKind;
+    try { _bkMatch(); } catch(e){}
+  }
+  _renderDetectBox();
 }
 
 $('go').onclick = async () => {
@@ -1999,7 +2074,7 @@ window._shareBookletFile = _shareBookletFile;
     fetch(url).then(function(r){ if(!r.ok) throw new Error('טעינה נכשלה ('+r.status+')'); return r.blob(); })
       .then(function(blob){
         var f = new File([blob], nm.replace(/[\\/:*?"<>|]/g,'_').slice(0,120) + (/\.pdf$/i.test(nm)?'':'.pdf'), { type:'application/pdf' });
-        setFile(f);
+        setFile(f, { keepType: !!(type && TEMPLATES[type]) });
         window._srcProofUrl = url;   // מקור מרוחק — שיתוף ללקוח לא צריך העלאה חוזרת
         if (qs.get('auto') !== '0') $('go').click();   // קיפול אוטומטי (אלא אם auto=0)
       })
