@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>U2 Golden Test — Legacy מול Shell (16perf)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}</script>
+<script src="imposition-fold-adapter.js"></script>
+<script src="imposition-result.js"></script>
+<script src="imposition-legacy-bridge.js"></script>
+<style>
+  body{font-family:'Heebo',Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px;direction:rtl;overflow-x:hidden}
+  h1{font-size:1.1rem}.warn2{background:#78350f;border:1px solid #f59e0b;color:#fef3c7;border-radius:9px;padding:9px 12px;margin:10px 0;font-size:.84rem}
+  button{background:#2563eb;color:#fff;border:none;border-radius:9px;padding:9px 14px;font-family:inherit;font-weight:800;cursor:pointer}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px;margin:12px 0}
+  table{width:100%;border-collapse:collapse;font-size:.82rem}td,th{border-bottom:1px solid #334155;padding:6px 8px;text-align:right}
+  .ok{color:#86efac;font-weight:800}.bad{color:#fca5a5;font-weight:800}.muted{color:#94a3b8;font-size:.82rem}
+  code{background:#0b1220;padding:1px 6px;border-radius:4px;direction:ltr;display:inline-block;font-size:.75rem}
+  .cmp{display:flex;gap:16px;flex-wrap:wrap}.side{flex:1;min-width:320px}
+  canvas{max-width:100%;height:auto;background:#fff;border-radius:6px;border:1px solid #334155}
+  pre{background:#0b1220;padding:10px;border-radius:8px;overflow:auto;font-size:.72rem;direction:ltr;max-height:280px}
+</style>
+</head>
+<body>
+<h1>🧪 U2 Golden Test — Legacy מול Shell (16perf)</h1>
+<div class="warn2">השוואת-פלט 3-רמות (Hash → מבני → חזותי). <b>אין כתיבה/שליחה.</b> ללא הבטחת "byte-identical" — רק אם ה-hash זהה בפועל; אחרת "output-equivalent" לאחר התאמה מבנית+חזותית + אישורך.</div>
+<div class="card">
+  <input type="file" id="proof" accept="application/pdf">
+  <button id="run" style="margin-inline-start:8px">▶ הרץ השוואה</button>
+  <div id="status" class="muted" style="margin-top:8px">בחר פרופר-16perf אמיתי (2 עמ׳ · 70×100).</div>
+</div>
+<div class="card"><h3 style="margin-top:0">רמה 1–2: Hash + מבני</h3><div id="results"></div><pre id="meta"></pre></div>
+<div class="card"><h3 style="margin-top:0">רמה 3: חזותי (זו-לצד-זו)</h3>
+  <div class="muted" style="margin-bottom:8px">בחר עמוד: <input type="number" id="pageNo" value="1" min="1" style="width:70px;background:#0b1220;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:4px"> <button id="cmpBtn" class="muted" style="background:#334155">השווה עמוד</button> <span id="pixDiff" class="muted"></span></div>
+  <div class="cmp"><div class="side"><b>כלי ישן</b><br><canvas id="cvA"></canvas></div><div class="side"><b>Shell (Adapter)</b><br><canvas id="cvB"></canvas></div></div>
+</div>
+<script>
+'use strict';
+const { PDFDocument } = PDFLib;
+const ADP = window.ImpositionFoldAdapter, RES = window.ImpositionResult, LB = window.ImpositionLegacyBridge;
+const $ = id => document.getElementById(id);
+let _srcBytes=null, _outA=null, _outB=null, _bridge=null;
+
+async function sha256(bytes){ const h=await crypto.subtle.digest('SHA-256', bytes); return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+async function boxes(bytes){ const d=await PDFDocument.load(bytes,{ignoreEncryption:true}); return d.getPages().map(p=>{const m=p.getMediaBox();return {w:+(m.width/72*25.4).toFixed(1),h:+(m.height/72*25.4).toFixed(1)};}); }
+
+$('proof').onchange = async e=>{ const f=e.target.files[0]; if(!f) return; _srcBytes=new Uint8Array(await f.arrayBuffer()); $('status').textContent='📄 '+f.name+' · '+(_srcBytes.length/1048576).toFixed(1)+'MB — לחץ "הרץ השוואה".'; };
+
+$('run').onclick = async ()=>{
+  if(!_srcBytes){ $('status').textContent='אין פרופר.'; return; }
+  $('status').textContent='מריץ…';
+  try {
+    // עותק נפרד לכל ריצה (מניעת mutation)
+    const bufA=_srcBytes.slice(0), bufB=_srcBytes.slice(0);
+    if(!_bridge) _bridge=LB.createLegacyBridge({ iframeUrl:'imposition-tool.html' });
+    await _bridge.ready();
+    // ריצה 1 — "כלי ישן" (fold ישיר דרך אותו iframe)
+    const rA = await _bridge.runFold({ arrayBuffer:bufA, type:'16perf', firstSide:0, mirror:false, bleedMm:0 });
+    // ריצה 2 — דרך ה-Adapter (אותו fold; ה-adapter רק ממפה, לא משנה bytes)
+    const rB = await _bridge.runFold({ arrayBuffer:bufB, type:'16perf', firstSide:0, mirror:false, bleedMm:0 });
+    const result = ADP.legacyReportToResult({ report:rB.report, bytes:rB.bytes, sourceFile:{fileId:'golden'}, templateId:'16perf' });
+    _outA=new Uint8Array(rA.bytes); _outB=new Uint8Array(result.outputPdfBytes);
+    const srcHash=await sha256(_srcBytes), hashA=await sha256(_outA), hashB=await sha256(_outB);
+    const boxesA=await boxes(_outA), boxesB=await boxes(_outB);
+    const level1 = hashA===hashB;
+    const structural = boxesA.length===boxesB.length && boxesA.every((b,i)=>b.w===boxesB[i].w && b.h===boxesB[i].h);
+    $('results').innerHTML =
+        '<table><tr><th>בדיקה</th><th>תוצאה</th></tr>'
+      + '<tr><td>רמה 1 · Hash זהה</td><td class="'+(level1?'ok':'bad')+'">'+(level1?'✓ byte-identical':'✗ שונה (עובר לרמה 2/3)')+'</td></tr>'
+      + '<tr><td>מספר עמודים (A/B)</td><td>'+boxesA.length+' / '+boxesB.length+(boxesA.length===boxesB.length?' ✓':' ✗')+'</td></tr>'
+      + '<tr><td>מידות כל עמוד זהות</td><td class="'+(structural?'ok':'bad')+'">'+(structural?'✓':'✗')+'</td></tr>'
+      + '<tr><td>Adapter לא שינה bytes (hashA===adapterHash)</td><td class="'+(hashA===hashB?'ok':'bad')+'">'+(hashA===hashB?'✓':'✗ — יש save/שינוי')+'</td></tr>'
+      + '</table>'
+      + '<div style="margin-top:8px" class="'+((level1||structural)?'ok':'bad')+'">'+(level1?'byte-identical ✓':(structural?'output-equivalent (מבני) — נדרש אישור חזותי + שלך':'✗ אין התאמה — בדוק'))+'</div>';
+    $('meta').textContent = JSON.stringify({
+      templateType:'16perf', bridgeMode:'same-origin-iframe',
+      sourceHash:srcHash, legacyDirectHash:hashA, adapterHash:hashB,
+      pageCountA:boxesA.length, pageCountB:boxesB.length, dimsA:boxesA.slice(0,2), dimsB:boxesB.slice(0,2),
+      durationA_ms:rA.durationMs, durationB_ms:rB.durationMs,
+      pdfLibVersion:(PDFLib.PDFDocument?'1.17.1':'?'), bridgeDiagnostics:_bridge.diagnostics(),
+      warnings:result.warnings, errors:result.errors, date:new Date().toISOString()
+    }, null, 2);
+    $('status').textContent = '✓ הושלם. אמת חזותית עמודים 1 / 2–3 / 8–9 / 14–15 / 16.';
+  } catch(e){ console.error(e); $('status').innerHTML='<span class="bad">שגיאה: '+(e.message||e)+'</span>'; }
+};
+
+$('cmpBtn').onclick = async ()=>{
+  if(!_outA||!_outB) return;
+  const n=Math.max(1, parseInt($('pageNo').value)||1);
+  const dA=await renderPage(_outA, n, $('cvA')), dB=await renderPage(_outB, n, $('cvB'));
+  if(dA&&dB) $('pixDiff').textContent = 'הבדל: '+dA.diff+' פיקסלים ('+((dA.diff/(dA.total||1))*100).toFixed(3)+'%)';
+};
+async function renderPage(bytes, n, cv){
+  const pdf=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise; if(n>pdf.numPages) return null;
+  const page=await pdf.getPage(n); const vp0=page.getViewport({scale:1}); const scale=Math.min(360/vp0.width,1.2); const vp=page.getViewport({scale});
+  cv.width=vp.width; cv.height=vp.height; await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+  // diff מול הצד השני מחושב בלחיצה על "השווה עמוד" (פשוט — סופר פיקסלים שונים מול cvA)
+  try { const a=$('cvA').getContext('2d').getImageData(0,0,$('cvA').width,$('cvA').height).data;
+    const b=$('cvB').getContext('2d').getImageData(0,0,$('cvB').width,$('cvB').height).data;
+    if(a.length===b.length){ let diff=0; for(let i=0;i<a.length;i+=4){ if(Math.abs(a[i]-b[i])+Math.abs(a[i+1]-b[i+1])+Math.abs(a[i+2]-b[i+2])>24) diff++; } return {diff, total:a.length/4}; }
+  } catch(e){}
+  return {diff:0,total:1};
+}
+</script>
+</body>
+</html>

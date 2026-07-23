@@ -64,9 +64,70 @@
     return { engine: null, reason: 'לא ניתן לקבוע מנוע לטמפלט זה', supported: false, warnings: warnings };
   }
 
-  // ── Placeholders — U1 אינו מפעיל שום מנוע ───────────────────────────────────
+  // ── U2 · Legacy Adapter (טהור) — מיפוי דוח-הכלי-הישן ל-NormalizedFoldResult ──
+  var FLAG_U2 = 'solanUnifiedLegacyU2';
+  function legacyU2Enabled(win) {
+    try { var w = win || (typeof window !== 'undefined' ? window : null);
+      return !!(w && w.SOLAN_FLAGS && w.SOLAN_FLAGS[FLAG_U2] === true); } catch (e) { return false; }
+  }
+  // U2 מוגבל לטמפלט אחד בלבד
+  function legacyU2TemplateAllowed(templateId) { return templateId === '16perf'; }
+
+  // מונה-בקשות מונוטוני + בדיקת-stale (מניעת דריסת-request חדש ע"י ישן)
+  function makeRequestCounter() { var n = 0; return { next: function () { return ++n; }, current: function () { return n; } }; }
+  function isStale(requestId, activeRequestId) { return requestId !== activeRequestId; }
+
+  // ⚠️ טהור: אינו מפעיל fold ואינו נוגע ב-DOM. מקבל את פלט-הגשר (report+bytes-meta) ובונה תוצאה.
+  //    Legacy אינו חושף מיפוי-מקור → sourceSide/cropBox/rotationApplied = null (לא ממציאים).
+  //    input: { report, outputPageCount?, bytesLen, sourceFile, templateId, engineVersion,
+  //             bridgeMode, appCheckUnavailable, sourceHash, outputHash }
+  function legacyReportToResult(input) {
+    input = input || {};
+    var report = input.report || {};
+    var pageCount = input.outputPageCount != null ? (input.outputPageCount | 0)
+      : (report.pagesOut != null ? (report.pagesOut | 0) : 0);
+    var sourceFileId = input.sourceFile && input.sourceFile.fileId || null;
+    var orderedPages = [];
+    for (var i = 1; i <= pageCount; i++) {
+      orderedPages.push({
+        finalPageNumber: i, sourceFileId: sourceFileId,
+        sourcePdfPage: null, sourceSide: null, cropBox: null, rotationApplied: null,   // Legacy: לא-ידוע → null
+        blank: false
+      });
+    }
+    var warnings = [], errors = [];
+    if (report.sizeWarn) warnings.push({ code: 'SIZE_WARN', message: 'גודל-גיליון חריג: ' + report.sizeWarn, blocking: false });
+    if (report.rotWarn) warnings.push({ code: 'ROTATE_FLAG', message: 'הקובץ שמור עם דגל-סיבוב ' + report.rotWarn + '°', blocking: false });
+    if (report.leftover) warnings.push({ code: 'LEFTOVER_PAGES', message: 'נשארו ' + report.leftover + ' עמ׳ שלא הושלמה להם חתימה', blocking: false });
+    if (report.lip) warnings.push({ code: 'STITCH_LIP', message: 'זוהה דש-סיכות ~' + (report.lip.big) + ' מ״מ בצד ' + report.lip.bigSide, blocking: false });
+    if (input.appCheckUnavailable) warnings.push({ code: 'APP_CHECK_UNAVAILABLE', message: 'App Check לא נטען, אך מנוע הקיפול המקומי זמין.', blocking: false });
+    if (pageCount <= 0) errors.push({ code: 'NO_OUTPUT_PAGES', message: 'לא נוצרו עמודי-פלט' });
+
+    return {
+      success: errors.length === 0 && pageCount > 0,
+      jobId: input.jobId || null, templateId: input.templateId || null, templateVersion: null,
+      engine: 'legacy',
+      sourceFiles: input.sourceFile ? [input.sourceFile] : [],
+      orderedPages: orderedPages,
+      outputPdfBytes: input.bytes || null,        // מקור-האמת היחיד לרכיבים
+      spreadsPdfBytes: null,                       // U2: כפולות רק אחרי Golden נפרד
+      warnings: warnings, errors: errors,
+      metadata: {
+        totalPages: pageCount, signatureCount: report.signatures != null ? (report.signatures | 0) : null,
+        createdAt: input.createdAt || null, createdBy: input.createdBy || null,
+        sourceHash: input.sourceHash || null, outputHash: input.outputHash || null,
+        engineVersion: input.engineVersion || '', legacyTemplateType: input.templateId || null,
+        bridgeMode: input.bridgeMode || 'same-origin-iframe',
+        mappingDetailLevel: 'output-only', appCheckRequiredForFold: false
+      }
+    };
+  }
+
+  // runLegacyAdapter: אם ניתן פלט-גשר → בונה תוצאה; אחרת (בלי גשר) מסמן שנדרש הגשר בדפדפן.
   function runLegacyAdapter(input) {
-    return { implemented: false, engine: 'legacy', reason: 'Legacy Adapter will be implemented in U2' };
+    input = input || {};
+    if (input.report && (input.bytes || input.outputPageCount != null)) return legacyReportToResult(input);
+    return { implemented: false, engine: 'legacy', reason: 'Legacy Adapter דורש פלט-גשר (bridge) — ראה imposition-legacy-bridge.js' };
   }
   function runDecoderV2Adapter(input) {
     return { implemented: false, engine: 'decoder-v2', reason: 'Decoder V2 Adapter will be implemented in U3' };
@@ -100,9 +161,11 @@
   }
 
   return {
-    FLAG: FLAG, WIZARD_STEPS: WIZARD_STEPS, canEnterStep: canEnterStep,
+    FLAG: FLAG, FLAG_U2: FLAG_U2, WIZARD_STEPS: WIZARD_STEPS, canEnterStep: canEnterStep,
     unifiedUiEnabled: unifiedUiEnabled, unifiedUiAllowedForUser: unifiedUiAllowedForUser,
     unifiedAccessAllowed: unifiedAccessAllowed, resolveImpositionEngine: resolveImpositionEngine,
+    legacyU2Enabled: legacyU2Enabled, legacyU2TemplateAllowed: legacyU2TemplateAllowed,
+    makeRequestCounter: makeRequestCounter, isStale: isStale, legacyReportToResult: legacyReportToResult,
     runLegacyAdapter: runLegacyAdapter, runDecoderV2Adapter: runDecoderV2Adapter, runImposition: runImposition,
     validateFoldInput: validateFoldInput
   };

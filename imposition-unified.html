@@ -5,10 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>פרופרים וחוברת לאישור — Unified (Beta · U1)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}</script>
 <script src="imposition-templates.js"></script>
 <script src="imposition-templates-catalog.js"></script>
 <script src="imposition-fold-adapter.js"></script>
 <script src="imposition-result.js"></script>
+<script src="imposition-flipbook.js"></script>
+<script src="imposition-legacy-bridge.js"></script>
 <script>
 // שומר-סביבה (זהה לשאר הדפים) — U1 ממילא לא כותב, אך נשמר כהגנה
 (function(){ if(window._solanEnvGuardReady) return; window._solanEnvGuardReady=true;
@@ -60,6 +64,12 @@
   .locked{max-width:520px;margin:60px auto;text-align:center;background:#1e293b;border:1px solid #334155;border-radius:14px;padding:28px}
   code{background:#0b1220;padding:1px 6px;border-radius:4px;direction:ltr;display:inline-block;font-size:.8rem}
   @media(max-width:640px){ .step{min-width:calc(50% - 6px)} }
+  .thumb{background:#fff;border-radius:6px;padding:4px;text-align:center;position:relative}
+  .thumb canvas{max-width:100%;height:auto;border:1px solid #cbd5e1}
+  .thumb .lbl{position:absolute;top:6px;right:6px;background:#1d4ed8;color:#fff;border-radius:6px;font-size:.7rem;font-weight:900;padding:1px 6px}
+  .fbLoad{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:#f1f5f9;color:#64748b;font-size:.8rem;font-weight:700;border-radius:6px}
+  .fbSpin{width:34px;height:34px;border:4px solid #cbd5e1;border-top-color:#2563eb;border-radius:50%;animation:fbsp .9s linear infinite}
+  @keyframes fbsp{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -106,14 +116,21 @@
       <h3>④ קיפול</h3>
       <div id="engineBox"></div>
       <button class="btn" id="foldBtn" disabled style="margin-top:12px">▶ בצע קיפול ובנה חוברת</button>
-      <div class="muted" style="margin-top:8px">חיבור המנועים יושלם בספרינטים הבאים (U2/U3).</div>
+      <div id="foldNote" class="muted" style="margin-top:8px"></div>
+      <div id="foldProgress" class="muted" style="margin-top:8px"></div>
+      <div id="debugPanel" class="muted" style="margin-top:10px;background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px;font-size:.72rem;direction:ltr;display:none"></div>
     </div>
 
     <!-- ⑤ חוברת ואישור -->
     <div class="card step-panel" data-step="booklet" style="display:none">
       <h3>⑤ חוברת ואישור</h3>
-      <div class="muted">להלן מבנה-התוצאה העתידי (<code>NormalizedFoldResult</code>) שכל הרכיבים יצרכו ממנו — <b>Preview מבנה בלבד</b>. אין שליחה/אישור/צירוף/כתיבה ב-U1.</div>
-      <pre id="resultShape" class="muted" style="background:#0b1220;padding:10px;border-radius:8px;overflow:auto;font-size:.72rem;direction:ltr;max-height:320px"></pre>
+      <div class="warn2" id="u2Banner">🧪 בדיקת Legacy U2 — <b>אין לשלוח ללקוח</b>. שליחה/אישור/צירוף-לכרטיס/כפולות מושבתים עד Golden Test ואישורך.</div>
+      <div id="resultActions" class="row" style="gap:8px;margin:8px 0"></div>
+      <div id="thumbs" class="tpl" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px"></div>
+      <h3 style="margin-top:14px">📖 דפדוף</h3>
+      <div id="flip"></div>
+      <details style="margin-top:12px"><summary class="muted">מבנה NormalizedFoldResult (אבחון)</summary>
+        <pre id="resultShape" class="muted" style="background:#0b1220;padding:10px;border-radius:8px;overflow:auto;font-size:.72rem;direction:ltr;max-height:280px"></pre></details>
     </div>
   </div>
 
@@ -134,6 +151,7 @@
 'use strict';
 const { PDFDocument } = PDFLib;
 const CAT = window.ImpositionTemplatesCatalog, ADP = window.ImpositionFoldAdapter, RES = window.ImpositionResult, TPL = window.ImpositionTemplates;
+const LB = window.ImpositionLegacyBridge, FBK = window.ImpositionFlipbook;
 const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 
@@ -145,7 +163,10 @@ const job = { jobId: qs.get('jobId')||null, customer: qs.get('cust')||null, name
 // שער-הגישה + הפעלת boot() נמצאים בסוף הסקריפט (אחרי כל ההצהרות — מניעת TDZ).
 
 // ── מצב ──
-const state = { step:'files', files:[], template:null, folded:false };
+const state = { step:'files', files:[], template:null, folded:false, _buffers:{}, result:null, activeReq:0 };
+let _bridge = null;                 // גשר-Legacy יחיד ל-Shell (לא נוצר מחדש בין שלבים)
+// ביטול-תוצאה לוגית בשינוי קלט (קובץ/טמפלט) — מונע הצגת פלט של קלט קודם
+function invalidateResult(){ state.result = null; state.folded = false; state.activeReq++; }
 const STEPS = ADP.WIZARD_STEPS;
 const STEP_LABELS = { files:'קבצים', template:'טמפלט', mapping:'מיפוי ובדיקה', fold:'קיפול', booklet:'חוברת ואישור' };
 
@@ -178,7 +199,7 @@ function showStep(s){
   document.querySelectorAll('.step-panel').forEach(p=> p.style.display = (p.dataset.step===s)?'':'none');
   if (s==='mapping') renderMapping();
   if (s==='fold') renderEngine();
-  if (s==='booklet') renderResultShape();
+  if (s==='booklet') renderU2Booklet();
   renderStepper();
   $('prev').disabled = STEPS.indexOf(s)===0;
   const canNext = STEPS.indexOf(s) < STEPS.length-1 && ADP.canEnterStep(STEPS[STEPS.indexOf(s)+1], state);
@@ -208,8 +229,10 @@ async function addFile(f){
   try { const d=await PDFDocument.load(buf,{ignoreEncryption:true}); pages=d.getPageCount();
     const p0=d.getPages()[0], mb=p0.getMediaBox(); wmm=Math.round(mb.width/72*25.4); hmm=Math.round(mb.height/72*25.4); } catch(e){}
   const hash = await sha256(buf);
-  state.files.push(RES.buildSourceFile({ fileId:'f'+Date.now()+'_'+state.files.length, name:f.name, pdfPages:pages, widthMm:wmm, heightMm:hmm, bytesLen:buf.length, hash, uploadedAt:new Date().toISOString(), signatureIndex:state.files.length }));
-  renderFiles(); showStep('files');
+  const fileId = 'f'+Date.now()+'_'+state.files.length;
+  state._buffers[fileId] = buf;      // שומרים bytes לצורך הקיפול (מקור להעברה לגשר)
+  state.files.push(RES.buildSourceFile({ fileId, name:f.name, pdfPages:pages, widthMm:wmm, heightMm:hmm, bytesLen:buf.length, hash, uploadedAt:new Date().toISOString(), signatureIndex:state.files.length }));
+  invalidateResult(); renderFiles(); showStep('files');
 }
 async function loadProofFromUrl(url){
   try { const r=await fetch(url); if(!r.ok) return; const buf=new Uint8Array(await r.arrayBuffer());
@@ -220,7 +243,7 @@ function renderFiles(){
   if (!state.files.length){ $('filesList').innerHTML='<div class="muted">טרם נטענו קבצים.</div>'; return; }
   $('filesList').innerHTML = '<table><tr><th>#</th><th>שם</th><th>עמ׳</th><th>מידות</th><th>גודל</th><th>hash</th><th>קונטרס</th><th></th></tr>'
     + state.files.map((f,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(f.name)+'</td><td>'+(f.pdfPages||'?')+'</td><td>'+(f.widthMm?f.widthMm+'×'+f.heightMm:'?')+'</td><td>'+(f.bytesLen?(f.bytesLen/1048576).toFixed(1)+'MB':'?')+'</td><td><code>'+(f.hash||'').slice(0,8)+'</code></td><td>'+(f.signatureIndex+1)+'</td><td><button class="sec" data-i="'+i+'" style="padding:3px 8px">✕</button></td></tr>').join('')+'</table>';
-  $('filesList').querySelectorAll('button[data-i]').forEach(b=> b.onclick=()=>{ state.files.splice(+b.dataset.i,1); renderFiles(); showStep('files'); });
+  $('filesList').querySelectorAll('button[data-i]').forEach(b=> b.onclick=()=>{ const rm=state.files.splice(+b.dataset.i,1)[0]; if(rm) delete state._buffers[rm.fileId]; invalidateResult(); renderFiles(); showStep('files'); });
 }
 
 // ── ② קטלוג-טמפלטים מאוחד ──
@@ -262,7 +285,7 @@ function renderTemplates(){
       + '<span class="badge" style="background:'+(e.productionAllowed?'#065f46':'#7f1d1d')+';color:#fff">'+(e.productionAllowed?'ייצור ✓':'לא-ייצור')+'</span>'
       + '</div>';
   }).join('') : '<div class="muted">אין טמפלטים תואמים.</div>';
-  $('tplList').querySelectorAll('.tplrow').forEach(r=> r.onclick=()=>{ state.template=_catalog.entries.find(x=>x.internalKey===r.dataset.key)||null; renderTemplates(); renderStepper(); showStep('template'); });
+  $('tplList').querySelectorAll('.tplrow').forEach(r=> r.onclick=()=>{ state.template=_catalog.entries.find(x=>x.internalKey===r.dataset.key)||null; invalidateResult(); renderTemplates(); renderStepper(); showStep('template'); });
 }
 $('tplSearch') && ($('tplSearch').oninput = renderTemplates);
 
@@ -277,25 +300,140 @@ function renderMapping(){
   }
 }
 
-// ── ④ בורר-מנוע ── (החלטה בלבד)
+// ── ④ בורר-מנוע + קיפול (U2: 16perf בלבד, מאחורי דגל) ──
 function renderEngine(){
   const d = ADP.resolveImpositionEngine({ template:state.template, files:state.files, job, featureFlags:(window.SOLAN_FLAGS||{}) });
   $('engineBox').innerHTML = '<div style="font-size:.95rem"><b>מנוע נבחר:</b> <code>'+(d.engine||'—')+'</code></div>'
     + '<div class="muted" style="margin-top:6px"><b>סיבה:</b> '+esc(d.reason)+'</div>'
     + '<div style="margin-top:6px">'+(d.supported?'<span class="badge b-prod">נתמך</span>':'<span class="badge b-dep">לא-נתמך אוטומטית</span>')+'</div>'
     + (d.warnings.length?'<div class="err" style="margin-top:6px">'+d.warnings.map(esc).join(' · ')+'</div>':'');
-  $('foldBtn').disabled = true;   // U1 — תמיד מושבת
+  // U2: כפתור-קיפול פעיל *רק* ל-16perf + דגל solanUnifiedLegacyU2 + supported + קובץ יחיד
+  const tid = state.template && state.template.templateId;
+  const u2 = ADP.legacyU2Enabled(window) && ADP.legacyU2TemplateAllowed(tid) && d.engine==='legacy' && d.supported && state.files.length===1;
+  $('foldBtn').disabled = !u2;
+  $('foldBtn').onclick = u2 ? runU2Fold : null;
+  if (u2) $('foldNote').innerHTML = '✅ טמפלט 16perf מחובר (Legacy U2, מאחורי דגל). לחיצה תריץ את מנוע-הקיפול הישן דרך גשר same-origin.';
+  else if (ADP.legacyU2TemplateAllowed(tid) && !ADP.legacyU2Enabled(window)) $('foldNote').innerHTML = 'הדגל <code>solanUnifiedLegacyU2</code> כבוי — הקיפול מושבת (התנהגות U1).';
+  else if (tid && tid!=='16perf') $('foldNote').innerHTML = '<span class="err">הטמפלט עדיין לא חובר לממשק החדש.</span> (U2 = 16perf בלבד)';
+  else if (state.files.length!==1) $('foldNote').innerHTML = 'U2 תומך בקובץ-פרופר יחיד וקונטרס יחיד.';
+  else $('foldNote').textContent = '';
 }
 
-// ── ⑤ מבנה-תוצאה עתידי ──
-function renderResultShape(){
-  const d = state.template ? ADP.resolveImpositionEngine({template:state.template,files:state.files,job}) : {engine:null};
-  const shape = RES.previewShape({
-    success:false, jobId:job.jobId, templateId:state.template&&state.template.templateId, templateVersion:state.template&&state.template.version,
-    engine:d.engine, sourceFiles:state.files, orderedPages:[],
-    metadata:{ totalPages:job.pages?parseInt(job.pages):null, signatureCount:state.files.length||null, createdAt:null, createdBy:null }
+// ── קיפול U2 דרך הגשר — concurrency + מקור-אמת יחיד ──
+async function runU2Fold(){
+  if (state.files.length!==1){ alert('U2: קובץ יחיד בלבד.'); return; }
+  const reqId = ++state.activeReq;                      // כל ריצה מקבלת requestId; קלט-חדש יבטל אותה
+  const f = state.files[0]; const buf = state._buffers[f.fileId];
+  if (!buf){ $('foldProgress').innerHTML='<span class="err">חסרים bytes של הקובץ.</span>'; return; }
+  $('foldBtn').disabled = true;
+  const steps = ['קורא PDF','בודק טמפלט','חותך עמודים','מסובב','מסדר','בונה PDF','מכין דפדוף'];
+  $('foldProgress').innerHTML = '⏳ '+steps[0]+'…';
+  try {
+    if (!_bridge) _bridge = LB.createLegacyBridge({ iframeUrl:'imposition-tool.html' });   // גשר יחיד, לא-נוצר-מחדש
+    await _bridge.ready();
+    _updateDebug();
+    if (reqId !== state.activeReq) return;              // הקלט השתנה בזמן הטעינה → נטוש
+    $('foldProgress').innerHTML = '⏳ '+steps[2]+'…';
+    // 16perf: sides=2 (פרפקטור). firstSide=0, mirror=0, bleed=0 — כמו ברירת-המחדל של הכלי
+    const out = await _bridge.runFold({ arrayBuffer: buf, type:'16perf', firstSide:0, mirror:false, bleedMm:0, requestId:reqId });
+    if (reqId !== state.activeReq){ return; }           // תוצאה stale — לא מוצגת/נשמרת
+    $('foldProgress').innerHTML = '⏳ '+steps[5]+'…';
+    const outHash = await sha256(new Uint8Array(out.bytes));
+    // מקור-האמת היחיד: NormalizedFoldResult (טהור, דרך ה-adapter)
+    const diag = _bridge.diagnostics();
+    state.result = ADP.legacyReportToResult({
+      report: out.report, bytes: out.bytes, sourceFile: f, templateId: '16perf', jobId: job.jobId,
+      engineVersion: diag.version || '', bridgeMode: 'same-origin-iframe',
+      appCheckUnavailable: (diag.appCheckObserved===false),
+      sourceHash: f.hash, outputHash: outHash, createdAt: new Date().toISOString()
+    });
+    state.folded = true;
+    $('foldProgress').innerHTML = '✓ קופל ('+out.durationMs+'ms). עובר לחוברת…';
+    _updateDebug();
+    showStep('booklet');
+  } catch(e){
+    if (e && e.stale) return;                           // תוצאה ישנה — מתעלמים
+    $('foldProgress').innerHTML = '<span class="err">שגיאת קיפול: '+esc(e.message||e)+'</span> <button class="sec" onclick="runU2Fold()">נסה שוב</button>';
+    _updateDebug();
+  } finally { renderEngine(); }
+}
+function _updateDebug(){
+  const dp=$('debugPanel'); if(!dp) return;
+  if (!(qs.get('debug')==='1' || qs.get('beta')==='1')){ dp.style.display='none'; return; }   // Debug רק ב-Beta/Debug
+  const d = _bridge ? _bridge.diagnostics() : {state:'no-bridge'};
+  dp.style.display=''; dp.textContent = 'BRIDGE DIAG: '+JSON.stringify(Object.assign({}, d, { activeRequestId: state.activeReq }), null, 1);
+}
+
+// ── ⑤ חוברת: thumbnails + flipbook ממקור-אמת יחיד (result.outputPdfBytes) ──
+async function renderU2Booklet(){
+  const r = state.result;
+  const shapeEl=$('resultShape');
+  if (!r || !r.outputPdfBytes){
+    $('thumbs').innerHTML=''; $('flip').innerHTML='<div class="muted">טרם בוצע קיפול (U2). חזור לשלב ④.</div>';
+    if(shapeEl) shapeEl.textContent = JSON.stringify(RES.previewShape({ engine: state.template&&state.template.engineRecommendation }), null, 2);
+    $('resultActions').innerHTML=''; return;
+  }
+  if(shapeEl) shapeEl.textContent = JSON.stringify(Object.assign({}, r, { outputPdfBytes:'<'+r.outputPdfBytes.length+' bytes>', spreadsPdfBytes:null }), null, 2);
+  // פעולות: הורדת-עמודים בלבד (כפולות/שליחה/אישור/צירוף — מושבתים ב-U2)
+  $('resultActions').innerHTML = '<button class="sec" id="dlPages">⬇️ הורד PDF עמודים</button>'
+    + '<button class="btn" disabled title="עד Golden Test">⬇️ כפולות (מושבת)</button>'
+    + '<button class="btn" disabled title="עד Golden ואישורך">📤 שלח ללקוח (מושבת)</button>'
+    + '<button class="btn" disabled title="עד Golden ואישורך">🔗 צרף לכרטיס (מושבת)</button>';
+  $('dlPages').onclick = ()=>{ const b=new Blob([r.outputPdfBytes],{type:'application/pdf'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='חוברת-U2.pdf'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000); };
+  await renderThumbs(r.outputPdfBytes);
+  await showFlipbook(r.outputPdfBytes);
+}
+async function renderThumbs(outBytes){
+  const host=$('thumbs'); host.innerHTML='';
+  const pdf=await pdfjsLib.getDocument({data:outBytes.slice(0)}).promise;
+  for(let i=1;i<=pdf.numPages;i++){
+    const page=await pdf.getPage(i); const vp0=page.getViewport({scale:1}); const scale=110/vp0.width; const vp=page.getViewport({scale});
+    const cv=document.createElement('canvas'); cv.width=vp.width; cv.height=vp.height;
+    await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+    const cell=document.createElement('div'); cell.className='thumb'; cell.appendChild(cv);
+    const lbl=document.createElement('div'); lbl.className='lbl'; lbl.textContent=i; cell.appendChild(lbl); host.appendChild(cell);
+  }
+}
+// דפדוף (אותה לוגיקת imposition-flipbook.js כמו במסך ה-Decoder) — עמודים-בודדים, בלי mirror, fit-to-viewport, cache
+let _FB=null;
+async function showFlipbook(outBytes){
+  const host=$('flip'); host.innerHTML='<div class="muted" style="padding:12px">בונה דפדוף…</div>';
+  const pdf=await pdfjsLib.getDocument({data:outBytes.slice(0)}).promise;
+  const p1=await pdf.getPage(1); const vp1=p1.getViewport({scale:1});
+  _FB={ pdf, n:pdf.numPages, spreads:FBK.flipSpreads(pdf.numPages), idx:0, pageW:vp1.width, pageH:vp1.height, cache:new Map() };
+  host.innerHTML='<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:8px;direction:rtl">'
+    +'<button id="fbPrev" class="sec">‹ הקודם</button><span id="fbPos" class="muted"></span><button id="fbNext" class="sec">הבא ›</button></div>'
+    +'<div id="fbStage" style="overflow:hidden;display:flex;justify-content:center;align-items:center"></div>';
+  $('fbPrev').onclick=()=>{ if(_FB.idx>0){_FB.idx--; _fbShow();} };
+  $('fbNext').onclick=()=>{ if(_FB.idx<_FB.spreads.length-1){_FB.idx++; _fbShow();} };
+  window.addEventListener('resize', ()=>{ if(_FB&&$('fbStage')) _fbShow(); });
+  _fbShow();
+}
+function _fbShow(){
+  const sp=_FB.spreads[_FB.idx], stage=$('fbStage');
+  const availW=Math.max(220,(stage.parentElement?stage.parentElement.clientWidth:window.innerWidth)-24);
+  const availH=Math.max(240, window.innerHeight-Math.max(0,stage.getBoundingClientRect().top)-90);
+  const scale=FBK.fitScale(sp.type,_FB.pageW,_FB.pageH,availW,availH);
+  const dispW=Math.round(_FB.pageW*scale), dispH=Math.round(_FB.pageH*scale);
+  stage.innerHTML=''; stage.style.height=dispH+'px';
+  const wrap=document.createElement('div'); wrap.style.cssText='display:flex;direction:ltr;justify-content:center;align-items:center;background:#fff;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.35)';
+  FBK.ltrOrder(sp).forEach(pn=>{
+    const c=_fbCanvasFor(pn,scale); c.style.width=dispW+'px'; c.style.height=dispH+'px'; c.style.display='block'; c.style.background='#fff';
+    const slot=document.createElement('div'); slot.style.cssText='position:relative;width:'+dispW+'px;height:'+dispH+'px'; slot.appendChild(c);
+    if(!c._done){ const ov=document.createElement('div'); ov.className='fbLoad'; ov.innerHTML='<div class="fbSpin"></div><div>טוען עמוד '+pn+'…</div>'; slot.appendChild(ov); (c._p||Promise.resolve()).then(()=>{ if(ov.parentNode) ov.parentNode.removeChild(ov); }); }
+    wrap.appendChild(slot);
   });
-  $('resultShape').textContent = JSON.stringify(shape, null, 2);
+  stage.appendChild(wrap);
+  $('fbPos').textContent = sp.type==='single'?('עמוד '+sp.pages[0]+' / '+_FB.n):('עמודים '+sp.pages[0]+'–'+sp.pages[1]+' / '+_FB.n);
+  $('fbPrev').disabled=_FB.idx===0; $('fbNext').disabled=_FB.idx===_FB.spreads.length-1;
+}
+function _fbCanvasFor(pn,scale){
+  const key=FBK.cacheKey(pn,scale); let c=_FB.cache.get(key); if(c) return c;
+  c=document.createElement('canvas'); const dpr=Math.min(window.devicePixelRatio||1,2);
+  c.width=Math.round(_FB.pageW*scale*dpr); c.height=Math.round(_FB.pageH*scale*dpr);
+  _FB.cache.set(key,c); FBK.trimCache(_FB.cache,36); c._done=false;
+  c._p=_FB.pdf.getPage(pn).then(pg=>pg.render({canvasContext:c.getContext('2d'),viewport:pg.getViewport({scale:scale*dpr})}).promise).then(()=>{c._done=true;}).catch(()=>{c._done=true;});
+  return c;
 }
 
 // ── שמירת-טיוטה מקומית בלבד (אין כתיבת-ייצור) ──
