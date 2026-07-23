@@ -10,6 +10,7 @@
 <script src="imposition-templates.js"></script>
 <script src="imposition-decoder.js"></script>
 <script src="imposition-template-import.js"></script>
+<script src="imposition-flipbook.js"></script>
 <script>
 // ── שומר-סביבה (זהה לשאר הדפים) — פתיחה מקומית לא כותבת ל-Firebase החי ──
 (function(){
@@ -165,11 +166,16 @@ async function readTemplate(bytes){
     const gap = parseFloat($('gapMm').value);
     const d = TI.deriveTemplateFromNumbers({ pages, sheetTrim, finished, headToHeadGapMm: isFinite(gap)?gap:10 });
     if (!d.ok){ $('tplStatus').innerHTML = '<span class="err">גזירה נכשלה: '+(d.errors||[]).join(', ')+'</span>'; return; }
-    _derived = { cellMap: d.cellMap, layout: Object.assign({ id: $('tplId').value || 'template' }, d.layout) };
+    // ⚠️ נרמול-סיבוב: המספרים חולצו מהתצוגה (אחרי דגל /Rotate של הקובץ). פרופרים מ-Apogee
+    // שמורים Rotate 0 — לכן טמפלט השמור עם Rotate 180 דורש סיבוב-מפה חזרה למרחב-הפיזי.
+    let cellMap = d.cellMap, rotNote = '';
+    let tplRot = 0; try { tplRot = ((p0.getRotation().angle % 360) + 360) % 360; } catch(e){}
+    if (tplRot === 180){ cellMap = DEC.rotateCellMap180(d.cellMap, d.layout.rows, d.layout.cols); rotNote = ' · 🔄 הקובץ שמור Rotate 180 — המפה נורמלה למרחב-הפרופר'; }
+    _derived = { cellMap: cellMap, layout: Object.assign({ id: $('tplId').value || 'template' }, d.layout) };
     const warn = d.warnings.length ? ' · ⚠️ '+d.warnings.join(' · ') : '';
     $('tplStatus').innerHTML = '✓ זוהו '+d.pagesPerSignature+' עמ׳ · '+d.layout.cols+'×'+d.layout.rows
       +' · עמודות(שמאל) ['+d.layout.colLeftsTrimMm.join(', ')+'] · שורות(עליון) ['+d.layout.rowTopsTrimMm.join(', ')+']'
-      +' · שדרה '+d.layout.spineGutterMm+' מ״מ · שוליים-רגל '+d.layout.footMarginMm+' מ״מ'+warn
+      +' · שדרה '+d.layout.spineGutterMm+' מ״מ · שוליים-רגל '+d.layout.footMarginMm+' מ״מ'+rotNote+warn
       +' — טען פרופר ולחץ "פרק והצג".';
     $('tplSave').disabled = false;
   } catch(e){ console.error(e); $('tplStatus').innerHTML = '<span class="err">שגיאה: '+(e.message||e)+'</span>'; }
@@ -353,25 +359,73 @@ async function buildSpreads(outBytes){
   }
   return await out.save();
 }
+/* ── דפדוף V2 — מודל-מצבים מפורש (ImpositionFlipbook) על PDF-העמודים-הבודדים ──
+   · שער/גב בודדים במרכז (בלי עמוד-לבן) · כפולות: זוגי-מימין, אי-זוגי-משמאל (מיקום בלבד,
+     container ב-direction:ltr — אפס transform/mirror על התוכן) · fit-to-viewport
+   · pdf.js document יחיד · cache לפי page+scale + preload שכנים · resize שומר על המצב. */
+const FBK = window.ImpositionFlipbook;
 let _FB=null;
 async function showFlipbook(outBytes){
   const host=$('flip'); host.innerHTML='<div class="muted" style="padding:12px">בונה דפדוף…</div>';
-  _spreadsBytes = await buildSpreads(outBytes);
-  const pdf = await pdfjsLib.getDocument({data:_spreadsBytes.slice(0)}).promise;
-  _FB={pdf,n:pdf.numPages,idx:0};
-  host.innerHTML='<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:8px">'
-    +'<button id="fbPrev" class="sec">‹ הקודם</button><span id="fbPos" class="muted"></span><button id="fbNext" class="sec">הבא ›</button></div>'
-    +'<div style="text-align:center;background:#fff;border-radius:8px;padding:8px"><canvas id="fbCanvas" style="max-width:100%;height:auto"></canvas></div>';
-  $('fbPrev').onclick=()=>{ if(_FB.idx>0){_FB.idx--; _fbRender();} };
-  $('fbNext').onclick=()=>{ if(_FB.idx<_FB.n-1){_FB.idx++; _fbRender();} };
-  await _fbRender();
+  const pdf = await pdfjsLib.getDocument({data:outBytes.slice(0)}).promise;   // המסמך היחיד — לא נטען שוב
+  const p1 = await pdf.getPage(1); const vp1 = p1.getViewport({scale:1});
+  _FB = { pdf, n: pdf.numPages, spreads: FBK.flipSpreads(pdf.numPages), idx: 0,
+          pageW: vp1.width, pageH: vp1.height, cache: new Map() };
+  host.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:8px;direction:rtl">'
+    +   '<button id="fbPrev" class="sec">‹ הקודם</button><span id="fbPos" class="muted"></span><button id="fbNext" class="sec">הבא ›</button>'
+    + '</div>'
+    + '<div id="fbStage" style="overflow:hidden;display:flex;justify-content:center;align-items:center"></div>';
+  $('fbPrev').onclick=()=>{ if(_FB.idx>0){ _FB.idx--; _fbShow(); } };
+  $('fbNext').onclick=()=>{ if(_FB.idx<_FB.spreads.length-1){ _FB.idx++; _fbShow(); } };
+  document.addEventListener('keydown', e=>{ if(!_FB) return; if(e.key==='ArrowLeft'&&$('fbNext')&&!$('fbNext').disabled)$('fbNext').click(); if(e.key==='ArrowRight'&&$('fbPrev')&&!$('fbPrev').disabled)$('fbPrev').click(); });
+  window.addEventListener('resize', ()=>{ if(_FB) _fbShow(); });   // scale מחושב-מחדש; idx נשמר
+  _fbShow();
 }
-async function _fbRender(){
-  const page=await _FB.pdf.getPage(_FB.idx+1);
-  const vp0=page.getViewport({scale:1}); const scale=Math.min(900/vp0.width,1.6);
-  const vp=page.getViewport({scale}); const cv=$('fbCanvas'); cv.width=vp.width; cv.height=vp.height;
-  await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
-  $('fbPos').textContent='כפולה '+(_FB.idx+1)+' / '+_FB.n;
+function _fbAvail(){
+  const stage=$('fbStage');
+  const availW = Math.max(220, (stage.parentElement ? stage.parentElement.clientWidth : window.innerWidth) - 24);
+  const top = stage.getBoundingClientRect().top;
+  const availH = Math.max(240, window.innerHeight - Math.max(0, top) - 28);   // מה שנשאר מתחת לפקדים
+  return { availW, availH };
+}
+function _fbShow(){
+  const sp = _FB.spreads[_FB.idx];
+  const { availW, availH } = _fbAvail();
+  const scale = FBK.fitScale(sp.type, _FB.pageW, _FB.pageH, availW, availH);
+  const dispW = Math.round(_FB.pageW*scale), dispH = Math.round(_FB.pageH*scale);
+  const stage = $('fbStage');
+  stage.innerHTML = '';
+  stage.style.height = dispH + 'px';                        // גובה = תוכן בלבד — בלי שטח-לבן
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;direction:ltr;justify-content:center;align-items:center;gap:0;background:#fff;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.35)';
+  FBK.ltrOrder(sp).forEach(pn=>{                            // כפולה: [אי-זוגי(שמאל), זוגי(ימין)] — אין ריק, אין mirror
+    const c = _fbCanvasFor(pn, scale);
+    c.style.width = dispW+'px'; c.style.height = dispH+'px';
+    c.style.display='block'; c.style.background='#fff';
+    wrap.appendChild(c);
+  });
+  stage.appendChild(wrap);
+  $('fbPos').textContent = sp.type==='single' ? ('עמוד '+sp.pages[0]+' / '+_FB.n) : ('עמודים '+sp.pages[0]+'–'+sp.pages[1]+' / '+_FB.n);
+  $('fbPrev').disabled = _FB.idx===0;
+  $('fbNext').disabled = _FB.idx===_FB.spreads.length-1;
+  setTimeout(()=>{                                          // preload שכנים לאותו scale (בלי לרנדר-מחדש קיימים)
+    [_FB.idx+1,_FB.idx-1].forEach(i=>{ const s=_FB.spreads[i]; if(s) s.pages.forEach(pn=>_fbCanvasFor(pn,scale)); });
+  }, 60);
+}
+// canvas לפי page+scale — מרונדר פעם אחת בלבד; חד ב-HiDPI; נגזם ב-LRU
+function _fbCanvasFor(pn, scale){
+  const key = FBK.cacheKey(pn, scale);
+  let c = _FB.cache.get(key);
+  if (c) return c;
+  c = document.createElement('canvas');
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  c.width = Math.round(_FB.pageW*scale*dpr); c.height = Math.round(_FB.pageH*scale*dpr);
+  _FB.cache.set(key, c); FBK.trimCache(_FB.cache, 36);
+  _FB.pdf.getPage(pn)
+    .then(pg=>pg.render({ canvasContext:c.getContext('2d'), viewport:pg.getViewport({scale:scale*dpr}) }).promise)
+    .catch(()=>{});
+  return c;
 }
 async function dlSpreads(){
   if(!_spreadsBytes && _outBytes) _spreadsBytes=await buildSpreads(_outBytes);

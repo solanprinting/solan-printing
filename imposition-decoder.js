@@ -23,27 +23,42 @@
 
   var MM = 72 / 25.4;
 
-  // ── מפת-התאים של 88x63 16p Perfector — מקור-האמת (מהמשתמש, אומת מול הטמפלט) ──
+  // ── מפת-התאים של 88x63 16p Perfector — מקור-האמת, במרחב-הפרופר (Rotate 0) ──
+  //    ⚠️ קובץ-הטמפלט שמור עם דגל Rotate 180, אך הפרופר האמיתי (Apogee) שמור Rotate 0 —
+  //    לכן המפה כאן היא מפת-הטמפלט מסובבת 180°: (row,col)→(1-row,3-col) + היפוך-סיבוב.
+  //    אומת מול פרופר-גבעתיים האמיתי (השער הופיע בתא r0c1 של Front). עמודים 16,1 למעלה-משמאל.
   //    sourceSide: 0=Front(PDF עמ' 1) · 1=Back(PDF עמ' 2). row 0=עליון. rotation=תיקון-יישור.
-  //    שורה עליונה מודפסת הפוך → 180° ; שורה תחתונה ישרה → 0°.
+  //    Front עליונה: 16,1,4,13 (180°) · תחתונה: 9,8,5,12 (0°)
+  //    Back  עליונה: 10,7,6,11 (180°) · תחתונה: 15,2,3,14 (0°)
   var CELL_MAP_88x63_16P_PERFECTOR = [
-    { sourceSide: 0, row: 0, column: 0, outputPageOffset: 11, rotation: 180 },
-    { sourceSide: 0, row: 0, column: 1, outputPageOffset: 4,  rotation: 180 },
-    { sourceSide: 0, row: 0, column: 2, outputPageOffset: 7,  rotation: 180 },
-    { sourceSide: 0, row: 0, column: 3, outputPageOffset: 8,  rotation: 180 },
-    { sourceSide: 0, row: 1, column: 0, outputPageOffset: 12, rotation: 0 },
-    { sourceSide: 0, row: 1, column: 1, outputPageOffset: 3,  rotation: 0 },
-    { sourceSide: 0, row: 1, column: 2, outputPageOffset: 0,  rotation: 0 },
-    { sourceSide: 0, row: 1, column: 3, outputPageOffset: 15, rotation: 0 },
-    { sourceSide: 1, row: 0, column: 0, outputPageOffset: 13, rotation: 180 },
-    { sourceSide: 1, row: 0, column: 1, outputPageOffset: 2,  rotation: 180 },
-    { sourceSide: 1, row: 0, column: 2, outputPageOffset: 1,  rotation: 180 },
-    { sourceSide: 1, row: 0, column: 3, outputPageOffset: 14, rotation: 180 },
-    { sourceSide: 1, row: 1, column: 0, outputPageOffset: 10, rotation: 0 },
-    { sourceSide: 1, row: 1, column: 1, outputPageOffset: 5,  rotation: 0 },
-    { sourceSide: 1, row: 1, column: 2, outputPageOffset: 6,  rotation: 0 },
-    { sourceSide: 1, row: 1, column: 3, outputPageOffset: 9,  rotation: 0 }
+    { sourceSide: 0, row: 0, column: 0, outputPageOffset: 15, rotation: 180 },
+    { sourceSide: 0, row: 0, column: 1, outputPageOffset: 0,  rotation: 180 },
+    { sourceSide: 0, row: 0, column: 2, outputPageOffset: 3,  rotation: 180 },
+    { sourceSide: 0, row: 0, column: 3, outputPageOffset: 12, rotation: 180 },
+    { sourceSide: 0, row: 1, column: 0, outputPageOffset: 8,  rotation: 0 },
+    { sourceSide: 0, row: 1, column: 1, outputPageOffset: 7,  rotation: 0 },
+    { sourceSide: 0, row: 1, column: 2, outputPageOffset: 4,  rotation: 0 },
+    { sourceSide: 0, row: 1, column: 3, outputPageOffset: 11, rotation: 0 },
+    { sourceSide: 1, row: 0, column: 0, outputPageOffset: 9,  rotation: 180 },
+    { sourceSide: 1, row: 0, column: 1, outputPageOffset: 6,  rotation: 180 },
+    { sourceSide: 1, row: 0, column: 2, outputPageOffset: 5,  rotation: 180 },
+    { sourceSide: 1, row: 0, column: 3, outputPageOffset: 10, rotation: 180 },
+    { sourceSide: 1, row: 1, column: 0, outputPageOffset: 14, rotation: 0 },
+    { sourceSide: 1, row: 1, column: 1, outputPageOffset: 1,  rotation: 0 },
+    { sourceSide: 1, row: 1, column: 2, outputPageOffset: 2,  rotation: 0 },
+    { sourceSide: 1, row: 1, column: 3, outputPageOffset: 13, rotation: 0 }
   ];
+
+  // סיבוב מפת-תאים ב-180° (לטמפלטים שנשמרו הפוך ביחס לפרופר): (row,col)→(rows-1-row,cols-1-col), rotation+180
+  function rotateCellMap180(cells, rows, cols) {
+    rows = rows || 2; cols = cols || 4;
+    return (cells || []).map(function (c) {
+      return {
+        sourceSide: c.sourceSide, row: rows - 1 - c.row, column: cols - 1 - c.column,
+        outputPageOffset: c.outputPageOffset, rotation: ((c.rotation + 180) % 360)
+      };
+    });
+  }
 
   // ── פריסה מכוילת (מרחב-Trim 880×630) — קצוות-עמודות/שורות אמיתיים מהטמפלט ──────
   //    עמודות (רוחב 210): שמאל = 4,214,456,666 → מרכזי 109,319,561,771 · שדרה/דש-סיכות מרכזי 32 מ"מ · שוליים 4 מ"מ.
@@ -217,6 +232,7 @@
   return {
     MM: MM, CELL_MAP_88x63_16P_PERFECTOR: CELL_MAP_88x63_16P_PERFECTOR, DEFAULT_LAYOUT_88x63: DEFAULT_LAYOUT_88x63,
     cellRectDisplayMm: cellRectDisplayMm, cellRatios: cellRatios, validateCellMap: validateCellMap,
+    rotateCellMap180: rotateCellMap180,
     spineSideForCell: spineSideForCell, buildDecodePlan: buildDecodePlan, toNormalizedCells: toNormalizedCells
   };
 });
