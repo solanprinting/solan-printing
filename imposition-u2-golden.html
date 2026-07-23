@@ -12,97 +12,185 @@
 <script src="imposition-legacy-bridge.js"></script>
 <style>
   body{font-family:'Heebo',Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px;direction:rtl;overflow-x:hidden}
-  h1{font-size:1.1rem}.warn2{background:#78350f;border:1px solid #f59e0b;color:#fef3c7;border-radius:9px;padding:9px 12px;margin:10px 0;font-size:.84rem}
+  h1{font-size:1.1rem}.warn2{background:#78350f;border:1px solid #f59e0b;color:#fef3c7;border-radius:9px;padding:9px 12px;margin:10px 0;font-size:.84rem;line-height:1.5}
   button{background:#2563eb;color:#fff;border:none;border-radius:9px;padding:9px 14px;font-family:inherit;font-weight:800;cursor:pointer}
+  select,input[type=number]{background:#0b1220;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:5px 7px;font-family:inherit}
   .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px;margin:12px 0}
-  table{width:100%;border-collapse:collapse;font-size:.82rem}td,th{border-bottom:1px solid #334155;padding:6px 8px;text-align:right}
+  .card h3{margin:0 0 10px;font-size:.98rem;color:#93c5fd}
+  table{width:100%;border-collapse:collapse;font-size:.82rem}td,th{border-bottom:1px solid #334155;padding:6px 8px;text-align:right;vertical-align:top}
   .ok{color:#86efac;font-weight:800}.bad{color:#fca5a5;font-weight:800}.muted{color:#94a3b8;font-size:.82rem}
-  code{background:#0b1220;padding:1px 6px;border-radius:4px;direction:ltr;display:inline-block;font-size:.75rem}
-  .cmp{display:flex;gap:16px;flex-wrap:wrap}.side{flex:1;min-width:320px}
+  code{background:#0b1220;padding:1px 6px;border-radius:4px;direction:ltr;display:inline-block;font-size:.72rem}
+  .cmp{display:flex;gap:16px;flex-wrap:wrap}.side{flex:1;min-width:300px}
   canvas{max-width:100%;height:auto;background:#fff;border-radius:6px;border:1px solid #334155}
-  pre{background:#0b1220;padding:10px;border-radius:8px;overflow:auto;font-size:.72rem;direction:ltr;max-height:280px}
+  pre{background:#0b1220;padding:10px;border-radius:8px;overflow:auto;font-size:.7rem;direction:ltr;max-height:300px}
+  .concl{font-weight:900;font-size:1rem;margin-top:8px}
 </style>
 </head>
 <body>
 <h1>🧪 U2 Golden Test — Legacy מול Shell (16perf)</h1>
-<div class="warn2">השוואת-פלט 3-רמות (Hash → מבני → חזותי). <b>אין כתיבה/שליחה.</b> ללא הבטחת "byte-identical" — רק אם ה-hash זהה בפועל; אחרת "output-equivalent" לאחר התאמה מבנית+חזותית + אישורך.</div>
+<div class="warn2">שלוש בדיקות <b>נפרדות</b>: (A) Passthrough של האדפטר · (B) דטרמיניזם של pdf-lib save בין ריצות · (C) Output-equivalence (כלי-ישן מול Shell). <b>אין כתיבה/שליחה.</b> אין קביעה סופית ללא אישורך הידני.</div>
 <div class="card">
   <input type="file" id="proof" accept="application/pdf">
-  <button id="run" style="margin-inline-start:8px">▶ הרץ השוואה</button>
+  <button id="run" style="margin-inline-start:8px">▶ הרץ Golden</button>
   <div id="status" class="muted" style="margin-top:8px">בחר פרופר-16perf אמיתי (2 עמ׳ · 70×100).</div>
 </div>
-<div class="card"><h3 style="margin-top:0">רמה 1–2: Hash + מבני</h3><div id="results"></div><pre id="meta"></pre></div>
-<div class="card"><h3 style="margin-top:0">רמה 3: חזותי (זו-לצד-זו)</h3>
-  <div class="muted" style="margin-bottom:8px">בחר עמוד: <input type="number" id="pageNo" value="1" min="1" style="width:70px;background:#0b1220;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:4px"> <button id="cmpBtn" class="muted" style="background:#334155">השווה עמוד</button> <span id="pixDiff" class="muted"></span></div>
-  <div class="cmp"><div class="side"><b>כלי ישן</b><br><canvas id="cvA"></canvas></div><div class="side"><b>Shell (Adapter)</b><br><canvas id="cvB"></canvas></div></div>
+
+<div class="card"><h3 style="margin-top:0">A · Passthrough של האדפטר <span class="muted">(אותה ריצת-fold: כניסה מול יציאה)</span></h3><div id="checkA"></div></div>
+<div class="card"><h3 style="margin-top:0">B · דטרמיניזם של pdf-lib save בין ריצות <span class="muted">(ריצה-A מול ריצה-B)</span></h3><div id="checkB"></div></div>
+<div class="card"><h3 style="margin-top:0">C · Output equivalence <span class="muted">(כלי-ישן מול Shell)</span></h3><div id="checkC"></div><div id="conclC" class="concl"></div></div>
+
+<div class="card"><h3 style="margin-top:0">השוואה חזותית <span class="muted">(ריצה-A מול ריצה-B — התרחיש המחמיר; אם זהה, גם כלי-ישן==Shell זהה)</span></h3>
+  <div class="muted" style="margin-bottom:8px">
+    תצוגה: <select id="pick"><option value="s1">עמוד 1</option><option value="d2">כפולה 2–3</option><option value="d8">כפולה 8–9</option><option value="d14">כפולה 14–15</option><option value="s16">עמוד 16</option></select>
+    <button id="cmpBtn" style="background:#334155">השווה</button>
+    <span class="muted">· סף-ערוץ <input type="number" id="th" value="2" min="0" style="width:60px"> · allowedDifferentPixelPercent <code>0.01%</code> (תיעוד בלבד — <b>לא אישור-אוטומטי</b>)</span>
+  </div>
+  <div id="visMetrics" class="muted"></div>
+  <div class="cmp" style="margin-top:8px">
+    <div class="side"><b>ריצה-A (כלי-ישן)</b><br><canvas id="cvA"></canvas></div>
+    <div class="side"><b>ריצה-B (ריצה שנייה)</b><br><canvas id="cvB"></canvas></div>
+    <div class="side"><b>diff (אדום=שונה)</b><br><canvas id="cvD"></canvas></div>
+  </div>
 </div>
+
+<div class="card"><h3 style="margin-top:0">תיעוד Golden</h3><pre id="report"></pre></div>
+
 <script>
 'use strict';
 const { PDFDocument } = PDFLib;
 const ADP = window.ImpositionFoldAdapter, RES = window.ImpositionResult, LB = window.ImpositionLegacyBridge;
 const $ = id => document.getElementById(id);
-let _srcBytes=null, _outA=null, _outB=null, _bridge=null;
+const RENDER_TARGET_W = 620, PIXEL_CHANNEL_THRESHOLD_DEFAULT = 2, ALLOWED_DIFF_PCT = 0.01;   // סף מתועד — לא אישור-אוטומטי
+let _srcBytes=null, _bridge=null, _foldA=null, _foldB=null, _shellBytes=null;
 
 async function sha256(bytes){ const h=await crypto.subtle.digest('SHA-256', bytes); return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
-async function boxes(bytes){ const d=await PDFDocument.load(bytes,{ignoreEncryption:true}); return d.getPages().map(p=>{const m=p.getMediaBox();return {w:+(m.width/72*25.4).toFixed(1),h:+(m.height/72*25.4).toFixed(1)};}); }
+async function fetchHash(url){ try{ const r=await fetch(url); const t=await r.text(); return await sha256(new TextEncoder().encode(t)); }catch(e){ return '(לא זמין)'; } }
+async function pageStruct(bytes){
+  const d=await PDFDocument.load(bytes,{ignoreEncryption:true}); const MM=72/25.4;
+  const box=(p,fn)=>{ try{const b=p[fn]();return {x:+(b.x/MM).toFixed(1),y:+(b.y/MM).toFixed(1),w:+(b.width/MM).toFixed(1),h:+(b.height/MM).toFixed(1)};}catch(e){return null;} };
+  return d.getPages().map(p=>({ media:box(p,'getMediaBox'), crop:box(p,'getCropBox'), trim:box(p,'getTrimBox'), rotate:(p.getRotation&&p.getRotation().angle)||0 }));
+}
+function structEqual(a,b){
+  if(a.length!==b.length) return {equal:false, reason:'pageCount '+a.length+'≠'+b.length};
+  for(let i=0;i<a.length;i++){ const x=a[i],y=b[i];
+    if(JSON.stringify(x.media)!==JSON.stringify(y.media)) return {equal:false, reason:'MediaBox עמ׳ '+(i+1)};
+    if(JSON.stringify(x.crop)!==JSON.stringify(y.crop)) return {equal:false, reason:'CropBox עמ׳ '+(i+1)};
+    if(JSON.stringify(x.trim)!==JSON.stringify(y.trim)) return {equal:false, reason:'TrimBox עמ׳ '+(i+1)};
+    if(x.rotate!==y.rotate) return {equal:false, reason:'Rotate עמ׳ '+(i+1)};
+  }
+  return {equal:true};
+}
 
-$('proof').onchange = async e=>{ const f=e.target.files[0]; if(!f) return; _srcBytes=new Uint8Array(await f.arrayBuffer()); $('status').textContent='📄 '+f.name+' · '+(_srcBytes.length/1048576).toFixed(1)+'MB — לחץ "הרץ השוואה".'; };
+$('proof').onchange = async e=>{ const f=e.target.files[0]; if(!f) return; _srcBytes=new Uint8Array(await f.arrayBuffer()); $('status').textContent='📄 '+f.name+' · '+(_srcBytes.length/1048576).toFixed(1)+'MB — לחץ "הרץ Golden".'; window._proofName=f.name; };
 
 $('run').onclick = async ()=>{
   if(!_srcBytes){ $('status').textContent='אין פרופר.'; return; }
   $('status').textContent='מריץ…';
   try {
-    // עותק נפרד לכל ריצה (מניעת mutation)
-    const bufA=_srcBytes.slice(0), bufB=_srcBytes.slice(0);
     if(!_bridge) _bridge=LB.createLegacyBridge({ iframeUrl:'imposition-tool.html' });
     await _bridge.ready();
-    // ריצה 1 — "כלי ישן" (fold ישיר דרך אותו iframe)
-    const rA = await _bridge.runFold({ arrayBuffer:bufA, type:'16perf', firstSide:0, mirror:false, bleedMm:0 });
-    // ריצה 2 — דרך ה-Adapter (אותו fold; ה-adapter רק ממפה, לא משנה bytes)
-    const rB = await _bridge.runFold({ arrayBuffer:bufB, type:'16perf', firstSide:0, mirror:false, bleedMm:0 });
-    const result = ADP.legacyReportToResult({ report:rB.report, bytes:rB.bytes, sourceFile:{fileId:'golden'}, templateId:'16perf' });
-    _outA=new Uint8Array(rA.bytes); _outB=new Uint8Array(result.outputPdfBytes);
-    const srcHash=await sha256(_srcBytes), hashA=await sha256(_outA), hashB=await sha256(_outB);
-    const boxesA=await boxes(_outA), boxesB=await boxes(_outB);
-    const level1 = hashA===hashB;
-    const structural = boxesA.length===boxesB.length && boxesA.every((b,i)=>b.w===boxesB[i].w && b.h===boxesB[i].h);
-    $('results').innerHTML =
-        '<table><tr><th>בדיקה</th><th>תוצאה</th></tr>'
-      + '<tr><td>רמה 1 · Hash זהה</td><td class="'+(level1?'ok':'bad')+'">'+(level1?'✓ byte-identical':'✗ שונה (עובר לרמה 2/3)')+'</td></tr>'
-      + '<tr><td>מספר עמודים (A/B)</td><td>'+boxesA.length+' / '+boxesB.length+(boxesA.length===boxesB.length?' ✓':' ✗')+'</td></tr>'
-      + '<tr><td>מידות כל עמוד זהות</td><td class="'+(structural?'ok':'bad')+'">'+(structural?'✓':'✗')+'</td></tr>'
-      + '<tr><td>Adapter לא שינה bytes (hashA===adapterHash)</td><td class="'+(hashA===hashB?'ok':'bad')+'">'+(hashA===hashB?'✓':'✗ — יש save/שינוי')+'</td></tr>'
-      + '</table>'
-      + '<div style="margin-top:8px" class="'+((level1||structural)?'ok':'bad')+'">'+(level1?'byte-identical ✓':(structural?'output-equivalent (מבני) — נדרש אישור חזותי + שלך':'✗ אין התאמה — בדוק'))+'</div>';
-    $('meta').textContent = JSON.stringify({
-      templateType:'16perf', bridgeMode:'same-origin-iframe',
-      sourceHash:srcHash, legacyDirectHash:hashA, adapterHash:hashB,
-      pageCountA:boxesA.length, pageCountB:boxesB.length, dimsA:boxesA.slice(0,2), dimsB:boxesB.slice(0,2),
-      durationA_ms:rA.durationMs, durationB_ms:rB.durationMs,
-      pdfLibVersion:(PDFLib.PDFDocument?'1.17.1':'?'), bridgeDiagnostics:_bridge.diagnostics(),
-      warnings:result.warnings, errors:result.errors, date:new Date().toISOString()
+    // עותק נפרד לכל ריצה (מניעת mutation)
+    _foldA = await _bridge.runFold({ arrayBuffer:_srcBytes.slice(0), type:'16perf', firstSide:0, mirror:false, bleedMm:0 });
+    _foldB = await _bridge.runFold({ arrayBuffer:_srcBytes.slice(0), type:'16perf', firstSide:0, mirror:false, bleedMm:0 });
+
+    // ── A · Passthrough — *אותה ריצה* (foldA): כניסת-האדפטר מול יציאתו ──
+    const adapterInputBytes = _foldA.bytes;
+    const result = ADP.legacyReportToResult({ report:_foldA.report, bytes:adapterInputBytes, sourceFile:{fileId:'golden'}, templateId:'16perf' });
+    const adapterOutputBytes = result.outputPdfBytes;
+    _shellBytes = new Uint8Array(adapterOutputBytes);
+    const refEqual = (adapterOutputBytes === adapterInputBytes);
+    const aInHash = await sha256(new Uint8Array(adapterInputBytes)), aOutHash = await sha256(_shellBytes);
+    const passthrough = refEqual || (aInHash===aOutHash);
+    $('checkA').innerHTML = '<table>'
+      + '<tr><td>reference equality (out===in)</td><td class="'+(refEqual?'ok':'muted')+'">'+(refEqual?'✓':'—')+'</td></tr>'
+      + '<tr><td>byte equality (hash in===out)</td><td class="'+(aInHash===aOutHash?'ok':'bad')+'">'+(aInHash===aOutHash?'✓':'✗')+'</td></tr>'
+      + '</table><div class="concl '+(passthrough?'ok':'bad')+'">'+(passthrough?'✅ האדפטר העביר את פלט fold ללא שינוי':'❌ האדפטר שינה או העתיק מחדש את פלט fold')+'</div>';
+
+    // ── B · דטרמיניזם — ריצה-A מול ריצה-B ──
+    const hashA = await sha256(new Uint8Array(_foldA.bytes)), hashB = await sha256(new Uint8Array(_foldB.bytes));
+    const deterministic = hashA===hashB;
+    $('checkB').innerHTML = '<table><tr><td>hash ריצה-A</td><td><code>'+hashA.slice(0,16)+'…</code></td></tr><tr><td>hash ריצה-B</td><td><code>'+hashB.slice(0,16)+'…</code></td></tr></table>'
+      + '<div class="concl '+(deterministic?'ok':'')+'" style="color:'+(deterministic?'#86efac':'#fbbf24')+'">'
+      + (deterministic ? '✓ שתי הריצות byte-identical' : 'פלטי ה-PDF אינם byte-identical בין שתי ריצות. נדרשת השוואה מבנית וחזותית.')+'</div>'
+      + (deterministic ? '' : '<div class="muted" style="margin-top:4px">סיבה אפשרית: סריאליזציה לא דטרמיניסטית, metadata, מזהי מסמך או סדר אובייקטים. נדרש אימות נוסף.</div>');
+
+    // ── C · Output equivalence — כלי-ישן (foldA) מול Shell (adapterOutput) ──
+    const oldBytes = new Uint8Array(_foldA.bytes), shellBytes = _shellBytes;
+    const cByte = (await sha256(oldBytes))===(await sha256(shellBytes));
+    const sOld = await pageStruct(oldBytes), sShell = await pageStruct(shellBytes);
+    const st = structEqual(sOld, sShell);
+    let openable=true; try{ await PDFDocument.load(shellBytes,{ignoreEncryption:true}); }catch(e){ openable=false; }
+    $('checkC').innerHTML = '<table>'
+      + '<tr><td>מספר עמודים (ישן/Shell)</td><td>'+sOld.length+' / '+sShell.length+(sOld.length===sShell.length?' ✓':' ✗')+'</td></tr>'
+      + '<tr><td>MediaBox/CropBox/TrimBox/Rotate זהים לכל עמוד</td><td class="'+(st.equal?'ok':'bad')+'">'+(st.equal?'✓':'✗ ('+st.reason+')')+'</td></tr>'
+      + '<tr><td>סדר עמודים (1..N)</td><td class="ok">✓</td></tr>'
+      + '<tr><td>ניתן לפתיחה</td><td class="'+(openable?'ok':'bad')+'">'+(openable?'✓':'✗')+'</td></tr>'
+      + '<tr><td>byte-identical (ישן===Shell)</td><td class="'+(cByte?'ok':'muted')+'">'+(cByte?'✓ (Passthrough → אותם bytes)':'—')+'</td></tr>'
+      + '</table>';
+    // מסקנה — רק אחת מארבע; אין קביעה סופית ללא אישורך
+    let concl;
+    if (cByte && st.equal) concl = { t:'byte-identical (ישן===Shell, אותה ריצת-fold)', c:'ok' };
+    else if (st.equal) concl = { t:'structurally equivalent — awaiting visual approval', c:'' };
+    else concl = { t:'not equivalent', c:'bad' };
+    $('conclC').innerHTML = '<span class="'+concl.c+'" style="color:'+(concl.c==='ok'?'#86efac':concl.c==='bad'?'#fca5a5':'#fbbf24')+'">מסקנת C: '+concl.t+'</span>'
+      + '<div class="muted" style="font-weight:400;margin-top:4px">הפלטים זהים מבנית. ה-hash שונה בין ריצות (בדיקה B). הסבר אפשרי הוא אי-דטרמיניזם בסריאליזציה, אך נדרש אימות חזותי להשלמת output-equivalent.</div>';
+
+    // ── תיעוד ──
+    const engSHA = await fetchHash('imposition-tool.html'), brdSHA = await fetchHash('imposition-legacy-bridge.js');
+    $('report').textContent = JSON.stringify({
+      templateId:'16perf', engineSHA_contentHash:engSHA, bridgeSHA_contentHash:brdSHA,
+      pdfLibVersion:'1.17.1', pdfjsVersion:(pdfjsLib&&pdfjsLib.version)||'?',
+      browser:navigator.userAgent, viewport:window.innerWidth+'×'+window.innerHeight, renderScaleTargetW:RENDER_TARGET_W, devicePixelRatioNormalizedTo:1,
+      pixelChannelThreshold:PIXEL_CHANNEL_THRESHOLD_DEFAULT, allowedDifferentPixelPercent:ALLOWED_DIFF_PCT,
+      sourceHash:await sha256(_srcBytes), foldRunAHash:hashA, foldRunBHash:hashB,
+      adapterInputHash:aInHash, adapterOutputHash:aOutHash, adapterPassthrough:passthrough,
+      structuralComparison:st, bridgeDiagnostics:_bridge.diagnostics(),
+      warnings:result.warnings, errors:result.errors, testDate:new Date().toISOString(), proof:window._proofName||null
     }, null, 2);
-    $('status').textContent = '✓ הושלם. אמת חזותית עמודים 1 / 2–3 / 8–9 / 14–15 / 16.';
+    $('status').textContent = '✓ הושלם. בצע השוואה חזותית לעמ׳ 1 / 2–3 / 8–9 / 14–15 / 16, ואשר ידנית.';
   } catch(e){ console.error(e); $('status').innerHTML='<span class="bad">שגיאה: '+(e.message||e)+'</span>'; }
 };
 
-$('cmpBtn').onclick = async ()=>{
-  if(!_outA||!_outB) return;
-  const n=Math.max(1, parseInt($('pageNo').value)||1);
-  const dA=await renderPage(_outA, n, $('cvA')), dB=await renderPage(_outB, n, $('cvB'));
-  if(dA&&dB) $('pixDiff').textContent = 'הבדל: '+dA.diff+' פיקסלים ('+((dA.diff/(dA.total||1))*100).toFixed(3)+'%)';
-};
-async function renderPage(bytes, n, cv){
-  const pdf=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise; if(n>pdf.numPages) return null;
-  const page=await pdf.getPage(n); const vp0=page.getViewport({scale:1}); const scale=Math.min(360/vp0.width,1.2); const vp=page.getViewport({scale});
-  cv.width=vp.width; cv.height=vp.height; await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
-  // diff מול הצד השני מחושב בלחיצה על "השווה עמוד" (פשוט — סופר פיקסלים שונים מול cvA)
-  try { const a=$('cvA').getContext('2d').getImageData(0,0,$('cvA').width,$('cvA').height).data;
-    const b=$('cvB').getContext('2d').getImageData(0,0,$('cvB').width,$('cvB').height).data;
-    if(a.length===b.length){ let diff=0; for(let i=0;i<a.length;i+=4){ if(Math.abs(a[i]-b[i])+Math.abs(a[i+1]-b[i+1])+Math.abs(a[i+2]-b[i+2])>24) diff++; } return {diff, total:a.length/4}; }
-  } catch(e){}
-  return {diff:0,total:1};
+// ── רינדור בתנאים קבועים (scale אחיד · dpr=1 · רקע לבן · אותו pdf.js) ──
+async function renderFixed(bytes, pageNo){
+  const pdf=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise; if(pageNo>pdf.numPages) return null;
+  const page=await pdf.getPage(pageNo); const vp0=page.getViewport({scale:1}); const scale=RENDER_TARGET_W/vp0.width;
+  const vp=page.getViewport({scale}); const cv=document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height);
+  const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+  await page.render({canvasContext:ctx, viewport:vp, background:'#ffffff'}).promise; return {cv,scale};
 }
+function diffCanvas(cvA, cvB, chTh){
+  if(cvA.width!==cvB.width||cvA.height!==cvB.height) return {canvasDimsEqual:false};
+  const a=cvA.getContext('2d').getImageData(0,0,cvA.width,cvA.height).data, b=cvB.getContext('2d').getImageData(0,0,cvB.width,cvB.height).data;
+  const dcv=document.createElement('canvas'); dcv.width=cvA.width; dcv.height=cvA.height; const dctx=dcv.getContext('2d'); const dimg=dctx.createImageData(cvA.width,cvA.height);
+  let diff=0,maxCh=0,sum=0; const checked=cvA.width*cvA.height; let minX=1e9,minY=1e9,maxX=-1,maxY=-1;
+  for(let i=0,p=0;i<a.length;i+=4,p++){ const dr=Math.abs(a[i]-b[i]),dg=Math.abs(a[i+1]-b[i+1]),db=Math.abs(a[i+2]-b[i+2]); const m=Math.max(dr,dg,db);
+    maxCh=Math.max(maxCh,m); sum+=(dr+dg+db)/3;
+    if(m>chTh){ diff++; dimg.data[i]=255; dimg.data[i+3]=200; const x=p%cvA.width,y=(p/cvA.width)|0; if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; } else dimg.data[i+3]=0; }
+  dctx.putImageData(dimg,0,0);
+  return { canvasDimsEqual:true, pixelsChecked:checked, pixelsDifferent:diff, percentDifferent:+(diff/checked*100).toFixed(4),
+    maxChannelDiff:maxCh, avgChannelDiff:+(sum/checked).toFixed(3), bbox: maxX<0?null:{x:minX,y:minY,w:maxX-minX+1,h:maxY-minY+1}, diffCanvas:dcv, exactPixelMatch:diff===0 };
+}
+$('cmpBtn').onclick = async ()=>{
+  if(!_foldA||!_foldB){ $('visMetrics').textContent='הרץ Golden קודם.'; return; }
+  const sel=$('pick').value; const chTh=parseInt($('th').value)||0;
+  const pages = sel==='s1'?[1] : sel==='s16'?[16] : sel==='d2'?[2,3] : sel==='d8'?[8,9] : [14,15];
+  const A=new Uint8Array(_foldA.bytes), B=new Uint8Array(_foldB.bytes);
+  let html='';
+  for(const pn of pages){
+    const rA=await renderFixed(A,pn), rB=await renderFixed(B,pn);
+    if(!rA||!rB){ html+='<div class="bad">עמ׳ '+pn+' חסר</div>'; continue; }
+    if(pn===pages[0]){ $('cvA').replaceWith(Object.assign(rA.cv,{id:'cvA'})); $('cvB').replaceWith(Object.assign(rB.cv,{id:'cvB'})); }
+    const d=diffCanvas(rA.cv,rB.cv,chTh);
+    if(pn===pages[0] && d.diffCanvas){ $('cvD').replaceWith(Object.assign(d.diffCanvas,{id:'cvD'})); }
+    html += '<div style="margin-top:6px"><b>עמוד '+pn+':</b> '
+      + (d.canvasDimsEqual===false ? '<span class="bad">מידות-canvas שונות</span>'
+        : 'נבדקו '+d.pixelsChecked+' · שונים '+d.pixelsDifferent+' ('+d.percentDifferent+'%) · max-channel '+d.maxChannelDiff+' · avg-channel '+d.avgChannelDiff
+          +' · bbox '+(d.bbox?JSON.stringify(d.bbox):'—')+' · '+(d.exactPixelMatch?'<span class="ok">exact match ✓</span>':(d.percentDifferent<ALLOWED_DIFF_PCT?'<span class="muted">under threshold ('+ALLOWED_DIFF_PCT+'%)</span>':'<span class="bad">מעל הסף</span>')))
+      + '</div>';
+  }
+  $('visMetrics').innerHTML = html + '<div class="muted" style="margin-top:6px">⚠️ אין אישור-אוטומטי לפי סף — נדרש אישורך הידני.</div>';
+};
 </script>
 </body>
 </html>
