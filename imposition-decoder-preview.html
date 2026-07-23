@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decoder V2 — תצוגת פירוק פרופר (Preview · לא-ייצור)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}</script>
+<script src="imposition-templates.js"></script>
+<script src="imposition-decoder.js"></script>
+<script src="imposition-template-import.js"></script>
+<style>
+  body{font-family:'Heebo',Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px;direction:rtl}
+  h1{font-size:1.15rem;margin:0 0 4px}
+  .flag{display:inline-block;background:#7c2d12;color:#fed7aa;border:1px solid #ea580c;border-radius:8px;padding:3px 10px;font-size:.78rem;font-weight:800}
+  .warn2{background:#78350f;border:1px solid #f59e0b;color:#fef3c7;border-radius:9px;padding:9px 12px;margin:10px 0;font-size:.85rem;line-height:1.5}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px;margin:12px 0}
+  .row{display:flex;gap:18px;flex-wrap:wrap}
+  .side{flex:1;min-width:340px}
+  .side h3{margin:2px 0 8px;font-size:.95rem;color:#93c5fd}
+  canvas{max-width:100%;height:auto;background:#fff;border-radius:6px;display:block}
+  .sidewrap{position:relative;display:inline-block;max-width:100%}
+  .ov{position:absolute;left:0;top:0;pointer-events:none}
+  .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+  .thumb{background:#fff;border-radius:6px;padding:4px;text-align:center;position:relative}
+  .thumb canvas{border:1px solid #cbd5e1}
+  .thumb .lbl{position:absolute;top:6px;right:6px;background:#1d4ed8;color:#fff;border-radius:6px;font-size:.72rem;font-weight:900;padding:1px 7px}
+  .thumb .rot{position:absolute;top:6px;left:6px;background:#b91c1c;color:#fff;border-radius:6px;font-size:.66rem;font-weight:800;padding:1px 6px}
+  .rotlist{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{background:#0b1220;border:1px solid #334155;border-radius:14px;padding:3px 9px;font-size:.75rem}
+  .chip.r180{border-color:#b91c1c;color:#fca5a5}
+  label{font-size:.78rem;color:#94a3b8}
+  input[type=number]{width:76px;background:#0b1220;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:5px 6px;font-family:inherit}
+  input[type=file]{color:#cbd5e1;font-size:.82rem}
+  button{background:#2563eb;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-family:inherit;font-weight:800;cursor:pointer;font-size:.9rem}
+  button.sec{background:#334155}
+  .muted{color:#94a3b8;font-size:.8rem}
+  .err{color:#fca5a5;font-weight:700}
+  code{background:#0b1220;padding:1px 5px;border-radius:4px;font-size:.78rem;direction:ltr;display:inline-block}
+</style>
+</head>
+<body>
+<h1>🧩 Decoder V2 — תצוגת פירוק פרופר <span class="flag">Preview · solanDecoderV2 · לא-ייצור</span></h1>
+<div class="warn2">⚠️ זו תצוגת-בדיקה נפרדת בלבד. המפה (מקור-האמת) מהטמפלט — <b>אין OCR</b> על הפרופר. הפרופר משמש לאימות חזותי/גיאומטרי. הטמפלט יסומן <code>tested</code> רק לאחר אישור חזותי מפורש.</div>
+
+<div class="card">
+  <h3 style="margin-top:0;color:#93c5fd">📐 סימון-טמפלט (אוטומטי) — לכל גודל עיתון</h3>
+  <div class="row" style="align-items:flex-end">
+    <div><label>טמפלט (2 עמ׳ · מספרי-עמוד)</label><br><input type="file" id="tplFile" accept="application/pdf"></div>
+    <div><label>עמוד סופי מ״מ</label><br>רוחב <input type="number" id="finW" value="210" step="1"> גובה <input type="number" id="finH" value="297" step="1"></div>
+    <div><label>פער ראש-לראש מ״מ</label><br><input type="number" id="gapMm" value="10" step="0.5"></div>
+    <div><label>מזהה טמפלט</label><br><input type="text" id="tplId" value="88x63-16p-perfector" style="width:180px;background:#0b1220;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:5px 6px;font-family:inherit"></div>
+    <div><button id="tplRead">🔍 קרא אוטומטית</button> <button class="sec" id="tplSave" disabled>💾 שמור טמפלט</button></div>
+  </div>
+  <div id="tplStatus" class="muted" style="margin-top:8px">טען טמפלט → המערכת תקרא את מספרי-העמוד, תזהה עמודות/שורות/שדרה, ותבנה מפה. אפשר לכוונן את הפער ולפרק פרופר לבדיקה. השמירה עד <code>tested</code> רק אחרי אישור חזותי.</div>
+</div>
+
+<div class="card">
+  <div class="row" style="align-items:flex-end">
+    <div><label>פרופר (2 עמ׳: Front+Back)</label><br><input type="file" id="proofFile" accept="application/pdf"></div>
+    <div><label><input type="checkbox" id="bleed"> הצג גלישות (3 מ״מ בראש/רגל/fore-edge · לא בשדרה)</label></div>
+    <div><button id="run">▶ פרק והצג</button> <button class="sec" id="dl" disabled>⬇️ הורד PDF פלט</button></div>
+  </div>
+  <div id="status" class="muted" style="margin-top:8px">בחר/גרור פרופר, או פתח עם <code>?proofUrl=…</code>.</div>
+  <div id="hashLine" class="muted" style="margin-top:4px"></div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;color:#93c5fd">1) מיפוי על הגיליון — מסגרות התאים + מספר-פלט + סיבוב</h3>
+  <div class="row">
+    <div class="side"><h3>Front — PDF עמוד 1</h3><div class="sidewrap"><canvas id="cFront"></canvas><canvas id="oFront" class="ov"></canvas></div></div>
+    <div class="side"><h3>Back — PDF עמוד 2</h3><div class="sidewrap"><canvas id="cBack"></canvas><canvas id="oBack" class="ov"></canvas></div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;color:#93c5fd">2) פלט בסדר-קריאה 1–16</h3>
+  <div id="thumbs" class="thumbs"><div class="muted">— טרם פורק —</div></div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;color:#93c5fd">3) סיבובים שבוצעו + אזהרות</h3>
+  <div id="rotList" class="rotlist"></div>
+  <div id="warns" style="margin-top:10px"></div>
+</div>
+
+<script>
+'use strict';
+const { PDFDocument, degrees } = PDFLib;
+const DEC = window.ImpositionDecoder;
+const TI = window.ImpositionTemplateImport;
+const TPL = window.ImpositionTemplates;
+const MM = 72/25.4;
+const $ = id => document.getElementById(id);
+let _proofBytes = null, _outBytes = null;
+let _derived = null;   // {cellMap, layout} מהטמפלט האוטומטי (null → ברירת-מחדל 88x63 מקובעת)
+
+// ── חילוץ מספרי-העמוד מטמפלט (pdf.js getTextContent · בלי רינדור) ────────────
+async function extractTemplateNumbers(bytes){
+  const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+  const pages = [];
+  for (let s=1; s<=pdf.numPages; s++){
+    const page = await pdf.getPage(s), vp = page.getViewport({ scale:1 });
+    const tc = await page.getTextContent();
+    const raw = [];
+    tc.items.forEach(t=>{
+      const str=(t.str||'').trim(); if(!/^\d{1,3}$/.test(str)) return;
+      const m = pdfjsLib.Util.transform(vp.transform, t.transform);
+      const fs = Math.hypot(m[0],m[1]); if (fs<40) return;
+      const ang = ((Math.round(Math.atan2(m[1],m[0])*180/Math.PI)%360)+360)%360;
+      const dir = ang*Math.PI/180;
+      const cx = m[4] + (t.width/2)*Math.cos(dir) - (t.height/2)*Math.sin(dir);
+      const cy = m[5] + (t.width/2)*Math.sin(dir) + (t.height/2)*Math.cos(dir);
+      raw.push({ n:+str, cxMm:cx/MM, cyMm:cy/MM, angle:ang, fs:fs });
+    });
+    const maxFs = raw.reduce((a,b)=>Math.max(a,b.fs),0);
+    const nums = raw.filter(r=>r.fs>=maxFs*0.5).map(r=>({ n:r.n, cxMm:+r.cxMm.toFixed(1), cyMm:+r.cyMm.toFixed(1), angle:r.angle }));
+    pages.push({ side:s-1, numbers:nums });
+  }
+  return pages;
+}
+
+async function readTemplate(bytes){
+  $('tplStatus').textContent = 'קורא טמפלט…';
+  try {
+    const pages = await extractTemplateNumbers(bytes);
+    const doc = await PDFDocument.load(bytes, { ignoreEncryption:true });
+    const p0 = doc.getPages()[0];
+    let tb; try { tb = p0.getTrimBox(); } catch(e){ tb = p0.getMediaBox(); }
+    const sheetTrim = { widthMm: tb.width/MM, heightMm: tb.height/MM };
+    const finished = { widthMm: parseFloat($('finW').value)||210, heightMm: parseFloat($('finH').value)||297 };
+    const gap = parseFloat($('gapMm').value);
+    const d = TI.deriveTemplateFromNumbers({ pages, sheetTrim, finished, headToHeadGapMm: isFinite(gap)?gap:10 });
+    if (!d.ok){ $('tplStatus').innerHTML = '<span class="err">גזירה נכשלה: '+(d.errors||[]).join(', ')+'</span>'; return; }
+    _derived = { cellMap: d.cellMap, layout: Object.assign({ id: $('tplId').value || 'template' }, d.layout) };
+    const warn = d.warnings.length ? ' · ⚠️ '+d.warnings.join(' · ') : '';
+    $('tplStatus').innerHTML = '✓ זוהו '+d.pagesPerSignature+' עמ׳ · '+d.layout.cols+'×'+d.layout.rows
+      +' · עמודות(שמאל) ['+d.layout.colLeftsTrimMm.join(', ')+'] · שורות(עליון) ['+d.layout.rowTopsTrimMm.join(', ')+']'
+      +' · שדרה '+d.layout.spineGutterMm+' מ״מ · שוליים-רגל '+d.layout.footMarginMm+' מ״מ'+warn
+      +' — טען פרופר ולחץ "פרק והצג".';
+    $('tplSave').disabled = false;
+  } catch(e){ console.error(e); $('tplStatus').innerHTML = '<span class="err">שגיאה: '+(e.message||e)+'</span>'; }
+}
+
+// קופסאות-הפרופר האמיתיות (מיפוי bleed-independent לפי TrimBox)
+async function _sheetFrom(bytes){
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption:true });
+  const p = doc.getPages()[0]; const mb=p.getMediaBox(), tb=p.getTrimBox();
+  return { mediaWmm:mb.width/MM, mediaHmm:mb.height/MM, trimXmm:tb.x/MM, trimYmm:tb.y/MM, trimWmm:tb.width/MM, trimHmm:tb.height/MM };
+}
+
+async function _sha256(bytes){
+  try{ const h = await crypto.subtle.digest('SHA-256', bytes); return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+  catch(e){ return '(hash לא זמין)'; }
+}
+
+// מרנדר עמוד-מקור לקנבס + שכבת-מסגרות לפי plan (בתצוגה, top-down)
+async function renderSide(pdf, pdfPageNum, baseCanvas, overlay, planPagesForSide, mediaWmm){
+  const page = await pdf.getPage(pdfPageNum);
+  const targetW = 760;
+  const vp0 = page.getViewport({ scale: 1 });
+  const scale = targetW / vp0.width;
+  const vp = page.getViewport({ scale });
+  baseCanvas.width = vp.width; baseCanvas.height = vp.height;
+  await page.render({ canvasContext: baseCanvas.getContext('2d'), viewport: vp }).promise;
+  overlay.width = vp.width; overlay.height = vp.height;
+  const ctx = overlay.getContext('2d');
+  const pxPerMm = vp.width / mediaWmm;   // media רוחב במ״מ → פיקסלים
+  ctx.clearRect(0,0,overlay.width,overlay.height);
+  ctx.lineWidth = 2; ctx.font = '900 22px Heebo, Arial'; ctx.textAlign='center';
+  planPagesForSide.forEach(p=>{
+    const x = p.rectMm.xMm * pxPerMm, y = p.rectMm.yMm * pxPerMm, w = p.rectMm.wMm * pxPerMm, h = p.rectMm.hMm * pxPerMm;
+    const r180 = p.rotationApplied === 180;
+    // מסגרת-גלישה (מקווקו כחול) — הרחבה 3 מ"מ בראש/רגל/fore-edge, לא בשדרה
+    if (p.bleedMm > 0) {
+      const bx = (p.spineSide === 'right') ? x - p.bleedMm * pxPerMm : x;
+      const bw = w + p.bleedMm * pxPerMm;                 // fore-edge בלבד (צד אחד)
+      const by = y - p.bleedMm * pxPerMm, bh = h + 2 * p.bleedMm * pxPerMm;
+      ctx.save(); ctx.setLineDash([6, 4]); ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(bx, by, bw, bh); ctx.restore();
+    }
+    ctx.strokeStyle = r180 ? '#dc2626' : '#16a34a';
+    ctx.strokeRect(x, y, w, h);
+    // תג מספר-פלט — מסובב 180 בשורה העליונה (כמו העמוד ההפוך והטמפלט)
+    ctx.save(); ctx.translate(x + w/2, y + h/2); if (r180) ctx.rotate(Math.PI);
+    ctx.textBaseline='middle'; ctx.fillStyle='rgba(29,78,216,.92)'; ctx.fillRect(-26,-22,52,44);
+    ctx.fillStyle='#fff'; ctx.fillText(String(p.finalPageNumber), 0, 2); ctx.restore();
+    ctx.textBaseline='alphabetic';
+    // תג סיבוב
+    ctx.fillStyle = r180 ? 'rgba(185,28,28,.95)' : 'rgba(22,101,52,.9)';
+    ctx.fillRect(x + 6, y + 6, 54, 20); ctx.fillStyle='#fff'; ctx.font='800 13px Heebo,Arial';
+    ctx.fillText(r180?'↻180°':'0°', x + 33, y + 21); ctx.font='900 22px Heebo,Arial';
+  });
+}
+
+// בונה PDF פלט בסדר-קריאה (וקטורי — embedPage+clip+rotate). מחזיר Uint8Array.
+// embed כל צד *פעם אחת* (XObject יחיד) → חיתוך ע"י MediaBox של עמוד-הפלט (קובץ קטן, בלי כפילות תמונות)
+async function buildOutput(plan){
+  const src = await PDFDocument.load(_proofBytes, { ignoreEncryption:true });
+  const srcPages = src.getPages();
+  const out = await PDFDocument.create();
+  const embBySide = {};
+  embBySide[1] = await out.embedPage(srcPages[0]);
+  if (srcPages[1]) embBySide[2] = await out.embedPage(srcPages[1]);
+  for (const p of plan.pages){
+    const emb = embBySide[p.sourcePdfPage]; if (!emb) continue;
+    const op = out.addPage([p.outputWpt, p.outputHpt]);
+    const cp = p.bleedClipPt || p.clipPt;   // bleedClipPt == clipPt כשאין גלישה
+    if (p.rotationApplied === 180) op.drawPage(emb, { x:cp.right, y:cp.top, rotate: degrees(180) });
+    else if (p.rotationApplied === 90) op.drawPage(emb, { x:cp.left, y:cp.top, rotate: degrees(90) });
+    else if (p.rotationApplied === 270) op.drawPage(emb, { x:cp.right, y:cp.bottom, rotate: degrees(270) });
+    else op.drawPage(emb, { x:-cp.left, y:-cp.bottom });
+  }
+  return await out.save();
+}
+
+async function renderThumbs(outBytes){
+  const host = $('thumbs'); host.innerHTML = '';
+  const pdf = await pdfjsLib.getDocument({ data: outBytes.slice(0) }).promise;
+  for (let i=1;i<=pdf.numPages;i++){
+    const page = await pdf.getPage(i);
+    const vp0 = page.getViewport({ scale:1 });
+    const scale = 120 / vp0.width;
+    const vp = page.getViewport({ scale });
+    const cv = document.createElement('canvas'); cv.width=vp.width; cv.height=vp.height;
+    await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+    const cell = document.createElement('div'); cell.className='thumb';
+    cell.appendChild(cv);
+    const lbl = document.createElement('div'); lbl.className='lbl'; lbl.textContent=i; cell.appendChild(lbl);
+    host.appendChild(cell);
+  }
+}
+
+async function run(){
+  if (!_proofBytes){ $('status').innerHTML='<span class="err">אין פרופר טעון.</span>'; return; }
+  $('status').textContent='מפרק…'; $('dl').disabled=true;
+  try {
+    const sheet = await _sheetFrom(_proofBytes);
+    const bleedMm = $('bleed') && $('bleed').checked ? 3 : 0;
+    const opts = { sheet: sheet, startPage: 1, bleedMm: bleedMm };
+    if (_derived){ opts.cells = _derived.cellMap; opts.layout = _derived.layout; }   // טמפלט אוטומטי (אחרת ברירת-מחדל 88x63)
+    const plan = DEC.buildDecodePlan(opts);
+    // מסגרות על שני הצדדים
+    const pdf = await pdfjsLib.getDocument({ data: _proofBytes.slice(0) }).promise;
+    const mediaWmm = plan.sheet.mediaWmm;
+    await renderSide(pdf, 1, $('cFront'), $('oFront'), plan.pages.filter(p=>p.sourceSide===0), mediaWmm);
+    if (pdf.numPages >= 2) await renderSide(pdf, 2, $('cBack'), $('oBack'), plan.pages.filter(p=>p.sourceSide===1), mediaWmm);
+    // פלט + תמונות
+    _outBytes = await buildOutput(plan);
+    await renderThumbs(_outBytes);
+    // סיבובים
+    $('rotList').innerHTML = plan.rotations.map(r=>'<span class="chip '+(r.rotation===180?'r180':'')+'">עמ׳ '+r.page+' · '+(r.rotation===180?'↻180°':'0°')+'</span>').join('');
+    // אזהרות
+    const warns = plan.warnings.concat(pdf.numPages!==2 ? ['⚠️ הפרופר אינו בן 2 עמודים (Front+Back) — נמצאו '+pdf.numPages] : []);
+    $('warns').innerHTML = warns.length ? warns.map(w=>'<div class="err">⚠️ '+w+'</div>').join('') : '<div class="muted">אין אזהרות. 16 עמודים · 8 סיבובי-180° · 8 ללא סיבוב.</div>';
+    $('status').innerHTML = '✓ פורקו '+plan.pages.length+' עמודים בסדר 1–'+plan.pages.length+'. '+(plan.success?'':'<span class="err">(יש שגיאות מפה)</span>');
+    $('dl').disabled = false;
+  } catch(e){ console.error(e); $('status').innerHTML='<span class="err">שגיאה: '+(e.message||e)+'</span>'; }
+}
+
+async function setBytes(bytes, name){
+  _proofBytes = bytes;
+  $('status').textContent = '📄 '+(name||'פרופר')+' · '+(bytes.length/1024/1024).toFixed(1)+'MB — לחץ "פרק והצג".';
+  _sha256(bytes).then(h=>{ $('hashLine').innerHTML='testProofHash (SHA-256): <code>'+h+'</code>'; window._proofHash=h; });
+}
+
+$('proofFile').onchange = async e => { const f=e.target.files[0]; if(!f) return; setBytes(new Uint8Array(await f.arrayBuffer()), f.name); };
+$('tplFile').onchange = async e => { const f=e.target.files[0]; if(!f) return; await readTemplate(new Uint8Array(await f.arrayBuffer())); };
+$('tplRead').onclick = () => $('tplFile').click();
+$('tplSave').onclick = () => {
+  if(!_derived){ alert('קרא טמפלט קודם'); return; }
+  const L = _derived.layout;
+  const sides = Math.max.apply(null, _derived.cellMap.map(c=>c.sourceSide)) + 1;
+  const cells = _derived.cellMap.map(c=>({
+    sourceSide: c.sourceSide+1, row: c.row, column: c.column,
+    xRatio: L.colLeftsTrimMm[c.column]/L.trimWmm, yRatio: L.rowTopsTrimMm[c.row]/L.trimHmm,
+    widthRatio: L.finishedWmm/L.trimWmm, heightRatio: L.finishedHmm/L.trimHmm,
+    outputPageOffset: c.outputPageOffset, rotation: c.rotation, mirrorX:false, mirrorY:false
+  }));
+  const t = TPL.buildTemplate({
+    id: L.id, name: L.id, status:'draft',
+    sheet:{ widthMm:L.trimWmm, heightMm:L.trimHmm }, finishedPage:{ widthMm:L.finishedWmm, heightMm:L.finishedHmm },
+    pagesPerSignature: _derived.cellMap.length, sidesCount: sides, printingMethod:'perfector', bindingType:'saddle_stitch',
+    cells: cells,
+    validation:{ expectedPdfPages: sides, expectedCells:_derived.cellMap.length, allowBlankPages:false, requiresRealProofValidation:true },
+    validationState:{ templateImported:true, geometryChecked:false, testedWithRealProof:false, productionApproved:false },
+    source:'import'
+  });
+  const store = TPL.createBrowserTemplateStore({ win: window });
+  Promise.resolve(store.save(t, { user:'preview' })).then(res=>{
+    $('tplStatus').innerHTML = '💾 נשמר "'+L.id+'" ל-localStorage (status=draft · geometryChecked=false · requiresRealProofValidation). Firebase: '+((res&&res.firebase)?'✓':'—')+'. יסומן <code>tested</code> רק אחרי אישור חזותי מפורש.';
+  }).catch(e=>{ $('tplStatus').innerHTML='<span class="err">שמירה נכשלה: '+(e.message||e)+'</span>'; });
+};
+$('run').onclick = run;
+$('dl').onclick = () => {
+  if(!_outBytes) return;
+  const blob=new Blob([_outBytes],{type:'application/pdf'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='decoded-1-16.pdf';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+};
+
+// טעינה אוטומטית מ-?proofUrl=… (לאימות חי) + &auto=1
+(async function(){
+  try{
+    const qs = new URLSearchParams(location.search);
+    const url = qs.get('proofUrl'); if(!url) return;
+    $('status').textContent='טוען פרופר…';
+    const r = await fetch(url); if(!r.ok) throw new Error('טעינה נכשלה ('+r.status+')');
+    const buf = await r.arrayBuffer();
+    await setBytes(new Uint8Array(buf), (url.split('/').pop()||'proofer.pdf'));
+    if (qs.get('auto')==='1') run();
+  }catch(e){ $('status').innerHTML='<span class="err">טעינה אוטומטית נכשלה: '+(e.message||e)+'</span>'; }
+})();
+</script>
+</body>
+</html>
