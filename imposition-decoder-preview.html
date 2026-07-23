@@ -10,6 +10,29 @@
 <script src="imposition-templates.js"></script>
 <script src="imposition-decoder.js"></script>
 <script src="imposition-template-import.js"></script>
+<script>
+// ── שומר-סביבה (זהה לשאר הדפים) — פתיחה מקומית לא כותבת ל-Firebase החי ──
+(function(){
+  if (window._solanEnvGuardReady) return; window._solanEnvGuardReady = true;
+  window._solanEnvNow = function(){ try { if (typeof window._SOLAN_ENV_FORCE==='string') return window._SOLAN_ENV_FORCE;
+    return ((location.hostname||'').toLowerCase()==='solanprinting.github.io') ? 'production':'development'; } catch(e){ return 'development'; } };
+  window._solanIsProd = function(){ return window._solanEnvNow()==='production'; };
+  window._solanWritesAllowed = function(){ var e=window._solanEnvNow(); if(e==='production') return true; if(e==='development') return window._SOLAN_ALLOW_DEV_WRITES===true; return false; };
+  window._solanIsFbWriteUrl = function(url,method){ url=String(url==null?'':url); method=String(method||'GET').toUpperCase();
+    if(method==='GET'||method==='HEAD'||method==='OPTIONS') return false;
+    return url.indexOf('firebasedatabase.app')>=0 || url.indexOf('firebasestorage.googleapis.com')>=0 || url.indexOf('storage.googleapis.com')>=0; };
+  window._fbWriteGuard = function(op){ if(window._solanWritesAllowed()) return true;
+    try{ console.warn('⛔ [SOLAN '+window._solanEnvNow().toUpperCase()+'] כתיבה ל-Firebase נחסמה (הגנת סביבה): '+op); }catch(e){} return false; };
+  try{ var _of=window.fetch; if(_of && !_of._solanGuarded){ var wf=function(input,init){ try{
+      var url=(typeof input==='string')?input:(input&&input.url)||''; var method=(init&&init.method)||(typeof input!=='string'&&input&&input.method)||'GET';
+      if(window._solanIsFbWriteUrl(url,method) && !window._fbWriteGuard(method+' '+url)) return Promise.resolve(new Response('{"error":"blocked"}',{status:503}));
+    }catch(e){} return _of.apply(this,arguments); }; wf._solanGuarded=true; window.fetch=wf; } }catch(e){}
+  try{ var XP=window.XMLHttpRequest&&window.XMLHttpRequest.prototype; if(XP && !XP._solanGuarded){ var _xo=XP.open,_xs=XP.send;
+    XP.open=function(m,u){ this._sm=m; this._su=u; return _xo.apply(this,arguments); };
+    XP.send=function(){ try{ if(window._solanIsFbWriteUrl(this._su,this._sm) && !window._fbWriteGuard((this._sm||'')+' '+this._su)){ var s=this; setTimeout(function(){ try{ s.dispatchEvent(new Event('error')); }catch(e){} },0); return; } }catch(e){} return _xs.apply(this,arguments); };
+    XP._solanGuarded=true; } }catch(e){}
+})();
+</script>
 <style>
   body{font-family:'Heebo',Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px;direction:rtl}
   h1{font-size:1.15rem;margin:0 0 4px}
@@ -77,6 +100,15 @@
 <div class="card">
   <h3 style="margin-top:0;color:#93c5fd">2) פלט בסדר-קריאה 1–16</h3>
   <div id="thumbs" class="thumbs"><div class="muted">— טרם פורק —</div></div>
+</div>
+
+<div class="card" id="bookletCard" style="display:none">
+  <h3 style="margin-top:0;color:#93c5fd">📖 חוברת לאישור — דפדוף · הורדה · שליחה ללקוח</h3>
+  <div class="row" style="gap:8px;margin-bottom:10px">
+    <button class="sec" id="dlSpreads">⬇️ הורד כפולות-קורא (PDF)</button>
+    <button id="sendCustomer" style="background:#16a34a">📤 שלח ללקוח לאישור</button>
+  </div>
+  <div id="flip"></div>
 </div>
 
 <div class="card">
@@ -249,6 +281,8 @@ async function run(){
     // פלט + תמונות
     _outBytes = await buildOutput(plan);
     await renderThumbs(_outBytes);
+    $('bookletCard').style.display = '';
+    try { await showFlipbook(_outBytes); } catch(e){ console.error(e); }
     // סיבובים
     $('rotList').innerHTML = plan.rotations.map(r=>'<span class="chip '+(r.rotation===180?'r180':'')+'">עמ׳ '+r.page+' · '+(r.rotation===180?'↻180°':'0°')+'</span>').join('');
     // אזהרות
@@ -300,17 +334,163 @@ $('dl').onclick = () => {
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
 };
 
-// טעינה אוטומטית מ-?proofUrl=… (לאימות חי) + &auto=1
+// ═══ חוברת לאישור — כפולות-קורא · דפדוף · שליחה ללקוח · אישור (זרימת bookletApprovals הקיימת) ═══
+const _FBURL_IT = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+const _FB_APIKEY_IT = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+let _itTok = { id:null, exp:0 };
+let _spreadsBytes = null, _srcBookletUrl = null, _shareSid = null;
+const _clientMode = (new URLSearchParams(location.search)).get('client')==='1';
+
+function _spreadGroups(n){ const g=[]; if(n<=0) return g; g.push([0]); for(let k=1;k<n;k+=2) g.push(k+1<n?[k,k+1]:[k]); return g; }
+async function buildSpreads(outBytes){
+  const src = await PDFDocument.load(outBytes,{ignoreEncryption:true});
+  const n = src.getPageCount(); if(n<=0) return outBytes;
+  const out = await PDFDocument.create();
+  const embs=[]; for(let i=0;i<n;i++) embs.push(await out.embedPage(src.getPages()[i]));
+  for(const g of _spreadGroups(n)){
+    if(g.length===1){ const e=embs[g[0]]; const p=out.addPage([e.width,e.height]); p.drawPage(e,{x:0,y:0}); }
+    else { const er=embs[g[0]], el=embs[g[1]]; const p=out.addPage([er.width+el.width,Math.max(er.height,el.height)]); p.drawPage(er,{x:el.width,y:0}); p.drawPage(el,{x:0,y:0}); }
+  }
+  return await out.save();
+}
+let _FB=null;
+async function showFlipbook(outBytes){
+  const host=$('flip'); host.innerHTML='<div class="muted" style="padding:12px">בונה דפדוף…</div>';
+  _spreadsBytes = await buildSpreads(outBytes);
+  const pdf = await pdfjsLib.getDocument({data:_spreadsBytes.slice(0)}).promise;
+  _FB={pdf,n:pdf.numPages,idx:0};
+  host.innerHTML='<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:8px">'
+    +'<button id="fbPrev" class="sec">‹ הקודם</button><span id="fbPos" class="muted"></span><button id="fbNext" class="sec">הבא ›</button></div>'
+    +'<div style="text-align:center;background:#fff;border-radius:8px;padding:8px"><canvas id="fbCanvas" style="max-width:100%;height:auto"></canvas></div>';
+  $('fbPrev').onclick=()=>{ if(_FB.idx>0){_FB.idx--; _fbRender();} };
+  $('fbNext').onclick=()=>{ if(_FB.idx<_FB.n-1){_FB.idx++; _fbRender();} };
+  await _fbRender();
+}
+async function _fbRender(){
+  const page=await _FB.pdf.getPage(_FB.idx+1);
+  const vp0=page.getViewport({scale:1}); const scale=Math.min(900/vp0.width,1.6);
+  const vp=page.getViewport({scale}); const cv=$('fbCanvas'); cv.width=vp.width; cv.height=vp.height;
+  await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+  $('fbPos').textContent='כפולה '+(_FB.idx+1)+' / '+_FB.n;
+}
+async function dlSpreads(){
+  if(!_spreadsBytes && _outBytes) _spreadsBytes=await buildSpreads(_outBytes);
+  if(!_spreadsBytes) return;
+  const blob=new Blob([_spreadsBytes],{type:'application/pdf'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='חוברת — כפולות.pdf';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+}
+function _itAuth(){
+  if(_itTok.id && Date.now()<_itTok.exp-120000) return Promise.resolve(_itTok.id);
+  return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_FB_APIKEY_IT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})})
+    .then(r=>r.ok?r.json():Promise.reject(new Error('auth '+r.status))).then(j=>{ _itTok={id:j.idToken,exp:Date.now()+(parseInt(j.expiresIn)||3600)*1000}; return _itTok.id; });
+}
+function _itUpload(path,bytes,onPct){
+  return _itAuth().then(tok=> new Promise((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();
+    xhr.open('POST','https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o?name='+encodeURIComponent(path));
+    xhr.setRequestHeader('Content-Type','application/pdf'); if(tok) xhr.setRequestHeader('Authorization','Firebase '+tok);
+    xhr.upload.onprogress=e=>{ if(e.lengthComputable&&onPct) onPct(Math.round(e.loaded/e.total*100)); };
+    xhr.onload=()=>{ if(xhr.status>=200&&xhr.status<300){ const j=JSON.parse(xhr.responseText); const t=(j.downloadTokens||'').split(',')[0]||'';
+      resolve('https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o/'+encodeURIComponent(path)+'?alt=media&token='+t); } else reject(new Error('Storage '+xhr.status)); };
+    xhr.onerror=()=>reject(new Error('שגיאת רשת בהעלאה')); xhr.send(bytes);
+  }));
+}
+async function sendToCustomer(){
+  if(!_outBytes){ alert('פרק קודם.'); return; }
+  if(!window._solanIsProd()){ alert('שליחה ללקוח פועלת רק באתר החי. מקומית היא חסומה (הגנת סביבה).'); return; }
+  const btn=$('sendCustomer'); const t0=btn.textContent;
+  try{
+    btn.disabled=true; btn.textContent='⏳ מעלה…';
+    let url=_srcBookletUrl;
+    if(!url){ const path='bookletShares/'+Date.now()+'_'+Math.random().toString(36).slice(2,8)+'/booklet.pdf';
+      url=await _itUpload(path,_outBytes,p=>{ btn.textContent='⏳ מעלה… '+p+'%'; }); _srcBookletUrl=url; }
+    if(!_shareSid) _shareSid='bk_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
+    const link=location.origin+location.pathname+'?bookletUrl='+encodeURIComponent(url)+'&client=1&sid='+encodeURIComponent(_shareSid);
+    _shareDialog(link);
+  }catch(e){ console.error(e); alert('שגיאה בהכנת הקישור: '+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent=t0; }
+}
+function _shareDialog(link){
+  const old=document.getElementById('shareDlg'); if(old) old.remove();
+  const msg='שלום! מצורפת הגהה דיגיטלית של החוברת שלכם מסולן הדפסות.\nלחצו כדי לדפדף ולאשר:\n'+link;
+  const dlg=document.createElement('div'); dlg.id='shareDlg';
+  dlg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:600;display:flex;align-items:center;justify-content:center;direction:rtl';
+  dlg.innerHTML='<div style="background:#fff;color:#111;border-radius:16px;padding:22px 24px;width:min(480px,92vw)">'
+    +'<div style="font-weight:900;font-size:1.1rem;color:#2d3561;margin-bottom:6px">📤 שליחת החוברת ללקוח</div>'
+    +'<div style="font-size:.85rem;color:#666;margin-bottom:14px">הלקוח יראה דפדוף מלא ויוכל לאשר לדפוס.</div>'
+    +'<div style="display:flex;flex-direction:column;gap:9px">'
+    +'<a target="_blank" rel="noopener" href="https://wa.me/?text='+encodeURIComponent(msg)+'" style="text-align:center;background:#25d366;color:#fff;font-weight:800;padding:12px;border-radius:10px;text-decoration:none">🟢 וואטסאפ</a>'
+    +'<a href="mailto:?subject='+encodeURIComponent('הגהה דיגיטלית — סולן הדפסות')+'&body='+encodeURIComponent(msg)+'" style="text-align:center;background:#2d3561;color:#fff;font-weight:800;padding:12px;border-radius:10px;text-decoration:none">✉️ מייל</a>'
+    +'<button id="shareCopy" style="background:#f3f4f6;border:1.5px solid #d1d5db;color:#111;font-weight:800;padding:12px;border-radius:10px;cursor:pointer">📋 העתק קישור</button>'
+    +'<button id="shareFileBtn" style="background:#128c7e;border:none;color:#fff;font-weight:800;padding:12px;border-radius:10px;cursor:pointer">📎 שלח כקובץ מצורף (אינטרנט-כשר)</button>'
+    +'</div>'
+    +'<input id="shareLinkInp" value="'+link.replace(/"/g,'&quot;')+'" readonly style="width:100%;margin-top:12px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;font-size:.78rem;direction:ltr;box-sizing:border-box">'
+    +'<button id="shareClose" style="margin-top:12px;background:none;border:none;color:#888;cursor:pointer">סגור</button></div>';
+  document.body.appendChild(dlg);
+  dlg.addEventListener('click',e=>{ if(e.target===dlg) dlg.remove(); });
+  $('shareClose').onclick=()=>dlg.remove();
+  $('shareCopy').onclick=function(){ const inp=$('shareLinkInp'); inp.select(); let ok=false; try{ navigator.clipboard.writeText(link); ok=true; }catch(e){} if(!ok){ try{ document.execCommand('copy'); ok=true; }catch(e){} } this.textContent=ok?'✓ הועתק':'העתק ידנית'; };
+  $('shareFileBtn').onclick=shareAsFile;
+}
+async function shareAsFile(){
+  const bytes=_outBytes; if(!bytes) return;
+  try{ const file=new File([bytes],'חוברת לבדיקה.pdf',{type:'application/pdf'});
+    if(navigator.share && (!navigator.canShare||navigator.canShare({files:[file]}))) await navigator.share({files:[file],title:'חוברת לבדיקה — סולן הדפסות'});
+    else { const blob=new Blob([bytes],{type:'application/pdf'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='חוברת לבדיקה.pdf'; document.body.appendChild(a); a.click(); a.remove(); }
+  }catch(e){ if(String(e&&e.name)!=='AbortError') alert('השיתוף נכשל.'); }
+}
+function _bkApprovalBar(){
+  const bar=document.createElement('div'); bar.id='bkApproveBar';
+  bar.style.cssText='position:fixed;bottom:0;right:0;left:0;z-index:400;background:#fff;color:#111;border-top:2px solid #e5e7eb;box-shadow:0 -6px 20px rgba(0,0,0,.12);padding:12px 16px;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;direction:rtl';
+  bar.innerHTML='<span id="bkApproveMsg" style="font-weight:600;color:#374151">בדקתם את החוברת והכל נכון?</span>'
+    +'<button id="bkApproveBtn" onclick="_bkApprove()" style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;border-radius:12px;padding:13px 30px;font-size:1.05rem;font-weight:900;cursor:pointer;font-family:inherit">✓ אני מאשר את החוברת לדפוס</button>';
+  document.body.appendChild(bar); document.body.style.paddingBottom='80px'; _bkCheckApproved();
+}
+function _bkApprovedUi(rec){ const btn=$('bkApproveBtn'),msg=$('bkApproveMsg'); if(btn) btn.style.display='none';
+  if(msg){ const d=rec&&rec.at?new Date(rec.at):null; msg.innerHTML='<span style="color:#15803d;font-weight:900">✓ החוברת אושרה לדפוס'+(rec&&rec.name?' על ידי '+String(rec.name).replace(/</g,'&lt;'):'')+(d?' · '+d.toLocaleDateString('he-IL')+' '+d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}):'')+'</span>'; } }
+function _bkCheckApproved(){ if(!_shareSid) return; _itAuth().then(tok=>fetch(_FBURL_IT+'/bookletApprovals/'+encodeURIComponent(_shareSid)+'.json'+(tok?'?auth='+tok:''))).then(r=>r.ok?r.json():null).then(rec=>{ if(rec&&rec.at) _bkApprovedUi(rec); }).catch(()=>{}); }
+async function _bkApprove(){
+  const name=(prompt('לאישור החוברת לדפוס — שם מלא של המאשר:')||'').trim(); if(!name) return;
+  const btn=$('bkApproveBtn');
+  try{ btn.disabled=true; btn.textContent='⏳ שומר…'; const tok=await _itAuth();
+    const rec={name,at:Date.now(),source:'decoder-v2',ua:(navigator.userAgent||'').slice(0,140)};
+    const r=await fetch(_FBURL_IT+'/bookletApprovals/'+encodeURIComponent(_shareSid)+'.json'+(tok?'?auth='+tok:''),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(rec)});
+    if(!r.ok) throw new Error('שמירה נכשלה ('+r.status+')'); _bkApprovedUi(rec); alert('תודה! האישור נשמר ונשלח לבית הדפוס.');
+  }catch(e){ btn.disabled=false; btn.textContent='✓ אני מאשר את החוברת לדפוס'; alert('שגיאה בשמירת האישור: '+(e.message||e)); }
+}
+window._bkApprove=_bkApprove;
+$('dlSpreads').onclick=dlSpreads;
+$('sendCustomer').onclick=sendToCustomer;
+
+// טעינה אוטומטית: ?proofUrl (צד-בית-דפוס) או ?bookletUrl+client=1 (צד-לקוח: דפדוף+אישור)
 (async function(){
   try{
     const qs = new URLSearchParams(location.search);
+    // ── מצב-לקוח: מציג את החוברת המוכנה בדפדוף + פס אישור, בלי כלי-הסימון ──
+    const bookletUrl = qs.get('bookletUrl');
+    if (bookletUrl && _clientMode){
+      _shareSid = qs.get('sid')||null; _srcBookletUrl = bookletUrl;
+      ['tplFile','proofFile'].forEach(id=>{ const e=$(id); if(e&&e.closest('.card')) e.closest('.card').style.display='none'; });
+      document.querySelectorAll('.card').forEach(c=>{ if(c.id!=='bookletCard') c.style.display='none'; });
+      const h1=document.querySelector('h1'); if(h1) h1.innerHTML='📖 החוברת שלכם — הגהה דיגיטלית';
+      const sc=$('sendCustomer'); if(sc) sc.style.display='none';   // לקוח לא שולח
+      $('bookletCard').style.display='';
+      $('flip').innerHTML='<div class="muted" style="padding:12px">טוען חוברת…</div>';
+      const r=await fetch(bookletUrl); if(!r.ok) throw new Error('טעינה נכשלה ('+r.status+')');
+      _outBytes = new Uint8Array(await r.arrayBuffer());
+      await showFlipbook(_outBytes);
+      _bkApprovalBar();
+      return;
+    }
+    // ── צד-בית-דפוס: טעינת פרופר אוטומטית ──
     const url = qs.get('proofUrl'); if(!url) return;
     $('status').textContent='טוען פרופר…';
     const r = await fetch(url); if(!r.ok) throw new Error('טעינה נכשלה ('+r.status+')');
     const buf = await r.arrayBuffer();
     await setBytes(new Uint8Array(buf), (url.split('/').pop()||'proofer.pdf'));
     if (qs.get('auto')==='1') run();
-  }catch(e){ $('status').innerHTML='<span class="err">טעינה אוטומטית נכשלה: '+(e.message||e)+'</span>'; }
+  }catch(e){ const s=$('status'); if(s) s.innerHTML='<span class="err">טעינה אוטומטית נכשלה: '+(e.message||e)+'</span>'; else alert('טעינה נכשלה: '+(e.message||e)); }
 })();
 </script>
 </body>
