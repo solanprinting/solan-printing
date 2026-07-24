@@ -378,7 +378,7 @@ function workerScreen(){
   document.title='הצגת פרופר מקופל ללקוח';
   $('app').innerHTML = ''
    + '<h2>הצגת פרופר מקופל ללקוח <span class="muted">(Beta · פנימי)</span></h2>'
-   + '<div class="steps">'+['העלאת פרופר','בחירת טמפלט','יצירת חוברת','בדיקה פנימית','יצירת קישור'].map((s,i)=>'<div class="step" id="wstep'+i+'">'+(i+1)+'. '+s+'</div>').join('')+'</div>'
+   + '<div class="steps">'+['העלאת פרופר','בחירת טמפלט','יצירת חוברת','בדיקה פנימית','שליחה ללקוח'].map((s,i)=>'<div class="step" id="wstep'+i+'">'+(i+1)+'. '+s+'</div>').join('')+'</div>'
    + '<div class="card"><b>1–2.</b> פרופר: <input type="file" id="proof" accept="application/pdf"> · טמפלט (לכל קונטרס): '
    + '<select id="tpl"><option value="">— בחר —</option></select> '
    + '<button id="foldBtn" disabled>▶ צור חוברת</button>'
@@ -386,14 +386,14 @@ function workerScreen(){
    + '<div id="multiBox" style="display:none;margin-top:6px;padding:8px;border:1px dashed var(--line);border-radius:8px">'
    + '<div class="muted">העלה את כל הריצות יחד לפי הסדר: <b>R-1</b> (החיצוני · מכיל שער+גב) ואז R-2, R-3… כל ריצה = גיליון 32-up.</div>'
    + '<input type="file" id="proofMulti" accept="application/pdf" multiple style="margin-top:6px"> <div id="multiList" class="muted" style="margin-top:6px"></div></div>'
-   + '<div class="card" style="margin-top:6px"><input type="text" id="jobName" placeholder="שם העבודה" style="width:180px"> <input type="text" id="custName" placeholder="שם לקוח" style="width:150px"> <input type="text" id="jobId" placeholder="מס׳ עבודה" style="width:110px"></div>'
+   + '<div class="card" style="margin-top:6px"><input type="text" id="jobName" placeholder="שם העבודה" style="width:170px"> <input type="text" id="custName" placeholder="שם לקוח" style="width:140px"> <input type="text" id="custPhone" placeholder="טלפון לקוח (וואטסאפ)" style="width:160px"> <input type="text" id="jobId" placeholder="מס׳ עבודה" style="width:100px"></div>'
    + '<div id="wstatus" class="muted" style="margin-top:8px">בחר פרופר וטמפלט.</div></div>'
    + '<div class="card" id="previewCard" style="display:none"><h3>3. תצוגה <span class="muted" id="metaLine"></span></h3>'
    + '<div style="margin-bottom:8px">גלישות: <select id="bleedSel"><option value="0">בלי גלישות (נטו)</option><option value="3">עם גלישות (3 מ״מ)</option></select> <span class="muted" id="bleedNote"></span></div>'
    + '<div id="warns" class="muted"></div><div id="flip"></div><h3 style="margin-top:12px">Thumbnails</h3><div id="thumbs"></div></div>'
    + '<div class="card" id="checkCard" style="display:none"><h3>4. בדיקה פנימית</h3>'
    + '<label class="chk"><input type="checkbox" id="intChk"> <span>בדקתי שהשער, סדר העמודים, הכיוונים והחיתוך תקינים.</span></label>'
-   + '<div style="margin-top:10px"><button id="linkBtn" class="primary" disabled>🔗 צור קישור ללקוח</button> <span id="linkStatus" class="muted"></span></div>'
+   + '<div style="margin-top:10px"><button id="linkBtn" class="primary" disabled>🔗 צור קישור לשליחה ללקוח</button> <span id="linkStatus" class="muted"></span></div>'
    + '<div id="linkOut" style="margin-top:10px"></div></div>';
 
   let _srcU8=null, _srcName='', _folded=null, _multiU8=[], _multiNames=[];   // {bytes,result}
@@ -498,10 +498,25 @@ function workerScreen(){
       await _dbPut('customerFoldVersions/'+rec.versionId, rec);
       await _dbPatch('customerFoldVersionsIndex/'+encodeURIComponent(jobId), (function(){ const o={}; o[rec.versionId]=versionNumber; return o; })());
       const link=location.origin+location.pathname+'?v='+encodeURIComponent(rec.versionId)+'&t='+encodeURIComponent(rec.share.token);
-      $('linkStatus').innerHTML='<span class="ok">✓ נוצרה גרסה V'+versionNumber+'</span>';
-      $('linkOut').innerHTML='<div class="chk"><span>קישור ללקוח (V'+versionNumber+'):<br><code style="word-break:break-all">'+link+'</code><br>'
-        + '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+link+'\')">העתק</button> '
-        + '<a href="'+link+'" target="_blank"><button>פתח כלקוח</button></a> · <span class="muted">outputHash: '+outHash.slice(0,16)+'…</span></span></div>';
+      $('linkStatus').innerHTML='<span class="ok">✓ נוצרה גרסה V'+versionNumber+' — שלח ללקוח לאישור</span>';
+      // הודעת-אישור מוכנה + שליחה בוואטסאפ/מייל (הפעולה נפתחת אצל העובד — הוא לוחץ "שלח")
+      const jobLabel=($('jobName').value||_srcName||'החוברת');
+      const msg='שלום,\nמצורף קישור לאישור החוברת "'+jobLabel+'" לפני הדפסה.\nאנא עברו על סדר העמודים והתוכן, ואשרו בתחתית העמוד:\n'+link;
+      const waTxt=encodeURIComponent(msg);
+      const mailUrl='mailto:?subject='+encodeURIComponent('אישור חוברת לדפוס — '+jobLabel)+'&body='+waTxt;
+      $('linkOut').innerHTML='<div class="chk"><b>📤 שליחה ללקוח לאישור (V'+versionNumber+')</b>'
+        + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">'
+        + '<button id="sndWa" class="primary" style="background:#25d366">🟢 שלח בוואטסאפ</button>'
+        + '<a href="'+mailUrl+'"><button>✉️ שלח במייל</button></a>'
+        + '<button id="cpLink">📋 העתק קישור</button>'
+        + '<a href="'+link+'" target="_blank"><button>👁 פתח כלקוח (בדיקה)</button></a></div>'
+        + '<div class="muted" style="margin-top:8px;font-size:.82rem">הקישור מוצג ללקוח עם דפדוף החוברת וכפתור "מאשר להדפסה". אישור/בקשת-תיקון יירשמו על גרסה V'+versionNumber+'.</div>'
+        + '<div style="margin-top:6px"><code style="word-break:break-all;font-size:.75rem;opacity:.7">'+link+'</code></div></div>';
+      $('sndWa').onclick=()=>{ const ph=(($('custPhone')&&$('custPhone').value)||'').replace(/\D/g,''); let intl=ph;
+        if(ph){ if(ph.indexOf('972')===0){} else if(ph.charAt(0)==='0'){ intl='972'+ph.slice(1); } else if(ph.length<=10){ intl='972'+ph; } }
+        const wa = intl ? ('https://wa.me/'+intl+'?text='+waTxt) : ('https://wa.me/?text='+waTxt);
+        window.open(wa,'_blank'); };
+      $('cpLink').onclick=()=>{ navigator.clipboard&&navigator.clipboard.writeText(link); $('cpLink').textContent='✓ הועתק'; };
       setStep(4);
     }catch(err){ $('linkStatus').innerHTML='<span class="bad">'+(err.message||err)+'</span>'; $('linkBtn').disabled=false; }
   };
