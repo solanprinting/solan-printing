@@ -32,7 +32,9 @@
 <div class="card">
   <input type="file" id="proof" accept="application/pdf">
   <button id="run" style="margin-inline-start:8px">▶ הרץ Golden</button>
+  <button id="dlFold" style="margin-inline-start:8px;background:#16a34a" disabled title="מוריד בדיוק את outputPdfBytes של הריצה שנבדקה (passthrough · בלי save/המרה מחדש)">⬇️ הורד פלט-fold (ריצה-A)</button>
   <div id="status" class="muted" style="margin-top:8px">בחר פרופר-16perf אמיתי (2 עמ׳ · 70×100).</div>
+  <div class="muted" style="margin-top:4px;font-size:.78rem">בדיקה חיצונית: הורד את פלט-fold ופתח ב-PDF viewer רגיל. הפוך גם שם → התקלה בפלט fold. ישר שם → התקלה בתצוגת ה-Golden.</div>
 </div>
 
 <div class="card"><h3 style="margin-top:0">A · Passthrough של האדפטר <span class="muted">(אותה ריצת-fold: כניסה מול יציאה)</span></h3><div id="checkA"></div></div>
@@ -61,7 +63,7 @@ const { PDFDocument } = PDFLib;
 const ADP = window.ImpositionFoldAdapter, RES = window.ImpositionResult, LB = window.ImpositionLegacyBridge;
 const $ = id => document.getElementById(id);
 const RENDER_TARGET_W = 620, PIXEL_CHANNEL_THRESHOLD_DEFAULT = 2, ALLOWED_DIFF_PCT = 0.01;   // סף מתועד — לא אישור-אוטומטי
-let _srcBytes=null, _bridge=null, _foldA=null, _foldB=null, _shellBytes=null;
+let _srcBytes=null, _bridge=null, _foldA=null, _foldB=null, _shellBytes=null, _outBytes=null;
 
 async function sha256(bytes){ const h=await crypto.subtle.digest('SHA-256', bytes); return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
 async function fetchHash(url){ try{ const r=await fetch(url); const t=await r.text(); return await sha256(new TextEncoder().encode(t)); }catch(e){ return '(לא זמין)'; } }
@@ -97,6 +99,7 @@ $('run').onclick = async ()=>{
     const adapterInputBytes = _foldA.bytes;
     const result = ADP.legacyReportToResult({ report:_foldA.report, bytes:adapterInputBytes, sourceFile:{fileId:'golden'}, templateId:'16perf' });
     const adapterOutputBytes = result.outputPdfBytes;
+    _outBytes = adapterOutputBytes;   // הרפרנס המדויק של outputPdfBytes של הריצה שנבדקה — להורדה, בלי copy/save
     _shellBytes = new Uint8Array(adapterOutputBytes);
     const refEqual = (adapterOutputBytes === adapterInputBytes);
     const aInHash = await sha256(new Uint8Array(adapterInputBytes)), aOutHash = await sha256(_shellBytes);
@@ -147,8 +150,19 @@ $('run').onclick = async ()=>{
       structuralComparison:st, bridgeDiagnostics:_bridge.diagnostics(),
       warnings:result.warnings, errors:result.errors, testDate:new Date().toISOString(), proof:window._proofName||null
     }, null, 2);
+    $('dlFold').disabled = false;
     $('status').textContent = '✓ הושלם. בצע השוואה חזותית לעמ׳ 1 / 2–3 / 8–9 / 14–15 / 16, ואשר ידנית.';
   } catch(e){ console.error(e); $('status').innerHTML='<span class="bad">שגיאה: '+(e.message||e)+'</span>'; }
+};
+
+// ── הורדת פלט-fold (ריצה-A) — בדיוק אותם bytes שההשוואה החזותית מרנדרת ──
+//    לבדיקה חיצונית ב-PDF viewer רגיל: מבחין בין תקלת-פלט-fold לתקלת-תצוגת-Golden. אין כתיבה/שליחה.
+$('dlFold').onclick = ()=>{
+  if(!_outBytes){ return; }
+  const blob=new Blob([_outBytes],{type:'application/pdf'});
+  const name='golden-foldA — '+((window._proofName||'proof').replace(/\.pdf$/i,''))+'.pdf';
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
 };
 
 // ── רינדור בתנאים קבועים (scale אחיד · dpr=1 · רקע לבן · אותו pdf.js) ──
