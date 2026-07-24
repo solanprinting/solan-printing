@@ -64,6 +64,8 @@ const ADP = window.ImpositionFoldAdapter, RES = window.ImpositionResult, LB = wi
 const $ = id => document.getElementById(id);
 const RENDER_TARGET_W = 620, PIXEL_CHANNEL_THRESHOLD_DEFAULT = 2, ALLOWED_DIFF_PCT = 0.01;   // סף מתועד — לא אישור-אוטומטי
 let _srcBytes=null, _bridge=null, _foldA=null, _foldB=null, _shellBytes=null, _outBytes=null;
+let _pdfDocA=null, _pdfDocB=null;   // cache מסמכי-pdf.js לתצוגה (טעינה פעם אחת לכל ריצה — לא בכל עמוד)
+function _freePdfDocs(){ try{_pdfDocA&&_pdfDocA.destroy();}catch(e){} try{_pdfDocB&&_pdfDocB.destroy();}catch(e){} _pdfDocA=_pdfDocB=null; }
 
 async function sha256(bytes){ const h=await crypto.subtle.digest('SHA-256', bytes); return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
 async function fetchHash(url){ try{ const r=await fetch(url); const t=await r.text(); return await sha256(new TextEncoder().encode(t)); }catch(e){ return '(לא זמין)'; } }
@@ -87,6 +89,7 @@ $('proof').onchange = async e=>{ const f=e.target.files[0]; if(!f) return; _srcB
 
 $('run').onclick = async ()=>{
   if(!_srcBytes){ $('status').textContent='אין פרופר.'; return; }
+  _freePdfDocs();   // ריצה חדשה → שחרר cache-תצוגה ישן (פרופר/פלט אחר)
   $('status').textContent='מריץ…';
   try {
     if(!_bridge) _bridge=LB.createLegacyBridge({ iframeUrl:'imposition-tool.html' });
@@ -166,8 +169,8 @@ $('dlFold').onclick = ()=>{
 };
 
 // ── רינדור בתנאים קבועים (scale אחיד · dpr=1 · רקע לבן · אותו pdf.js) ──
-async function renderFixed(bytes, pageNo){
-  const pdf=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise; if(pageNo>pdf.numPages) return null;
+async function renderFixed(pdf, pageNo){
+  if(pageNo>pdf.numPages) return null;
   const page=await pdf.getPage(pageNo); const vp0=page.getViewport({scale:1}); const scale=RENDER_TARGET_W/vp0.width;
   const vp=page.getViewport({scale}); const cv=document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height);
   const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
@@ -189,16 +192,18 @@ $('cmpBtn').onclick = async ()=>{
   if(!_foldA||!_foldB){ $('visMetrics').textContent='הרץ Golden קודם.'; return; }
   const sel=$('pick').value; const chTh=parseInt($('th').value)||0;
   const pages = sel==='s1'?[1] : sel==='s16'?[16] : sel==='d2'?[2,3] : sel==='d8'?[8,9] : [14,15];
-  const A=new Uint8Array(_foldA.bytes), B=new Uint8Array(_foldB.bytes);
   const _btn=$('cmpBtn'), _t0=_btn.textContent; _btn.disabled=true; _btn.textContent='⏳ מרנדר…';
-  $('visMetrics').innerHTML='<span class="muted">⏳ מרנדר עמודים… ('+pages.join(', ')+') — רינדור pdf.js עשוי לקחת מספר שניות על פלט כבד. אל תסגור.</span>';
+  $('visMetrics').innerHTML='<span class="muted">⏳ טוען מסמכים… (פעם אחת לכל ריצה) — רינדור pdf.js עשוי לקחת מספר שניות על פלט כבד. אל תסגור.</span>';
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));   // תן לדפדפן לצייר את חיווי-הטעינה לפני הרינדור החוסם
   try {
+  // טעינה פעם אחת לכל ריצה (לא בכל עמוד) — מונע re-parse של מסמך כבד וקריסת-זיכרון
+  if(!_pdfDocA) _pdfDocA=await pdfjsLib.getDocument({data:new Uint8Array(_foldA.bytes)}).promise;
+  if(!_pdfDocB) _pdfDocB=await pdfjsLib.getDocument({data:new Uint8Array(_foldB.bytes)}).promise;
   let html='';
   for(const pn of pages){
     $('visMetrics').innerHTML='<span class="muted">⏳ מרנדר עמוד '+pn+'…</span>';
     await new Promise(r=>requestAnimationFrame(r));
-    const rA=await renderFixed(A,pn), rB=await renderFixed(B,pn);
+    const rA=await renderFixed(_pdfDocA,pn), rB=await renderFixed(_pdfDocB,pn);
     if(!rA||!rB){ html+='<div class="bad">עמ׳ '+pn+' חסר</div>'; continue; }
     if(pn===pages[0]){ $('cvA').replaceWith(Object.assign(rA.cv,{id:'cvA'})); $('cvB').replaceWith(Object.assign(rB.cv,{id:'cvB'})); }
     const d=diffCanvas(rA.cv,rB.cv,chTh);
