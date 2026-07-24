@@ -85,6 +85,18 @@ function _uploadPdf(path,bytes,onPct){ return _auth().then(tok=> new Promise((re
 function _dbPut(path,obj){ return _auth().then(tok=>fetch(_FBURL+'/'+path+'.json?auth='+tok,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)}).then(r=>r.ok?r.json():Promise.reject(new Error('db '+r.status)))); }
 function _dbPatch(path,obj){ return _auth().then(tok=>fetch(_FBURL+'/'+path+'.json?auth='+tok,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)}).then(r=>r.ok?r.json():Promise.reject(new Error('db '+r.status)))); }
 function _dbGet(path){ return _auth().then(tok=>fetch(_FBURL+'/'+path+'.json?auth='+tok).then(r=>r.ok?r.json():null)); }
+// התראת-שופ: רושם רשומה ל-activityLog המשותף (אותו סכמה כמו _logActivity ב-krtis) →
+// הפולינג באפליקציה מזהה רשומה-חדשה-ממשתמש-אחר → toast+צלצול. read-merge-write, cap 150.
+async function _notifyShop(icon, text, user){
+  try{
+    const sv=await _dbGet('activityLog');
+    let arr=Array.isArray(sv)?sv:(sv&&typeof sv==='object'?Object.values(sv):[]);
+    const entry={ id:Date.now()+'_'+Math.random().toString(36).slice(2,7), t:Date.now(), icon:icon, text:text, user:user||'לקוח' };
+    arr=arr.filter(a=>a&&a.id!==entry.id); arr.push(entry);
+    arr.sort((a,b)=>(b.t||0)-(a.t||0)); if(arr.length>150) arr=arr.slice(0,150);
+    await _dbPut('activityLog', arr);
+  }catch(e){}
+}
 
 // ── קיפול/פירוק לפי טמפלט (3 מסלולים מאושרים) → outputPdfBytes + NormalizedFoldResult ──
 let _bridge=null;
@@ -557,6 +569,10 @@ function renderApprove(rec, hashOk){
     if(!res.ok){ $('cResult').innerHTML='<span class="bad">'+(res.error==='LINK_REVOKED'?'הקישור בוטל':res.error==='LINK_EXPIRED'?'תוקף פג':res.error)+'</span>'; return; }
     await _dbPatch('customerFoldVersions/'+rec.versionId+'/approval', res.record.approval);
     await _dbPatch('customerFoldVersions/'+rec.versionId, { status:res.record.status });
+    // התראת-שופ (סוגר את הלולאה — האפליקציה תצלצל ותציג toast)
+    const who=($('cName').value||res.record.approval.approvedBy||'לקוח'), jl=rec.jobName||'חוברת', vn='V'+rec.versionNumber;
+    if(action==='approve') _notifyShop('✅','לקוח אישר חוברת לדפוס: "'+jl+'" ('+vn+')', who);
+    else _notifyShop('✎','לקוח ביקש תיקון בחוברת: "'+jl+'" ('+vn+')'+(($('cComment').value)?(' — '+$('cComment').value):''), who);
     $('cResult').innerHTML = action==='approve' ? '<span class="ok">✓ אושר להדפסה. תודה!</span>' : '<span class="ok">✓ בקשת התיקון נשלחה.</span>';
     $('cApproveBtn')&&($('cApproveBtn').disabled=true); $('cCorrectBtn')&&($('cCorrectBtn').disabled=true);
   }
