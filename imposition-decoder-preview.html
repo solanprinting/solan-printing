@@ -9,6 +9,7 @@
 <script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}</script>
 <script src="imposition-templates.js"></script>
 <script src="imposition-decoder.js"></script>
+<script src="imposition-decoder-exec.js"></script>
 <script src="imposition-template-import.js"></script>
 <script src="imposition-flipbook.js"></script>
 <script>
@@ -126,6 +127,7 @@
 'use strict';
 const { PDFDocument, degrees } = PDFLib;
 const DEC = window.ImpositionDecoder;
+const EXEC = window.ImpositionDecoderExec;   // U3: מקור-אמת יחיד לבניית-הפלט + חילוץ-גיליון
 const TI = window.ImpositionTemplateImport;
 const TPL = window.ImpositionTemplates;
 const MM = 72/25.4;
@@ -185,12 +187,7 @@ async function readTemplate(bytes){
   } catch(e){ console.error(e); $('tplStatus').innerHTML = '<span class="err">שגיאה: '+(e.message||e)+'</span>'; }
 }
 
-// קופסאות-הפרופר האמיתיות (מיפוי bleed-independent לפי TrimBox)
-async function _sheetFrom(bytes){
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption:true });
-  const p = doc.getPages()[0]; const mb=p.getMediaBox(), tb=p.getTrimBox();
-  return { mediaWmm:mb.width/MM, mediaHmm:mb.height/MM, trimXmm:tb.x/MM, trimYmm:tb.y/MM, trimWmm:tb.width/MM, trimHmm:tb.height/MM };
-}
+// קופסאות-הפרופר: חילוץ-הגיליון עבר ל-EXEC._sheetFromDoc (מקור-אמת יחיד · U3)
 
 async function _sha256(bytes){
   try{ const h = await crypto.subtle.digest('SHA-256', bytes); return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
@@ -236,26 +233,7 @@ async function renderSide(pdf, pdfPageNum, baseCanvas, overlay, planPagesForSide
   });
 }
 
-// בונה PDF פלט בסדר-קריאה (וקטורי — embedPage+clip+rotate). מחזיר Uint8Array.
-// embed כל צד *פעם אחת* (XObject יחיד) → חיתוך ע"י MediaBox של עמוד-הפלט (קובץ קטן, בלי כפילות תמונות)
-async function buildOutput(plan){
-  const src = await PDFDocument.load(_proofBytes, { ignoreEncryption:true });
-  const srcPages = src.getPages();
-  const out = await PDFDocument.create();
-  const embBySide = {};
-  embBySide[1] = await out.embedPage(srcPages[0]);
-  if (srcPages[1]) embBySide[2] = await out.embedPage(srcPages[1]);
-  for (const p of plan.pages){
-    const emb = embBySide[p.sourcePdfPage]; if (!emb) continue;
-    const op = out.addPage([p.outputWpt, p.outputHpt]);
-    const cp = p.bleedClipPt || p.clipPt;   // bleedClipPt == clipPt כשאין גלישה
-    if (p.rotationApplied === 180) op.drawPage(emb, { x:cp.right, y:cp.top, rotate: degrees(180) });
-    else if (p.rotationApplied === 90) op.drawPage(emb, { x:cp.left, y:cp.top, rotate: degrees(90) });
-    else if (p.rotationApplied === 270) op.drawPage(emb, { x:cp.right, y:cp.bottom, rotate: degrees(270) });
-    else op.drawPage(emb, { x:-cp.left, y:-cp.bottom });
-  }
-  return await out.save();
-}
+// בניית PDF-הפלט עברה ל-EXEC.buildOutputFromPlan (מקור-אמת יחיד · U3) — אין כאן עותק שני.
 
 async function renderThumbs(outBytes){
   const host = $('thumbs'); host.innerHTML = '';
@@ -278,7 +256,8 @@ async function run(){
   if (!_proofBytes){ $('status').innerHTML='<span class="err">אין פרופר טעון.</span>'; return; }
   $('status').textContent='מפרק…'; $('dl').disabled=true;
   try {
-    const sheet = await _sheetFrom(_proofBytes);
+    const srcDoc = await PDFDocument.load(_proofBytes, { ignoreEncryption:true });   // טעינה פעם אחת (sheet + build)
+    const sheet = EXEC._sheetFromDoc(srcDoc);
     const bleedMm = $('bleed') && $('bleed').checked ? 3 : 0;
     const opts = { sheet: sheet, startPage: 1, bleedMm: bleedMm };
     if (_derived){ opts.cells = _derived.cellMap; opts.layout = _derived.layout; }   // טמפלט אוטומטי (אחרת ברירת-מחדל 88x63)
@@ -288,8 +267,8 @@ async function run(){
     const mediaWmm = plan.sheet.mediaWmm;
     await renderSide(pdf, 1, $('cFront'), $('oFront'), plan.pages.filter(p=>p.sourceSide===0), mediaWmm);
     if (pdf.numPages >= 2) await renderSide(pdf, 2, $('cBack'), $('oBack'), plan.pages.filter(p=>p.sourceSide===1), mediaWmm);
-    // פלט + תמונות
-    _outBytes = await buildOutput(plan);
+    // פלט + תמונות — מקור-אמת יחיד (EXEC.buildOutputFromPlan)
+    _outBytes = await EXEC.buildOutputFromPlan(srcDoc, plan);
     await renderThumbs(_outBytes);
     $('bookletCard').style.display = '';
     try { await showFlipbook(_outBytes); } catch(e){ console.error(e); }

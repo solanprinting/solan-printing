@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>U3 Golden Test — Decoder V2 (88x63-16p-perfector)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}</script>
+<script src="imposition-decoder.js"></script>
+<script src="imposition-decoder-exec.js"></script>
+<script src="imposition-fold-adapter.js"></script>
+<script src="imposition-result.js"></script>
+<style>
+  body{font-family:'Heebo',Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px;direction:rtl;overflow-x:hidden}
+  h2{margin:0 0 4px} h3{margin-top:0}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  button{background:#334155;color:#e2e8f0;border:1px solid #475569;border-radius:8px;padding:8px 14px;cursor:pointer;font-family:inherit}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  table{border-collapse:collapse;width:100%;font-size:.86rem} td,th{border-bottom:1px solid #334155;padding:4px 6px;text-align:right}
+  .muted{color:#94a3b8;font-size:.85rem} .ok{color:#86efac} .bad{color:#fca5a5} code{background:#0b1220;padding:1px 5px;border-radius:4px}
+  .concl{margin-top:8px;font-weight:700} .cmp{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
+  .side{background:#0b1220;border:1px solid #334155;border-radius:8px;padding:6px} .side canvas{display:block;max-width:100%;background:#fff}
+  .warn2{background:#7c2d12;border:1px solid #ea580c;border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:.9rem}
+</style>
+</head>
+<body>
+<h2>U3 Golden Test — Decoder V2 <span class="muted">(88x63-16p-perfector)</span></h2>
+<div class="warn2">🧪 בדיקת Decoder V2 U3 — <b>אין לשלוח ללקוח</b>. אין שליחה/אישור/צירוף/כתיבה. <b>output-equivalent לא מסומן אוטומטית</b> — נדרש אישורך הידני.</div>
+
+<div class="card">
+  <input type="file" id="proof" accept="application/pdf">
+  <button id="run" style="margin-inline-start:8px">▶ הרץ Golden</button>
+  <button id="dlOut" style="margin-inline-start:8px;background:#16a34a" disabled title="מוריד בדיוק את outputPdfBytes של הריצה שנבדקה (passthrough · בלי save/המרה)">⬇️ הורד פלט-decode</button>
+  <div id="status" class="muted" style="margin-top:8px">בחר פרופר 88×63 תואם (Givatiim · 2 עמ׳ · Front+Back).</div>
+  <div class="muted" style="margin-top:4px;font-size:.78rem">אימות חזותי סמכותי: הורד את הפלט ופתח ב-PDF viewer רגיל.</div>
+</div>
+
+<div class="card"><h3>A · Passthrough — Executor → Adapter (אותה ריצה)</h3><div id="checkA" class="muted">—</div></div>
+<div class="card"><h3>מיפוי מלא 1–16 (מול המפה המאושרת)</h3><div id="mapBox" class="muted">—</div></div>
+<div class="card"><h3>מבנה PDF</h3><div id="checkStruct" class="muted">—</div></div>
+
+<div class="card"><h3>השוואה חזותית <span class="muted">(פלט ה-decode · כפולה = שני עמודים · זוגי מימין)</span></h3>
+  <div class="muted" style="margin-bottom:8px">
+    תצוגה: <select id="pick">
+      <option value="page-1">עמוד 1 (שער)</option>
+      <option value="spread-2-3">כפולה 2–3</option>
+      <option value="spread-8-9">כפולה 8–9</option>
+      <option value="spread-14-15">כפולה 14–15</option>
+      <option value="page-16">עמוד 16 (גב)</option>
+    </select>
+    <button id="cmpBtn" style="background:#334155">הצג</button>
+  </div>
+  <div id="visInfo" class="muted"></div>
+  <div id="visHost" style="margin-top:8px"></div>
+</div>
+
+<div class="card"><h3>דו"ח Golden</h3><pre id="report" class="muted" style="white-space:pre-wrap;font-size:.78rem">—</pre></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const EXEC = window.ImpositionDecoderExec, ADP = window.ImpositionFoldAdapter, RES = window.ImpositionResult;
+const { PDFDocument } = PDFLib;
+const RENDER_TARGET_W = 460;   // רזולוציה מתונה (מונע קריסה על פלט כבד)
+const TEMPLATE_ID = '88x63-16p-perfector';
+// המפה המאושרת (Decoder Source Map): (side:row:col) → finalPageNumber
+const AUTH_MAP = {'0:0:0':16,'0:0:1':1,'0:0:2':4,'0:0:3':13,'0:1:0':9,'0:1:1':8,'0:1:2':5,'0:1:3':12,
+                  '1:0:0':10,'1:0:1':7,'1:0:2':6,'1:0:3':11,'1:1:0':15,'1:1:1':2,'1:1:2':3,'1:1:3':14};
+// מבנה-תצוגה מפורש — כפולה מציגה באמת שני עמודים (לא חוזרים על באג ה-U2)
+const visualCases = {
+  'page-1':      { type:'single', pages:[1] },
+  'spread-2-3':  { type:'spread', pages:[2,3] },
+  'spread-8-9':  { type:'spread', pages:[8,9] },
+  'spread-14-15':{ type:'spread', pages:[14,15] },
+  'page-16':     { type:'single', pages:[16] }
+};
+let _srcBytes=null, _ex=null, _result=null, _outBytes=null, _pdfDoc=null;
+function _freeDoc(){ try{ _pdfDoc && _pdfDoc.destroy(); }catch(e){} _pdfDoc=null; }
+async function sha256(u8){ const h=await crypto.subtle.digest('SHA-256', u8); return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+
+$('proof').onchange = async e=>{ const f=e.target.files[0]; if(!f) return; _srcBytes=new Uint8Array(await f.arrayBuffer()); window._proofName=f.name;
+  $('status').textContent='📄 '+f.name+' · '+(_srcBytes.length/1048576).toFixed(1)+'MB — לחץ "הרץ Golden".'; };
+
+$('run').onclick = async ()=>{
+  if(!_srcBytes){ $('status').textContent='אין פרופר.'; return; }
+  _freeDoc(); $('status').textContent='מריץ…';
+  try {
+    _ex = await EXEC.decodeToPdf({ sourceArrayBuffer:_srcBytes.slice(0), template:{ id:TEMPLATE_ID }, startPage:1, bleedMm:0, requestId:1 });
+    if(!_ex.bytes || (_ex.errors&&_ex.errors.length)){ $('status').innerHTML='<span class="bad">פירוק נכשל: '+((_ex.errors||[]).join(', '))+'</span>'; return; }
+    const outHash = await sha256(new Uint8Array(_ex.bytes)), srcHash = await sha256(_srcBytes);
+    _result = ADP.runDecoderV2Adapter({ plan:_ex.plan, bytes:_ex.bytes, templateId:TEMPLATE_ID, templateVersion:1,
+      sourceFile:{fileId:'golden'}, sourceHash:srcHash, outputHash:outHash, engineVersion:'' });
+    _outBytes = _result.outputPdfBytes;
+
+    // ── A · Passthrough — אותה ריצה: bytes של ה-Executor מול outputPdfBytes של האדפטר ──
+    const refEqual = (_result.outputPdfBytes === _ex.bytes);
+    const hEq = (await sha256(new Uint8Array(_result.outputPdfBytes))) === outHash;
+    $('checkA').innerHTML = '<table>'
+      + '<tr><td>reference equality (adapter.outputPdfBytes === executor.bytes)</td><td class="'+(refEqual?'ok':'bad')+'">'+(refEqual?'✓':'✗')+'</td></tr>'
+      + '<tr><td>byte-hash equality</td><td class="'+(hEq?'ok':'bad')+'">'+(hEq?'✓':'✗')+'</td></tr>'
+      + '</table><div class="concl '+((refEqual&&hEq)?'ok':'bad')+'">'+((refEqual&&hEq)?'✅ האדפטר העביר את פלט ה-Executor ללא שינוי (בלי save נוסף)':'❌ האדפטר שינה/בנה מחדש')+'</div>';
+
+    // ── מיפוי מלא מול המפה המאושרת ──
+    let mapAllOk=true, seen={}, rows='';
+    _result.orderedPages.forEach(p=>{
+      const k=p.sourceSide+':'+p.sourceRow+':'+p.sourceColumn; const exp=AUTH_MAP[k]; const cellOk=(exp===p.finalPageNumber);
+      if(!cellOk) mapAllOk=false; seen[p.finalPageNumber]=(seen[p.finalPageNumber]||0)+1;
+      const cb=p.cropBox; const inb = cb.width>0 && cb.height>0;
+      rows += '<tr><td>'+p.finalPageNumber+'</td><td>'+p.sourcePdfPage+'</td><td>'+(p.sourceSide===0?'Front':'Back')+'</td><td>'+p.sourceRow+'</td><td>'+p.sourceColumn+'</td>'
+        + '<td>'+p.rotationApplied+'°</td><td class="'+(inb?'ok':'bad')+'">['+Math.round(cb.x)+','+Math.round(cb.y)+','+Math.round(cb.width)+','+Math.round(cb.height)+']</td>'
+        + '<td class="'+(cellOk?'ok':'bad')+'">'+(cellOk?'✓ '+exp:'✗ צפוי '+exp)+'</td></tr>';
+    });
+    let dupMiss=''; for(let i=1;i<=16;i++){ if(!seen[i]) dupMiss+=' חסר '+i; if(seen[i]>1) dupMiss+=' כפול '+i; }
+    const cover = _result.orderedPages[0] && AUTH_MAP['0:0:1']===1;
+    $('mapBox').innerHTML = '<table><tr><th>finalPage</th><th>pdfPage</th><th>side</th><th>srcRow</th><th>srcCol</th><th>rot</th><th>cropBox(pt)</th><th>מול המפה</th></tr>'+rows+'</table>'
+      + '<div class="concl '+((mapAllOk&&!dupMiss)?'ok':'bad')+'">'+((mapAllOk&&!dupMiss)?'✅ כל 16 התאים תואמים למפה המאושרת · אין כפילות/חוסר':'❌'+(dupMiss||' אי-התאמה במפה'))+'</div>'
+      + '<div class="muted" style="margin-top:4px">שער=עמ׳1 (side0 r0 c1) · גב=עמ׳16 (side0 r0 c0)</div>';
+
+    // ── מבנה ──
+    const st = await pageStruct(_outBytes);
+    const dims210 = st.every(s=> Math.abs(s.wmm-210)<=1 && Math.abs(s.hmm-297)<=1);
+    const rot0 = st.every(s=> s.rot===0);
+    let openable=true; try{ await PDFDocument.load(_outBytes,{ignoreEncryption:true}); }catch(e){ openable=false; }
+    $('checkStruct').innerHTML = '<table>'
+      + '<tr><td>מספר עמודי-פלט</td><td class="'+(st.length===16?'ok':'bad')+'">'+st.length+'/16</td></tr>'
+      + '<tr><td>מידות 210×297 מ״מ (כל עמוד)</td><td class="'+(dims210?'ok':'bad')+'">'+(dims210?'✓':'✗')+'</td></tr>'
+      + '<tr><td>Rotate=0 (הסיבוב צרוב בתוכן)</td><td class="'+(rot0?'ok':'bad')+'">'+(rot0?'✓':'✗')+'</td></tr>'
+      + '<tr><td>ניתן לפתיחה</td><td class="'+(openable?'ok':'bad')+'">'+(openable?'✓':'✗')+'</td></tr>'
+      + '<tr><td>validateFoldResult</td><td class="'+(RES.validateFoldResult(_result).valid?'ok':'bad')+'">'+(RES.validateFoldResult(_result).valid?'✓':'✗')+'</td></tr>'
+      + '</table>';
+
+    // ── דו"ח ──
+    $('report').textContent = JSON.stringify({
+      templateId:TEMPLATE_ID, sourceHash:srcHash, outputHash:outHash,
+      adapterPassthrough:(refEqual&&hEq), mappingMatchesAuthoritative:(mapAllOk&&!dupMiss),
+      pages:st.length, dims210x297:dims210, rotate0:rot0, openable:openable,
+      mappingDetailLevel:_result.metadata.mappingDetailLevel, engine:_result.engine,
+      pdfLibVersion:'1.17.1', pdfjsVersion:'3.11.174', browser:navigator.userAgent,
+      viewport:window.innerWidth+'×'+window.innerHeight, renderScaleTargetW:RENDER_TARGET_W, devicePixelRatioNormalizedTo:1,
+      note:'output-equivalent לא מסומן אוטומטית — נדרש אישור חזותי ידני של המשתמש.'
+    }, null, 2);
+
+    $('dlOut').disabled = false;
+    $('status').textContent = '✓ הושלם. בצע השוואה חזותית (עמ׳1 · 2–3 · 8–9 · 14–15 · עמ׳16) ואשר ידנית.';
+  } catch(e){ console.error(e); $('status').innerHTML='<span class="bad">שגיאה: '+(e.message||e)+'</span>'; }
+};
+
+async function pageStruct(bytes){
+  const d=await PDFDocument.load(bytes,{ignoreEncryption:true}); const MM=72/25.4;
+  return d.getPages().map(p=>{ const mb=p.getMediaBox(); return { wmm:mb.width/MM, hmm:mb.height/MM, rot:p.getRotation().angle }; });
+}
+
+$('dlOut').onclick = ()=>{
+  if(!_outBytes) return;
+  const blob=new Blob([_outBytes],{type:'application/pdf'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='golden-decode — '+((window._proofName||'proof').replace(/\.pdf$/i,''))+'.pdf';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+};
+
+// רינדור בתנאים קבועים (scale אחיד · dpr=1 · רקע לבן)
+async function renderPage(pageNo){
+  if(!_pdfDoc) _pdfDoc = await pdfjsLib.getDocument({ data:new Uint8Array(_outBytes) }).promise;
+  if(pageNo>_pdfDoc.numPages) return null;
+  const page=await _pdfDoc.getPage(pageNo); const vp0=page.getViewport({scale:1}); const scale=RENDER_TARGET_W/vp0.width;
+  const vp=page.getViewport({scale}); const cv=document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height);
+  const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+  await page.render({canvasContext:ctx, viewport:vp, background:'#ffffff'}).promise; return cv;
+}
+function _pageCell(pageNo, cv){
+  const side=document.createElement('div'); side.className='side';
+  const b=document.createElement('b'); b.textContent='עמוד '+pageNo; side.appendChild(b); side.appendChild(document.createElement('br'));
+  if(cv) side.appendChild(cv); else { const s=document.createElement('span'); s.className='bad'; s.textContent='חסר'; side.appendChild(s); }
+  return side;
+}
+$('cmpBtn').onclick = async ()=>{
+  if(!_outBytes){ $('visInfo').textContent='הרץ Golden קודם.'; return; }
+  const c=visualCases[$('pick').value]; const host=$('visHost'); host.innerHTML='';
+  const btn=$('cmpBtn'), t0=btn.textContent; btn.disabled=true; btn.textContent='⏳ מרנדר…';
+  $('visInfo').innerHTML='<span class="muted">⏳ מרנדר '+(c.type==='spread'?'כפולה '+c.pages.join('–'):'עמוד '+c.pages[0])+'…</span>';
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  try {
+    const row=document.createElement('div'); row.className='cmp';
+    if(c.type==='single'){
+      row.appendChild(_pageCell(c.pages[0], await renderPage(c.pages[0])));
+      $('visInfo').innerHTML='<b>עמוד בודד '+c.pages[0]+'</b>';
+    } else {
+      // כפולה: זוגי מימין · אי-זוגי משמאל (RTL). סדר-DOM: [שמאל=אי-זוגי, ימין=זוגי]
+      const lo=c.pages[0], hi=c.pages[1]; const evenP=(lo%2===0)?lo:hi, oddP=(lo%2===0)?hi:lo;
+      row.appendChild(_pageCell(oddP, await renderPage(oddP)));   // שמאל
+      row.appendChild(_pageCell(evenP, await renderPage(evenP))); // ימין
+      $('visInfo').innerHTML='<b>כפולה '+lo+'–'+hi+'</b> · זוגי ('+evenP+') מימין · אי-זוגי ('+oddP+') משמאל';
+    }
+    host.appendChild(row);
+    $('visInfo').innerHTML += '<div class="muted" style="margin-top:4px">⚠️ אין אישור-אוטומטי — אַמת ידנית: השער בעמ׳ 1, סדר-קריאה רציף, בלי הפוכים, בלי החלפת Front/Back.</div>';
+  } catch(e){ $('visInfo').innerHTML='<span class="bad">שגיאת רינדור: '+(e.message||e)+'</span>'; }
+  finally { btn.disabled=false; btn.textContent=t0; }
+};
+</script>
+</body>
+</html>

@@ -13,6 +13,8 @@
 <script src="imposition-result.js"></script>
 <script src="imposition-flipbook.js"></script>
 <script src="imposition-legacy-bridge.js"></script>
+<script src="imposition-decoder.js"></script>
+<script src="imposition-decoder-exec.js"></script>
 <script>
 // שומר-סביבה (זהה לשאר הדפים) — U1 ממילא לא כותב, אך נשמר כהגנה
 (function(){ if(window._solanEnvGuardReady) return; window._solanEnvGuardReady=true;
@@ -152,6 +154,7 @@
 const { PDFDocument } = PDFLib;
 const CAT = window.ImpositionTemplatesCatalog, ADP = window.ImpositionFoldAdapter, RES = window.ImpositionResult, TPL = window.ImpositionTemplates;
 const LB = window.ImpositionLegacyBridge, FBK = window.ImpositionFlipbook;
+const EXEC = window.ImpositionDecoderExec;   // U3 · Decoder V2 Executor (מקור-אמת יחיד לבניית-פלט)
 const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 
@@ -310,13 +313,49 @@ function renderEngine(){
   // U2: כפתור-קיפול פעיל *רק* ל-16perf + דגל solanUnifiedLegacyU2 + supported + קובץ יחיד
   const tid = state.template && state.template.templateId;
   const u2 = ADP.legacyU2Enabled(window) && ADP.legacyU2TemplateAllowed(tid) && d.engine==='legacy' && d.supported && state.files.length===1;
-  $('foldBtn').disabled = !u2;
-  $('foldBtn').onclick = u2 ? runU2Fold : null;
+  // U3: Decoder V2 פעיל *רק* ל-88x63-16p-perfector + דגל solanUnifiedDecoderV3 + supported + קובץ יחיד
+  const u3 = ADP.decoderV3Enabled(window) && ADP.decoderV3TemplateAllowed(tid) && d.engine==='decoder-v2' && d.supported && state.files.length===1;
+  $('foldBtn').disabled = !(u2 || u3);
+  $('foldBtn').onclick = u2 ? runU2Fold : (u3 ? runU3Decode : null);
+  // באנר לפי המנוע הפעיל
+  var bn = $('u2Banner');
+  if (bn) bn.innerHTML = u3
+    ? '🧪 בדיקת Decoder V2 U3 — <b>אין לשלוח ללקוח</b>. שליחה/אישור/צירוף-לכרטיס/כפולות מושבתים עד Golden Test ואישורך.'
+    : '🧪 בדיקת Legacy U2 — <b>אין לשלוח ללקוח</b>. שליחה/אישור/צירוף-לכרטיס/כפולות מושבתים עד Golden Test ואישורך.';
   if (u2) $('foldNote').innerHTML = '✅ טמפלט 16perf מחובר (Legacy U2, מאחורי דגל). לחיצה תריץ את מנוע-הקיפול הישן דרך גשר same-origin.';
+  else if (u3) $('foldNote').innerHTML = '✅ טמפלט 88x63-16p-perfector מחובר (Decoder V2 U3, מאחורי דגל). לחיצה תפרק את הפרופר ישירות (pdf-lib · בלי גשר/כלי-ישן).';
   else if (ADP.legacyU2TemplateAllowed(tid) && !ADP.legacyU2Enabled(window)) $('foldNote').innerHTML = 'הדגל <code>solanUnifiedLegacyU2</code> כבוי — הקיפול מושבת (התנהגות U1).';
-  else if (tid && tid!=='16perf') $('foldNote').innerHTML = '<span class="err">הטמפלט עדיין לא חובר לממשק החדש.</span> (U2 = 16perf בלבד)';
-  else if (state.files.length!==1) $('foldNote').innerHTML = 'U2 תומך בקובץ-פרופר יחיד וקונטרס יחיד.';
+  else if (ADP.decoderV3TemplateAllowed(tid) && !ADP.decoderV3Enabled(window)) $('foldNote').innerHTML = 'הדגל <code>solanUnifiedDecoderV3</code> כבוי — הפירוק מושבת (התנהגות U1).';
+  else if (tid && tid!=='16perf' && tid!=='88x63-16p-perfector') $('foldNote').innerHTML = '<span class="err">הטמפלט עדיין לא חובר לממשק החדש.</span> (U2=16perf · U3=88x63-16p-perfector)';
+  else if (state.files.length!==1) $('foldNote').innerHTML = 'תמיכה בקובץ-פרופר יחיד וקונטרס יחיד.';
   else $('foldNote').textContent = '';
+}
+
+// ── פירוק U3 (Decoder V2) — Executor→Adapter, בלי גשר. concurrency + מקור-אמת יחיד ──
+async function runU3Decode(){
+  if (state.files.length!==1){ alert('U3: קובץ יחיד בלבד.'); return; }
+  const reqId = ++state.activeReq;
+  const f = state.files[0]; const buf = state._buffers[f.fileId];
+  if (!buf){ $('foldProgress').innerHTML='<span class="err">חסרים bytes של הקובץ.</span>'; return; }
+  $('foldBtn').disabled = true;
+  $('foldProgress').innerHTML = '⏳ מפרק פרופר (Decoder V2)…';
+  try {
+    const ex = await EXEC.decodeToPdf({ sourceArrayBuffer: buf.slice(0), template: { id: state.template.templateId }, startPage: 1, bleedMm: 0, requestId: reqId });
+    if (reqId !== state.activeReq) return;                 // קלט השתנה → נטוש (stale)
+    if (!ex.bytes || (ex.errors && ex.errors.length)){ $('foldProgress').innerHTML='<span class="err">פירוק נכשל: '+esc((ex.errors||[]).join(', '))+'</span>'; renderEngine(); return; }
+    const outHash = await sha256(new Uint8Array(ex.bytes));
+    // מקור-האמת היחיד: NormalizedFoldResult מיפוי-מלא (טהור, דרך ה-adapter) — bytes passthrough
+    state.result = ADP.runDecoderV2Adapter({
+      plan: ex.plan, bytes: ex.bytes, sourceFile: f, templateId: state.template.templateId, templateVersion: state.template.version || 1,
+      sourceHash: f.hash, outputHash: outHash, engineVersion: '', createdAt: new Date().toISOString()
+    });
+    if (!state.result.success){ $('foldProgress').innerHTML='<span class="err">אימות-תוצאה נכשל: '+esc(state.result.errors.map(e=>e.code).join(', '))+'</span>'; renderEngine(); return; }
+    state.folded = true;
+    $('foldProgress').innerHTML = '✓ פורק ('+Math.round(ex.durationMs)+'ms). עובר לחוברת…';
+    showStep('booklet');
+  } catch(e){
+    $('foldProgress').innerHTML = '<span class="err">שגיאת פירוק: '+esc(e.message||e)+'</span> <button class="sec" onclick="runU3Decode()">נסה שוב</button>';
+  } finally { renderEngine(); }
 }
 
 // ── קיפול U2 דרך הגשר — concurrency + מקור-אמת יחיד ──

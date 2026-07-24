@@ -73,6 +73,31 @@
   // U2 מוגבל לטמפלט אחד בלבד
   function legacyU2TemplateAllowed(templateId) { return templateId === '16perf'; }
 
+  // ── U3 · Decoder V2 — דגל נפרד + גבלת-טמפלט (לא נוגע ב-U2) ──────────────────
+  var FLAG_U3 = 'solanUnifiedDecoderV3';
+  function decoderV3Enabled(win) {
+    try { var w = win || (typeof window !== 'undefined' ? window : null);
+      return !!(w && w.SOLAN_FLAGS && w.SOLAN_FLAGS[FLAG_U3] === true); } catch (e) { return false; }
+  }
+  // U3 מוגבל לטמפלט המכויל היחיד
+  function decoderV3TemplateAllowed(templateId) { return templateId === '88x63-16p-perfector'; }
+
+  // ── שתי מערכות-קואורדינטות של הטמפלט (מתועד למניעת בלבול) ────────────────────
+  //  Template Display Map  = כפי שנראה כשמציגים את PDF-הטמפלט למשתמש.
+  //  Decoder Source Map    = לאחר נרמול-180 (הטמפלט שמור /Rotate 180, הפרופר /Rotate 0).
+  //  הטרנספורמציה: sourceRow = rows-1-displayRow · sourceColumn = cols-1-displayColumn · rotation += 180.
+  //  ⚠️ אין כאן מפה אוטוריטטיבית שנייה — זו פונקציית-הוכחה בלבד. מקור-האמת = CELL_MAP ב-imposition-decoder.js.
+  function displayMapToDecoderMap(displayMap, rows, cols) {
+    rows = rows || 2; cols = cols || 4;
+    return (displayMap || []).map(function (c) {
+      return {
+        sourceSide: c.sourceSide,
+        sourceRow: rows - 1 - c.displayRow, sourceColumn: cols - 1 - c.displayColumn,
+        outputPageOffset: c.outputPageOffset, rotation: ((c.rotation + 180) % 360)
+      };
+    });
+  }
+
   // מונה-בקשות מונוטוני + בדיקת-stale (מניעת דריסת-request חדש ע"י ישן)
   function makeRequestCounter() { var n = 0; return { next: function () { return ++n; }, current: function () { return n; } }; }
   function isStale(requestId, activeRequestId) { return requestId !== activeRequestId; }
@@ -129,8 +154,97 @@
     if (input.report && (input.bytes || input.outputPageCount != null)) return legacyReportToResult(input);
     return { implemented: false, engine: 'legacy', reason: 'Legacy Adapter דורש פלט-גשר (bridge) — ראה imposition-legacy-bridge.js' };
   }
+  // ── U3 · Decoder V2 Adapter (טהור) — plan+bytes של ה-Executor → NormalizedFoldResult מיפוי-מלא ──
+  //    ⚠️ טהור: אינו קורא ל-Executor, אינו יוצר PDF, אינו עושה save. bytes = passthrough.
+  //    שדות-מיפוי (מרחב-מקור, לא-null): sourceRow/sourceColumn/cropBox(points)/rotationApplied.
+  //    input: { plan, bytes, templateId, templateVersion, sourceFile, sourceHash, outputHash, engineVersion, createdAt }
+  var _MM_ADP = 72 / 25.4, _CROP_TOL_PT = 1;   // tolerance ל-floating point (points · מתועד)
+  function decoderPlanToResult(input) {
+    input = input || {};
+    var plan = input.plan || null;
+    var errors = [], warnings = [];
+    if (!plan || !Array.isArray(plan.pages) || !plan.pages.length) {
+      return _v2Fail(input, [{ code: 'NO_PLAN', message: 'אין תוכנית-פירוק (plan) מה-Executor' }]);
+    }
+    var pages = plan.pages;
+    var N = pages.length;
+    // גבולות עמוד-המקור ב-points (לבדיקת cropBox באותן יחידות)
+    var srcWpt = (plan.sheet && plan.sheet.mediaWmm || 0) * _MM_ADP;
+    var srcHpt = (plan.sheet && plan.sheet.mediaHmm || 0) * _MM_ADP;
+    // rows/cols מהתוכנית (למרחב-תצוגה לצורכי Debug)
+    var maxRow = 0, maxCol = 0;
+    pages.forEach(function (p) { if (p.row > maxRow) maxRow = p.row; if (p.column > maxCol) maxCol = p.column; });
+    var rows = maxRow + 1, cols = maxCol + 1;
+
+    var sourceFileId = input.sourceFile && input.sourceFile.fileId || null;
+    var seen = {}, orderedPages = [];
+    for (var i = 0; i < N; i++) {
+      var p = pages[i];
+      var fp = p.finalPageNumber;
+      // שומרי-סף
+      if (!(fp >= 1 && fp <= N)) errors.push({ code: 'FINAL_PAGE_OUT_OF_RANGE', message: 'finalPageNumber=' + fp + ' מחוץ ל-1..' + N });
+      if (seen[fp]) errors.push({ code: 'DUPLICATE_FINAL_PAGE', message: 'finalPageNumber כפול: ' + fp });
+      seen[fp] = true;
+      if (i > 0 && pages[i - 1].finalPageNumber >= fp) errors.push({ code: 'NOT_NUMERIC_SORTED', message: 'סדר לא מספרי-עולה בעמ׳ ' + i });
+      if ([0, 90, 180, 270].indexOf(p.rotationApplied) < 0) errors.push({ code: 'INVALID_ROTATION', message: 'עמ׳ ' + fp + ' rotation=' + p.rotationApplied });
+      if (p.sourceSide !== 0 && p.sourceSide !== 1) errors.push({ code: 'INVALID_SOURCE_SIDE', message: 'עמ׳ ' + fp + ' sourceSide=' + p.sourceSide });
+      // cropBox ב-PDF points (מ-clipPt · מקור שמאלי-תחתון)
+      var clip = p.clipPt || {};
+      var cropBox = { x: clip.left, y: clip.bottom, width: clip.right - clip.left, height: clip.top - clip.bottom };
+      if (!(cropBox.x >= -_CROP_TOL_PT && cropBox.y >= -_CROP_TOL_PT && cropBox.width > 0 && cropBox.height > 0 &&
+            cropBox.x + cropBox.width <= srcWpt + _CROP_TOL_PT && cropBox.y + cropBox.height <= srcHpt + _CROP_TOL_PT)) {
+        errors.push({ code: 'CROPBOX_OUT_OF_BOUNDS', message: 'עמ׳ ' + fp + ' cropBox מחוץ לגבולות עמוד-המקור' });
+      }
+      orderedPages.push({
+        finalPageNumber: fp, sourceFileId: sourceFileId,
+        sourcePdfPage: p.sourcePdfPage,           // 1-based
+        sourceSide: p.sourceSide,                 // 0=Front · 1=Back
+        sourceRow: p.row, sourceColumn: p.column, // מרחב-מקור (post-180) — היכן ה-Decoder חתך בפועל
+        displayRow: rows - 1 - p.row, displayColumn: cols - 1 - p.column,   // Debug בלבד (מרחב-תצוגה)
+        cropBox: cropBox,                         // PDF points {x,y,width,height}
+        rotationApplied: p.rotationApplied,       // התיקון שהוחל (0/90/180/270)
+        blank: false
+      });
+    }
+    for (var q = 1; q <= N; q++) if (!seen[q]) errors.push({ code: 'MISSING_FINAL_PAGE', message: 'חסר עמ׳ ' + q });
+    (plan.warnings || []).forEach(function (w) { warnings.push({ code: 'PLAN_WARNING', message: w, blocking: false }); });
+
+    if (errors.length) return _v2Fail(input, errors, warnings);
+    return {
+      success: true,
+      jobId: input.jobId || null, templateId: input.templateId || null,
+      templateVersion: input.templateVersion != null ? input.templateVersion : null,
+      engine: 'decoder-v2',
+      sourceFiles: input.sourceFile ? [input.sourceFile] : [],
+      orderedPages: orderedPages,
+      outputPdfBytes: input.bytes || null,   // passthrough — אין save נוסף באדפטר
+      spreadsPdfBytes: null,
+      warnings: warnings, errors: [],
+      metadata: {
+        totalPages: N,
+        signatureCount: plan.pagesPerSignature ? Math.max(1, Math.round(N / plan.pagesPerSignature)) : 1,
+        createdAt: input.createdAt || null, createdBy: input.createdBy || null,
+        sourceHash: input.sourceHash || null, outputHash: input.outputHash || null,
+        engineVersion: input.engineVersion || '', legacyTemplateType: null,
+        bridgeMode: 'direct-module',
+        mappingDetailLevel: 'full-source-map', appCheckRequiredForFold: false
+      }
+    };
+  }
+  function _v2Fail(input, errors, warnings) {
+    return {
+      success: false, engine: 'decoder-v2', templateId: input.templateId || null, templateVersion: null,
+      sourceFiles: input.sourceFile ? [input.sourceFile] : [], orderedPages: [],
+      outputPdfBytes: null, spreadsPdfBytes: null, warnings: warnings || [], errors: errors,
+      metadata: { totalPages: 0, mappingDetailLevel: 'full-source-map', appCheckRequiredForFold: false }
+    };
+  }
+
+  // עם plan+bytes → בונה תוצאה; אחרת מסמן שנדרש ה-Executor בדפדפן.
   function runDecoderV2Adapter(input) {
-    return { implemented: false, engine: 'decoder-v2', reason: 'Decoder V2 Adapter will be implemented in U3' };
+    input = input || {};
+    if (input.plan && input.bytes) return decoderPlanToResult(input);
+    return { implemented: false, engine: 'decoder-v2', reason: 'Decoder V2 Adapter דורש plan+bytes מה-Executor — ראה imposition-decoder-exec.js' };
   }
   // dispatch לפי החלטת-הבורר (עדיין placeholder בלבד)
   function runImposition(input) {
@@ -165,6 +279,8 @@
     unifiedUiEnabled: unifiedUiEnabled, unifiedUiAllowedForUser: unifiedUiAllowedForUser,
     unifiedAccessAllowed: unifiedAccessAllowed, resolveImpositionEngine: resolveImpositionEngine,
     legacyU2Enabled: legacyU2Enabled, legacyU2TemplateAllowed: legacyU2TemplateAllowed,
+    FLAG_U3: FLAG_U3, decoderV3Enabled: decoderV3Enabled, decoderV3TemplateAllowed: decoderV3TemplateAllowed,
+    displayMapToDecoderMap: displayMapToDecoderMap, decoderPlanToResult: decoderPlanToResult,
     makeRequestCounter: makeRequestCounter, isStale: isStale, legacyReportToResult: legacyReportToResult,
     runLegacyAdapter: runLegacyAdapter, runDecoderV2Adapter: runDecoderV2Adapter, runImposition: runImposition,
     validateFoldInput: validateFoldInput
