@@ -97,6 +97,55 @@
   }
   function decoder32pTemplateAllowed(templateId) { return templateId === '70x100-32p-165x240-perfector'; }
 
+  // ── Customer Fold Preview MVP — דגל נפרד (כבוי) · 3 הטמפלטים שעברו Golden בלבד ──
+  var FLAG_CFP = 'solanCustomerFoldPreviewBeta';
+  function customerFoldPreviewEnabled(win) {
+    try { var w = win || (typeof window !== 'undefined' ? window : null);
+      return !!(w && w.SOLAN_FLAGS && w.SOLAN_FLAGS[FLAG_CFP] === true); } catch (e) { return false; }
+  }
+  var CFP_TEMPLATES = ['16perf', '88x63-16p-perfector', '70x100-32p-165x240-perfector'];
+  // בנוסף: כל הטמפלטים המובנים של מנוע-האפליקציה (legacy:<type>) + טמפלטים שנשמרו
+  // בכלי סימון-הטמפלט (custom:<key>) — כולם רצים באותו מנוע-אפליקציה דרך הגשר.
+  function customerFoldTemplateAllowed(id) {
+    if (typeof id !== 'string' || !id) return false;
+    if (CFP_TEMPLATES.indexOf(id) >= 0) return true;
+    return id.indexOf('legacy:') === 0 || id.indexOf('custom:') === 0 || id.indexOf('multi:') === 0;
+  }
+
+  // ── עיתון מרובה-קונטרסים (תפירת-אוכף מקוננת) ─────────────────────────────────
+  //    R-1 = הקונטרס החיצוני (עוטף · מכיל שער+גב) · R-2 בתוכו · וכו'. כל קונטרס = positionsPerRun
+  //    עמ' (בד"כ 32). החצי-הראשון (1..H) של כל קונטרס נכנס פנימה בסדר-הקונטרסים; החצי-השני
+  //    (H+1..positionsPerRun) יוצא החוצה בסדר הפוך. דוגמת-המשתמש: 64 עמ' = R1[1-16]+R2[1-16]+R2[17-32]+R1[17-32].
+  //    מחזיר סדר-קריאה גלובלי: [{ runIndex(0-based), posInRun(1-based) }] באורך runCount*positionsPerRun.
+  function assembleNestedRunOrder(runCount, positionsPerRun) {
+    runCount = runCount | 0; positionsPerRun = (positionsPerRun | 0) || 32;
+    if (runCount < 1 || positionsPerRun < 2 || positionsPerRun % 2 !== 0) return [];
+    var H = positionsPerRun >> 1;   // חצי (16 עבור 32)
+    var order = [], k, p;
+    for (k = 0; k < runCount; k++) for (p = 1; p <= H; p++) order.push({ runIndex: k, posInRun: p });        // נכנסים פנימה
+    for (k = runCount - 1; k >= 0; k--) for (p = H + 1; p <= positionsPerRun; p++) order.push({ runIndex: k, posInRun: p });  // יוצאים החוצה
+    return order;
+  }
+
+  // ── CFP · fallback ל-TrimBox חסר ──────────────────────────────────────────────
+  //    פרופר בלי TrimBox נראה כ-trim==media (offset 0,0) → כל התאים זזים ~5-6.5 מ"מ
+  //    → מסגרת-לבנה בפלט. כשהמדיה בקנה-מידה 1:1 מול הנומינלי (±2%) ממרכזים את
+  //    ה-Trim הנומינלי של הפריסה בתוך המדיה. יש TrimBox אמיתי / קנה-מידה שונה → ללא-שינוי.
+  function sheetTrimFallback(sheet, layout) {
+    if (!sheet || !layout) return sheet;
+    var noTrim = Math.abs(sheet.trimWmm - sheet.mediaWmm) < 0.01 && Math.abs(sheet.trimHmm - sheet.mediaHmm) < 0.01
+              && Math.abs(sheet.trimXmm || 0) < 0.01 && Math.abs(sheet.trimYmm || 0) < 0.01;
+    if (!noTrim) return sheet;                                        // TrimBox אמיתי — לא נוגעים
+    var nw = layout.nominalMediaWmm, nh = layout.nominalMediaHmm;
+    if (!(nw > 0 && nh > 0)) return sheet;
+    var sx = sheet.mediaWmm / nw, sy = sheet.mediaHmm / nh;
+    if (Math.abs(sx - 1) > 0.02 || Math.abs(sy - 1) > 0.02) return sheet;   // לא 1:1 — לא ממציאים גיאומטריה
+    var tw = layout.trimWmm, th = layout.trimHmm;
+    return { mediaWmm: sheet.mediaWmm, mediaHmm: sheet.mediaHmm,
+      trimWmm: tw, trimHmm: th,
+      trimXmm: (sheet.mediaWmm - tw) / 2, trimYmm: (sheet.mediaHmm - th) / 2 };
+  }
+
   // ── Validator · חוסם הרצה אם הפרופר/התוצאה אינם תואמים להגדרת-הטמפלט ─────────
   //    input: { def, sourcePdfPages, sheetWmm, sheetHmm, result, outputDimsMm[], tolMm }
   //    def = Template Definition (מה-Registry). result = NormalizedFoldResult. outputDimsMm = [{w,h}] פר-עמוד (מה-PDF, אופציונלי).
@@ -338,6 +387,10 @@
     FLAG_REGISTRY: FLAG_REGISTRY, templateRegistryEnabled: templateRegistryEnabled,
     FLAG_32: FLAG_32, decoder32pEnabled: decoder32pEnabled, decoder32pTemplateAllowed: decoder32pTemplateAllowed,
     validateDecodeAgainstTemplate: validateDecodeAgainstTemplate,
+    FLAG_CFP: FLAG_CFP, customerFoldPreviewEnabled: customerFoldPreviewEnabled,
+    CFP_TEMPLATES: CFP_TEMPLATES, customerFoldTemplateAllowed: customerFoldTemplateAllowed,
+    sheetTrimFallback: sheetTrimFallback,
+    assembleNestedRunOrder: assembleNestedRunOrder,
     displayMapToDecoderMap: displayMapToDecoderMap, decoderPlanToResult: decoderPlanToResult,
     makeRequestCounter: makeRequestCounter, isStale: isStale, legacyReportToResult: legacyReportToResult,
     runLegacyAdapter: runLegacyAdapter, runDecoderV2Adapter: runDecoderV2Adapter, runImposition: runImposition,

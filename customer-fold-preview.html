@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>הצגת פרופר מקופל ללקוח — סולן הדפסות</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}</script>
+<script src="imposition-decoder.js"></script>
+<script src="imposition-decoder-exec.js"></script>
+<script src="imposition-fold-adapter.js"></script>
+<script src="imposition-result.js"></script>
+<script src="imposition-template-registry.js"></script>
+<script src="imposition-legacy-bridge.js"></script>
+<script src="customer-fold-versions.js"></script>
+<style>
+  :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--ok:#16a34a;--muted:#94a3b8}
+  body{font-family:'Heebo',Arial,sans-serif;background:var(--bg);color:#e2e8f0;margin:0;padding:16px;direction:rtl}
+  .client body{background:#f8fafc;color:#1e293b}
+  h2{margin:0 0 6px} h3{margin-top:0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  button{background:#334155;color:#e2e8f0;border:1px solid #475569;border-radius:8px;padding:9px 15px;cursor:pointer;font-family:inherit;font-size:.95rem}
+  button.primary{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:800}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .steps{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .step{flex:1;min-width:110px;background:#0b1220;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:.8rem;color:var(--muted);text-align:center}
+  .step.active{border-color:var(--ok);color:#86efac}
+  .muted{color:var(--muted);font-size:.86rem} .ok{color:#86efac} .bad{color:#fca5a5} code{background:#0b1220;padding:1px 5px;border-radius:4px}
+  select,input[type=text]{background:#0b1220;color:#e2e8f0;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:inherit}
+  #thumbs{display:flex;flex-wrap:wrap;gap:6px} #thumbs .th{background:#0b1220;border:1px solid var(--line);border-radius:6px;padding:3px;text-align:center;font-size:.7rem;color:var(--muted)}
+  #thumbs canvas{display:block;background:#fff;max-width:88px}
+  .spread{display:flex;gap:0;justify-content:center;background:#0b1220;border:1px solid var(--line);border-radius:8px;padding:10px}
+  .spread canvas{display:block;background:#fff;max-height:62vh;width:auto;max-width:47vw}
+  #_sp img{display:block;background:#fff;height:56vh;width:auto}
+  #_sp>canvas{display:block;background:#fff;height:56vh;width:auto;max-width:none}
+  #_fbwrap:fullscreen{display:flex;flex-direction:column;justify-content:center;align-items:center;background:#0b1220}
+  #_fbwrap:-webkit-full-screen{display:flex;flex-direction:column;justify-content:center;align-items:center;background:#0b1220}
+  /* מסך-מלא: התצוגה על כל המסך · הלחצנים צפים בשכבה מעל · כוונון מוסתר */
+  #_fbwrap:fullscreen{padding:0;border:none;background:#000}
+  #_fbwrap:fullscreen #_sp{border:none;border-radius:0;background:#000;padding:0;height:100vh;min-height:100vh;overflow:hidden;display:flex;align-items:center;justify-content:center}
+  #_fbwrap:fullscreen #_sp img,#_fbwrap:fullscreen #_sp>canvas{height:94vh;max-height:94vh;width:auto;max-width:99vw;object-fit:contain}
+  #_fbwrap:fullscreen .fbctl{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:9;background:rgba(11,18,32,.62);padding:6px 14px;border-radius:12px;margin:0;width:max-content}
+  #_fbwrap:fullscreen .fbtune{display:none}
+  #_fbwrap:-webkit-full-screen{padding:0;border:none;background:#000}
+  #_fbwrap:-webkit-full-screen #_sp{border:none;border-radius:0;background:#000;padding:0;height:100vh;min-height:100vh;overflow:hidden;display:flex;align-items:center;justify-content:center}
+  #_fbwrap:-webkit-full-screen #_sp img,#_fbwrap:-webkit-full-screen #_sp>canvas{height:94vh;max-height:94vh;width:auto;max-width:99vw;object-fit:contain}
+  #_fbwrap:-webkit-full-screen .fbctl{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:9;background:rgba(11,18,32,.62);padding:6px 14px;border-radius:12px;margin:0;width:max-content}
+  #_fbwrap:-webkit-full-screen .fbtune{display:none}
+  .chk{display:flex;gap:9px;align-items:flex-start;background:#0b1220;border:1px solid var(--line);border-radius:8px;padding:10px}
+  /* client */
+  .clientwrap{max-width:920px;margin:0 auto}
+  .clientwrap .card{background:#fff;border-color:#e2e8f0}
+  .clientwrap button{background:#fff;color:#1e293b;border-color:#cbd5e1}
+  .clientwrap button.primary{background:var(--ok);color:#fff}
+  .clientwrap .spread{background:#eef2f7;border-color:#e2e8f0}
+  .clientwrap select,.clientwrap input{background:#fff;color:#1e293b;border-color:#cbd5e1}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const EXEC=window.ImpositionDecoderExec, ADP=window.ImpositionFoldAdapter, RES=window.ImpositionResult, REG=window.ImpositionTemplateRegistry, LB=window.ImpositionLegacyBridge, CFV=window.CustomerFoldVersions, DEC=window.ImpositionDecoder;
+const { PDFDocument } = PDFLib;
+const qs = new URLSearchParams(location.search);
+const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+const _APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+let _tok={id:null,exp:0};
+function _isProd(){ return /solanprinting\.github\.io/.test(location.host); }   // כתיבה חיה רק בייצור
+function _nowIso(){ return new Date().toISOString(); }
+async function sha256(u8){ const h=await crypto.subtle.digest('SHA-256', u8 instanceof Uint8Array?u8:new Uint8Array(u8)); return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+function _auth(){ if(_tok.id&&Date.now()<_tok.exp-120000) return Promise.resolve(_tok.id);
+  return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_APIKEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})})
+    .then(r=>r.ok?r.json():Promise.reject(new Error('auth '+r.status))).then(j=>{ _tok={id:j.idToken,exp:Date.now()+(parseInt(j.expiresIn)||3600)*1000}; return j.idToken; }); }
+function _uploadPdf(path,bytes,onPct){ return _auth().then(tok=> new Promise((res,rej)=>{ const x=new XMLHttpRequest();
+  x.open('POST','https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o?name='+encodeURIComponent(path));
+  x.setRequestHeader('Content-Type','application/pdf'); if(tok) x.setRequestHeader('Authorization','Firebase '+tok);
+  x.upload.onprogress=e=>{ if(e.lengthComputable&&onPct) onPct(Math.round(e.loaded/e.total*100)); };
+  x.onload=()=>{ if(x.status>=200&&x.status<300){ const j=JSON.parse(x.responseText); const t=(j.downloadTokens||'').split(',')[0]||'';
+    res({url:'https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o/'+encodeURIComponent(path)+'?alt=media&token='+t, path:path}); } else rej(new Error('Storage '+x.status)); };
+  x.onerror=()=>rej(new Error('שגיאת רשת')); x.send(bytes); })); }
+function _dbPut(path,obj){ return _auth().then(tok=>fetch(_FBURL+'/'+path+'.json?auth='+tok,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)}).then(r=>r.ok?r.json():Promise.reject(new Error('db '+r.status)))); }
+function _dbPatch(path,obj){ return _auth().then(tok=>fetch(_FBURL+'/'+path+'.json?auth='+tok,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)}).then(r=>r.ok?r.json():Promise.reject(new Error('db '+r.status)))); }
+function _dbGet(path){ return _auth().then(tok=>fetch(_FBURL+'/'+path+'.json?auth='+tok).then(r=>r.ok?r.json():null)); }
+
+// ── קיפול/פירוק לפי טמפלט (3 מסלולים מאושרים) → outputPdfBytes + NormalizedFoldResult ──
+let _bridge=null;
+// שחזור-תצוגה של גיאומטריית מנוע-האפליקציה (foldSignature): מרכזי-תאים COLCX/ROWCY + מרכוז-מדיה
+// + תיקון-דש לפי TrimBox/CropBox — לבניית plan-תצוגה לתצוגה-המהירה, זהה 1:1 לפלט-הגשר.
+async function _appPlan32(srcU8, bleedMm){
+  const doc=await PDFLib.PDFDocument.load(srcU8.slice(0), { ignoreEncryption:true });
+  const p=doc.getPages()[0], mb=p.getMediaBox();
+  const MMc=72/25.4, mwmm=mb.width/MMc, mhmm=mb.height/MMc;
+  let offX=(mwmm-1000)/2, offY=(mhmm-700)/2;
+  let nb=null; try{ nb=p.getTrimBox(); }catch(e){}
+  if(!nb || nb.width>=mb.width-1){ try{ nb=p.getCropBox(); }catch(e){} }
+  if(nb && nb.width<mb.width-1){
+    const leftM=(nb.x-mb.x)/MMc, rightM=((mb.x+mb.width)-(nb.x+nb.width))/MMc;
+    const topM=((mb.y+mb.height)-(nb.y+nb.height))/MMc, botM=(nb.y-mb.y)/MMc;
+    if(Math.abs(leftM-rightM)>=1) offX+=(leftM-rightM)/2;
+    if(Math.abs(topM-botM)>=1) offY+=(topM-botM)/2;
+  }
+  const COLCX=[125,375,625,875], ROWCY=[97.5,262.5,437.5,602.5];
+  const B=bleedMm>0?bleedMm:0;
+  const pages=DEC.CELL_MAP_70x100_32P.map(c=>{
+    const cx=COLCX[c.column]+offX, cy=ROWCY[c.row]+offY;
+    const N=1+c.outputPageOffset, spineRight=(N%2===1);   // RTL: אי-זוגי שדרה מימין · זוגי משמאל
+    // גלישה בלי-שדרה: צד-השדרה של עמוד-הקריאה ממופה לקצה-התא בגיליון לפי הסיבוב
+    // rot90 (CCW): תחתית-התא→ימין-העמוד · rot270 (CW): ראש-התא→ימין-העמוד
+    const clip=(b)=>{ let bTop=b, bBot=b;
+      if(b>0){ if(c.rotation===90){ bTop=spineRight?b:0; bBot=spineRight?0:b; }
+               else { bTop=spineRight?0:b; bBot=spineRight?b:0; } }
+      const x0=cx-(120+b), x1=cx+(120+b), y0=cy-(82.5+bTop), y1=cy+(82.5+bBot);
+      return { left:x0*MMc, right:x1*MMc, top:(mhmm-y0)*MMc, bottom:(mhmm-y1)*MMc }; };
+    return { finalPageNumber:N, sourcePdfPage:c.sourceSide+1,
+      rotationApplied:c.rotation, clipPt:clip(0), bleedClipPt:clip(B) };
+  });
+  return { bleedMm:B, pages };
+}
+// חיתוך גלישת-השדרה מפלט-הגשר: מנוע-האפליקציה מוסיף גלישה סימטרית סביב כל עמוד (כולל שדרה,
+// ושם היא מציגה תוכן של העמוד השכן). כאן חותכים את צד-השדרה → גלישה רק בראש/רגל/צד-חיצוני,
+// השדרה תמיד בקו-0. RTL: עמוד אי-זוגי (שער וימניים) שדרה מימין · זוגי שדרה משמאל.
+async function _trimSpineBleed(bytes, bleedMm){
+  if(!(bleedMm>0)) return bytes;
+  const doc=await PDFLib.PDFDocument.load(bytes, { ignoreEncryption:true });
+  const MMc=72/25.4, B=bleedMm*MMc;
+  doc.getPages().forEach((pg,i)=>{
+    const mb=pg.getMediaBox(); const newW=mb.width-B;
+    const spineRight=((i+1)%2)===1;
+    const x0= spineRight ? mb.x : mb.x+B;   // שדרה מימין → חותכים את הרצועה הימנית; משמאל → השמאלית
+    pg.setMediaBox(x0, mb.y, newW, mb.height);
+    pg.setCropBox(x0, mb.y, newW, mb.height);
+  });
+  return await doc.save();
+}
+// טמפלט-מסך → סוג-מנוע-אפליקציה: 16perf/32 המאושרים · legacy:<type> מובנים · custom:<key> מכלי-הסימון
+// (ה-iframe של הגשר טוען בעצמו את ההגדרות השמורות מ-localStorage — same-origin → טמפלט מותאם עובד אוטומטית)
+function _legacyTypeFor(tid){
+  if(tid==='16perf') return '16perf';
+  if(tid==='70x100-32p-165x240-perfector') return '32';
+  if(tid.indexOf('legacy:')===0) return tid.slice(7);
+  if(tid.indexOf('custom:')===0) return tid.slice(7);
+  return null;
+}
+async function foldByTemplate(tid, srcU8, bleedMm){
+  bleedMm = bleedMm>0 ? bleedMm : 0;
+  // כל טמפלטי-האפליקציה (מובנים + מותאמים) → המנוע הקיים והמוכח (imposition-tool.html fold) דרך הגשר.
+  const legacyType=_legacyTypeFor(tid);
+  if(legacyType){
+    if(!_bridge) _bridge=LB.createLegacyBridge({ iframeUrl:'imposition-tool.html' });
+    await _bridge.ready();
+    const out=await _bridge.runFold({ arrayBuffer:srcU8.slice(0), type:legacyType, firstSide:0, mirror:false, bleedMm:bleedMm, requestId:Date.now() });
+    const bytes = bleedMm>0 ? await _trimSpineBleed(out.bytes, bleedMm) : out.bytes;   // שדרה בקו-0
+    const outHash=await sha256(new Uint8Array(bytes));
+    const r=ADP.legacyReportToResult({ report:out.report, bytes:bytes, sourceFile:{fileId:'src'}, templateId:tid, engineVersion:(_bridge.diagnostics().version||''), bridgeMode:'same-origin-iframe', outputHash:outHash });
+    let plan=null;
+    if(legacyType==='32'){ try{ plan=await _appPlan32(srcU8, bleedMm); }catch(e){ plan=null; } }   // plan-תצוגה בלבד (אותה נוסחה)
+    return { bytes:bytes, result:r, plan:plan, srcBytes:srcU8, bleedMm:bleedMm };
+  }
+  // decoder-v2 (88x63 בלבד — 32p עבר לגשר-האפליקציה למעלה) · sheetTrimFallback: בלי TrimBox → Trim נומינלי ממורכז
+  const layout = DEC.DEFAULT_LAYOUT_88x63;
+  const ex=await EXEC.decodeToPdf({ sourceArrayBuffer:srcU8.slice(0), template:{id:tid}, startPage:1, bleedMm:bleedMm, requestId:Date.now(),
+    sheetTransform:(s)=>ADP.sheetTrimFallback(s, layout) });
+  if(!ex.bytes || (ex.errors&&ex.errors.length)) throw new Error('פירוק נכשל: '+(ex.errors||[]).join(', '));
+  const outHash=await sha256(new Uint8Array(ex.bytes));
+  const r=ADP.runDecoderV2Adapter({ plan:ex.plan, bytes:ex.bytes, templateId:tid, templateVersion:1, sourceFile:{fileId:'src'}, outputHash:outHash });
+  return { bytes:ex.bytes, result:r, plan:ex.plan, srcBytes:srcU8, bleedMm:bleedMm };   // plan → תצוגה-מהירה crop-from-source
+}
+
+// ── עיתון מרובה-קונטרסים (תפירת-אוכף מקוננת): R-1 חיצוני, R-2 פנימי, וכו' ──
+//    כל קונטרס מקופל בנפרד דרך מנוע-האפליקציה, ואז מרכיבים לפי assembleNestedRunOrder:
+//    64 עמ' = R1[1-16] R2[1-16] R2[17-32] R1[17-32]. פלט = PDF אחד רציף בסדר-קריאה.
+async function foldMultiRun(runsU8, legacyType, bleedMm){
+  bleedMm = bleedMm>0 ? bleedMm : 0;
+  if(!_bridge) _bridge=LB.createLegacyBridge({ iframeUrl:'imposition-tool.html' });
+  await _bridge.ready();
+  const runs=[];   // { outBytes, srcBytes, plan }
+  for(let i=0;i<runsU8.length;i++){
+    const u=runsU8[i];
+    const out=await _bridge.runFold({ arrayBuffer:u.slice(0), type:legacyType, firstSide:0, mirror:false, bleedMm:bleedMm, requestId:Date.now()+i });
+    const bytes = bleedMm>0 ? await _trimSpineBleed(out.bytes, bleedMm) : out.bytes;   // שדרה בקו-0
+    let plan=null; if(legacyType==='32'){ try{ plan=await _appPlan32(u, bleedMm); }catch(e){ plan=null; } }
+    runs.push({ outBytes:bytes, srcBytes:u, plan });
+  }
+  const positionsPerRun = (runs[0].plan && runs[0].plan.pages.length) || 32;
+  const order = ADP.assembleNestedRunOrder(runs.length, positionsPerRun);
+  // הרכבת PDF-פלט אחד רציף בסדר-קריאה (מקור-אמת יחיד לגיבוב/העלאה/אישור).
+  // ⚠️ copyPages פעם-אחת לכל ריצה (עם כל האינדקסים) — כך pdf-lib ממחזר את תמונת-הגיליון
+  //    המשותפת פעם-אחת לריצה. copyPages עמוד-בכל-פעם היה מכפיל את התמונה (76MB × 64 = 2.4GB).
+  const outDoc=await PDFLib.PDFDocument.create();
+  const loaded=[]; for(const r of runs) loaded.push(await PDFLib.PDFDocument.load(r.outBytes, { ignoreEncryption:true }));
+  const copied=[];   // copied[runIndex][posInRun] = copied page
+  for(let ri=0;ri<loaded.length;ri++){
+    const positions=order.filter(o=>o.runIndex===ri).map(o=>o.posInRun);
+    const uniq=Array.from(new Set(positions));
+    const pgs=await outDoc.copyPages(loaded[ri], uniq.map(p=>p-1));   // קריאה-אחת → תמונה משותפת פעם-אחת
+    copied[ri]={}; uniq.forEach((p,i)=>{ copied[ri][p]=pgs[i]; });
+  }
+  for(const o of order){ outDoc.addPage(copied[o.runIndex][o.posInRun]); }
+  const combined=await outDoc.save();
+  const outHash=await sha256(new Uint8Array(combined));
+  const r=ADP.legacyReportToResult({ report:{ pagesOut:order.length, signatures:runs.length }, bytes:combined,
+    sourceFile:{fileId:'multi'}, templateId:'multi:'+legacyType+'x'+runs.length,
+    engineVersion:(_bridge.diagnostics().version||''), bridgeMode:'same-origin-iframe', outputHash:outHash });
+  const book = { bleedMm, runs:runs.map(x=>({srcBytes:x.srcBytes, plan:x.plan})), order };
+  return { bytes:combined, result:r, book, plan:null, srcBytes:null, bleedMm, runCount:runs.length };
+}
+
+// ── תצוגה: pdf.js doc משותף (פרסור פעם-אחת) · תור-רינדור מסודר · thumbnails עצלים ──
+//    כל עמוד-פלט מטמיע את גיליון-הפרופר המלא → רינדור כבד; לכן: doc יחיד, רינדור מסודר,
+//    ו-thumbnails מרונדרים רק כשנגללים לתצוגה (IntersectionObserver) — לא 32 מיד.
+let _outDoc=null, _outKey=null; const _img={};   // מטמון: pageNo → dataURL(JPEG · רזולוציה גבוהה)
+async function getOutDoc(bytes){ if(_outDoc && _outKey===bytes) return _outDoc;
+  try{ _outDoc && _outDoc.destroy(); }catch(e){} for(const k in _img) delete _img[k];
+  // עותק-buffer: pdf.js מעביר את ה-buffer ל-worker — בלי עותק ה-bytes המקוריים נהרסים (נדרשים להעלאה/hash)
+  _outDoc=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise; _outKey=bytes; return _outDoc; }
+// ── נעילת-רינדור עם *עדיפות*: ניווט(foreground) מקדים תמיד את הרקע(background) ──
+//    כך שהדפדוף מיידי ולא מחכה שהרקע יסיים. worker-יחיד → פעולה אחת בכל רגע.
+let _busy=false, _fgWaiting=0, _avgMs=0;
+async function renderLock(isFg, fn){
+  if(isFg) _fgWaiting++;
+  try{ while(_busy || (!isFg && _fgWaiting>0)) await new Promise(r=>setTimeout(r, isFg?12:70));
+    _busy=true; try{ return await fn(); } finally{ _busy=false; }
+  } finally{ if(isFg) _fgWaiting--; }
+}
+async function _renderPage(pdf, i){   // רזולוציה גבוהה (דגימת-על → חד). פענוח-התמונות שולט בזמן.
+  const pg=await pdf.getPage(i); const v1=pg.getViewport({scale:1});
+  const dpr=Math.min(window.devicePixelRatio||1, 2), dispH=Math.min((window.innerHeight||900)*0.6, 1000);
+  const targetH=Math.min(Math.max(dispH*dpr, dispH*2.6), 2400), sc=Math.max(1.6, Math.min(8, targetH/v1.height));
+  const vp=pg.getViewport({scale:sc}); const cv=document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height);
+  const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height); ctx.imageSmoothingQuality='high';
+  await pg.render({canvasContext:ctx, viewport:vp}).promise; return cv.toDataURL('image/jpeg',0.92);
+}
+async function pageImg(pdf, i, isFg){ if(_img[i]) return _img[i];
+  return renderLock(isFg!==false, async ()=>{ if(_img[i]) return _img[i];
+    const t0=performance.now(); const u=await _renderPage(pdf,i); const dt=performance.now()-t0; _avgMs=_avgMs? _avgMs*0.6+dt*0.4 : dt; _img[i]=u; return u; }); }
+async function smallImg(pdf, i){ return renderLock(false, async ()=>{ const pg=await pdf.getPage(i); const v1=pg.getViewport({scale:1}); const vp=pg.getViewport({scale:140/v1.width});
+  const cv=document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height); const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+  await pg.render({canvasContext:ctx,viewport:vp}).promise; return cv.toDataURL('image/jpeg',0.8); }); }
+async function renderThumbs(host, bytes){ const pdf=await getOutDoc(bytes); host.innerHTML='';
+  const io=new IntersectionObserver(ents=>{ ents.forEach(en=>{ if(en.isIntersecting){ const th=en.target; io.unobserve(th); const i=+th.dataset.p;
+    smallImg(pdf,i).then(u=>{ const im=new Image(); im.src=u; im.style.width='88px'; const ph=th.querySelector('.ph'); if(ph)ph.replaceWith(im); }).catch(()=>{}); } }); },{root:null,rootMargin:'220px'});
+  for(let i=1;i<=pdf.numPages;i++){ const th=document.createElement('div'); th.className='th'; th.dataset.p=i;
+    th.innerHTML='<div class="ph" style="width:88px;height:120px;display:flex;align-items:center;justify-content:center;color:#475569">⏳</div><div>'+i+'</div>'; host.appendChild(th); io.observe(th); } }
+function _spreadGroups(n){ const g=[]; if(n<=0)return g; g.push([0]); for(let k=1;k<n;k+=2) g.push(k+1<n?[k,k+1]:[k]); return g; }
+function _loadImg(url){ return new Promise(res=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>res(null); im.src=url; }); }
+// חיתוך "מסגרת-לבנה" מכל 4 הצדדים של כל עמוד (מסיר שוליים-לבנים/קצה-נייר בשדרה ובחוץ),
+// ואז חיבור העמודים לכפולה על canvas אחד (hi=שמאל · lo=ימין · צמוד).
+let _SPINE_TRIM_PCT = 0;   // אחוז-חיתוך-מסגרת מכל צד של כל עמוד
+function _cropBorderCv(img, pct){ const t=Math.max(0,Math.round(img.width*pct/100));
+  const w=Math.max(4,img.width-2*t), h=Math.max(4,img.height-2*t);
+  const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img, t,t,w,h, 0,0,w,h); return cv; }
+// מרכיב את התצוגה הנוכחית: עמוד בודד או כפולה (hi שמאל · lo ימין), עם חיתוך-מסגרת pct
+async function _composeView(pageUrls, pct){
+  const imgs=(await Promise.all(pageUrls.map(_loadImg))).filter(Boolean); if(!imgs.length) return null;
+  const cvs=imgs.map(im=>_cropBorderCv(im, pct));
+  if(cvs.length===1) return cvs[0].toDataURL('image/jpeg',0.92);
+  const H=Math.max(cvs[0].height,cvs[1].height), cv=document.createElement('canvas'); cv.width=cvs[0].width+cvs[1].width; cv.height=H;
+  const c=cv.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,cv.width,cv.height);
+  c.drawImage(cvs[0], 0, Math.round((H-cvs[0].height)/2)); c.drawImage(cvs[1], cvs[0].width, Math.round((H-cvs[1].height)/2));   // hi שמאל · lo ימין · צמוד
+  return cv.toDataURL('image/jpeg',0.92); }
+// דפדוף: השער ראשון · ניווט בעדיפות (פס-התקדמות+ETA, מבטל ישן) · המשך-רקע · RTL נכון · חד · מסך-מלא
+async function mountFlipbook(host, bytes){
+  const pdf=await getOutDoc(bytes); const n=pdf.numPages; const groups=_spreadGroups(n); let gi=0, navSeq=0;
+  host.innerHTML='<div id="_fbwrap" style="background:#0b1220;border:1px solid #334155;border-radius:10px;padding:8px">'
+    + '<div class="spread" id="_sp" dir="ltr" style="min-height:220px;align-items:center"></div>'
+    + '<div dir="rtl" class="fbctl" style="text-align:center;margin-top:8px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">'
+    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div>'
+    + '<div dir="rtl" class="fbtune" style="text-align:center;margin-top:6px;font-size:.82rem;color:#94a3b8">חיתוך מסגרת-לבנה (מכל 4 הצדדים של כל עמוד): '
+    + '<input type="range" id="_spine" min="0" max="8" step="0.1" value="'+_SPINE_TRIM_PCT+'" style="vertical-align:middle;width:240px"> <b id="_spineVal">'+_SPINE_TRIM_PCT.toFixed(1)+'%</b> <span style="opacity:.7">— הגדל עד שהמסגרת הלבנה נעלמת, ותגיד לי את המספר</span></div></div>';
+  function progHtml(){ return '<div style="max-width:340px;margin:auto;text-align:center;color:#94a3b8;padding:18px">📖 מרנדר…'
+    + '<div style="height:7px;background:#334155;border-radius:5px;margin:8px 0"><div id="_pbfill" style="height:100%;width:6%;background:#16a34a;border-radius:5px;transition:width .15s"></div></div></div>'; }
+  let curPages=null;   // URLs של התצוגה הנוכחית ([u] בודד / [uHi,uLo] כפולה) — לכוונון-מסגרת חי
+  async function draw(){
+    const my=++navSeq; const sp=$('_sp'); const g=groups[gi]; curPages=null;
+    const need=g.map(k=>k+1).filter(p=>!_img[p]); let anim=null;
+    if(need.length){ sp.innerHTML=progHtml(); const est=Math.max(500,(_avgMs||1600)*need.length), t0=performance.now();
+      anim=setInterval(()=>{ if(my!==navSeq){clearInterval(anim);return;} const el=performance.now()-t0, pct=Math.min(96,6+el/est*90), f=$('_pbfill'); if(f)f.style.width=pct.toFixed(0)+'%'; },100); }
+    let urls;
+    if(g.length===1){ const u=await pageImg(pdf,g[0]+1,true); if(anim)clearInterval(anim); if(my!==navSeq) return; urls=[u]; }
+    else { const lo=g[0]+1,hi=g[1]+1; const uHi=await pageImg(pdf,hi,true); if(my!==navSeq){ if(anim)clearInterval(anim); return; } const uLo=await pageImg(pdf,lo,true);
+      if(anim)clearInterval(anim); if(my!==navSeq) return; urls=[uHi,uLo]; }   // hi שמאל · lo ימין
+    curPages=urls; const view=await _composeView(urls, _SPINE_TRIM_PCT); if(my!==navSeq) return;
+    sp.innerHTML='<img src="'+view+'">';
+    $('_pi').textContent='כפולה '+(gi+1)+' / '+groups.length; $('_prev').disabled=gi<=0; $('_next').disabled=gi>=groups.length-1;
+  }
+  $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} };
+  $('_full').onclick=()=>{ const w=$('_fbwrap'); (w.requestFullscreen||w.webkitRequestFullscreen||function(){}).call(w); };
+  $('_spine').oninput=async ()=>{ _SPINE_TRIM_PCT=parseFloat($('_spine').value)||0; $('_spineVal').textContent=_SPINE_TRIM_PCT.toFixed(1)+'%';
+    if(curPages){ const u=await _composeView(curPages, _SPINE_TRIM_PCT); if($('_sp'))$('_sp').innerHTML='<img src="'+u+'">'; } };   // כוונון חי — בלי רינדור-מחדש
+  // ── preload 50% מהקונטרס עם פס-התקדמות → ואז צפייה; שאר ה-50% נטענים ברקע תוך-כדי דפדוף ──
+  $('_prev').disabled=true; $('_next').disabled=true;
+  const preN=Math.max(2, Math.ceil(n*0.5)); const t0=performance.now();
+  for(let i=1;i<=preN;i++){ if(_outKey!==bytes) return; try{ await pageImg(pdf,i,true); }catch(e){}
+    const pct=Math.round(i/preN*100), sp=$('_sp');
+    if(sp) sp.innerHTML='<div style="max-width:360px;margin:auto;text-align:center;color:#94a3b8;padding:22px">📖 מכין את החוברת… <b>'+pct+'%</b> ('+i+'/'+preN+' עמ׳)'
+      + '<div style="height:8px;background:#334155;border-radius:5px;margin-top:10px"><div style="height:100%;width:'+pct+'%;background:#16a34a;border-radius:5px;transition:width .2s"></div></div></div>'; }
+  if(_outKey!==bytes) return;
+  await draw();   // השער מהמטמון — מיידי; דפדוף בחצי-הראשון חלק
+  (async ()=>{ for(let i=preN+1;i<=n;i++){ if(_outKey!==bytes) return; if(!_img[i]){ try{ await pageImg(pdf,i,false); }catch(e){} }   // רקע — נכנע לניווט
+    const done=Object.keys(_img).length, bg=$('_bg'); if(bg) bg.textContent = done>=n ? '✓ כל העמודים נטענו' : ('טוען ברקע… '+done+'/'+n+' — דפדף חופשי'); } })();
+}
+
+// ── תצוגה-מהירה (decoder): מרנדר 2 עמודי-מקור פעם-אחת · גוזר+מסובב כל תא לפי plan (=זהה לפלט) ──
+//    פענוח-כבד פעמיים בלבד; כל התאים מיידיים. rotate CCW = כמו pdf-lib drawPage.
+function _cropRotate(src, x, y, w, h, degCCW){
+  x=Math.round(x); y=Math.round(y); w=Math.max(1,Math.round(w)); h=Math.max(1,Math.round(h));
+  const cell=document.createElement('canvas'); cell.width=w; cell.height=h; cell.getContext('2d').drawImage(src, x, y, w, h, 0, 0, w, h);
+  degCCW=((degCCW%360)+360)%360; if(degCCW===0) return cell;
+  const out=document.createElement('canvas'); const ctx=out.getContext('2d');
+  if(degCCW===90||degCCW===270){ out.width=h; out.height=w; } else { out.width=w; out.height=h; }
+  ctx.translate(out.width/2, out.height/2); ctx.rotate(-degCCW*Math.PI/180); ctx.drawImage(cell, -w/2, -h/2); return out;
+}
+async function _renderSource(pdf, pageNo, sc){ const pg=await pdf.getPage(pageNo); const vp=pg.getViewport({scale:sc});
+  const cv=document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height); const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+  await pg.render({canvasContext:ctx,viewport:vp}).promise; return { cv, hpt: pg.getViewport({scale:1}).height, sc }; }
+let _fastGen=0, _fastDocs=[];   // מונה-מחזור + מסמכי-pdf.js פעילים (mount חדש מבטל רקע ומשחרר זיכרון)
+// book = { bleedMm, runs:[{srcBytes, plan}], order:[{runIndex,posInRun}] }
+//   קונטרס-יחיד → runs=[{srcBytes,plan}] · order = 1..N זהות. מרובה-קונטרסים → כמה runs + סדר-הרכבה.
+async function mountFlipbookFast(host, thumbsHost, book){
+  _fastDocs.forEach(d=>{ try{ d.destroy(); }catch(e){} }); _fastDocs=[];   // שחרור מסמכים קודמים (זיכרון)
+  const runs=book.runs, order=book.order, bleedMm=book.bleedMm;
+  const n=order.length, groups=_spreadGroups(n); let gi=0;
+  const SC_LO=0.9, SC_HI=1.5;
+  // לכל קונטרס: doc, אינדקס-plan לפי posInRun, ורינדורי-מקור (srcCv[side])
+  const R=runs.map(r=>{ const byPos={}; r.plan.pages.forEach(p=>byPos[p.finalPageNumber]=p);
+    return { doc:null, srcBytes:r.srcBytes, byPos, srcCv:{} }; });
+  let ccache={};
+  host.innerHTML='<div id="_fbwrap" style="background:#0b1220;border:1px solid #334155;border-radius:10px;padding:8px">'
+    + '<div class="spread" id="_sp" dir="ltr" style="min-height:220px;align-items:center"><div id="_prog" style="width:100%;text-align:center;color:#94a3b8">📖 טוען את הפרופר…</div></div>'
+    + '<div dir="rtl" class="fbctl" style="text-align:center;margin-top:8px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">'
+    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div></div>';
+  function cellCanvas(N){ if(ccache[N]) return ccache[N]; const o=order[N-1]; const run=R[o.runIndex]; if(!run) return null;
+    const p=run.byPos[o.posInRun]; if(!p) return null; const s=run.srcCv[p.sourcePdfPage]; if(!s) return null;
+    const cp=(bleedMm>0 && p.bleedClipPt)?p.bleedClipPt:p.clipPt;
+    const cv=_cropRotate(s.cv, cp.left*s.sc, (s.hpt-cp.top)*s.sc, (cp.right-cp.left)*s.sc, (cp.top-cp.bottom)*s.sc, p.rotationApplied); ccache[N]=cv; return cv; }
+  // תצוגה ישירה של ה-canvas (בלי קידוד-JPEG ופענוח-חזרה בכל דפדוף — מהיר ולא מעמיס)
+  function draw(){ const sp=$('_sp'); const g=groups[gi]; let view=null;
+    if(g.length===1){ view=cellCanvas(g[0]+1); }
+    else { const lo=g[0]+1,hi=g[1]+1; const cHi=cellCanvas(hi), cLo=cellCanvas(lo);   // כפולה על canvas אחד → חיבור חלק בלי תפר
+      if(cHi&&cLo){ const H=Math.max(cHi.height,cLo.height), combo=document.createElement('canvas'); combo.width=cHi.width+cLo.width; combo.height=H;
+        const c=combo.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,combo.width,combo.height);
+        c.drawImage(cHi,0,Math.round((H-cHi.height)/2)); c.drawImage(cLo,cHi.width,Math.round((H-cLo.height)/2));   // hi שמאל · lo ימין · צמוד
+        view=combo; } }
+    if(!view){ sp.innerHTML='<div style="color:#94a3b8;padding:24px;width:100%;text-align:center">⏳ טוען…</div>'; return; }
+    sp.replaceChildren(view);
+    $('_pi').textContent='כפולה '+(gi+1)+' / '+groups.length; $('_prev').disabled=gi<=0; $('_next').disabled=gi>=groups.length-1; }
+  $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} };
+  $('_full').onclick=()=>{ const w=$('_fbwrap'); (w.requestFullscreen||w.webkitRequestFullscreen||function(){}).call(w); };
+  function renderThumbsFast(){ if(!thumbsHost) return; thumbsHost.innerHTML=''; for(let N=1;N<=n;N++){ const c=cellCanvas(N); const t=document.createElement('div'); t.className='th';
+    if(c){ const tc=document.createElement('canvas'); const s=88/c.width; tc.width=88; tc.height=Math.round(c.height*s); tc.getContext('2d').drawImage(c,0,0,tc.width,tc.height); const im=new Image(); im.src=tc.toDataURL('image/jpeg',0.7); im.style.width='88px'; t.appendChild(im); }
+    const l=document.createElement('div'); l.textContent=N; t.appendChild(l); thumbsHost.appendChild(t); } }
+  const myGen=++_fastGen;   // ביטול-מחזור: קיפול-מחדש (בליד/קובץ) מפסיק רינדורי-רקע ישנים
+  // רשימת (run,side) לרינדור — לפי סדר-ההופעה בספר (קונטרס ראשון קודם → השער מהר)
+  const need=[]; const seen={};
+  order.forEach(o=>{ const run=R[o.runIndex]; const p=run.byPos[o.posInRun]; if(!p) return;
+    const key=o.runIndex+':'+p.sourcePdfPage; if(!seen[key]){ seen[key]=true; need.push({ri:o.runIndex, side:p.sourcePdfPage}); } });
+  async function ensureDoc(ri){ if(!R[ri].doc){ const d=await pdfjsLib.getDocument({data:R[ri].srcBytes.slice(0)}).promise; R[ri].doc=d; _fastDocs.push(d); } return R[ri].doc; }
+  // שלב 1 — רינדור-מקור מהיר לכל (קונטרס,צד) → תצוגה מיידית + thumbnails
+  for(let i=0;i<need.length;i++){ const {ri,side}=need[i]; const d=await ensureDoc(ri);
+    R[ri].srcCv[side]=await _renderSource(d, side, SC_LO); if(myGen!==_fastGen) return;
+    const pr=$('_prog'); if(pr&&i===0) pr.textContent='📖 טוען…'; const bg=$('_bg'); if(bg) bg.textContent='טוען '+(i+1)+'/'+need.length+'…'; ccache={}; draw(); }
+  renderThumbsFast();
+  // שלב 2 — חידוד ברקע: רינדור-מקור באיכות גבוהה, מחליף את המטמון ומרענן את התצוגה הנוכחית.
+  (async ()=>{ for(let i=0;i<need.length;i++){ const {ri,side}=need[i];
+      await new Promise(r=>setTimeout(r, 400)); if(myGen!==_fastGen) return;
+      const bg=$('_bg'); if(bg) bg.textContent='מחדד איכות… '+(i+1)+'/'+need.length;
+      const d=await ensureDoc(ri); const hi=await _renderSource(d, side, SC_HI); if(myGen!==_fastGen) return;
+      R[ri].srcCv[side]=hi; ccache={}; draw(); }
+    const bg=$('_bg'); if(bg) bg.textContent='✓ איכות מלאה — דפדוף מיידי'; })();
+}
+
+/* ═══════════════ מסך העובד ═══════════════ */
+function workerScreen(){
+  document.title='הצגת פרופר מקופל ללקוח';
+  $('app').innerHTML = ''
+   + '<h2>הצגת פרופר מקופל ללקוח <span class="muted">(Beta · פנימי)</span></h2>'
+   + '<div class="steps">'+['העלאת פרופר','בחירת טמפלט','יצירת חוברת','בדיקה פנימית','יצירת קישור'].map((s,i)=>'<div class="step" id="wstep'+i+'">'+(i+1)+'. '+s+'</div>').join('')+'</div>'
+   + '<div class="card"><b>1–2.</b> פרופר: <input type="file" id="proof" accept="application/pdf"> · טמפלט (לכל קונטרס): '
+   + '<select id="tpl"><option value="">— בחר —</option></select> '
+   + '<button id="foldBtn" disabled>▶ צור חוברת</button>'
+   + '<div style="margin-top:8px"><label class="chk"><input type="checkbox" id="multiRun"> <span>עיתון מרובה-קונטרסים (מעל 32 עמ׳ — כמה ריצות R-1, R-2…)</span></label></div>'
+   + '<div id="multiBox" style="display:none;margin-top:6px;padding:8px;border:1px dashed var(--line);border-radius:8px">'
+   + '<div class="muted">העלה את כל הריצות יחד לפי הסדר: <b>R-1</b> (החיצוני · מכיל שער+גב) ואז R-2, R-3… כל ריצה = גיליון 32-up.</div>'
+   + '<input type="file" id="proofMulti" accept="application/pdf" multiple style="margin-top:6px"> <div id="multiList" class="muted" style="margin-top:6px"></div></div>'
+   + '<div class="card" style="margin-top:6px"><input type="text" id="jobName" placeholder="שם העבודה" style="width:180px"> <input type="text" id="custName" placeholder="שם לקוח" style="width:150px"> <input type="text" id="jobId" placeholder="מס׳ עבודה" style="width:110px"></div>'
+   + '<div id="wstatus" class="muted" style="margin-top:8px">בחר פרופר וטמפלט.</div></div>'
+   + '<div class="card" id="previewCard" style="display:none"><h3>3. תצוגה <span class="muted" id="metaLine"></span></h3>'
+   + '<div style="margin-bottom:8px">גלישות: <select id="bleedSel"><option value="0">בלי גלישות (נטו)</option><option value="3">עם גלישות (3 מ״מ)</option></select> <span class="muted" id="bleedNote"></span></div>'
+   + '<div id="warns" class="muted"></div><div id="flip"></div><h3 style="margin-top:12px">Thumbnails</h3><div id="thumbs"></div></div>'
+   + '<div class="card" id="checkCard" style="display:none"><h3>4. בדיקה פנימית</h3>'
+   + '<label class="chk"><input type="checkbox" id="intChk"> <span>בדקתי שהשער, סדר העמודים, הכיוונים והחיתוך תקינים.</span></label>'
+   + '<div style="margin-top:10px"><button id="linkBtn" class="primary" disabled>🔗 צור קישור ללקוח</button> <span id="linkStatus" class="muted"></span></div>'
+   + '<div id="linkOut" style="margin-top:10px"></div></div>';
+
+  let _srcU8=null, _srcName='', _folded=null, _multiU8=[], _multiNames=[];   // {bytes,result}
+  // מיון-טבעי לפי שם-קובץ → R-1 לפני R-2 לפני R-10 (בחירת-קבצים מרובה לא שומרת סדר)
+  function _natSort(a,b){ return String(a).localeCompare(String(b), undefined, {numeric:true, sensitivity:'base'}); }
+  // ── קטלוג-הטמפלטים: 3 המאושרים + כל המובנים של מנוע-האפליקציה + מותאמים מכלי סימון-הטמפלט ──
+  function _cfpCatalog(){
+    const list=[
+      { id:'70x100-32p-165x240-perfector', label:'32 עמ׳ · 165×240 · פרפקטור (8 צבעים)', w:165, h:240, engine:'legacy' },
+      { id:'legacy:32p',  label:'32 עמ׳ · 165×240 · מתהפך (4 צבעים)', w:165, h:240, engine:'legacy' },
+      { id:'16perf',      label:'16 עמ׳ · 165×240 · פרפקטור', w:165, h:240, engine:'legacy' },
+      { id:'legacy:16p',  label:'16 עמ׳ · 165×240 · מתהפך', w:165, h:240, engine:'legacy' },
+      { id:'legacy:8perf',label:'8 עמ׳ · 165×240 · פרפקטור', w:165, h:240, engine:'legacy' },
+      { id:'legacy:8p',   label:'8 עמ׳ · 165×240 · מתהפך', w:165, h:240, engine:'legacy' },
+      { id:'legacy:4perf',label:'4 עמ׳ · 165×240 · פרפקטור', w:165, h:240, engine:'legacy' },
+      { id:'legacy:4p',   label:'4 עמ׳ · 165×240 · מתהפך', w:165, h:240, engine:'legacy' },
+      { id:'88x63-16p-perfector', label:'16 עמ׳ · 210×297 · 88×63 פרפקטור', w:210, h:297, engine:'decoder-v2' }
+    ];
+    try{
+      const ov=JSON.parse(localStorage.getItem('solanFoldTemplates')||'{}')||{};
+      Object.keys(ov).forEach(k=>{ const o=ov[k];
+        if(o && o.custom && Array.isArray(o.grids) && o.grids.length){
+          const g=o.geom||{};
+          list.push({ id:'custom:'+k, label:'🧩 '+(o.label||k)+(g.trimWmm?(' · '+g.trimWmm+'×'+g.trimHmm):''),
+            w:g.trimWmm||null, h:g.trimHmm||null, engine:'legacy' });
+        } });
+    }catch(e){}
+    return list;
+  }
+  const _catalog=_cfpCatalog();
+  function _tplInfo(tid){ return _catalog.find(t=>t.id===tid)||null; }
+  _catalog.forEach(t=>{ const o=document.createElement('option'); o.value=t.id; o.textContent=t.label; $('tpl').appendChild(o); });
+  function setStep(n){ for(let i=0;i<5;i++){ const el=$('wstep'+i); if(el) el.className='step'+(i<=n?' active':''); } }
+  function _multi(){ return $('multiRun') && $('multiRun').checked; }
+  function updFold(){
+    const tid=$('tpl').value, ok=tid && ADP.customerFoldTemplateAllowed(tid);
+    if(_multi()){ $('foldBtn').disabled = !(ok && _legacyTypeFor(tid) && _multiU8.length>=2); }
+    else { $('foldBtn').disabled = !(_srcU8 && ok); }
+  }
+  $('proof').onchange=async e=>{ const f=e.target.files[0]; if(!f)return; _srcU8=new Uint8Array(await f.arrayBuffer()); _srcName=f.name; $('wstatus').textContent='📄 '+f.name; setStep(0); updFold(); };
+  $('tpl').onchange=updFold;
+  $('multiRun').onchange=()=>{ $('multiBox').style.display=_multi()?'':'none'; $('proof').disabled=_multi(); updFold(); };
+  $('proofMulti').onchange=async e=>{
+    const files=Array.from(e.target.files||[]).sort((a,b)=>_natSort(a.name,b.name));   // R-1 לפני R-2…
+    _multiU8=[]; _multiNames=[];
+    for(const f of files){ _multiU8.push(new Uint8Array(await f.arrayBuffer())); _multiNames.push(f.name); }
+    const N=_multiU8.length, tot=N*32;
+    $('multiList').innerHTML = N ? ('סדר-קיפול: '+_multiNames.map((n,i)=>'<b>R-'+(i+1)+'</b> '+n).join(' → ')+' <span class="ok">('+N+' ריצות · '+tot+' עמ׳)</span>') : '';
+    _srcName=_multiNames[0]||''; if(N) $('wstatus').textContent='📄 '+N+' ריצות'; setStep(0); updFold();
+  };
+  async function doFold(bleedMm){
+    const tid=$('tpl').value; if(!ADP.customerFoldTemplateAllowed(tid)){ alert('טמפלט לא-נתמך'); return; }
+    $('foldBtn').disabled=true; if($('bleedSel'))$('bleedSel').disabled=true; $('wstatus').textContent='⏳ יוצר חוברת…'; setStep(2);
+    try{
+      if(_multi()){
+        const lt=_legacyTypeFor(tid); if(!lt) throw new Error('טמפלט מרובה-קונטרסים חייב מנוע-אפליקציה (לא 88×63)');
+        _folded=await foldMultiRun(_multiU8, lt, bleedMm);
+      } else {
+        _folded=await foldByTemplate(tid, _srcU8, bleedMm);
+      }
+      const info=_tplInfo(tid); const n=_folded.result.orderedPages.length;
+      const lbl = _multi() ? (_folded.runCount+' ריצות · '+(info?info.label:tid)) : (info?info.label:tid);
+      $('metaLine').textContent='· '+lbl+' · '+n+' עמ׳'+((info&&info.w)?(' · '+info.w+'×'+info.h+' מ״מ'):'');
+      $('bleedNote').textContent = bleedMm>0 ? '· מוצג עם גלישות 3 מ״מ' : '· נטו';
+      const errs=(_folded.result.errors||[]); $('warns').innerHTML = errs.length?('<span class="bad">'+errs.map(e=>e.code||e).join(' · ')+'</span>'):'<span class="ok">אין שגיאות</span>';
+      $('previewCard').style.display=''; $('checkCard').style.display='';
+      // שינוי-פלט (בליד) → outputHash חדש → מאפסים בדיקה-פנימית וקישור (חייב אימות מחדש)
+      $('intChk').checked=false; $('linkBtn').disabled=true; $('linkStatus').textContent=''; $('linkOut').innerHTML='';
+      // תצוגה-מהירה כשיש plan(ים): מרנדר מקורות פעם-אחת, גוזר לפי אותו plan שממנו נבנה ה-PDF (זהה לפלט).
+      // book = מרובה-קונטרסים (_folded.book) · plan-יחיד (_folded.plan) · אחרת (88x63/16perf ללא plan) → PDF-פלט.
+      if(_folded.book){ await mountFlipbookFast($('flip'), $('thumbs'), _folded.book); }
+      else if(_folded.plan){ await mountFlipbookFast($('flip'), $('thumbs'), { bleedMm:_folded.bleedMm||0, runs:[{srcBytes:_folded.srcBytes, plan:_folded.plan}], order:ADP.assembleNestedRunOrder(1, _folded.plan.pages.length) }); }
+      else { await mountFlipbook($('flip'), _folded.bytes); await renderThumbs($('thumbs'), _folded.bytes); }
+      $('wstatus').textContent='✓ נוצרה חוברת — בדוק שער/כפולות/גב, סמן בדיקה פנימית ואז צור קישור.'; setStep(3);
+    }catch(err){ $('wstatus').innerHTML='<span class="bad">'+(err.message||err)+'</span>'; }
+    finally{ $('foldBtn').disabled=false; if($('bleedSel'))$('bleedSel').disabled=false; }
+  }
+  $('foldBtn').onclick=()=>doFold(+(($('bleedSel')&&$('bleedSel').value)||0));
+  $('bleedSel').onchange=()=>{ if(_folded && _srcU8) doFold(+$('bleedSel').value); };
+  $('intChk').onchange=()=>{ $('linkBtn').disabled = !( $('intChk').checked && _folded ); };
+  $('linkBtn').onclick=async ()=>{
+    if(!$('intChk').checked || !_folded) return;
+    if(!_isProd()){ $('linkStatus').innerHTML='<span class="bad">יצירת-קישור פועלת רק באתר החי (הגנת-סביבה).</span>'; return; }
+    $('linkBtn').disabled=true; $('linkStatus').textContent='⏳ מעלה ושומר גרסה…';
+    try{
+      const tid=$('tpl').value, info=_tplInfo(tid);
+      const templateId=_folded.result.templateId||tid;   // מרובה-קונטרסים → 'multi:32xN'
+      const outHash=await sha256(_folded.bytes);
+      const srcHash=await sha256(_multi() ? (_multiU8[0]||new Uint8Array()) : _srcU8);
+      const jobId=$('jobId').value||('job_'+Date.now());
+      // גרסה חדשה בלתי-ניתנת-לדריסה: מספר-גרסה לפי קיים
+      const existing=await _dbGet('customerFoldVersionsIndex/'+encodeURIComponent(jobId)) || {};
+      const versionNumber=CFV.nextVersionNumber(Object.keys(existing).map(k=>({versionNumber:existing[k]})));
+      const up=await _uploadPdf('customerFoldVersions/'+jobId+'/v'+versionNumber+'_'+Date.now()+'/booklet.pdf', _folded.bytes, p=>$('linkStatus').textContent='⏳ מעלה… '+p+'%');
+      const built=CFV.buildVersionRecord({ jobId, customerId:$('custName').value||null, jobName:$('jobName').value||_srcName,
+        versionNumber, templateId:templateId, engine:(info?info.engine:'legacy'), engineVersion:(window.__APP_VERSION__||''),
+        sourceFileName:_srcName, sourceHash:srcHash, outputStoragePath:up.path, outputUrl:up.url, outputHash:outHash,
+        pageCount:_folded.result.orderedPages.length, finalPageSizeMm:{width:(info&&info.w)||null,height:(info&&info.h)||null},
+        internalCheck:{confirmed:true, confirmedAt:_nowIso(), confirmedBy:'worker'}, createdAt:_nowIso(), createdBy:'worker' });
+      if(!built.ok){ throw new Error('רשומה נכשלה: '+built.errors.join(', ')); }
+      const rec=built.record;
+      await _dbPut('customerFoldVersions/'+rec.versionId, rec);
+      await _dbPatch('customerFoldVersionsIndex/'+encodeURIComponent(jobId), (function(){ const o={}; o[rec.versionId]=versionNumber; return o; })());
+      const link=location.origin+location.pathname+'?v='+encodeURIComponent(rec.versionId)+'&t='+encodeURIComponent(rec.share.token);
+      $('linkStatus').innerHTML='<span class="ok">✓ נוצרה גרסה V'+versionNumber+'</span>';
+      $('linkOut').innerHTML='<div class="chk"><span>קישור ללקוח (V'+versionNumber+'):<br><code style="word-break:break-all">'+link+'</code><br>'
+        + '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+link+'\')">העתק</button> '
+        + '<a href="'+link+'" target="_blank"><button>פתח כלקוח</button></a> · <span class="muted">outputHash: '+outHash.slice(0,16)+'…</span></span></div>';
+      setStep(4);
+    }catch(err){ $('linkStatus').innerHTML='<span class="bad">'+(err.message||err)+'</span>'; $('linkBtn').disabled=false; }
+  };
+}
+
+/* ═══════════════ מסך הלקוח ═══════════════ */
+async function clientScreen(versionId, token){
+  document.documentElement.className='client'; document.body.className='clientwrap'; document.title='חוברת לאישור — סולן הדפסות';
+  $('app').innerHTML='<div class="card"><h2 id="cTitle">טוען…</h2><div id="cMeta" class="muted"></div></div><div class="card" id="cBook" style="display:none"><div id="cFlip"></div></div><div class="card" id="cApprove" style="display:none"></div>';
+  let rec=null;
+  try{ rec=await _dbGet('customerFoldVersions/'+versionId); }catch(e){}
+  if(!rec){ $('cTitle').innerHTML='<span class="bad">הקישור לא נמצא</span>'; return; }
+  if(rec.share.token!==token){ $('cTitle').innerHTML='<span class="bad">קישור לא תקין</span>'; return; }   // token חייב להתאים
+  const valid=CFV.isLinkValid(rec, _nowIso());
+  if(!valid.valid){ $('cTitle').innerHTML='<span class="bad">'+(valid.reason==='REVOKED'?'הקישור בוטל':'תוקף הקישור פג')+'</span>'; return; }
+  $('cTitle').textContent=rec.jobName||'חוברת לאישור';
+  $('cMeta').innerHTML='גרסה V'+rec.versionNumber+' · '+rec.pageCount+' עמ׳ · '+rec.finalPageSizeMm.width+'×'+rec.finalPageSizeMm.height+' מ״מ';
+  // טעינת ה-PDF שהעובד בדק (אותם bytes) מה-Storage
+  let bytes=null; try{ bytes=new Uint8Array(await (await fetch(rec.outputUrl)).arrayBuffer()); }catch(e){}
+  if(!bytes){ $('cTitle').innerHTML+=' <span class="bad">(טעינת החוברת נכשלה)</span>'; return; }
+  // הוכחת-זהות: ה-bytes שהתקבלו === outputHash שברשומה
+  const gotHash=await sha256(bytes);
+  if(gotHash!==rec.outputHash){ $('cMeta').innerHTML+=' <span class="bad">· אזהרה: החוברת אינה תואמת לגרסה המאושרת</span>'; }
+  $('cBook').style.display=''; await mountFlipbook($('cFlip'), bytes);
+  renderApprove(rec, gotHash===rec.outputHash);
+}
+function renderApprove(rec, hashOk){
+  const box=$('cApprove'); box.style.display='';
+  if(rec.approval && rec.approval.status==='approved'){ box.innerHTML='<h3 class="ok">✓ אושר להדפסה</h3><div class="muted">'+(rec.approval.approvedBy||'')+' · '+(rec.approval.approvedAt||'')+'</div>'; return; }
+  box.innerHTML='<h3>אישור</h3>'
+   + '<div style="font-size:.9rem;margin-bottom:8px">אני מאשר שסדר העמודים, התוכן והגרסה המוצגת בקישור זה מאושרים להדפסה.</div>'
+   + '<input type="text" id="cName" placeholder="שמך" style="width:170px"> <textarea id="cComment" placeholder="הערה (לבקשת תיקון)" style="width:100%;max-width:420px;height:54px;margin-top:6px;display:block"></textarea>'
+   + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button id="cApproveBtn" class="primary"'+(hashOk?'':' disabled title="החוברת אינה תואמת לגרסה"')+'>✓ מאשר להדפסה</button>'
+   + '<button id="cCorrectBtn">✎ מבקש תיקון</button></div><div id="cResult" class="muted" style="margin-top:8px"></div>';
+  async function submit(action){
+    const fresh=await _dbGet('customerFoldVersions/'+rec.versionId);   // מקור-אמת עדכני מהשרת
+    const res=CFV.applyApproval(fresh, action, { approvedBy:$('cName').value||null, comment:$('cComment').value||null, nowIso:_nowIso() });
+    if(!res.ok){ $('cResult').innerHTML='<span class="bad">'+(res.error==='LINK_REVOKED'?'הקישור בוטל':res.error==='LINK_EXPIRED'?'תוקף פג':res.error)+'</span>'; return; }
+    await _dbPatch('customerFoldVersions/'+rec.versionId+'/approval', res.record.approval);
+    await _dbPatch('customerFoldVersions/'+rec.versionId, { status:res.record.status });
+    $('cResult').innerHTML = action==='approve' ? '<span class="ok">✓ אושר להדפסה. תודה!</span>' : '<span class="ok">✓ בקשת התיקון נשלחה.</span>';
+    $('cApproveBtn')&&($('cApproveBtn').disabled=true); $('cCorrectBtn')&&($('cCorrectBtn').disabled=true);
+  }
+  $('cApproveBtn').onclick=()=>submit('approve'); $('cCorrectBtn').onclick=()=>submit('request-correction');
+}
+
+/* ═══════════════ boot ═══════════════ */
+(function boot(){
+  const v=qs.get('v'), t=qs.get('t');
+  if(v && t){ clientScreen(v,t); return; }   // מצב-לקוח
+  // מצב-עובד: מאחורי הדגל solanCustomerFoldPreviewBeta (או ?cfp=1)
+  if(ADP.customerFoldPreviewEnabled(window) || qs.get('cfp')==='1'){ workerScreen(); }
+  else { $('app').innerHTML='<div class="card"><h2>הצגת פרופר מקופל ללקוח</h2><div class="muted">הכלי במצב Beta סגור. הפעל את הדגל <code>solanCustomerFoldPreviewBeta</code> או פתח עם <code>?cfp=1</code>.</div></div>'; }
+})();
+</script>
+</body>
+</html>

@@ -94,6 +94,8 @@
     }
     var srcDoc = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
     var sheet = _sheetFromDoc(srcDoc);
+    // אופציונלי-אדיטיבי: תיקון-sheet חיצוני (למשל fallback ל-TrimBox חסר). בלי הזרקה — התנהגות זהה.
+    if (typeof input.sheetTransform === 'function') { var st = input.sheetTransform(sheet); if (st) sheet = st; }
     var opts = {
       sheet: sheet,
       startPage: input.startPage != null ? input.startPage : 1,
