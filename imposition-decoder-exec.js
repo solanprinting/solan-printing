@@ -25,7 +25,8 @@
 
   var PDFDocument = PDFLib.PDFDocument, degrees = PDFLib.degrees;
   var MM = 72 / 25.4;                       // זהה ל-MM של ה-preview/decoder (72/25.4)
-  var TEMPLATE_ID = '88x63-16p-perfector';  // U3: הטמפלט היחיד המאושר
+  var TEMPLATE_ID = '88x63-16p-perfector';  // U3: הטמפלט המאושר (0/180)
+  var TEMPLATE_ID_32 = '70x100-32p-165x240-perfector';  // T3: 32 עמ׳ 165×240 (90/270)
 
   // ── חילוץ קופסאות-הגיליון מהפרופר (מכני מ-_sheetFrom של ה-preview) ──────────
   //    מקבל מסמך-pdf-lib טעון (טעינה פעם אחת ב-decodeToPdf) — לא bytes, כדי לא לטעון פעמיים.
@@ -42,11 +43,9 @@
   //    (מפת-התאים המכוילת CELL_MAP_88x63_16P_PERFECTOR + DEFAULT_LAYOUT_88x63 מסופקות ע"י ה-decoder.)
   function _templateToDecodeOpts(template) {
     var id = template && (template.id || template.templateId);
-    if (id && id !== TEMPLATE_ID) {
-      // U3 מוגבל לטמפלט אחד — לא ממציאים cells לטמפלט אחר
-      return { unsupported: true, templateId: id };
-    }
-    return {};   // 88x63 → ברירת-מחדל של ה-decoder (cells+layout מכוילים)
+    if (!id || id === TEMPLATE_ID) return {};   // 88x63 → ברירת-מחדל של ה-decoder (cells+layout מכוילים)
+    if (id === TEMPLATE_ID_32) return { cells: DEC.CELL_MAP_70x100_32P, layout: DEC.LAYOUT_70x100_32P };
+    return { unsupported: true, templateId: id };   // אחר → לא נתמך (לא ממציאים cells)
   }
 
   // ── בניית PDF-הפלט (חילוץ מכני של buildOutput) — embed כל-צד פעם-אחת, clip ע"י MediaBox, rotate ──
@@ -60,11 +59,12 @@
     for (var i = 0; i < plan.pages.length; i++) {
       var p = plan.pages[i];
       var emb = embBySide[p.sourcePdfPage]; if (!emb) continue;
-      var op = out.addPage([p.outputWpt, p.outputHpt]);
+      var op = out.addPage([p.outputWpt, p.outputHpt]);   // 90/270 → מידות מוחלפות (נקבע ב-buildDecodePlan)
       var cp = p.bleedClipPt || p.clipPt;   // bleedClipPt == clipPt כשאין גלישה
+      // transform לפי הנוסחאות המאושרות (CCW · origin שמאל-תחתון). 0/180 ללא שינוי (88x63 byte-identical).
       if (p.rotationApplied === 180) op.drawPage(emb, { x: cp.right, y: cp.top, rotate: degrees(180) });
-      else if (p.rotationApplied === 90) op.drawPage(emb, { x: cp.left, y: cp.top, rotate: degrees(90) });
-      else if (p.rotationApplied === 270) op.drawPage(emb, { x: cp.right, y: cp.bottom, rotate: degrees(270) });
+      else if (p.rotationApplied === 90) op.drawPage(emb, { x: cp.top, y: -cp.left, rotate: degrees(90) });
+      else if (p.rotationApplied === 270) op.drawPage(emb, { x: -cp.bottom, y: cp.right, rotate: degrees(270) });
       else op.drawPage(emb, { x: -cp.left, y: -cp.bottom });
     }
     return await out.save();
@@ -99,6 +99,7 @@
       startPage: input.startPage != null ? input.startPage : 1,
       bleedMm: input.bleedMm > 0 ? input.bleedMm : 0
     };
+    if (topts.cells) { opts.cells = topts.cells; opts.layout = topts.layout; }   // 32 → מפה+פריסה; 88x63 → ברירת-מחדל
     var plan = DEC.buildDecodePlan(opts);
     var bytes = null;
     if (plan.success !== false) bytes = await buildOutputFromPlan(srcDoc, plan);

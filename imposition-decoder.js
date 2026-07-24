@@ -75,6 +75,36 @@
     nominalMediaWmm: 892.1, nominalMediaHmm: 643.2, nominalTrimXmm: 6, nominalTrimYmm: 4.9, nominalTrimHmm: 630.1
   };
 
+  // ── טמפלט 32 עמ׳ 165×240 (גיליון 70×100 · 4×4/צד · Front+Back · Perfector) ─────
+  //    מפת-התאים חולצה מ-Template32 p perf.pdf (text-extraction) — זהה ל-TEMPLATES['32'] הישן,
+  //    ואומתה חזותית על Ozma (שער=1, 2–31 רציף, גב=32, כל העמודים ישרים). rotation קנוני:
+  //    col0=90 · col1=270 · col2=90 · col3=270 (התא לרוחב בגיליון → +90/+270 מיישר לפורטרייט).
+  var _MAP32_FRONT = [[1, 16, 13, 4], [32, 17, 20, 29], [25, 24, 21, 28], [8, 9, 12, 5]];
+  var _MAP32_BACK  = [[7, 10, 11, 6], [26, 23, 22, 27], [31, 18, 19, 30], [2, 15, 14, 3]];
+  var _ROT32_COL = [90, 270, 90, 270];
+  var CELL_MAP_70x100_32P = (function () {
+    var out = [];
+    [_MAP32_FRONT, _MAP32_BACK].forEach(function (g, side) {
+      g.forEach(function (rowArr, row) {
+        rowArr.forEach(function (pg, col) {
+          out.push({ sourceSide: side, row: row, column: col, rotation: _ROT32_COL[col], outputPageOffset: pg - 1 });
+        });
+      });
+    });
+    return out;
+  })();
+  // אריחוף אחיד 4×4 על גיליון-Trim 1000×700: תא 250×175, נטו-לרוחב 240×165 ממורכז → פינה שמאלית-עליונה
+  // (מרכז − חצי-נטו): cols center−120 = [5,255,505,755] · rows center−82.5 = [5,180,355,530]. אומת על Ozma.
+  var LAYOUT_70x100_32P = {
+    id: '70x100-32p-165x240-perfector', name: '70×100 32p 165×240 Perfector',
+    pagesPerSignature: 32, sidesCount: 2, cols: 4, rows: 4,
+    finishedWmm: 165, finishedHmm: 240,
+    trimWmm: 1000, trimHmm: 700, headToHeadGapMm: 0,
+    colLeftsTrimMm: [5, 255, 505, 755],   // פינת-תא-לרוחב שמאלית-עליונה (נטו 240 רחב)
+    rowTopsTrimMm: [5, 180, 355, 530],    // פינת-תא-לרוחב עליונה (נטו 165 גבוה)
+    nominalMediaWmm: 1010, nominalMediaHmm: 713, nominalTrimXmm: 5, nominalTrimYmm: 6.5, nominalTrimHmm: 700
+  };
+
   function _resolveLayout(layout) {
     var L = {}; Object.keys(DEFAULT_LAYOUT_88x63).forEach(function (k) { L[k] = DEFAULT_LAYOUT_88x63[k]; });
     if (layout) Object.keys(layout).forEach(function (k) { if (layout[k] != null) L[k] = layout[k]; });
@@ -95,14 +125,20 @@
 
   // מלבן-התא בתצוגה (mm · מקור פינה שמאלית-עליונה של media-הפרופר), לפי row/col.
   // ממפה מ-Trim-מרחב הטמפלט אל מרחב-הפרופר לפי ה-TrimBox האמיתי (בלתי-תלוי בבליד).
-  function cellRectDisplayMm(row, col, layout, sheet) {
+  //  rotation (אופציונלי) — תא מסובב 90/270 יושב *לרוחב* בגיליון → מחליפים ממדי-התא
+  //  (finishedH×finishedW). ללא rotation / 0 / 180 → התנהגות קיימת (finishedW×finishedH) בדיוק.
+  //  ⚠️ colLeftsTrimMm/rowTopsTrimMm הם הפינה השמאלית-עליונה של התא *כפי שהוא יושב בגיליון*
+  //     (לתא-לרוחב = פינת המלבן הלרוחב) — נקבע ע"י הפריסה, לא כאן.
+  function cellRectDisplayMm(row, col, layout, sheet, rotation) {
     var L = _resolveLayout(layout), S = _resolveSheet(L, sheet);
     var trimLeftDisplay = S.trimXmm;                              // x לא מושפע מהיפוך-y
     var trimTopDisplay = S.mediaHmm - (S.trimYmm + S.trimHmm);    // קצה-עליון של ה-Trim בתצוגה
+    var swap = (rotation === 90 || rotation === 270);
     return {
       xMm: trimLeftDisplay + L.colLeftsTrimMm[col],
       yMm: trimTopDisplay + L.rowTopsTrimMm[row],
-      wMm: L.finishedWmm, hMm: L.finishedHmm
+      wMm: swap ? L.finishedHmm : L.finishedWmm,
+      hMm: swap ? L.finishedWmm : L.finishedHmm
     };
   }
 
@@ -175,7 +211,7 @@
     var errors = v.errors.slice(), warnings = [];
 
     var pages = cells.map(function (c) {
-      var rectMm = cellRectDisplayMm(c.row, c.column, L, S);
+      var rectMm = cellRectDisplayMm(c.row, c.column, L, S, c.rotation);
       var clip = _cellClipPt(rectMm, S.mediaHmm);
       var spineSide = spineSideForCell(c.column, L);
       var bClip = _bleedClip(clip, spineSide, bleedMm);
@@ -188,6 +224,9 @@
       if (bleedMm && (bClip.left < -0.5 || bClip.bottom < -0.5 || bClip.right > mediaWpt + 0.5 || bClip.top > mediaHpt + 0.5)) {
         w.push('BLEED_EXCEEDS_SHEET');
       }
+      // תא מסובב 90/270 → עמוד-הפלט מוחלף-ממדים (clipH×clipW). 0/180 → ללא שינוי (כמו היום).
+      var swapOut = (c.rotation === 90 || c.rotation === 270);
+      var clipWpt = bClip.right - bClip.left, clipHpt = bClip.top - bClip.bottom;
       return {
         finalPageNumber: startPage + c.outputPageOffset,
         outputPageOffset: c.outputPageOffset,
@@ -196,7 +235,7 @@
         rotationApplied: c.rotation, spineSide: spineSide,
         rectMm: rectMm, clipPt: clip,
         bleedMm: bleedMm, bleedClipPt: bClip,
-        outputWpt: bClip.right - bClip.left, outputHpt: bClip.top - bClip.bottom,
+        outputWpt: swapOut ? clipHpt : clipWpt, outputHpt: swapOut ? clipWpt : clipHpt,
         outputTrimWpt: L.finishedWmm * MM, outputTrimHpt: L.finishedHmm * MM,
         warnings: w
       };
@@ -231,6 +270,7 @@
 
   return {
     MM: MM, CELL_MAP_88x63_16P_PERFECTOR: CELL_MAP_88x63_16P_PERFECTOR, DEFAULT_LAYOUT_88x63: DEFAULT_LAYOUT_88x63,
+    CELL_MAP_70x100_32P: CELL_MAP_70x100_32P, LAYOUT_70x100_32P: LAYOUT_70x100_32P,
     cellRectDisplayMm: cellRectDisplayMm, cellRatios: cellRatios, validateCellMap: validateCellMap,
     rotateCellMap180: rotateCellMap180,
     spineSideForCell: spineSideForCell, buildDecodePlan: buildDecodePlan, toNormalizedCells: toNormalizedCells

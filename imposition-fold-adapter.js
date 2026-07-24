@@ -82,6 +82,61 @@
   // U3 מוגבל לטמפלט המכויל היחיד
   function decoderV3TemplateAllowed(templateId) { return templateId === '88x63-16p-perfector'; }
 
+  // ── T1 · Template Registry — דגל נפרד (כבוי=התנהגות U2/U3 הישירה כמו היום) ────
+  var FLAG_REGISTRY = 'solanTemplateRegistry';
+  function templateRegistryEnabled(win) {
+    try { var w = win || (typeof window !== 'undefined' ? window : null);
+      return !!(w && w.SOLAN_FLAGS && w.SOLAN_FLAGS[FLAG_REGISTRY] === true); } catch (e) { return false; }
+  }
+
+  // ── T3 · טמפלט 32 עמ׳ — דגל Beta נפרד (מוגבל לטמפלט אחד) ─────────────────────
+  var FLAG_32 = 'solanDecoder32pBeta';
+  function decoder32pEnabled(win) {
+    try { var w = win || (typeof window !== 'undefined' ? window : null);
+      return !!(w && w.SOLAN_FLAGS && w.SOLAN_FLAGS[FLAG_32] === true); } catch (e) { return false; }
+  }
+  function decoder32pTemplateAllowed(templateId) { return templateId === '70x100-32p-165x240-perfector'; }
+
+  // ── Validator · חוסם הרצה אם הפרופר/התוצאה אינם תואמים להגדרת-הטמפלט ─────────
+  //    input: { def, sourcePdfPages, sheetWmm, sheetHmm, result, outputDimsMm[], tolMm }
+  //    def = Template Definition (מה-Registry). result = NormalizedFoldResult. outputDimsMm = [{w,h}] פר-עמוד (מה-PDF, אופציונלי).
+  function validateDecodeAgainstTemplate(input) {
+    input = input || {}; var errors = [], warnings = [];
+    var def = input.def, r = input.result || {}, tol = input.tolMm != null ? input.tolMm : 2;
+    if (!def) return { valid: false, errors: ['NO_TEMPLATE_DEFINITION'], warnings: warnings };
+    // מספר עמודי-מקור
+    if (input.sourcePdfPages != null && input.sourcePdfPages !== def.sourcePdfPages)
+      errors.push('SOURCE_PDF_PAGES:' + input.sourcePdfPages + '≠' + def.sourcePdfPages);
+    // מידות גיליון-מקור (טולרנס)
+    var ss = def.sourceSheetSizeMm || {};
+    if (input.sheetWmm != null && Math.abs(input.sheetWmm - ss.w) > tol) errors.push('SHEET_W:' + Math.round(input.sheetWmm) + '≠' + ss.w);
+    if (input.sheetHmm != null && Math.abs(input.sheetHmm - ss.h) > tol) errors.push('SHEET_H:' + Math.round(input.sheetHmm) + '≠' + ss.h);
+    // מספר עמודי-פלט + מפה 1..N בדיוק
+    var N = def.totalPages, pages = r.orderedPages || [];
+    if (pages.length !== N) errors.push('PAGE_COUNT:' + pages.length + '≠' + N);
+    var seen = {};
+    pages.forEach(function (p) {
+      if (!(p.finalPageNumber >= 1 && p.finalPageNumber <= N)) errors.push('PAGE_OUT_OF_RANGE:' + p.finalPageNumber);
+      if (seen[p.finalPageNumber]) errors.push('DUP_PAGE:' + p.finalPageNumber);
+      seen[p.finalPageNumber] = true;
+      if ([0, 90, 180, 270].indexOf(p.rotationApplied) < 0) errors.push('ROTATION:' + p.finalPageNumber);
+      if (p.sourceSide !== 0 && p.sourceSide !== 1) errors.push('SOURCE_SIDE:' + p.finalPageNumber);
+      if (!p.cropBox || !(p.cropBox.width > 0 && p.cropBox.height > 0)) errors.push('CROPBOX:' + p.finalPageNumber);
+    });
+    for (var i = 1; i <= N; i++) if (!seen[i]) errors.push('MISSING_PAGE:' + i);
+    // Front+Back שניהם בשימוש
+    var sides = {}; pages.forEach(function (p) { sides[p.sourceSide] = true; });
+    if (def.sourcePdfPages === 2 && !(sides[0] && sides[1])) errors.push('FRONT_BACK_STRUCTURE');
+    // מידות-פלט 165×240 (טולרנס) — אם סופקו מה-PDF
+    var fp = def.finalPageSizeMm || {};
+    (input.outputDimsMm || []).forEach(function (d, idx) {
+      if (Math.abs(d.w - fp.w) > tol || Math.abs(d.h - fp.h) > tol) errors.push('OUTPUT_DIMS@' + (idx + 1) + ':' + Math.round(d.w) + '×' + Math.round(d.h));
+    });
+    // warning קריטי בתוצאה
+    (r.errors || []).forEach(function (e) { errors.push('RESULT_ERROR:' + (e.code || e)); });
+    return { valid: errors.length === 0, errors: errors, warnings: warnings };
+  }
+
   // ── שתי מערכות-קואורדינטות של הטמפלט (מתועד למניעת בלבול) ────────────────────
   //  Template Display Map  = כפי שנראה כשמציגים את PDF-הטמפלט למשתמש.
   //  Decoder Source Map    = לאחר נרמול-180 (הטמפלט שמור /Rotate 180, הפרופר /Rotate 0).
@@ -280,6 +335,9 @@
     unifiedAccessAllowed: unifiedAccessAllowed, resolveImpositionEngine: resolveImpositionEngine,
     legacyU2Enabled: legacyU2Enabled, legacyU2TemplateAllowed: legacyU2TemplateAllowed,
     FLAG_U3: FLAG_U3, decoderV3Enabled: decoderV3Enabled, decoderV3TemplateAllowed: decoderV3TemplateAllowed,
+    FLAG_REGISTRY: FLAG_REGISTRY, templateRegistryEnabled: templateRegistryEnabled,
+    FLAG_32: FLAG_32, decoder32pEnabled: decoder32pEnabled, decoder32pTemplateAllowed: decoder32pTemplateAllowed,
+    validateDecodeAgainstTemplate: validateDecodeAgainstTemplate,
     displayMapToDecoderMap: displayMapToDecoderMap, decoderPlanToResult: decoderPlanToResult,
     makeRequestCounter: makeRequestCounter, isStale: isStale, legacyReportToResult: legacyReportToResult,
     runLegacyAdapter: runLegacyAdapter, runDecoderV2Adapter: runDecoderV2Adapter, runImposition: runImposition,
