@@ -190,8 +190,14 @@ $('cmpBtn').onclick = async ()=>{
   const sel=$('pick').value; const chTh=parseInt($('th').value)||0;
   const pages = sel==='s1'?[1] : sel==='s16'?[16] : sel==='d2'?[2,3] : sel==='d8'?[8,9] : [14,15];
   const A=new Uint8Array(_foldA.bytes), B=new Uint8Array(_foldB.bytes);
+  const _btn=$('cmpBtn'), _t0=_btn.textContent; _btn.disabled=true; _btn.textContent='⏳ מרנדר…';
+  $('visMetrics').innerHTML='<span class="muted">⏳ מרנדר עמודים… ('+pages.join(', ')+') — רינדור pdf.js עשוי לקחת מספר שניות על פלט כבד. אל תסגור.</span>';
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));   // תן לדפדפן לצייר את חיווי-הטעינה לפני הרינדור החוסם
+  try {
   let html='';
   for(const pn of pages){
+    $('visMetrics').innerHTML='<span class="muted">⏳ מרנדר עמוד '+pn+'…</span>';
+    await new Promise(r=>requestAnimationFrame(r));
     const rA=await renderFixed(A,pn), rB=await renderFixed(B,pn);
     if(!rA||!rB){ html+='<div class="bad">עמ׳ '+pn+' חסר</div>'; continue; }
     if(pn===pages[0]){ $('cvA').replaceWith(Object.assign(rA.cv,{id:'cvA'})); $('cvB').replaceWith(Object.assign(rB.cv,{id:'cvB'})); }
@@ -204,6 +210,8 @@ $('cmpBtn').onclick = async ()=>{
       + '</div>';
   }
   $('visMetrics').innerHTML = html + '<div class="muted" style="margin-top:6px">⚠️ אין אישור-אוטומטי לפי סף — נדרש אישורך הידני.</div>';
+  } catch(e){ $('visMetrics').innerHTML='<span class="bad">שגיאת רינדור: '+(e.message||e)+'</span>'; }
+  finally { _btn.disabled=false; _btn.textContent=_t0; }
 };
 </script>
 </body>
