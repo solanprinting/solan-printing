@@ -48,11 +48,7 @@
     <span class="muted">· סף-ערוץ <input type="number" id="th" value="2" min="0" style="width:60px"> · allowedDifferentPixelPercent <code>0.01%</code> (תיעוד בלבד — <b>לא אישור-אוטומטי</b>)</span>
   </div>
   <div id="visMetrics" class="muted"></div>
-  <div class="cmp" style="margin-top:8px">
-    <div class="side"><b>ריצה-A (כלי-ישן)</b><br><canvas id="cvA"></canvas></div>
-    <div class="side"><b>ריצה-B (ריצה שנייה)</b><br><canvas id="cvB"></canvas></div>
-    <div class="side"><b>diff (אדום=שונה)</b><br><canvas id="cvD"></canvas></div>
-  </div>
+  <div id="cmpHost" style="margin-top:8px"></div>
 </div>
 
 <div class="card"><h3 style="margin-top:0">תיעוד Golden</h3><pre id="report"></pre></div>
@@ -199,22 +195,27 @@ $('cmpBtn').onclick = async ()=>{
   // טעינה פעם אחת לכל ריצה (לא בכל עמוד) — מונע re-parse של מסמך כבד וקריסת-זיכרון
   if(!_pdfDocA) _pdfDocA=await pdfjsLib.getDocument({data:new Uint8Array(_foldA.bytes)}).promise;
   if(!_pdfDocB) _pdfDocB=await pdfjsLib.getDocument({data:new Uint8Array(_foldB.bytes)}).promise;
-  let html='';
+  const host=$('cmpHost'); host.innerHTML='';   // תצוגה דינמית — שורה לכל עמוד (כפולה = שתי שורות)
   for(const pn of pages){
     $('visMetrics').innerHTML='<span class="muted">⏳ מרנדר עמוד '+pn+'…</span>';
     await new Promise(r=>requestAnimationFrame(r));
     const rA=await renderFixed(_pdfDocA,pn), rB=await renderFixed(_pdfDocB,pn);
-    if(!rA||!rB){ html+='<div class="bad">עמ׳ '+pn+' חסר</div>'; continue; }
-    if(pn===pages[0]){ $('cvA').replaceWith(Object.assign(rA.cv,{id:'cvA'})); $('cvB').replaceWith(Object.assign(rB.cv,{id:'cvB'})); }
+    const row=document.createElement('div'); row.style.cssText='margin-top:10px;border-top:1px solid #334155;padding-top:8px';
+    if(!rA||!rB){ row.innerHTML='<b>עמוד '+pn+':</b> <span class="bad">חסר</span>'; host.appendChild(row); continue; }
     const d=diffCanvas(rA.cv,rB.cv,chTh);
-    if(pn===pages[0] && d.diffCanvas){ $('cvD').replaceWith(Object.assign(d.diffCanvas,{id:'cvD'})); }
-    html += '<div style="margin-top:6px"><b>עמוד '+pn+':</b> '
-      + (d.canvasDimsEqual===false ? '<span class="bad">מידות-canvas שונות</span>'
+    const metrics = d.canvasDimsEqual===false ? '<span class="bad">מידות-canvas שונות</span>'
         : 'נבדקו '+d.pixelsChecked+' · שונים '+d.pixelsDifferent+' ('+d.percentDifferent+'%) · max-channel '+d.maxChannelDiff+' · avg-channel '+d.avgChannelDiff
-          +' · bbox '+(d.bbox?JSON.stringify(d.bbox):'—')+' · '+(d.exactPixelMatch?'<span class="ok">exact match ✓</span>':(d.percentDifferent<ALLOWED_DIFF_PCT?'<span class="muted">under threshold ('+ALLOWED_DIFF_PCT+'%)</span>':'<span class="bad">מעל הסף</span>')))
-      + '</div>';
+          +' · bbox '+(d.bbox?JSON.stringify(d.bbox):'—')+' · '+(d.exactPixelMatch?'<span class="ok">exact match ✓</span>':(d.percentDifferent<ALLOWED_DIFF_PCT?'<span class="muted">under threshold ('+ALLOWED_DIFF_PCT+'%)</span>':'<span class="bad">מעל הסף</span>'));
+    row.innerHTML='<div style="margin-bottom:4px"><b>עמוד '+pn+':</b> '+metrics+'</div>';
+    const cmp=document.createElement('div'); cmp.className='cmp';
+    [['ריצה-A (כלי-ישן)',rA.cv],['ריצה-B (ריצה שנייה)',rB.cv],['diff (אדום=שונה)',d.diffCanvas]].forEach(([lbl,cv])=>{
+      const side=document.createElement('div'); side.className='side';
+      const b=document.createElement('b'); b.textContent=lbl; side.appendChild(b); side.appendChild(document.createElement('br'));
+      if(cv) side.appendChild(cv); cmp.appendChild(side);
+    });
+    row.appendChild(cmp); host.appendChild(row);
   }
-  $('visMetrics').innerHTML = html + '<div class="muted" style="margin-top:6px">⚠️ אין אישור-אוטומטי לפי סף — נדרש אישורך הידני.</div>';
+  $('visMetrics').innerHTML = '<div class="muted">⚠️ אין אישור-אוטומטי לפי סף — נדרש אישורך הידני.</div>';
   } catch(e){ $('visMetrics').innerHTML='<span class="bad">שגיאת רינדור: '+(e.message||e)+'</span>'; }
   finally { _btn.disabled=false; _btn.textContent=_t0; }
 };
