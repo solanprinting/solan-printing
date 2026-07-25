@@ -351,6 +351,20 @@ function _cropRotate(src, x, y, w, h, degCCW){
 async function _renderSource(pdf, pageNo, sc){ const pg=await pdf.getPage(pageNo); const vp=pg.getViewport({scale:sc});
   const cv=document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height); const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
   await pg.render({canvasContext:ctx,viewport:vp}).promise; return { cv, hpt: pg.getViewport({scale:1}).height, sc }; }
+function _rotateCanvas(cell, degCCW){ degCCW=((degCCW%360)+360)%360; if(degCCW===0) return cell;
+  const w=cell.width, h=cell.height, out=document.createElement('canvas'), ctx=out.getContext('2d');
+  if(degCCW===90||degCCW===270){ out.width=h; out.height=w; } else { out.width=w; out.height=h; }
+  ctx.translate(out.width/2, out.height/2); ctx.rotate(-degCCW*Math.PI/180); ctx.drawImage(cell, -w/2, -h/2); return out; }
+// רינדור-חד של תא-בודד ישירות מ-pdf.js (רק אזור-התא בקנה-מידה גבוה · transform גוזר) → חד ולא כבד:
+// פענוח-תמונת-הגיליון כבר במטמון (GlobalImageCache) מהמעבר-הנמוך, לכן מהיר. clip ב-PDF-points (origin ש-ת).
+async function _renderCellRegion(pdf, pageNo, clip, degCCW, scale){
+  const pg=await pdf.getPage(pageNo), vp=pg.getViewport({scale:scale});
+  const w=Math.max(1,Math.round((clip.right-clip.left)*scale)), h=Math.max(1,Math.round((clip.top-clip.bottom)*scale));
+  const cv=document.createElement('canvas'); cv.width=w; cv.height=h; const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+  const transform=[1,0,0,1, -clip.left*scale, clip.top*scale - vp.height];   // ממקם את פינת-התא בראש-הקנבס
+  await pg.render({canvasContext:ctx, viewport:vp, transform:transform}).promise;
+  return _rotateCanvas(cv, degCCW);
+}
 let _fastGen=0, _fastDocs=[];   // מונה-מחזור + מסמכי-pdf.js פעילים (mount חדש מבטל רקע ומשחרר זיכרון)
 // book = { bleedMm, runs:[{srcBytes, plan}], order:[{runIndex,posInRun}] }
 //   קונטרס-יחיד → runs=[{srcBytes,plan}] · order = 1..N זהות. מרובה-קונטרסים → כמה runs + סדר-הרכבה.
@@ -358,16 +372,17 @@ async function mountFlipbookFast(host, thumbsHost, book){
   _fastDocs.forEach(d=>{ try{ d.destroy(); }catch(e){} }); _fastDocs=[];   // שחרור מסמכים קודמים (זיכרון)
   const runs=book.runs, order=book.order, bleedMm=book.bleedMm;
   const n=order.length, groups=_spreadGroups(n); let gi=0;
-  const SC_LO=0.9, SC_HI=1.5;
+  const SC_LO=0.9, SC_HI_CELL=2.2;   // נמוך=תצוגה-מיידית · תא-חד=רינדור פר-עמוד בסדר-קריאה
   // לכל קונטרס: doc, אינדקס-plan לפי posInRun, ורינדורי-מקור (srcCv[side])
   const R=runs.map(r=>{ const byPos={}; r.plan.pages.forEach(p=>byPos[p.finalPageNumber]=p);
     return { doc:null, srcBytes:r.srcBytes, byPos, srcCv:{} }; });
-  let ccache={};
+  let ccache={}; const hiCell={};   // hiCell[N] = תא חד (גובר על הגזירה-הנמוכה)
   host.innerHTML='<div id="_fbwrap" style="background:#0b1220;border:1px solid #334155;border-radius:10px;padding:8px">'
     + '<div class="spread" id="_sp" dir="ltr" style="min-height:220px;align-items:center"><div id="_prog" style="width:100%;text-align:center;color:#94a3b8">📖 טוען את הפרופר…</div></div>'
     + '<div dir="rtl" class="fbctl" style="text-align:center;margin-top:8px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">'
     + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div></div>';
-  function cellCanvas(N){ if(ccache[N]) return ccache[N]; const o=order[N-1]; const run=R[o.runIndex]; if(!run) return null;
+  function cellCanvas(N){ if(hiCell[N]) return hiCell[N]; if(ccache[N]) return ccache[N];   // חד גובר על נמוך
+    const o=order[N-1]; const run=R[o.runIndex]; if(!run) return null;
     const p=run.byPos[o.posInRun]; if(!p) return null; const s=run.srcCv[p.sourcePdfPage]; if(!s) return null;
     const cp=(bleedMm>0 && p.bleedClipPt)?p.bleedClipPt:p.clipPt;
     const cv=_cropRotate(s.cv, cp.left*s.sc, (s.hpt-cp.top)*s.sc, (cp.right-cp.left)*s.sc, (cp.top-cp.bottom)*s.sc, p.rotationApplied); ccache[N]=cv; return cv; }
@@ -398,13 +413,18 @@ async function mountFlipbookFast(host, thumbsHost, book){
     R[ri].srcCv[side]=await _renderSource(d, side, SC_LO); if(myGen!==_fastGen) return;
     const pr=$('_prog'); if(pr&&i===0) pr.textContent='📖 טוען…'; const bg=$('_bg'); if(bg) bg.textContent='טוען '+(i+1)+'/'+need.length+'…'; ccache={}; draw(); }
   renderThumbsFast();
-  // שלב 2 — חידוד ברקע: רינדור-מקור באיכות גבוהה, מחליף את המטמון ומרענן את התצוגה הנוכחית.
-  (async ()=>{ for(let i=0;i<need.length;i++){ const {ri,side}=need[i];
-      await new Promise(r=>setTimeout(r, 400)); if(myGen!==_fastGen) return;
-      const bg=$('_bg'); if(bg) bg.textContent='מחדד איכות… '+(i+1)+'/'+need.length;
-      const d=await ensureDoc(ri); const hi=await _renderSource(d, side, SC_HI); if(myGen!==_fastGen) return;
-      R[ri].srcCv[side]=hi; ccache={}; draw(); }
-    const bg=$('_bg'); if(bg) bg.textContent='✓ איכות מלאה — דפדוף מיידי'; })();
+  // שלב 2 — חידוד פר-עמוד בסדר-קריאה: 6 הראשונים חדים מיד, השאר תוך-כדי דפדוף.
+  //   כל תא מרונדר חד ישירות מ-pdf.js (אזור-התא בקנה גבוה · פענוח-הגיליון כבר במטמון → מהיר).
+  (async ()=>{ for(let N=1;N<=n;N++){ if(myGen!==_fastGen) return;
+      const o=order[N-1], run=R[o.runIndex]; if(!run) continue; const p=run.byPos[o.posInRun]; if(!p) continue;
+      const cp=(bleedMm>0 && p.bleedClipPt)?p.bleedClipPt:p.clipPt;
+      const d=await ensureDoc(o.runIndex);
+      try{ hiCell[N]=await _renderCellRegion(d, p.sourcePdfPage, cp, p.rotationApplied, SC_HI_CELL); }catch(e){}
+      if(myGen!==_fastGen) return;
+      const g=groups[gi]; if(g.indexOf(N-1)>=0) draw();   // רענן אם התא בתצוגה הנוכחית
+      const bg=$('_bg'); if(bg) bg.textContent = N>=n ? '✓ כל העמודים חדים' : ('מחדד… '+N+'/'+n+' — דפדף חופשי');
+      if(N<=6) await new Promise(r=>setTimeout(r,0));   // yield — שהעמודים הראשונים יעלו חד מהר וה-UI יגיב
+    } })();
 }
 
 /* ═══════════════ מסך העובד ═══════════════ */
