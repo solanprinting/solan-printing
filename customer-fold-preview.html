@@ -416,6 +416,7 @@ function workerScreen(){
    + '<div class="card"><b>1–2.</b> פרופר: <input type="file" id="proof" accept="application/pdf"> · טמפלט (לכל קונטרס): '
    + '<select id="tpl"><option value="">— בחר —</option></select> '
    + '<button id="foldBtn" disabled>▶ צור חוברת</button>'
+   + '<div id="singleAuto" style="margin-top:6px">עמודים: <select id="singlePages"><option value="0">— בחר —</option><option>4</option><option>8</option><option>16</option><option>32</option></select> <span class="muted" id="sizeSingle"></span> <span class="ok" id="autoNote" style="font-size:.85rem"></span></div>'
    + '<div style="margin-top:8px"><label class="chk"><input type="checkbox" id="multiRun"> <span>עיתון מרובה-קונטרסים (מעל 32 עמ׳ — כמה ריצות R-1, R-2…)</span></label></div>'
    + '<div id="multiBox" style="display:none;margin-top:6px;padding:8px;border:1px dashed var(--line);border-radius:8px">'
    + '<div class="muted">העלה את כל הריצות יחד לפי הסדר: <b>R-1</b> (החיצוני · מכיל שער+גב) ואז R-2, R-3…</div>'
@@ -501,9 +502,25 @@ function workerScreen(){
     const bad = tot && sum!==tot;
     $('multiSum').innerHTML='סה״כ מהריצות: <b>'+sum+'</b> עמ׳'+(tot?(' · נבחר: '+tot+' '+(bad?'<span class="bad">✗ לא תואם — ערוך עמ׳/סוג</span>':'<span class="ok">✓ תואם</span>')):'');
   }
-  $('proof').onchange=async e=>{ const f=e.target.files[0]; if(!f)return; _srcU8=new Uint8Array(await f.arrayBuffer()); _srcName=f.name; $('wstatus').textContent='📄 '+f.name; setStep(0); updFold(); };
-  $('tpl').onchange=updFold;
-  $('multiRun').onchange=()=>{ $('multiBox').style.display=_multi()?'':'none'; $('proof').disabled=_multi(); updFold(); };
+  // ריצה בודדת: catalog-id שמתאים ל-legacyType מזוהה (32→70x100-32p · 16p→legacy:16p …)
+  function _catalogIdForLegacy(lt){ const hit=_catalog.find(t=>_legacyTypeFor(t.id)===lt); return hit?hit.id:null; }
+  // זיהוי-אוטומטי לריצה בודדת: גודל מה-PDF · פרפקטור/מתהפך מהשם · עמודים→טמפלט. הכל ניתן-לעריכה בבורר.
+  async function _autoDetectSingle(){
+    if(!_srcU8 || !_srcName){ $('autoNote').textContent=''; return; }
+    const sz=await _detectSizeLabel(_srcU8); $('sizeSingle').textContent = sz?('· '+sz):'';
+    const pages=parseInt($('singlePages').value,10)||0; if(!pages){ $('autoNote').textContent=''; return; }
+    // כלל: 8 COLORS=פרפקטור · 4 COLORS ופחות מ-32=מתהפך · 32+ =גיליון רגיל (legacyTypeForRun מקודד זאת)
+    const perfector=ADP.isPerfectorName(_srcName);
+    const lt=ADP.legacyTypeForRun(perfector, pages), cid=_catalogIdForLegacy(lt);
+    if(cid) $('tpl').value=cid;
+    const isTumble = !perfector && pages<32;
+    $('autoNote').innerHTML='זוהה: '+(isTumble?'מתהפך (4 צבע)':(perfector?'פרפקטור (8 צבע)':'גיליון רגיל'))+' · '+pages+' עמ׳ → '+((_tplInfo($('tpl').value)||{}).label||'')+' <span class="muted">(ניתן לשנות)</span>';
+    updFold();
+  }
+  $('proof').onchange=async e=>{ const f=e.target.files[0]; if(!f)return; _srcU8=new Uint8Array(await f.arrayBuffer()); _srcName=f.name; $('wstatus').textContent='📄 '+f.name; setStep(0); await _autoDetectSingle(); updFold(); };
+  $('singlePages').onchange=_autoDetectSingle;
+  $('tpl').onchange=()=>{ $('autoNote').textContent=''; updFold(); };
+  $('multiRun').onchange=()=>{ const m=_multi(); $('multiBox').style.display=m?'':'none'; $('singleAuto').style.display=m?'none':''; $('proof').disabled=m; updFold(); };
   $('totPages').onchange=renderMultiTable;
   $('proofMulti').onchange=async e=>{
     const files=Array.from(e.target.files||[]).sort((a,b)=>_natSort(a.name,b.name));   // R-1 לפני R-2…
