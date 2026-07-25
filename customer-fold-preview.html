@@ -432,7 +432,7 @@ async function mountFlipbookFast(host, thumbsHost, book){
 function workerScreen(){
   document.title='הצגת פרופר מקופל ללקוח';
   $('app').innerHTML = ''
-   + '<h2>הצגת פרופר מקופל ללקוח <span class="muted">(Beta · פנימי)</span></h2>'
+   + '<h2>הצגת פרופר מקופל ללקוח <span class="muted">(Beta · פנימי)</span> <a href="?approvals=1" style="font-size:.8rem;font-weight:400">📋 מערכת אישור לקוחות</a></h2>'
    + '<div class="steps">'+['העלאת פרופר','בחירת טמפלט','יצירת חוברת','בדיקה פנימית','שליחה ללקוח'].map((s,i)=>'<div class="step" id="wstep'+i+'">'+(i+1)+'. '+s+'</div>').join('')+'</div>'
    + '<div class="card"><b>1–2.</b> פרופר: <input type="file" id="proof" accept="application/pdf"> · טמפלט (לכל קונטרס): '
    + '<select id="tpl"><option value="">— בחר —</option></select> '
@@ -688,10 +688,61 @@ function renderApprove(rec, hashOk){
   $('cApproveBtn').onclick=()=>submit('approve'); $('cCorrectBtn').onclick=()=>submit('request-correction');
 }
 
+/* ═══════════════ מערכת אישור לקוחות (מסך-מנהל) ═══════════════ */
+async function approvalsScreen(){
+  document.title='מערכת אישור לקוחות — סולן';
+  $('app').innerHTML='<h2>📋 מערכת אישור לקוחות <span class="muted">(Beta)</span> <a href="?cfp=1" style="font-size:.8rem;font-weight:400">+ צור חוברת חדשה</a></h2>'
+    + '<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+    + '<b>סינון:</b> <button class="fBtn" data-f="all">הכל</button> <button class="fBtn" data-f="pending">⏳ ממתין</button> <button class="fBtn" data-f="approved">✓ אושר</button> <button class="fBtn" data-f="correction">✎ תיקון</button> <button class="fBtn" data-f="revoked">בוטל</button>'
+    + ' <input type="text" id="aSearch" placeholder="חיפוש שם/לקוח" style="width:170px"> <button id="aRefresh">🔄 רענן</button>'
+    + ' <span id="aCounts" class="muted" style="margin-right:auto"></span></div></div><div id="aList"></div>';
+  let _all=[], _filter='all';
+  function _fmt(iso){ if(!iso) return '—'; try{ return new Date(iso).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso; } }
+  function statusOf(r){ if(r.status==='revoked') return 'revoked'; const s=(r.approval&&r.approval.status)||'pending';
+    return s==='approved'?'approved':s==='correction-requested'?'correction':'pending'; }
+  function badge(st){ const m={pending:['#f59e0b','⏳ ממתין לאישור'],approved:['#16a34a','✓ אושר להדפסה'],correction:['#dc2626','✎ התבקש תיקון'],revoked:['#64748b','🚫 בוטל']};
+    const x=m[st]||m.pending; return '<span style="background:'+x[0]+';color:#fff;padding:2px 8px;border-radius:10px;font-size:.78rem;white-space:nowrap">'+x[1]+'</span>'; }
+  async function load(){ $('aList').innerHTML='<div class="card muted">טוען…</div>';
+    let obj=null; try{ obj=await _dbGet('customerFoldVersions'); }catch(e){}
+    _all = obj && typeof obj==='object' ? Object.values(obj).filter(r=>r&&r.versionId&&r.share) : [];
+    _all.sort((a,b)=> String(b.createdAt||'').localeCompare(String(a.createdAt||''))); render(); }
+  function render(){
+    const q=($('aSearch').value||'').trim();
+    const c={pending:0,approved:0,correction:0,revoked:0}; _all.forEach(r=>c[statusOf(r)]++);
+    $('aCounts').textContent='סה״כ '+_all.length+' · ⏳ '+c.pending+' · ✓ '+c.approved+' · ✎ '+c.correction;
+    let rows=_all.filter(r=> _filter==='all' || statusOf(r)===_filter);
+    if(q) rows=rows.filter(r=> (((r.jobName||'')+' '+(r.customerId||'')).indexOf(q)>=0));
+    if(!rows.length){ $('aList').innerHTML='<div class="card muted">אין רשומות בסינון הזה.</div>'; return; }
+    $('aList').innerHTML = rows.map(r=>{
+      const st=statusOf(r), link=location.origin+location.pathname+'?v='+encodeURIComponent(r.versionId)+'&t='+encodeURIComponent(r.share.token), appr=r.approval||{};
+      return '<div class="card" style="display:flex;flex-direction:column;gap:6px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+        + '<div><b>'+(r.jobName||'—')+'</b> <span class="muted">V'+r.versionNumber+' · '+(r.pageCount||'?')+' עמ׳'+(r.customerId?(' · '+r.customerId):'')+'</span></div>'+badge(st)+'</div>'
+        + '<div class="muted" style="font-size:.8rem">נוצר '+_fmt(r.createdAt)+(appr.approvedAt?(' · '+(st==='approved'?'אושר':'תיקון')+' '+_fmt(appr.approvedAt)+(appr.approvedBy?(' — '+appr.approvedBy):'')):'')+(appr.comment?(' · הערה: '+appr.comment):'')+'</div>'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+        + '<a href="'+link+'" target="_blank"><button>👁 פתח</button></a>'
+        + '<button class="cpBtn" data-l="'+encodeURIComponent(link)+'">📋 העתק</button>'
+        + '<button class="waBtn" data-l="'+encodeURIComponent(link)+'" data-j="'+encodeURIComponent(r.jobName||'החוברת')+'">🟢 שלח שוב</button>'
+        + (st==='revoked'?'':'<button class="rvBtn" data-v="'+r.versionId+'">🚫 בטל קישור</button>')
+        + '</div></div>';
+    }).join('');
+    Array.from(document.getElementsByClassName('cpBtn')).forEach(b=>b.onclick=()=>{ navigator.clipboard&&navigator.clipboard.writeText(decodeURIComponent(b.dataset.l)); b.textContent='✓ הועתק'; });
+    Array.from(document.getElementsByClassName('waBtn')).forEach(b=>b.onclick=()=>{ const link=decodeURIComponent(b.dataset.l), jl=decodeURIComponent(b.dataset.j);
+      window.open('https://wa.me/?text='+encodeURIComponent('שלום,\nמצורף קישור לאישור החוברת "'+jl+'" לפני הדפסה:\n'+link),'_blank'); });
+    Array.from(document.getElementsByClassName('rvBtn')).forEach(b=>b.onclick=async()=>{ if(!confirm('לבטל את הקישור? הלקוח לא יוכל עוד לצפות או לאשר.')) return;
+      try{ const fresh=await _dbGet('customerFoldVersions/'+b.dataset.v); const rev=CFV.revoke(fresh);
+        await _dbPatch('customerFoldVersions/'+b.dataset.v, { status:rev.status, share:rev.share }); await load(); }catch(e){ alert('ביטול נכשל: '+(e.message||e)); } });
+  }
+  Array.from(document.getElementsByClassName('fBtn')).forEach(b=>b.onclick=()=>{ _filter=b.dataset.f; render(); });
+  $('aSearch').oninput=render; $('aRefresh').onclick=load;
+  await load();
+}
+
 /* ═══════════════ boot ═══════════════ */
 (function boot(){
   const v=qs.get('v'), t=qs.get('t');
   if(v && t){ clientScreen(v,t); return; }   // מצב-לקוח
+  if(qs.get('approvals')==='1'){ approvalsScreen(); return; }   // מסך-מנהל: מערכת אישור לקוחות
   // מצב-עובד: מאחורי הדגל solanCustomerFoldPreviewBeta (או ?cfp=1)
   if(ADP.customerFoldPreviewEnabled(window) || qs.get('cfp')==='1'){ workerScreen(); }
   else { $('app').innerHTML='<div class="card"><h2>הצגת פרופר מקופל ללקוח</h2><div class="muted">הכלי במצב Beta סגור. הפעל את הדגל <code>solanCustomerFoldPreviewBeta</code> או פתח עם <code>?cfp=1</code>.</div></div>'; }
