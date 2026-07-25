@@ -144,16 +144,17 @@ async function _appPlanFor(srcU8, legacyType, bleedMm){
   }
   return { bleedMm:B, pages };
 }
-// זיהוי-גודל אוטומטי מה-PDF (מדיה→מ״מ→עיגול לגיליון סטנדרטי). display בלבד.
-async function _detectSizeLabel(srcU8){
+// זיהוי-גיליון אוטומטי מה-PDF: משפחת-גיליון (70×100 / 88×63-A4 / אחר) + גודל-עמוד + תווית.
+async function _detectSheet(srcU8){
   try{ const doc=await PDFLib.PDFDocument.load(srcU8.slice(0), { ignoreEncryption:true });
     const mb=doc.getPages()[0].getMediaBox(), MMc=72/25.4;
-    const w=Math.round(mb.width/MMc/10)*10, h=Math.round(mb.height/MMc/10)*10;
-    const big=Math.max(w,h), sml=Math.min(w,h);
-    if(Math.abs(big-1000)<=40 && Math.abs(sml-700)<=40) return 'גיליון 70×100 · עמוד 165×240 מ״מ';
-    return 'גיליון ~'+big+'×'+sml+' מ״מ';
+    const big=Math.max(mb.width,mb.height)/MMc, sml=Math.min(mb.width,mb.height)/MMc;
+    if(big>=960 && big<=1060 && sml>=680 && sml<=745) return { family:'70x100', label:'גיליון 70×100 · עמוד 165×240 מ״מ', pageW:165, pageH:240 };
+    if(big>=855 && big<=925 && sml>=605 && sml<=680) return { family:'88x63', label:'גיליון 88×63 · עמוד 210×297 (A4) מ״מ', pageW:210, pageH:297 };
+    return { family:'other', label:'גיליון ~'+Math.round(big/10)*10+'×'+Math.round(sml/10)*10+' מ״מ', pageW:null, pageH:null };
   }catch(e){ return null; }
 }
+async function _detectSizeLabel(srcU8){ const s=await _detectSheet(srcU8); return s?s.label:null; }
 // חיתוך גלישת-השדרה מפלט-הגשר: מנוע-האפליקציה מוסיף גלישה סימטרית סביב כל עמוד (כולל שדרה,
 // ושם היא מציגה תוכן של העמוד השכן). כאן חותכים את צד-השדרה → גלישה רק בראש/רגל/צד-חיצוני,
 // השדרה תמיד בקו-0. RTL: עמוד אי-זוגי (שער וימניים) שדרה מימין · זוגי שדרה משמאל.
@@ -527,14 +528,22 @@ function workerScreen(){
   // זיהוי-אוטומטי לריצה בודדת: גודל מה-PDF · פרפקטור/מתהפך מהשם · עמודים→טמפלט. הכל ניתן-לעריכה בבורר.
   async function _autoDetectSingle(){
     if(!_srcU8 || !_srcName){ $('autoNote').textContent=''; return; }
-    const sz=await _detectSizeLabel(_srcU8); $('sizeSingle').textContent = sz?('· '+sz):'';
+    const sheet=await _detectSheet(_srcU8); $('sizeSingle').textContent = sheet?('· '+sheet.label):'';
     const pages=parseInt($('singlePages').value,10)||0; if(!pages){ $('autoNote').textContent=''; return; }
-    // כלל: 8 COLORS=פרפקטור · 4 COLORS ופחות מ-32=מתהפך · 32+ =גיליון רגיל (legacyTypeForRun מקודד זאת)
-    const perfector=ADP.isPerfectorName(_srcName);
-    const lt=ADP.legacyTypeForRun(perfector, pages), cid=_catalogIdForLegacy(lt);
+    let cid=null, typeLabel='';
+    if(sheet && sheet.family==='88x63'){
+      // גיליון A4 88×63 — הטמפלט היחיד הנתמך הוא 16 עמ' פרפקטור (210×297)
+      cid='88x63-16p-perfector'; typeLabel='88×63 A4 · פרפקטור';
+      if(pages!==16) typeLabel+=' (נתמך 16 עמ׳)';
+    } else {
+      // גיליון 70×100: 8 COLORS=פרפקטור · 4 COLORS ופחות מ-32=מתהפך · 32+ =גיליון רגיל
+      const perfector=ADP.isPerfectorName(_srcName);
+      const lt=ADP.legacyTypeForRun(perfector, pages); cid=_catalogIdForLegacy(lt);
+      const isTumble = !perfector && pages<32;
+      typeLabel = isTumble?'מתהפך (4 צבע)':(perfector?'פרפקטור (8 צבע)':'גיליון רגיל');
+    }
     if(cid) $('tpl').value=cid;
-    const isTumble = !perfector && pages<32;
-    $('autoNote').innerHTML='זוהה: '+(isTumble?'מתהפך (4 צבע)':(perfector?'פרפקטור (8 צבע)':'גיליון רגיל'))+' · '+pages+' עמ׳ → '+((_tplInfo($('tpl').value)||{}).label||'')+' <span class="muted">(ניתן לשנות)</span>';
+    $('autoNote').innerHTML='זוהה: '+typeLabel+' · '+pages+' עמ׳ → '+((_tplInfo($('tpl').value)||{}).label||'')+' <span class="muted">(ניתן לשנות)</span>';
     updFold();
   }
   $('proof').onchange=async e=>{ const f=e.target.files[0]; if(!f)return; _srcU8=new Uint8Array(await f.arrayBuffer()); _srcName=f.name; $('wstatus').textContent='📄 '+f.name; setStep(0); await _autoDetectSingle(); updFold(); };
