@@ -72,6 +72,10 @@ const _APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
 let _tok={id:null,exp:0};
 function _isProd(){ return /solanprinting\.github\.io/.test(location.host); }   // כתיבה חיה רק בייצור
 function _nowIso(){ return new Date().toISOString(); }
+// דפדפנים מקפיאים ציור בלשונית-רקע (רינדור pdf.js עלול להיתקע). ממתין עד שהלשונית גלויה
+// לפני כל רינדור → מונע היתקעות, ומתאושש מיד כשחוזרים ללשונית (הקיפול/העלאה רצים גם ברקע).
+function _whenVisible(){ if(!document.hidden) return Promise.resolve();
+  return new Promise(res=>{ const h=()=>{ if(!document.hidden){ document.removeEventListener('visibilitychange',h); res(); } }; document.addEventListener('visibilitychange',h); }); }
 async function sha256(u8){ const h=await crypto.subtle.digest('SHA-256', u8 instanceof Uint8Array?u8:new Uint8Array(u8)); return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
 function _auth(){ if(_tok.id&&Date.now()<_tok.exp-120000) return Promise.resolve(_tok.id);
   return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_APIKEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})})
@@ -265,6 +269,7 @@ async function renderLock(isFg, fn){
   } finally{ if(isFg) _fgWaiting--; }
 }
 async function _renderPage(pdf, i){   // רזולוציה גבוהה (דגימת-על → חד). פענוח-התמונות שולט בזמן.
+  await _whenVisible();   // לא מתחילים רינדור בלשונית-רקע (עלול להיתקע)
   const pg=await pdf.getPage(i); const v1=pg.getViewport({scale:1});
   const dpr=Math.min(window.devicePixelRatio||1, 2), dispH=Math.min((window.innerHeight||900)*0.6, 1000);
   const targetH=Math.min(Math.max(dispH*dpr, dispH*2.6), 2400), sc=Math.max(1.6, Math.min(8, targetH/v1.height));
@@ -275,7 +280,7 @@ async function _renderPage(pdf, i){   // רזולוציה גבוהה (דגימת
 async function pageImg(pdf, i, isFg){ if(_img[i]) return _img[i];
   return renderLock(isFg!==false, async ()=>{ if(_img[i]) return _img[i];
     const t0=performance.now(); const u=await _renderPage(pdf,i); const dt=performance.now()-t0; _avgMs=_avgMs? _avgMs*0.6+dt*0.4 : dt; _img[i]=u; return u; }); }
-async function smallImg(pdf, i){ return renderLock(false, async ()=>{ const pg=await pdf.getPage(i); const v1=pg.getViewport({scale:1}); const vp=pg.getViewport({scale:140/v1.width});
+async function smallImg(pdf, i){ return renderLock(false, async ()=>{ await _whenVisible(); const pg=await pdf.getPage(i); const v1=pg.getViewport({scale:1}); const vp=pg.getViewport({scale:140/v1.width});
   const cv=document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height); const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
   await pg.render({canvasContext:ctx,viewport:vp}).promise; return cv.toDataURL('image/jpeg',0.8); }); }
 async function renderThumbs(host, bytes){ const pdf=await getOutDoc(bytes); host.innerHTML='';
@@ -334,7 +339,7 @@ async function mountFlipbook(host, bytes){
   const preN=Math.max(2, Math.ceil(n*0.5)); const t0=performance.now();
   for(let i=1;i<=preN;i++){ if(_outKey!==bytes) return; try{ await pageImg(pdf,i,true); }catch(e){}
     const pct=Math.round(i/preN*100), sp=$('_sp');
-    if(sp) sp.innerHTML='<div style="max-width:360px;margin:auto;text-align:center;color:#94a3b8;padding:22px">📖 מכין את החוברת… <b>'+pct+'%</b> ('+i+'/'+preN+' עמ׳)'
+    if(sp) sp.innerHTML='<div style="max-width:380px;margin:auto;text-align:center;color:#94a3b8;padding:22px">📖 מכין את החוברת… <b>'+pct+'%</b> ('+i+'/'+preN+' עמ׳)<div style="font-size:.75rem;opacity:.7;margin-top:4px">השאר בלשונית זו — הטעינה נעצרת ברקע וממשיכה כשחוזרים</div>'
       + '<div style="height:8px;background:#334155;border-radius:5px;margin-top:10px"><div style="height:100%;width:'+pct+'%;background:#16a34a;border-radius:5px;transition:width .2s"></div></div></div>'; }
   if(_outKey!==bytes) return;
   await draw();   // השער מהמטמון — מיידי; דפדוף בחצי-הראשון חלק
@@ -352,7 +357,7 @@ function _cropRotate(src, x, y, w, h, degCCW){
   if(degCCW===90||degCCW===270){ out.width=h; out.height=w; } else { out.width=w; out.height=h; }
   ctx.translate(out.width/2, out.height/2); ctx.rotate(-degCCW*Math.PI/180); ctx.drawImage(cell, -w/2, -h/2); return out;
 }
-async function _renderSource(pdf, pageNo, sc){ const pg=await pdf.getPage(pageNo); const vp=pg.getViewport({scale:sc});
+async function _renderSource(pdf, pageNo, sc){ await _whenVisible(); const pg=await pdf.getPage(pageNo); const vp=pg.getViewport({scale:sc});
   const cv=document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height); const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
   await pg.render({canvasContext:ctx,viewport:vp}).promise; return { cv, hpt: pg.getViewport({scale:1}).height, sc }; }
 function _rotateCanvas(cell, degCCW){ degCCW=((degCCW%360)+360)%360; if(degCCW===0) return cell;
@@ -362,6 +367,7 @@ function _rotateCanvas(cell, degCCW){ degCCW=((degCCW%360)+360)%360; if(degCCW==
 // רינדור-חד של תא-בודד ישירות מ-pdf.js (רק אזור-התא בקנה-מידה גבוה · transform גוזר) → חד ולא כבד:
 // פענוח-תמונת-הגיליון כבר במטמון (GlobalImageCache) מהמעבר-הנמוך, לכן מהיר. clip ב-PDF-points (origin ש-ת).
 async function _renderCellRegion(pdf, pageNo, clip, degCCW, scale){
+  await _whenVisible();
   const pg=await pdf.getPage(pageNo), vp=pg.getViewport({scale:scale});
   const w=Math.max(1,Math.round((clip.right-clip.left)*scale)), h=Math.max(1,Math.round((clip.top-clip.bottom)*scale));
   const cv=document.createElement('canvas'); cv.width=w; cv.height=h; const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
