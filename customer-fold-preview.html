@@ -448,9 +448,9 @@ function workerScreen(){
    + '<div class="card" id="previewCard" style="display:none"><h3>3. תצוגה <span class="muted" id="metaLine"></span></h3>'
    + '<div style="margin-bottom:8px">גלישות: <select id="bleedSel"><option value="0">בלי גלישות (נטו)</option><option value="3">עם גלישות (3 מ״מ)</option></select> <span class="muted" id="bleedNote"></span></div>'
    + '<div id="warns" class="muted"></div><div id="flip"></div><h3 style="margin-top:12px">Thumbnails</h3><div id="thumbs"></div></div>'
-   + '<div class="card" id="checkCard" style="display:none"><h3>4. בדיקה פנימית</h3>'
-   + '<label class="chk"><input type="checkbox" id="intChk"> <span>בדקתי שהשער, סדר העמודים, הכיוונים והחיתוך תקינים.</span></label>'
-   + '<div style="margin-top:10px"><button id="linkBtn" class="primary" disabled>🔗 צור קישור לשליחה ללקוח</button> <span id="linkStatus" class="muted"></span></div>'
+   + '<div class="card" id="checkCard" style="display:none"><h3>4. בדיקה פנימית → שליחה</h3>'
+   + '<label class="chk" id="intChkWrap" style="display:block;padding:10px;border:2px solid #f59e0b;border-radius:8px;background:rgba(245,158,11,.08);cursor:pointer"><input type="checkbox" id="intChk" style="transform:scale(1.4);margin-left:6px;vertical-align:middle"> <b>סמן כאן:</b> בדקתי שהשער, סדר העמודים, הכיוונים והחיתוך תקינים.</label>'
+   + '<div style="margin-top:12px"><button id="linkBtn" class="primary" disabled>🔗 צור קישור לשליחה ללקוח</button> <span id="linkHint" class="muted" style="margin-right:8px">← סמן קודם את הבדיקה הפנימית למעלה</span> <span id="linkStatus" class="muted"></span></div>'
    + '<div id="linkOut" style="margin-top:10px"></div></div>';
 
   let _srcU8=null, _srcName='', _folded=null, _multiU8=[], _multiNames=[];   // {bytes,result}
@@ -570,6 +570,7 @@ function workerScreen(){
       $('previewCard').style.display=''; $('checkCard').style.display='';
       // שינוי-פלט (בליד) → outputHash חדש → מאפסים בדיקה-פנימית וקישור (חייב אימות מחדש)
       $('intChk').checked=false; $('linkBtn').disabled=true; $('linkStatus').textContent=''; $('linkOut').innerHTML='';
+      if($('linkHint')) $('linkHint').style.display=''; if($('intChkWrap')) $('intChkWrap').style.borderColor='#f59e0b'; $('linkBtn').style.boxShadow='';
       // תצוגה-מהירה כשיש plan(ים): מרנדר מקורות פעם-אחת, גוזר לפי אותו plan שממנו נבנה ה-PDF (זהה לפלט).
       // book = מרובה-קונטרסים (_folded.book) · plan-יחיד (_folded.plan) · אחרת (88x63/16perf ללא plan) → PDF-פלט.
       if(_folded.book){ await mountFlipbookFast($('flip'), $('thumbs'), _folded.book); }
@@ -581,7 +582,10 @@ function workerScreen(){
   }
   $('foldBtn').onclick=()=>doFold(+(($('bleedSel')&&$('bleedSel').value)||0));
   $('bleedSel').onchange=()=>{ if(_folded && _srcU8) doFold(+$('bleedSel').value); };
-  $('intChk').onchange=()=>{ $('linkBtn').disabled = !( $('intChk').checked && _folded ); };
+  $('intChk').onchange=()=>{ const on=$('intChk').checked && _folded; $('linkBtn').disabled = !on;
+    if($('linkHint')) $('linkHint').style.display = on ? 'none' : '';
+    if($('intChkWrap')) $('intChkWrap').style.borderColor = $('intChk').checked ? '#16a34a' : '#f59e0b';
+    if(on) $('linkBtn').style.boxShadow='0 0 0 3px rgba(22,163,74,.4)'; else $('linkBtn').style.boxShadow=''; };
   $('linkBtn').onclick=async ()=>{
     if(!$('intChk').checked || !_folded) return;
     if(!_isProd()){ $('linkStatus').innerHTML='<span class="bad">יצירת-קישור פועלת רק באתר החי (הגנת-סביבה).</span>'; return; }
