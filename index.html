@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1784964826';
+window.APP_VERSION = '1784966191';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -29547,6 +29547,42 @@ try { setTimeout(pi_badge, 4000); } catch(e){}
   }, 500);
 })();
 /* ══ PI:END ══════════════════════════════════════════════════════ */
+</script>
+<script>
+/* ═══ מערכת אישור לקוחות — באנר בולט למנהל עד "ראיתי" (אדיטיבי · מבודד) ═══
+   מזהה חוברות שאושרו ע"י לקוחות (customerFoldVersions) ומציג באנר-ראש ירוק
+   שנשאר עד שהמנהל לוחץ "ראיתי" (נשמר ב-localStorage לכל מכשיר). read-only. */
+(function(){
+  var SEEN_KEY='solanCfvSeen';
+  function getSeen(){ try{ return JSON.parse(localStorage.getItem(SEEN_KEY)||'[]')||[]; }catch(e){ return []; } }
+  function addSeen(id){ var s=getSeen(); if(s.indexOf(id)<0){ s.push(id); try{ localStorage.setItem(SEEN_KEY, JSON.stringify(s.slice(-800))); }catch(e){} } }
+  function esc(t){ return String(t==null?'':t).replace(/[<>&]/g,function(c){return c==='<'?'&lt;':c==='>'?'&gt;':'&amp;';}); }
+  var _bar=null;
+  function render(list){
+    if(!list.length){ if(_bar){ _bar.remove(); _bar=null; } return; }
+    if(!_bar){ _bar=document.createElement('div'); _bar.id='cfvApprovalBar';
+      _bar.style.cssText='position:fixed;top:0;left:0;right:0;z-index:100000;background:#16a34a;color:#fff;padding:10px 16px;box-shadow:0 3px 14px rgba(0,0,0,.4);font-family:inherit;font-weight:700;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;font-size:1rem';
+      document.body.appendChild(_bar); }
+    _bar.innerHTML='<span style="font-size:1.15rem">🖨️ '+list.length+' חוברת'+(list.length>1?'ות':'')+' אושרו להדפסה ע״י לקוחות:</span> '
+      + list.map(function(r){ return '<span style="background:rgba(255,255,255,.22);padding:3px 10px;border-radius:12px">'+esc(r.jobName||'חוברת')+' V'+r.versionNumber+((r.approval&&r.approval.approvedBy)?(' · '+esc(r.approval.approvedBy)):'')+'</span>'; }).join(' ')
+      + ' <button id="cfvSeenAll" style="background:#fff;color:#15803d;border:none;border-radius:8px;padding:7px 16px;font-weight:800;cursor:pointer">✓ ראיתי</button>';
+    var b=document.getElementById('cfvSeenAll'); if(b) b.onclick=function(){ list.forEach(function(r){ addSeen(r.versionId); }); render([]); };
+  }
+  function poll(){
+    try{
+      if(typeof currentUser==='undefined' || !currentUser || !currentUser.isAdmin) return;   // מנהל בלבד
+      if(!window._fbGet) return;
+      window._fbGet('customerFoldVersions').then(function(obj){
+        if(!obj || typeof obj!=='object') return;
+        var seen=getSeen();
+        var list=Object.keys(obj).map(function(k){return obj[k];}).filter(function(r){ return r && r.versionId && r.approval && r.approval.status==='approved' && seen.indexOf(r.versionId)<0; });
+        list.sort(function(a,b){ return String((b.approval&&b.approval.approvedAt)||'').localeCompare(String((a.approval&&a.approval.approvedAt)||'')); });
+        render(list);
+      }).catch(function(){});
+    }catch(e){}
+  }
+  setTimeout(poll, 5000); setInterval(poll, 60000);
+})();
 </script>
 </body>
 </html>
