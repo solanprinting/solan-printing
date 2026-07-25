@@ -117,14 +117,51 @@
   //    עמ' (בד"כ 32). החצי-הראשון (1..H) של כל קונטרס נכנס פנימה בסדר-הקונטרסים; החצי-השני
   //    (H+1..positionsPerRun) יוצא החוצה בסדר הפוך. דוגמת-המשתמש: 64 עמ' = R1[1-16]+R2[1-16]+R2[17-32]+R1[17-32].
   //    מחזיר סדר-קריאה גלובלי: [{ runIndex(0-based), posInRun(1-based) }] באורך runCount*positionsPerRun.
+  //    גרסה עם גדלים שונים לכל קונטרס: runSizes=[16,32] → R0 חיצוני 16עמ', R1 פנימי 32עמ'.
+  //    כניסה: כל קונטרס חצי-ראשון בסדר-הקונטרסים; יציאה: הפוך, חצי-שני. דוגמת-48: R0[1-8]R1[1-16]R1[17-32]R0[9-16].
+  function assembleNestedRuns(runSizes) {
+    if (!Array.isArray(runSizes) || !runSizes.length) return [];
+    for (var i = 0; i < runSizes.length; i++) { var s = runSizes[i] | 0; if (s < 2 || s % 2 !== 0) return []; }
+    var order = [], k, p;
+    for (k = 0; k < runSizes.length; k++) { var H = runSizes[k] >> 1; for (p = 1; p <= H; p++) order.push({ runIndex: k, posInRun: p }); }
+    for (k = runSizes.length - 1; k >= 0; k--) { var Hk = runSizes[k] >> 1; for (p = Hk + 1; p <= runSizes[k]; p++) order.push({ runIndex: k, posInRun: p }); }
+    return order;
+  }
   function assembleNestedRunOrder(runCount, positionsPerRun) {
     runCount = runCount | 0; positionsPerRun = (positionsPerRun | 0) || 32;
-    if (runCount < 1 || positionsPerRun < 2 || positionsPerRun % 2 !== 0) return [];
-    var H = positionsPerRun >> 1;   // חצי (16 עבור 32)
-    var order = [], k, p;
-    for (k = 0; k < runCount; k++) for (p = 1; p <= H; p++) order.push({ runIndex: k, posInRun: p });        // נכנסים פנימה
-    for (k = runCount - 1; k >= 0; k--) for (p = H + 1; p <= positionsPerRun; p++) order.push({ runIndex: k, posInRun: p });  // יוצאים החוצה
-    return order;
+    if (runCount < 1) return [];
+    var sizes = []; for (var i = 0; i < runCount; i++) sizes.push(positionsPerRun);
+    return assembleNestedRuns(sizes);   // אחיד = מקרה-פרטי של הגדלים-השונים
+  }
+
+  // ── זיהוי-אוטומטי לעיתון מרובה-קונטרסים (מהשם + סה"כ-עמודים שהמשתמש בוחר) ──────
+  //    כלל-המשתמש: "8 COLORS" בשם = פרפקטור. 4-צבע = מתהפך (אם <32 עמ'). R-1 חיצוני.
+  function isPerfectorName(name) { return /8\s*colou?rs?/i.test(String(name || '')); }
+  //    סוג-מנוע לפי (פרפקטור?, עמודים): פרפקטור→32/16perf/8perf/4perf · מתהפך→32p/16p/8p/4p.
+  function legacyTypeForRun(perfector, pages) {
+    pages = pages | 0;
+    if (perfector) return pages >= 32 ? '32' : pages >= 16 ? '16perf' : pages >= 8 ? '8perf' : '4perf';
+    return pages >= 32 ? '32p' : pages >= 16 ? '16p' : pages >= 8 ? '8p' : '4p';   // מתהפך / 4-צבע
+  }
+  //    גזירת עמודי-כל-ריצה מסה"כ: כל פרפקטור=32; היתרה לריצת-המתהפך (או חלוקה שווה). ניתן-לעריכה ב-UI.
+  function planMultiRun(names, totalPages) {
+    names = names || []; totalPages = totalPages | 0;
+    var perf = names.map(isPerfectorName);
+    var perfCount = perf.filter(Boolean).length;
+    var tumbleIdx = []; perf.forEach(function (p, i) { if (!p) tumbleIdx.push(i); });
+    var pages = names.map(function (_, i) { return perf[i] ? 32 : null; });
+    var remaining = totalPages - perfCount * 32;
+    if (tumbleIdx.length === 1) { pages[tumbleIdx[0]] = (totalPages && remaining >= 4) ? remaining : 16; }
+    else if (tumbleIdx.length > 1 && totalPages) {
+      var each = Math.max(16, Math.floor((remaining / tumbleIdx.length) / 16) * 16) || 16;
+      tumbleIdx.forEach(function (i) { pages[i] = each; });
+    }
+    var runs = names.map(function (nm, i) {
+      var pg = (pages[i] != null && pages[i] > 0) ? pages[i] : (perf[i] ? 32 : 16);
+      return { name: nm, perfector: perf[i], pages: pg, legacyType: legacyTypeForRun(perf[i], pg) };
+    });
+    var sum = runs.reduce(function (a, r) { return a + r.pages; }, 0);
+    return { runs: runs, sum: sum, total: totalPages || sum, matches: !totalPages || sum === totalPages };
   }
 
   // ── CFP · fallback ל-TrimBox חסר ──────────────────────────────────────────────
@@ -390,7 +427,8 @@
     FLAG_CFP: FLAG_CFP, customerFoldPreviewEnabled: customerFoldPreviewEnabled,
     CFP_TEMPLATES: CFP_TEMPLATES, customerFoldTemplateAllowed: customerFoldTemplateAllowed,
     sheetTrimFallback: sheetTrimFallback,
-    assembleNestedRunOrder: assembleNestedRunOrder,
+    assembleNestedRunOrder: assembleNestedRunOrder, assembleNestedRuns: assembleNestedRuns,
+    isPerfectorName: isPerfectorName, legacyTypeForRun: legacyTypeForRun, planMultiRun: planMultiRun,
     displayMapToDecoderMap: displayMapToDecoderMap, decoderPlanToResult: decoderPlanToResult,
     makeRequestCounter: makeRequestCounter, isStale: isStale, legacyReportToResult: legacyReportToResult,
     runLegacyAdapter: runLegacyAdapter, runDecoderV2Adapter: runDecoderV2Adapter, runImposition: runImposition,

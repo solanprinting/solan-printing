@@ -102,7 +102,24 @@ async function _notifyShop(icon, text, user){
 let _bridge=null;
 // שחזור-תצוגה של גיאומטריית מנוע-האפליקציה (foldSignature): מרכזי-תאים COLCX/ROWCY + מרכוז-מדיה
 // + תיקון-דש לפי TrimBox/CropBox — לבניית plan-תצוגה לתצוגה-המהירה, זהה 1:1 לפלט-הגשר.
-async function _appPlan32(srcU8, bleedMm){
+// גיאומטריית-הטמפלטים המובנים (165×240 · גיליון 70×100 · רשת 4×4 · זהה ל-TEMPLATES ב-imposition-tool).
+// כולם על אותה רשת COLCX/ROWCY → plan-תצוגה גנרי לכל סוג. (טמפלט מותאם/ערוך → נופל לרינדור-פלט.)
+const _COLCX=[125,375,625,875], _ROWCY=[97.5,262.5,437.5,602.5];
+const TPL_GEOM = {
+  '32':   { rot:[90,-90,90,-90], grids:[[[1,16,13,4],[32,17,20,29],[25,24,21,28],[8,9,12,5]],[[7,10,11,6],[26,23,22,27],[31,18,19,30],[2,15,14,3]]] },
+  '32p':  { rot:[90,-90,90,-90], grids:[[[1,16,13,4],[32,17,20,29],[25,24,21,28],[8,9,12,5]],[[3,14,15,2],[30,19,18,31],[27,22,23,26],[6,11,10,7]]] },
+  '16perf':{ rot:[-90,90,-90,90], grids:[[[8,1,4,5],[9,16,13,12],[12,13,16,9],[5,4,1,8]],[[6,3,2,7],[11,14,15,10],[10,15,14,11],[7,2,3,6]]] },
+  '16p':  { rot:[-90,90,-90,90], grids:[[[8,1,2,7],[9,16,15,10],[12,13,14,11],[5,4,3,6]]] },
+  '8perf':{ rot:[90,-90,90,-90], grids:[[[1,4,1,4],[8,5,8,5],[5,8,5,8],[4,1,4,1]],[[3,2,3,2],[6,7,6,7],[7,6,7,6],[2,3,2,3]]] },
+  '8p':   { rot:[90,-90,90,-90], grids:[[[1,4,3,2],[8,5,6,7],[5,8,7,6],[4,1,2,3]]] },
+  '4perf':{ rot:[90,90,-90,-90], grids:[[[1,1,2,2],[4,4,3,3],[3,3,4,4],[2,2,1,1]],[[1,1,2,2],[4,4,3,3],[3,3,4,4],[2,2,1,1]]] },
+  '4p':   { rot:[90,90,-90,-90], grids:[[[1,1,2,2],[4,4,3,3],[3,3,4,4],[2,2,1,1]]] }
+};
+// plan-תצוגה גנרי: לכל עמוד-פלט n → תא-מקור (מופע ראשון ברשת) → clip+rotation (כמו foldSignature).
+async function _appPlanFor(srcU8, legacyType, bleedMm){
+  const geom=TPL_GEOM[legacyType]; if(!geom) return null;
+  const map={}; let maxN=0;
+  geom.grids.forEach((grid,side)=>grid.forEach((rowArr,row)=>rowArr.forEach((pg,col)=>{ if(!(pg in map)) map[pg]={side,col,row}; if(pg>maxN) maxN=pg; })));
   const doc=await PDFLib.PDFDocument.load(srcU8.slice(0), { ignoreEncryption:true });
   const p=doc.getPages()[0], mb=p.getMediaBox();
   const MMc=72/25.4, mwmm=mb.width/MMc, mhmm=mb.height/MMc;
@@ -115,22 +132,27 @@ async function _appPlan32(srcU8, bleedMm){
     if(Math.abs(leftM-rightM)>=1) offX+=(leftM-rightM)/2;
     if(Math.abs(topM-botM)>=1) offY+=(topM-botM)/2;
   }
-  const COLCX=[125,375,625,875], ROWCY=[97.5,262.5,437.5,602.5];
-  const B=bleedMm>0?bleedMm:0;
-  const pages=DEC.CELL_MAP_70x100_32P.map(c=>{
-    const cx=COLCX[c.column]+offX, cy=ROWCY[c.row]+offY;
-    const N=1+c.outputPageOffset, spineRight=(N%2===1);   // RTL: אי-זוגי שדרה מימין · זוגי משמאל
-    // גלישה בלי-שדרה: צד-השדרה של עמוד-הקריאה ממופה לקצה-התא בגיליון לפי הסיבוב
-    // rot90 (CCW): תחתית-התא→ימין-העמוד · rot270 (CW): ראש-התא→ימין-העמוד
+  const B=bleedMm>0?bleedMm:0; const pages=[];
+  for(let n=1;n<=maxN;n++){ const pos=map[n]; if(!pos) continue;
+    const cx=_COLCX[pos.col]+offX, cy=_ROWCY[pos.row]+offY, rotation=(geom.rot[pos.col]===90)?90:270, spineRight=(n%2===1);
     const clip=(b)=>{ let bTop=b, bBot=b;
-      if(b>0){ if(c.rotation===90){ bTop=spineRight?b:0; bBot=spineRight?0:b; }
+      if(b>0){ if(rotation===90){ bTop=spineRight?b:0; bBot=spineRight?0:b; }
                else { bTop=spineRight?0:b; bBot=spineRight?b:0; } }
       const x0=cx-(120+b), x1=cx+(120+b), y0=cy-(82.5+bTop), y1=cy+(82.5+bBot);
       return { left:x0*MMc, right:x1*MMc, top:(mhmm-y0)*MMc, bottom:(mhmm-y1)*MMc }; };
-    return { finalPageNumber:N, sourcePdfPage:c.sourceSide+1,
-      rotationApplied:c.rotation, clipPt:clip(0), bleedClipPt:clip(B) };
-  });
+    pages.push({ finalPageNumber:n, sourcePdfPage:pos.side+1, rotationApplied:rotation, clipPt:clip(0), bleedClipPt:clip(B) });
+  }
   return { bleedMm:B, pages };
+}
+// זיהוי-גודל אוטומטי מה-PDF (מדיה→מ״מ→עיגול לגיליון סטנדרטי). display בלבד.
+async function _detectSizeLabel(srcU8){
+  try{ const doc=await PDFLib.PDFDocument.load(srcU8.slice(0), { ignoreEncryption:true });
+    const mb=doc.getPages()[0].getMediaBox(), MMc=72/25.4;
+    const w=Math.round(mb.width/MMc/10)*10, h=Math.round(mb.height/MMc/10)*10;
+    const big=Math.max(w,h), sml=Math.min(w,h);
+    if(Math.abs(big-1000)<=40 && Math.abs(sml-700)<=40) return 'גיליון 70×100 · עמוד 165×240 מ״מ';
+    return 'גיליון ~'+big+'×'+sml+' מ״מ';
+  }catch(e){ return null; }
 }
 // חיתוך גלישת-השדרה מפלט-הגשר: מנוע-האפליקציה מוסיף גלישה סימטרית סביב כל עמוד (כולל שדרה,
 // ושם היא מציגה תוכן של העמוד השכן). כאן חותכים את צד-השדרה → גלישה רק בראש/רגל/צד-חיצוני,
@@ -169,7 +191,7 @@ async function foldByTemplate(tid, srcU8, bleedMm){
     const outHash=await sha256(new Uint8Array(bytes));
     const r=ADP.legacyReportToResult({ report:out.report, bytes:bytes, sourceFile:{fileId:'src'}, templateId:tid, engineVersion:(_bridge.diagnostics().version||''), bridgeMode:'same-origin-iframe', outputHash:outHash });
     let plan=null;
-    if(legacyType==='32'){ try{ plan=await _appPlan32(srcU8, bleedMm); }catch(e){ plan=null; } }   // plan-תצוגה בלבד (אותה נוסחה)
+    if(TPL_GEOM[legacyType]){ try{ plan=await _appPlanFor(srcU8, legacyType, bleedMm); }catch(e){ plan=null; } }   // plan-תצוגה (כל טמפלט מובנה)
     return { bytes:bytes, result:r, plan:plan, srcBytes:srcU8, bleedMm:bleedMm };
   }
   // decoder-v2 (88x63 בלבד — 32p עבר לגשר-האפליקציה למעלה) · sheetTrimFallback: בלי TrimBox → Trim נומינלי ממורכז
@@ -185,20 +207,20 @@ async function foldByTemplate(tid, srcU8, bleedMm){
 // ── עיתון מרובה-קונטרסים (תפירת-אוכף מקוננת): R-1 חיצוני, R-2 פנימי, וכו' ──
 //    כל קונטרס מקופל בנפרד דרך מנוע-האפליקציה, ואז מרכיבים לפי assembleNestedRunOrder:
 //    64 עמ' = R1[1-16] R2[1-16] R2[17-32] R1[17-32]. פלט = PDF אחד רציף בסדר-קריאה.
-async function foldMultiRun(runsU8, legacyType, bleedMm){
+// runDescs = [{ u8, legacyType, pages, name }] לפי סדר R-1, R-2… (חיצוני→פנימי)
+async function foldMultiRun(runDescs, bleedMm){
   bleedMm = bleedMm>0 ? bleedMm : 0;
   if(!_bridge) _bridge=LB.createLegacyBridge({ iframeUrl:'imposition-tool.html' });
   await _bridge.ready();
-  const runs=[];   // { outBytes, srcBytes, plan }
-  for(let i=0;i<runsU8.length;i++){
-    const u=runsU8[i];
-    const out=await _bridge.runFold({ arrayBuffer:u.slice(0), type:legacyType, firstSide:0, mirror:false, bleedMm:bleedMm, requestId:Date.now()+i });
+  const runs=[];   // { outBytes, srcBytes, plan, pages }
+  for(let i=0;i<runDescs.length;i++){
+    const d=runDescs[i], u=d.u8;
+    const out=await _bridge.runFold({ arrayBuffer:u.slice(0), type:d.legacyType, firstSide:0, mirror:false, bleedMm:bleedMm, requestId:Date.now()+i });
     const bytes = bleedMm>0 ? await _trimSpineBleed(out.bytes, bleedMm) : out.bytes;   // שדרה בקו-0
-    let plan=null; if(legacyType==='32'){ try{ plan=await _appPlan32(u, bleedMm); }catch(e){ plan=null; } }
-    runs.push({ outBytes:bytes, srcBytes:u, plan });
+    let plan=null; try{ plan=await _appPlanFor(u, d.legacyType, bleedMm); }catch(e){ plan=null; }
+    runs.push({ outBytes:bytes, srcBytes:u, plan, pages:d.pages });
   }
-  const positionsPerRun = (runs[0].plan && runs[0].plan.pages.length) || 32;
-  const order = ADP.assembleNestedRunOrder(runs.length, positionsPerRun);
+  const order = ADP.assembleNestedRuns(runs.map(r=>r.pages));   // גדלים-שונים לכל קונטרס
   // הרכבת PDF-פלט אחד רציף בסדר-קריאה (מקור-אמת יחיד לגיבוב/העלאה/אישור).
   // ⚠️ copyPages פעם-אחת לכל ריצה (עם כל האינדקסים) — כך pdf-lib ממחזר את תמונת-הגיליון
   //    המשותפת פעם-אחת לריצה. copyPages עמוד-בכל-פעם היה מכפיל את התמונה (76MB × 64 = 2.4GB).
@@ -215,7 +237,7 @@ async function foldMultiRun(runsU8, legacyType, bleedMm){
   const combined=await outDoc.save();
   const outHash=await sha256(new Uint8Array(combined));
   const r=ADP.legacyReportToResult({ report:{ pagesOut:order.length, signatures:runs.length }, bytes:combined,
-    sourceFile:{fileId:'multi'}, templateId:'multi:'+legacyType+'x'+runs.length,
+    sourceFile:{fileId:'multi'}, templateId:'multi:'+runDescs.map(d=>d.legacyType).join('+'),
     engineVersion:(_bridge.diagnostics().version||''), bridgeMode:'same-origin-iframe', outputHash:outHash });
   const book = { bleedMm, runs:runs.map(x=>({srcBytes:x.srcBytes, plan:x.plan})), order };
   return { bytes:combined, result:r, book, plan:null, srcBytes:null, bleedMm, runCount:runs.length };
@@ -396,8 +418,10 @@ function workerScreen(){
    + '<button id="foldBtn" disabled>▶ צור חוברת</button>'
    + '<div style="margin-top:8px"><label class="chk"><input type="checkbox" id="multiRun"> <span>עיתון מרובה-קונטרסים (מעל 32 עמ׳ — כמה ריצות R-1, R-2…)</span></label></div>'
    + '<div id="multiBox" style="display:none;margin-top:6px;padding:8px;border:1px dashed var(--line);border-radius:8px">'
-   + '<div class="muted">העלה את כל הריצות יחד לפי הסדר: <b>R-1</b> (החיצוני · מכיל שער+גב) ואז R-2, R-3… כל ריצה = גיליון 32-up.</div>'
-   + '<input type="file" id="proofMulti" accept="application/pdf" multiple style="margin-top:6px"> <div id="multiList" class="muted" style="margin-top:6px"></div></div>'
+   + '<div class="muted">העלה את כל הריצות יחד לפי הסדר: <b>R-1</b> (החיצוני · מכיל שער+גב) ואז R-2, R-3…</div>'
+   + '<div style="margin-top:6px">סה״כ עמודים בעיתון: <select id="totPages"><option value="0">— זהה אוטומטית —</option><option>32</option><option>48</option><option>64</option><option>80</option><option>96</option><option>128</option></select> <span class="muted" id="sizeDetected"></span></div>'
+   + '<input type="file" id="proofMulti" accept="application/pdf" multiple style="margin-top:6px">'
+   + '<div id="multiTable" style="margin-top:8px"></div><div id="multiSum" class="muted" style="margin-top:4px"></div></div>'
    + '<div class="card" style="margin-top:6px"><input type="text" id="jobName" placeholder="שם העבודה" style="width:170px"> <input type="text" id="custName" placeholder="שם לקוח" style="width:140px"> <input type="text" id="custPhone" placeholder="טלפון לקוח (וואטסאפ)" style="width:160px"> <input type="text" id="jobId" placeholder="מס׳ עבודה" style="width:100px"></div>'
    + '<div id="wstatus" class="muted" style="margin-top:8px">בחר פרופר וטמפלט.</div></div>'
    + '<div class="card" id="previewCard" style="display:none"><h3>3. תצוגה <span class="muted" id="metaLine"></span></h3>'
@@ -440,35 +464,70 @@ function workerScreen(){
   _catalog.forEach(t=>{ const o=document.createElement('option'); o.value=t.id; o.textContent=t.label; $('tpl').appendChild(o); });
   function setStep(n){ for(let i=0;i<5;i++){ const el=$('wstep'+i); if(el) el.className='step'+(i<=n?' active':''); } }
   function _multi(){ return $('multiRun') && $('multiRun').checked; }
+  let _runRows=[];   // [{name,u8,perfector,pages,legacyType}] — מקור-אמת לקיפול-מרובה (ניתן-לעריכה)
+  function _sumRows(){ return _runRows.reduce((a,r)=>a+(r.pages|0),0); }
   function updFold(){
-    const tid=$('tpl').value, ok=tid && ADP.customerFoldTemplateAllowed(tid);
-    if(_multi()){ $('foldBtn').disabled = !(ok && _legacyTypeFor(tid) && _multiU8.length>=2); }
-    else { $('foldBtn').disabled = !(_srcU8 && ok); }
+    const tid=$('tpl').value, okS=tid && ADP.customerFoldTemplateAllowed(tid);
+    if(_multi()){
+      const valid=_runRows.length>=2 && _runRows.every(r=>r.legacyType && r.pages>=4 && r.pages%2===0);
+      $('foldBtn').disabled = !valid;
+    } else { $('foldBtn').disabled = !(_srcU8 && okS); }
+  }
+  function renderMultiTable(){
+    if(!_multiNames.length){ $('multiTable').innerHTML=''; $('multiSum').textContent=''; updFold(); return; }
+    const tot=parseInt($('totPages').value,10)||0;
+    const pm=ADP.planMultiRun(_multiNames, tot);   // ברירת-מחדל: שם→סוג→עמודים
+    _runRows=pm.runs.map((r,i)=>({ name:_multiNames[i], u8:_multiU8[i], perfector:r.perfector, pages:r.pages, legacyType:r.legacyType }));
+    _drawRows();
+  }
+  function _drawRows(){
+    let html='<table style="width:100%;border-collapse:collapse;font-size:.85rem"><tr style="opacity:.7"><th style="text-align:right">ריצה</th><th style="text-align:right">קובץ</th><th>סוג</th><th>עמ׳</th></tr>';
+    _runRows.forEach((r,i)=>{
+      html+='<tr><td><b>R-'+(i+1)+'</b>'+(i===0?' <span class="muted">(חיצוני)</span>':'')+'</td>'
+        + '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.name+'">'+r.name+'</td>'
+        + '<td><select data-i="'+i+'" class="rowType"><option value="perf"'+(r.perfector?' selected':'')+'>פרפקטור (8 צבע)</option><option value="tumble"'+(!r.perfector?' selected':'')+'>מתהפך (4 צבע)</option></select></td>'
+        + '<td><input type="number" data-i="'+i+'" class="rowPages" value="'+r.pages+'" step="2" min="4" style="width:70px"></td></tr>';
+    });
+    html+='</table>';
+    $('multiTable').innerHTML=html;
+    Array.from(document.getElementsByClassName('rowType')).forEach(sel=>sel.onchange=e=>{ const i=+e.target.dataset.i;
+      _runRows[i].perfector=(e.target.value==='perf'); _runRows[i].legacyType=ADP.legacyTypeForRun(_runRows[i].perfector,_runRows[i].pages); _sumLine(); updFold(); });
+    Array.from(document.getElementsByClassName('rowPages')).forEach(inp=>inp.onchange=e=>{ const i=+e.target.dataset.i;
+      _runRows[i].pages=parseInt(e.target.value,10)||0; _runRows[i].legacyType=ADP.legacyTypeForRun(_runRows[i].perfector,_runRows[i].pages); _sumLine(); updFold(); });
+    _sumLine(); updFold();
+  }
+  function _sumLine(){
+    const sum=_sumRows(), tot=parseInt($('totPages').value,10)||0;
+    const bad = tot && sum!==tot;
+    $('multiSum').innerHTML='סה״כ מהריצות: <b>'+sum+'</b> עמ׳'+(tot?(' · נבחר: '+tot+' '+(bad?'<span class="bad">✗ לא תואם — ערוך עמ׳/סוג</span>':'<span class="ok">✓ תואם</span>')):'');
   }
   $('proof').onchange=async e=>{ const f=e.target.files[0]; if(!f)return; _srcU8=new Uint8Array(await f.arrayBuffer()); _srcName=f.name; $('wstatus').textContent='📄 '+f.name; setStep(0); updFold(); };
   $('tpl').onchange=updFold;
   $('multiRun').onchange=()=>{ $('multiBox').style.display=_multi()?'':'none'; $('proof').disabled=_multi(); updFold(); };
+  $('totPages').onchange=renderMultiTable;
   $('proofMulti').onchange=async e=>{
     const files=Array.from(e.target.files||[]).sort((a,b)=>_natSort(a.name,b.name));   // R-1 לפני R-2…
     _multiU8=[]; _multiNames=[];
     for(const f of files){ _multiU8.push(new Uint8Array(await f.arrayBuffer())); _multiNames.push(f.name); }
-    const N=_multiU8.length, tot=N*32;
-    $('multiList').innerHTML = N ? ('סדר-קיפול: '+_multiNames.map((n,i)=>'<b>R-'+(i+1)+'</b> '+n).join(' → ')+' <span class="ok">('+N+' ריצות · '+tot+' עמ׳)</span>') : '';
-    _srcName=_multiNames[0]||''; if(N) $('wstatus').textContent='📄 '+N+' ריצות'; setStep(0); updFold();
+    _srcName=_multiNames[0]||''; if(_multiU8.length) $('wstatus').textContent='📄 '+_multiU8.length+' ריצות';
+    const sz = _multiU8.length ? await _detectSizeLabel(_multiU8[0]) : null;   // זיהוי-גודל מהפרופר
+    $('sizeDetected').textContent = sz ? ('· '+sz) : '';
+    setStep(0); renderMultiTable();
   };
   async function doFold(bleedMm){
     const tid=$('tpl').value; if(!ADP.customerFoldTemplateAllowed(tid)){ alert('טמפלט לא-נתמך'); return; }
     $('foldBtn').disabled=true; if($('bleedSel'))$('bleedSel').disabled=true; $('wstatus').textContent='⏳ יוצר חוברת…'; setStep(2);
     try{
       if(_multi()){
-        const lt=_legacyTypeFor(tid); if(!lt) throw new Error('טמפלט מרובה-קונטרסים חייב מנוע-אפליקציה (לא 88×63)');
-        _folded=await foldMultiRun(_multiU8, lt, bleedMm);
+        if(_runRows.length<2) throw new Error('נדרשות לפחות 2 ריצות');
+        const runDescs=_runRows.map(r=>({ u8:r.u8, legacyType:r.legacyType, pages:r.pages, name:r.name }));
+        _folded=await foldMultiRun(runDescs, bleedMm);
       } else {
         _folded=await foldByTemplate(tid, _srcU8, bleedMm);
       }
       const info=_tplInfo(tid); const n=_folded.result.orderedPages.length;
-      const lbl = _multi() ? (_folded.runCount+' ריצות · '+(info?info.label:tid)) : (info?info.label:tid);
-      $('metaLine').textContent='· '+lbl+' · '+n+' עמ׳'+((info&&info.w)?(' · '+info.w+'×'+info.h+' מ״מ'):'');
+      const lbl = _multi() ? (_folded.runCount+' ריצות ('+_runRows.map(r=>r.pages).join('+')+')') : (info?info.label:tid);
+      $('metaLine').textContent='· '+lbl+' · '+n+' עמ׳'+((!_multi()&&info&&info.w)?(' · '+info.w+'×'+info.h+' מ״מ'):' · 165×240 מ״מ');
       $('bleedNote').textContent = bleedMm>0 ? '· מוצג עם גלישות 3 מ״מ' : '· נטו';
       const errs=(_folded.result.errors||[]); $('warns').innerHTML = errs.length?('<span class="bad">'+errs.map(e=>e.code||e).join(' · ')+'</span>'):'<span class="ok">אין שגיאות</span>';
       $('previewCard').style.display=''; $('checkCard').style.display='';
@@ -503,7 +562,7 @@ function workerScreen(){
       const built=CFV.buildVersionRecord({ jobId, customerId:$('custName').value||null, jobName:$('jobName').value||_srcName,
         versionNumber, templateId:templateId, engine:(info?info.engine:'legacy'), engineVersion:(window.__APP_VERSION__||''),
         sourceFileName:_srcName, sourceHash:srcHash, outputStoragePath:up.path, outputUrl:up.url, outputHash:outHash,
-        pageCount:_folded.result.orderedPages.length, finalPageSizeMm:{width:(info&&info.w)||null,height:(info&&info.h)||null},
+        pageCount:_folded.result.orderedPages.length, finalPageSizeMm:{width:(info&&info.w)||165,height:(info&&info.h)||240},
         internalCheck:{confirmed:true, confirmedAt:_nowIso(), confirmedBy:'worker'}, createdAt:_nowIso(), createdBy:'worker' });
       if(!built.ok){ throw new Error('רשומה נכשלה: '+built.errors.join(', ')); }
       const rec=built.record;
