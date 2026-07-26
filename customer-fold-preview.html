@@ -830,16 +830,42 @@ async function clientScreen(versionId, token){
   $('cBook').style.display=''; await mountFlipbook($('cFlip'), bytes);
   renderApprove(rec, gotHash===rec.outputHash);
 }
+// חיווי אישור-הקבלה של בית-הדפוס (הלקוח רואה שההודעה התקבלה — לא נשאר באוויר)
+function _cShopAckHtml(rec){
+  const s=rec.shopAck;
+  if(s && s.at) return '<div style="margin-top:10px;padding:9px 11px;border:2px solid var(--ok);border-radius:8px;background:rgba(22,163,74,.10)">'
+    + '<b class="ok">📩 בית-הדפוס קיבל את ההודעה</b>'+(s.by?(' <span class="muted">— '+s.by+'</span>'):'')
+    + '<div class="muted" style="font-size:.82rem">'+_fmtHe(s.at)+'</div>'+(s.note?('<div style="margin-top:4px">"'+s.note+'"</div>'):'')+'</div>';
+  return '<div id="ackWait" style="margin-top:10px;padding:9px 11px;border:1px dashed var(--line);border-radius:8px;color:var(--muted)">'
+    + '⏳ ממתין לאישור-קבלה מבית-הדפוס… <span style="font-size:.82rem">(אפשר להשאיר את החלון פתוח)</span></div>';
+}
 function _cApprovedBox(rec){ const a=rec.approval||{};
   return '<div style="text-align:center;padding:14px;border:2px solid var(--ok);border-radius:10px;background:rgba(22,163,74,.08)">'
     + '<div style="font-size:2rem">✅</div><h2 class="ok" style="margin:6px 0">אושר לדפוס</h2>'
     + '<div class="muted">'+(a.approvedBy?('אושר ע״י '+a.approvedBy+' · '):'')+(a.approvedAt?_fmtHe(a.approvedAt):'')+'</div>'
-    + '<div class="muted" style="margin-top:4px;font-size:.85rem">החוברת אושרה. אין צורך בפעולה נוספת.</div></div>'; }
+    + '<div class="muted" style="margin-top:4px;font-size:.85rem">החוברת אושרה. אין צורך בפעולה נוספת.</div>'
+    + _cShopAckHtml(rec) + '</div>'; }
 function _cCorrectionBox(rec){ const a=rec.approval||{};
   return '<div style="text-align:center;padding:14px;border:2px solid #dc2626;border-radius:10px;background:rgba(220,38,38,.06)">'
     + '<div style="font-size:2rem">✎</div><h2 style="color:#dc2626;margin:6px 0">התבקש תיקון</h2>'
     + (a.comment?('<div style="margin:6px 0">"'+a.comment+'"</div>'):'')+'<div class="muted">'+(a.approvedBy||'')+' · '+(a.approvedAt?_fmtHe(a.approvedAt):'')+'</div>'
-    + '<div class="muted" style="margin-top:4px;font-size:.85rem">בית-הדפוס יכין גרסה מתוקנת.</div></div>'; }
+    + '<div class="muted" style="margin-top:4px;font-size:.85rem">בית-הדפוס יכין גרסה מתוקנת.</div>'
+    + _cShopAckHtml(rec) + '</div>'; }
+// אחרי אישור/תיקון — המסך *נשאר פתוח* ומאזין לאישור-הקבלה של בית-הדפוס
+let _ackPoll=null;
+function _startAckPoll(versionId, isApprove){
+  if(_ackPoll) clearInterval(_ackPoll);
+  _ackPoll=setInterval(async ()=>{
+    try{
+      if(document.hidden) return;
+      const fresh=await _dbGet('customerFoldVersions/'+versionId);
+      if(fresh && fresh.shopAck && fresh.shopAck.at){
+        clearInterval(_ackPoll); _ackPoll=null;
+        const box=$('cApprove'); if(box) box.innerHTML = isApprove ? _cApprovedBox(fresh) : _cCorrectionBox(fresh);
+      }
+    }catch(e){}
+  }, 12000);
+}
 function _fmtHe(iso){ try{ return new Date(iso).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso||''; } }
 function renderApprove(rec, hashOk){
   const box=$('cApprove'); box.style.display='';
@@ -864,6 +890,7 @@ function renderApprove(rec, hashOk){
     else _notifyShop('✎','לקוח ביקש תיקון בחוברת: "'+jl+'" ('+vn+')'+(cm?(' — '+cm):''), who);
     // החלון של הלקוח משתנה למצב-הסופי (אושר לדפוס / התבקש תיקון)
     box.innerHTML = action==='approve' ? _cApprovedBox(res.record) : _cCorrectionBox(res.record);
+    _startAckPoll(rec.versionId, action==='approve');   // המסך נשאר פתוח וממתין לאישור-הקבלה של הדפוס
   }
   $('cApproveBtn').onclick=()=>submit('approve'); $('cCorrectBtn').onclick=()=>submit('request-correction');
 }
@@ -918,7 +945,12 @@ async function approvalsScreen(){
         + (r.archived ? '<button class="unArcBtn" data-v="'+r.versionId+'">↩ החזר מארכיון</button>'
                       : (st==='approved' ? '<button class="arcBtn" data-v="'+r.versionId+'">🗄 העבר לארכיון</button>' : ''))
         + (st==='approved'||r.archived ? '<button class="delBtn" data-v="'+r.versionId+'" data-j="'+encodeURIComponent(r.jobName||'')+'" style="color:var(--danger)">🗑 מחק</button>' : '')
-        + '</div></div>';
+        // אישור-קבלה ללקוח — הלקוח רואה בזמן-אמת שההודעה התקבלה (מסכו נשאר פתוח וממתין)
+        + ((st==='approved'||st==='correction') && !(r.shopAck&&r.shopAck.at)
+            ? '<button class="ackBtn primary" data-v="'+r.versionId+'">📩 אשר קבלה ללקוח</button>' : '')
+        + '</div>'
+        + ((r.shopAck&&r.shopAck.at) ? '<div class="muted" style="font-size:.8rem">📩 נשלח אישור-קבלה ללקוח · '+_fmt(r.shopAck.at)+(r.shopAck.by?(' — '+r.shopAck.by):'')+(r.shopAck.note?(' · "'+r.shopAck.note+'"'):'')+'</div>' : '')
+        + '</div>';
     }).join('');
     Array.from(document.getElementsByClassName('cpBtn')).forEach(b=>b.onclick=()=>{ navigator.clipboard&&navigator.clipboard.writeText(decodeURIComponent(b.dataset.l)); b.textContent='✓ הועתק'; });
     Array.from(document.getElementsByClassName('waBtn')).forEach(b=>b.onclick=()=>{ const link=decodeURIComponent(b.dataset.l), jl=decodeURIComponent(b.dataset.j);
@@ -931,6 +963,12 @@ async function approvalsScreen(){
       try{ await _dbPatch('customerFoldVersions/'+b.dataset.v, { archived:true, archivedAt:_nowIso() }); await load(); }catch(e){ alert('העברה לארכיון נכשלה: '+(e.message||e)); } });
     Array.from(document.getElementsByClassName('unArcBtn')).forEach(b=>b.onclick=async()=>{
       try{ await _dbPatch('customerFoldVersions/'+b.dataset.v, { archived:false, archivedAt:null }); await load(); }catch(e){ alert('החזרה מארכיון נכשלה: '+(e.message||e)); } });
+    // אישור-קבלה ללקוח: "ראיתי/קיבלתי" + הערה אופציונלית (למשל מה מתקנים) → מוצג אצל הלקוח מיד
+    Array.from(document.getElementsByClassName('ackBtn')).forEach(b=>b.onclick=async()=>{
+      const note=prompt('הודעה ללקוח (אופציונלי) — למשל: "התקבל, נכנס לדפוס" או "מתקנים את עמ׳ 7":','');
+      if(note===null) return;   // ביטול
+      try{ await _dbPatch('customerFoldVersions/'+b.dataset.v, { shopAck:{ at:_nowIso(), by:'בית-הדפוס', note:(note||'').trim()||null } }); await load(); }
+      catch(e){ alert('שליחת אישור-הקבלה נכשלה: '+(e.message||e)); } });
     // מחיקה מלאה — בלתי-הפיכה; דורשת אישור מפורש (רשומת-האישור של הלקוח תימחק)
     Array.from(document.getElementsByClassName('delBtn')).forEach(b=>b.onclick=async()=>{
       const jn=decodeURIComponent(b.dataset.j||'');
