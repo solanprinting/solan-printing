@@ -413,6 +413,7 @@ function render(rows) {
       <div class="custHead">
         <div style="font-size:1.05rem;font-weight:900;color:#2d3561">📁 ${escapeHtml(_selCust)} <span class="count">(${sel.length})</span></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
+          <button data-editcust="${escapeHtml(_selCust)}" title="שינוי שם הלקוח בכל העבודות שלו">✎ ערוך לקוח</button>
           <button data-portal="${escapeHtml(_selCust)}" title="קישור קבוע לפורטל האישי של הלקוח">🔗 קישור-פורטל</button>
           <button data-notice="${escapeHtml(_selCust)}" title="שלח דרישה שתופיע בפורטל הלקוח">📢 שלח דרישה</button>
           <button data-apogee="${escapeHtml(_selCust)}" title="העלה פרופר-אפוגי לדפדוף+אישור בפורטל">📎 פרופר-אפוגי לפורטל</button>
@@ -431,6 +432,7 @@ function render(rows) {
 
   document.querySelectorAll('[data-link]').forEach(b => b.onclick = () => shareLink(b.dataset.link));
   document.querySelectorAll('[data-portal]').forEach(b => b.onclick = () => portalLink(b.dataset.portal));
+  document.querySelectorAll('[data-editcust]').forEach(b => b.onclick = () => renameCustomer(b.dataset.editcust));
   document.querySelectorAll('[data-notice]').forEach(b => b.onclick = () => sendNotice(b.dataset.notice));
   document.querySelectorAll('[data-apogee]').forEach(b => b.onclick = () => attachApogee(b.dataset.apogee));
   document.querySelectorAll('[data-unlock]').forEach(b => b.onclick = () => unlockProof(b.dataset.unlock));
@@ -466,6 +468,32 @@ async function downloadFile(url, name, btn) {
 
 // ── פורטל לקוח: קישור קבוע + דרישות + פרופר-אפוגי ──────────────────────────
 function _slug(s){ return String(s||'').trim().toLowerCase().replace(/[.#$\[\]\/\\]+/g,'').replace(/\s+/g,'_'); }
+// ── עריכת לקוח: שינוי-שם בכל העבודות שלו ─────────────────────────────────────
+//    ⚠️ שם-הלקוח הוא גם המקור ל-slug של הפורטל — שינוי-שם משנה את כתובת-הפורטל,
+//    ולכן צריך לשלוח ללקוח קישור חדש. מיישמים רק אם המשתמש מאשר במפורש.
+async function renameCustomer(oldName){
+  const cur = String(oldName||'').trim(); if (!cur) return;
+  const rows = _allRows.filter(p => String(p.customer||'ללא לקוח').trim() === cur);
+  if (!rows.length) { alert('לא נמצאו עבודות ללקוח הזה'); return; }
+  const next = (prompt('שם הלקוח:', cur) || '').trim();
+  if (!next || next === cur) return;
+  const slugChanges = _slug(next) !== _slug(cur);
+  let warn = `לשנות את שם הלקוח מ־"${cur}" ל־"${next}"?\n\nהשינוי יחול על ${rows.length} עבודות.`;
+  if (slugChanges) warn += `\n\n⚠️ כתובת פורטל-הלקוח משתנה — הקישור הקודם שנשלח ללקוח יפסיק לעבוד, ויש לשלוח לו קישור-פורטל חדש.`;
+  if (!confirm(warn)) return;
+  msg('מעדכן שם לקוח…');
+  try{
+    let done = 0;
+    for (const p of rows){
+      await fetch(await _au(`${_FBURL}/customerProofs/${p.id}.json`), { method:'PATCH',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ customer: next }) });
+      done++; msg(`מעדכן… ${done}/${rows.length}`);
+    }
+    _selCust = next;                 // הבחירה עוברת לשם החדש
+    await loadProofs();
+    msg(`✓ עודכן ל־"${next}" (${done} עבודות)` + (slugChanges ? ' · שלח קישור-פורטל חדש' : ''));
+  }catch(e){ console.error(e); msg('✗ עדכון נכשל: ' + (e.message||e)); }
+}
 async function portalLink(customer){
   const slug = _slug(customer); if (!slug){ alert('שם לקוח חסר'); return; }
   msg('מכין קישור פורטל…');
