@@ -11,6 +11,7 @@
 <script src="imposition-decoder.js"></script>
 <script src="imposition-decoder-exec.js"></script>
 <script src="imposition-template-import.js"></script>
+<script src="imposition-fold-adapter.js"></script>
 <script src="imposition-flipbook.js"></script>
 <script>
 // ── שומר-סביבה (זהה לשאר הדפים) — פתיחה מקומית לא כותבת ל-Firebase החי ──
@@ -311,8 +312,21 @@ $('tplSave').onclick = () => {
     source:'import'
   });
   const store = TPL.createBrowserTemplateStore({ win: window });
+  // רישום-מקביל למאגר מנוע-הקיפול (solanFoldTemplates) — כך הטמפלט מופיע מיד גם בכלי-הקיפול
+  // וגם ב"שליחת פרופר ללקוח" (שם קוראים grids, לא cells). אדיטיבי: לא דורס טמפלט קיים.
+  let _lgOk=false;
+  try{
+    const ADPx=window.ImpositionFoldAdapter;
+    if(ADPx && ADPx.v2TemplateToLegacy){
+      const lg=ADPx.v2TemplateToLegacy(t);
+      if(lg){ const ov=JSON.parse(localStorage.getItem('solanFoldTemplates')||'{}')||{};
+        ov[L.id]=lg; localStorage.setItem('solanFoldTemplates', JSON.stringify(ov)); _lgOk=true; }
+    }
+  }catch(e){}
   Promise.resolve(store.save(t, { user:'preview' })).then(res=>{
-    $('tplStatus').innerHTML = '💾 נשמר "'+L.id+'" ל-localStorage (status=draft · geometryChecked=false · requiresRealProofValidation). Firebase: '+((res&&res.firebase)?'✓':'—')+'. יסומן <code>tested</code> רק אחרי אישור חזותי מפורש.';
+    $('tplStatus').innerHTML = '💾 נשמר "'+L.id+'" ל-localStorage (status=draft · geometryChecked=false · requiresRealProofValidation). Firebase: '+((res&&res.firebase)?'✓':'—')
+      + (_lgOk ? ' · <b>✓ נוסף לרשימת הטמפלטים בכלי-הקיפול ובשליחת-פרופר-ללקוח</b>' : ' · <span class="err">⚠ לא נוסף לרשימת-הקיפול</span>')
+      + '. יסומן <code>tested</code> רק אחרי אישור חזותי מפורש.';
   }).catch(e=>{ $('tplStatus').innerHTML='<span class="err">שמירה נכשלה: '+(e.message||e)+'</span>'; });
 };
 $('run').onclick = run;

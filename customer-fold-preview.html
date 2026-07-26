@@ -488,6 +488,22 @@ function workerScreen(){
       { id:'legacy:4p',   label:'4 עמ׳ · 165×240 · מתהפך', w:165, h:240, engine:'legacy' },
       { id:'88x63-16p-perfector', label:'16 עמ׳ · 210×297 · 88×63 פרפקטור', w:210, h:297, engine:'decoder-v2' }
     ];
+    // גשר-מאגרים: טמפלטים שנשמרו בכלי סימון-הטמפלט יושבים ב-solanImpositionTemplatesV2
+    // (מודל-cells), בעוד מנוע-הקיפול קורא solanFoldTemplates (grids). ממירים ורושמים אותם
+    // לפני יצירת ה-iframe של הגשר → מופיעים ברשימה *וגם* עובדים בקיפול.
+    try{
+      const v2=JSON.parse(localStorage.getItem('solanImpositionTemplatesV2')||'{}')||{};
+      const ov0=JSON.parse(localStorage.getItem('solanFoldTemplates')||'{}')||{};
+      let changed=false;
+      Object.keys(v2).forEach(k=>{
+        const rec=v2[k]; const t=(rec&&rec.cells)?rec:(rec&&rec.template)?rec.template:(rec&&rec.versions&&rec.current!=null?rec.versions[rec.current]:null);
+        if(!t || !Array.isArray(t.cells) || !t.cells.length) return;
+        if(ov0[k] && ov0[k].custom) return;                       // כבר רשום — לא דורסים
+        const lg=ADP.v2TemplateToLegacy(t); if(!lg) return;
+        ov0[k]=lg; changed=true;
+      });
+      if(changed) localStorage.setItem('solanFoldTemplates', JSON.stringify(ov0));
+    }catch(e){}
     try{
       const ov=JSON.parse(localStorage.getItem('solanFoldTemplates')||'{}')||{};
       Object.keys(ov).forEach(k=>{ const o=ov[k];

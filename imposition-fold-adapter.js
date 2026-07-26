@@ -164,6 +164,47 @@
     return { runs: runs, sum: sum, total: totalPages || sum, matches: !totalPages || sum === totalPages };
   }
 
+  // ── גשר-מאגרים: טמפלט-V2 מנורמל → פורמט-legacy של מנוע-הקיפול (solanFoldTemplates) ──
+  //    כלי סימון-הטמפלט שומר ל-solanImpositionTemplatesV2 (cells+ratios), אבל fold() של
+  //    imposition-tool קורא TEMPLATES בפורמט grids. ההמרה מאפשרת לטמפלט שנשמר בכלי-הסימון
+  //    להופיע ולעבוד בכלי-הקיפול ובמסך "שליחת פרופר ללקוח".
+  //    מיפוי-שדות (מאומת מול הקיפול-הגנרי שבכלי): geom.sheetWmm/Hmm = גיליון-הפריסה ·
+  //    geom.trimWmm/Hmm = גודל-העמוד-הסופי · geom.colX/rowY = *מרכזי*-התאים במ״מ.
+  //    ⚠️ המרת-נתונים בלבד — אין כאן עותק של מנוע-הקיפול (ראה סנטינל ב-unified-tests).
+  function v2TemplateToLegacy(t) {
+    if (!t || !Array.isArray(t.cells) || !t.cells.length) return null;
+    var sheetW = (t.sheet && t.sheet.widthMm) || 0, sheetH = (t.sheet && t.sheet.heightMm) || 0;
+    var finW = (t.finishedPage && t.finishedPage.widthMm) || 0, finH = (t.finishedPage && t.finishedPage.heightMm) || 0;
+    if (!(sheetW > 0 && sheetH > 0 && finW > 0 && finH > 0)) return null;
+    var sides = t.sidesCount || 1, maxRow = 0, maxCol = 0;
+    t.cells.forEach(function (c) { if (c.row > maxRow) maxRow = c.row; if (c.column > maxCol) maxCol = c.column; });
+    var rows = maxRow + 1, cols = maxCol + 1;
+    var grids = [], rotGrids = [], s, r, cIdx;
+    for (s = 0; s < sides; s++) {
+      grids.push([]); rotGrids.push([]);
+      for (r = 0; r < rows; r++) { grids[s].push(new Array(cols).fill(0)); rotGrids[s].push(new Array(cols).fill(0)); }
+    }
+    var colX = new Array(cols).fill(null), rowY = new Array(rows).fill(null);
+    for (cIdx = 0; cIdx < t.cells.length; cIdx++) {
+      var c = t.cells[cIdx];
+      var si = (c.sourceSide || 1) - 1;                       // V2 = 1-based · legacy = 0-based
+      if (si < 0 || si >= sides || c.row >= rows || c.column >= cols) continue;
+      grids[si][c.row][c.column] = (c.outputPageOffset | 0) + 1;   // מספר-עמוד 1-based
+      rotGrids[si][c.row][c.column] = c.rotation || 0;
+      if (colX[c.column] == null) colX[c.column] = (c.xRatio + c.widthRatio / 2) * sheetW;   // מרכז-תא
+      if (rowY[c.row] == null) rowY[c.row] = (c.yRatio + c.heightRatio / 2) * sheetH;
+    }
+    if (colX.some(function (v) { return v == null; }) || rowY.some(function (v) { return v == null; })) return null;
+    var rot = [];   // fallback פר-עמודה (מנוע-הקיפול מעדיף rotGrids כשקיים)
+    for (cIdx = 0; cIdx < cols; cIdx++) rot.push(rotGrids[0][0][cIdx] || 0);
+    return {
+      custom: true, N: t.pagesPerSignature || t.cells.length, sides: sides,
+      rot: rot, grids: grids, rotGrids: rotGrids,
+      geom: { colX: colX, rowY: rowY, sheetWmm: sheetW, sheetHmm: sheetH, trimWmm: finW, trimHmm: finH },
+      label: t.name || t.id || 'טמפלט מותאם', sizeLabel: finW + '×' + finH
+    };
+  }
+
   // ── CFP · fallback ל-TrimBox חסר ──────────────────────────────────────────────
   //    פרופר בלי TrimBox נראה כ-trim==media (offset 0,0) → כל התאים זזים ~5-6.5 מ"מ
   //    → מסגרת-לבנה בפלט. כשהמדיה בקנה-מידה 1:1 מול הנומינלי (±2%) ממרכזים את
@@ -426,7 +467,7 @@
     validateDecodeAgainstTemplate: validateDecodeAgainstTemplate,
     FLAG_CFP: FLAG_CFP, customerFoldPreviewEnabled: customerFoldPreviewEnabled,
     CFP_TEMPLATES: CFP_TEMPLATES, customerFoldTemplateAllowed: customerFoldTemplateAllowed,
-    sheetTrimFallback: sheetTrimFallback,
+    sheetTrimFallback: sheetTrimFallback, v2TemplateToLegacy: v2TemplateToLegacy,
     assembleNestedRunOrder: assembleNestedRunOrder, assembleNestedRuns: assembleNestedRuns,
     isPerfectorName: isPerfectorName, legacyTypeForRun: legacyTypeForRun, planMultiRun: planMultiRun,
     displayMapToDecoderMap: displayMapToDecoderMap, decoderPlanToResult: decoderPlanToResult,
