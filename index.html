@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785053190';
+window.APP_VERSION = '1785053703';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23166,9 +23166,44 @@ registerPushServiceWorker().then(function(){ setTimeout(_checkPushState, 300); }
       <button onclick="document.getElementById('newspapersModal').style.display='none'"
         style="background:none;border:none;color:#fff;font-size:1.4rem;cursor:pointer">✕</button>
     </div>
-    <iframe src="proof-admin.html" allow="clipboard-read; clipboard-write" style="flex:1;border:none;width:100%"></iframe>
+    <!-- תאבים: הכל מתנהל ממסך אחד. כל תאב = iframe נפרד בטעינה-עצלה (מעבר בין תאבים לא מאבד עבודה) -->
+    <div id="npTabs" style="display:flex;gap:4px;padding:6px 10px 0;background:#1a1a2e">
+      <div class="nptab" data-np="jobs"      style="padding:9px 16px;cursor:pointer;font-weight:800;border-radius:8px 8px 0 0;background:#fff;color:#2d3561">🗂 לקוחות ועבודות</div>
+      <div class="nptab" data-np="send"      style="padding:9px 16px;cursor:pointer;font-weight:700;border-radius:8px 8px 0 0;background:rgba(255,255,255,.14);color:#fff">📤 פרופר ללקוח</div>
+      <div class="nptab" data-np="approvals" style="padding:9px 16px;cursor:pointer;font-weight:700;border-radius:8px 8px 0 0;background:rgba(255,255,255,.14);color:#fff">📋 אישורי לקוחות פרופרים</div>
+    </div>
+    <div style="flex:1;position:relative;background:#fff">
+      <iframe id="npFrameJobs"      src="proof-admin.html" allow="clipboard-read; clipboard-write" style="position:absolute;inset:0;border:none;width:100%;height:100%"></iframe>
+      <iframe id="npFrameSend"      src="about:blank" allow="clipboard-read; clipboard-write" style="position:absolute;inset:0;border:none;width:100%;height:100%;display:none"></iframe>
+      <iframe id="npFrameApprovals" src="about:blank" allow="clipboard-read; clipboard-write" style="position:absolute;inset:0;border:none;width:100%;height:100%;display:none"></iframe>
+    </div>
   </div>
 </div>
+<script>
+// מעבר-תאבים במסך לקוחות-עיתונים — טעינה עצלה + שמירת-מצב (לא טוענים מחדש בכל מעבר)
+(function(){
+  var SRC={ send:'customer-fold-preview.html?cfp=1', approvals:'customer-fold-preview.html?approvals=1' };
+  var FR={ jobs:'npFrameJobs', send:'npFrameSend', approvals:'npFrameApprovals' };
+  window._npTab=function(which){
+    try{
+      Object.keys(FR).forEach(function(k){ var f=document.getElementById(FR[k]); if(f) f.style.display=(k===which)?'':'none'; });
+      if(which!=='jobs'){ var fr=document.getElementById(FR[which]);
+        if(fr && (!fr.src || fr.src==='about:blank' || fr.src.indexOf('customer-fold-preview')<0)) fr.src=SRC[which]+'&v='+(window.APP_VERSION||'1'); }
+      Array.prototype.forEach.call(document.querySelectorAll('#npTabs .nptab'), function(t){
+        var on=(t.dataset.np===which);
+        t.style.background = on?'#fff':'rgba(255,255,255,.14)';
+        t.style.color = on?'#2d3561':'#fff';
+        t.style.fontWeight = on?'800':'700';
+      });
+    }catch(e){}
+  };
+  document.addEventListener('DOMContentLoaded', function(){
+    Array.prototype.forEach.call(document.querySelectorAll('#npTabs .nptab'), function(t){
+      t.onclick=function(){ window._npTab(t.dataset.np); };
+    });
+  });
+})();
+</script>
 
 <!-- כלי קיפול גיליון לחוברת (iframe מבודד, טעינה עצלה) -->
 <div id="impositionModal" style="display:none;position:fixed;inset:0;z-index:9999;

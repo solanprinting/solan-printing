@@ -873,7 +873,7 @@ async function approvalsScreen(){
   document.title='מערכת אישור לקוחות — סולן';
   $('app').innerHTML='<h2>📋 מערכת אישור לקוחות <span class="muted">(Beta)</span> <a href="?cfp=1" style="font-size:.8rem;font-weight:400">+ צור חוברת חדשה</a></h2>'
     + '<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
-    + '<b>סינון:</b> <button class="fBtn" data-f="all">הכל</button> <button class="fBtn" data-f="pending">⏳ ממתין</button> <button class="fBtn" data-f="approved">✓ אושר</button> <button class="fBtn" data-f="correction">✎ תיקון</button> <button class="fBtn" data-f="revoked">בוטל</button>'
+    + '<b>סינון:</b> <button class="fBtn" data-f="all">הכל (ממתינים + אושרו)</button> <button class="fBtn" data-f="pending">⏳ ממתין</button> <button class="fBtn" data-f="approved">✓ אושר</button> <button class="fBtn" data-f="correction">✎ תיקון</button> <button class="fBtn" data-f="revoked">בוטל</button> <button class="fBtn" data-f="archived">🗄 ארכיון</button>'
     + ' <input type="text" id="aSearch" placeholder="חיפוש שם/לקוח" style="width:170px"> <button id="aRefresh">🔄 רענן</button>'
     + ' <span id="aCounts" class="muted" style="margin-right:auto"></span></div></div><div id="aList"></div>';
   let _all=[], _filter='all';
@@ -893,9 +893,14 @@ async function approvalsScreen(){
     _all.sort((a,b)=> String(b.createdAt||'').localeCompare(String(a.createdAt||''))); render(); }
   function render(){
     const q=($('aSearch').value||'').trim();
-    const c={pending:0,approved:0,correction:0,revoked:0}; _all.forEach(r=>c[statusOf(r)]++);
-    $('aCounts').textContent='סה״כ '+_all.length+' · ⏳ '+c.pending+' · ✓ '+c.approved+' · ✎ '+c.correction;
-    let rows=_all.filter(r=> _filter==='all' || statusOf(r)===_filter);
+    const live=_all.filter(r=>!r.archived);   // ארכיון מוסתר מכל הסינונים חוץ מ"ארכיון"
+    const c={pending:0,approved:0,correction:0,revoked:0}; live.forEach(r=>c[statusOf(r)]++);
+    const arch=_all.length-live.length;
+    $('aCounts').textContent='סה״כ '+live.length+' · ⏳ '+c.pending+' · ✓ '+c.approved+' · ✎ '+c.correction+(arch?(' · 🗄 '+arch):'');
+    // "הכל" = ממתינים + אושרו בלבד (מה שדורש טיפול/מעקב) — לא תיקונים/מבוטלים/ארכיון
+    let rows = _filter==='archived' ? _all.filter(r=>r.archived)
+             : _filter==='all' ? live.filter(r=>{ const s=statusOf(r); return s==='pending'||s==='approved'; })
+             : live.filter(r=> statusOf(r)===_filter);
     if(q) rows=rows.filter(r=> (((r.jobName||'')+' '+(r.customerId||'')).indexOf(q)>=0));
     if(!rows.length){ $('aList').innerHTML='<div class="card muted">אין רשומות בסינון הזה.</div>'; return; }
     $('aList').innerHTML = rows.map(r=>{
@@ -909,6 +914,10 @@ async function approvalsScreen(){
         + '<button class="cpBtn" data-l="'+encodeURIComponent(link)+'">📋 העתק</button>'
         + '<button class="waBtn" data-l="'+encodeURIComponent(link)+'" data-j="'+encodeURIComponent(r.jobName||'החוברת')+'">🟢 שלח שוב</button>'
         + (st==='revoked'?'':'<button class="rvBtn" data-v="'+r.versionId+'">🚫 בטל קישור</button>')
+        // מאושר → אפשר להעביר לארכיון (מוציא מהרשימה הפעילה) · ומחיקה מלאה
+        + (r.archived ? '<button class="unArcBtn" data-v="'+r.versionId+'">↩ החזר מארכיון</button>'
+                      : (st==='approved' ? '<button class="arcBtn" data-v="'+r.versionId+'">🗄 העבר לארכיון</button>' : ''))
+        + (st==='approved'||r.archived ? '<button class="delBtn" data-v="'+r.versionId+'" data-j="'+encodeURIComponent(r.jobName||'')+'" style="color:var(--danger)">🗑 מחק</button>' : '')
         + '</div></div>';
     }).join('');
     Array.from(document.getElementsByClassName('cpBtn')).forEach(b=>b.onclick=()=>{ navigator.clipboard&&navigator.clipboard.writeText(decodeURIComponent(b.dataset.l)); b.textContent='✓ הועתק'; });
@@ -917,6 +926,16 @@ async function approvalsScreen(){
     Array.from(document.getElementsByClassName('rvBtn')).forEach(b=>b.onclick=async()=>{ if(!confirm('לבטל את הקישור? הלקוח לא יוכל עוד לצפות או לאשר.')) return;
       try{ const fresh=await _dbGet('customerFoldVersions/'+b.dataset.v); const rev=CFV.revoke(fresh);
         await _dbPatch('customerFoldVersions/'+b.dataset.v, { status:rev.status, share:rev.share }); await load(); }catch(e){ alert('ביטול נכשל: '+(e.message||e)); } });
+    // ארכיון — רשומת-האישור נשמרת (תיעוד), רק יוצאת מהרשימה הפעילה
+    Array.from(document.getElementsByClassName('arcBtn')).forEach(b=>b.onclick=async()=>{
+      try{ await _dbPatch('customerFoldVersions/'+b.dataset.v, { archived:true, archivedAt:_nowIso() }); await load(); }catch(e){ alert('העברה לארכיון נכשלה: '+(e.message||e)); } });
+    Array.from(document.getElementsByClassName('unArcBtn')).forEach(b=>b.onclick=async()=>{
+      try{ await _dbPatch('customerFoldVersions/'+b.dataset.v, { archived:false, archivedAt:null }); await load(); }catch(e){ alert('החזרה מארכיון נכשלה: '+(e.message||e)); } });
+    // מחיקה מלאה — בלתי-הפיכה; דורשת אישור מפורש (רשומת-האישור של הלקוח תימחק)
+    Array.from(document.getElementsByClassName('delBtn')).forEach(b=>b.onclick=async()=>{
+      const jn=decodeURIComponent(b.dataset.j||'');
+      if(!confirm('למחוק לצמיתות את רשומת האישור'+(jn?(' של "'+jn+'"'):'')+'?\n\nזו פעולה בלתי-הפיכה — תיעוד האישור של הלקוח יימחק.\nאם רק רוצים לנקות את הרשימה — עדיף "העבר לארכיון".')) return;
+      try{ await _dbPut('customerFoldVersions/'+b.dataset.v, null); await load(); }catch(e){ alert('מחיקה נכשלה: '+(e.message||e)); } });
   }
   Array.from(document.getElementsByClassName('fBtn')).forEach(b=>b.onclick=()=>{ _filter=b.dataset.f; render(); });
   $('aSearch').oninput=render; $('aRefresh').onclick=load;
