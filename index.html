@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785073698';
+window.APP_VERSION = '1785074171';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -29674,6 +29674,7 @@ try { setTimeout(pi_badge, 4000); } catch(e){}
   function setBadge(n){ try{ var b=document.getElementById('cfv-badge'); if(b){ b.textContent=n>0?n:''; b.style.display=n>0?'':'none'; } }catch(e){} }
   function poll(){
     try{
+      if(window._isMachineView) { setBadge(0); render([]); return; }   // מסך-דפסים: לא מציגים אישורי-לקוחות
       if(typeof currentUser==='undefined' || !currentUser) return;   // כל המשתמשים המחוברים
       if(!window._fbGet) return;
       window._fbGet('customerFoldVersions').then(function(obj){
@@ -29686,6 +29687,74 @@ try { setTimeout(pi_badge, 4000); } catch(e){}
     }catch(e){}
   }
   setTimeout(poll, 5000); setInterval(poll, 60000);
+})();
+</script>
+<script>
+/* ═══ קבצים חדשים מלקוחות — באנר ירוק לאורך המסך + "ראיתי" שמאשר גם ללקוח ═══
+   מזהה עיתונים/ריצות חדשים ב-customerProofs שהדפוס עוד לא אישר שראה (shopSeenAt),
+   מציג באנר-ראש, וב"ראיתי" כותב shopSeenAt לרשומה → הלקוח רואה "הדפוס קיבל" בפורטל. */
+(function(){
+  var _bar=null;
+  function esc(t){ return String(t==null?'':t).replace(/[<>&]/g,function(c){return c==='<'?'&lt;':c==='>'?'&gt;':'&amp;';}); }
+  function _fmt(t){ try{ return new Date(t).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+  // פריטים ממתינים: עיתון-מלא שאושר · או ריצה (part) שאושרה — ללא shopSeenAt
+  function pending(obj){
+    var out=[];
+    Object.keys(obj||{}).forEach(function(id){
+      var p=obj[id]; if(!p) return;
+      if(p.parts && typeof p.parts==='object'){
+        Object.keys(p.parts).forEach(function(pid){ var t=p.parts[pid];
+          if(t && t.approvedAt && !t.shopSeenAt) out.push({ id:id, partId:pid, cust:p.customer||'', title:(p.title||'')+' · '+(t.name||'ריצה'), at:t.approvedAt, pages:t.pageCount||0, pend:(t.pendingPages||null) }); });
+      }
+      if(p.approvedAt && p.mode!=='parts' && !p.shopSeenAt)
+        out.push({ id:id, partId:null, cust:p.customer||'', title:p.title||'עיתון', at:p.approvedAt, pages:p.pageCount||0, pend:(p.pendingPages||null) });
+    });
+    out.sort(function(a,b){ return (b.at||0)-(a.at||0); });
+    return out;
+  }
+  function render(list){
+    if(!list.length){ if(_bar){ _bar.remove(); _bar=null; } return; }
+    if(!_bar){ _bar=document.createElement('div'); _bar.id='cpUploadBar';
+      _bar.style.cssText='position:fixed;top:0;left:0;right:0;z-index:100001;background:#15803d;color:#fff;padding:10px 16px;box-shadow:0 3px 14px rgba(0,0,0,.4);font-family:inherit;font-weight:700;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;font-size:1rem';
+      document.body.appendChild(_bar); }
+    _bar.innerHTML='<span style="font-size:1.15rem">📥 '+list.length+' קבצים חדשים מלקוחות:</span> '
+      + list.slice(0,4).map(function(r){ return '<span style="background:rgba(255,255,255,.22);padding:3px 10px;border-radius:12px">'
+          + esc(r.cust)+' — '+esc(r.title)+' ('+r.pages+' עמ׳)'
+          + (r.pend&&r.pend.length?(' <b>⏳ חסרים '+r.pend.join(',')+'</b>'):'')+' · '+_fmt(r.at)+'</span>'; }).join(' ')
+      + (list.length>4?('<span style="opacity:.85">+'+(list.length-4)+' נוספים</span>'):'')
+      + ' <button id="cpSeenAll" style="background:#fff;color:#15803d;border:none;border-radius:8px;padding:7px 16px;font-weight:800;cursor:pointer">✓ ראיתי</button>';
+    var b=document.getElementById('cpSeenAll');
+    if(b) b.onclick=function(){
+      b.disabled=true; b.textContent='מאשר…';
+      var who=(typeof currentUser!=='undefined' && currentUser) ? (currentUser.name||'בית-הדפוס') : 'בית-הדפוס';
+      var stamp={ shopSeenAt: Date.now(), shopSeenBy: who };
+      // כתיבה לכל פריט → הלקוח רואה בפורטל "הדפוס קיבל את הקבצים · ממתין לאישור סופי"
+      var jobs=list.map(function(r){
+        var path = r.partId ? ('customerProofs/'+r.id+'/parts/'+r.partId) : ('customerProofs/'+r.id);
+        return (window._fbPatch ? window._fbPatch(path, stamp) : _cpPatch(path, stamp));
+      });
+      Promise.all(jobs).then(function(){ render([]); poll(); }).catch(function(){ b.disabled=false; b.textContent='✓ ראיתי'; });
+    };
+  }
+  // PATCH ישיר ל-RTDB (אם אין _fbPatch גלובלי) — משתמש בטוקן-האנונימי הקיים של האפליקציה
+  function _cpPatch(path, obj){
+    try{
+      if(typeof _fbAuthToken==='function') return _fbAuthToken().then(function(tok){
+        return fetch('https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app/'+path+'.json'+(tok?('?auth='+tok):''),
+          { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj) });
+      });
+    }catch(e){}
+    return Promise.reject(new Error('no-auth'));
+  }
+  function poll(){
+    try{
+      if(window._isMachineView) { render([]); return; }        // מסך-דפסים: לא מציגים
+      if(typeof currentUser==='undefined' || !currentUser) return;
+      if(!window._fbGet) return;
+      window._fbGet('customerProofs').then(function(obj){ if(obj&&typeof obj==='object') render(pending(obj)); }).catch(function(){});
+    }catch(e){}
+  }
+  setTimeout(poll, 7000); setInterval(poll, 45000);
 })();
 </script>
 </body>

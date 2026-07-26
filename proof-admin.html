@@ -322,8 +322,9 @@ function render(rows) {
 
     // ── עבודה לפי ריצות ──
     if (parts.length) {
+      const _col = !!_jobCollapsed[p.id];   // עבודה מכווצת → שורות-הריצות מוסתרות
       const head = `<tr>
-        <td><b>${escapeHtml(p.title || '—')}</b></td>
+        <td><span data-jobtoggle="${p.id}" style="cursor:pointer;user-select:none;color:#2d3561;font-weight:900;margin-left:4px" title="${_col?'פתח':'כווץ'} ריצות">${_col?'▶':'▼'}</span> <b>${escapeHtml(p.title || '—')}</b></td>
         <td><span class="badge b-approved">${parts.length} ריצות התקבלו</span></td>
         <td>נוצר: ${fmt(p.createdAt)}</td>
         <td><div class="acts">
@@ -342,7 +343,7 @@ function render(rows) {
           ${genCell(pt.fileUrl, (p.title ? p.title + ' — ' : '') + pt.name, p.id, pt.pid)}
           <button class="del" data-delpart="${p.id}|${pt.pid}|${encodeURIComponent(pt.filePath||'')}" title="מחק ריצה">🗑</button>
         </div></td></tr>`).join('');
-      return head + partRows;
+      return head + (_col ? '' : partRows);   // מכווץ → מציגים רק את שורת-העבודה
     }
 
     // ── פרופר-אפוגי שהעלה הדפוס — אישור/נעילה של הלקוח ──
@@ -419,6 +420,10 @@ function render(rows) {
           <button data-apogee="${escapeHtml(_selCust)}" title="העלה פרופר-אפוגי לדפדוף+אישור בפורטל">📎 פרופר-אפוגי לפורטל</button>
         </div>
       </div>
+      ${sel.length > 1 ? `<div style="padding:6px 14px;background:#faf8f2;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:.82rem;color:#555">${sel.length} עבודות</span>
+        <button id="jobsCollapseAll" style="font-size:.8rem">➖ כווץ הכל</button>
+        <button id="jobsExpandAll" style="font-size:.8rem">➕ פתח הכל</button></div>` : ''}
       <table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
       <tbody>${sel.map(rowHtml).join('')}</tbody></table>`
     : '<div style="padding:26px;text-align:center;color:#9ca3af">בחרו לקוח מהרשימה בצד</div>';
@@ -433,6 +438,19 @@ function render(rows) {
   document.querySelectorAll('[data-link]').forEach(b => b.onclick = () => shareLink(b.dataset.link));
   document.querySelectorAll('[data-portal]').forEach(b => b.onclick = () => portalLink(b.dataset.portal));
   document.querySelectorAll('[data-editcust]').forEach(b => b.onclick = () => renameCustomer(b.dataset.editcust));
+  // כיווץ/פתיחת עבודות הלקוח (שורות-הריצות שמתחת לכל עבודה)
+  (function(){
+    var setAll = function(collapsed){
+      document.querySelectorAll('[data-jobtoggle]').forEach(function(t){ _jobCollapsed[t.dataset.jobtoggle] = collapsed; });
+      render(rows);
+    };
+    var ca = document.getElementById('jobsCollapseAll'), ea = document.getElementById('jobsExpandAll');
+    if (ca) ca.onclick = function(){ setAll(true); };
+    if (ea) ea.onclick = function(){ setAll(false); };
+    document.querySelectorAll('[data-jobtoggle]').forEach(function(t){
+      t.onclick = function(){ var k=t.dataset.jobtoggle; _jobCollapsed[k] = !_jobCollapsed[k]; render(rows); };
+    });
+  })();
   document.querySelectorAll('[data-notice]').forEach(b => b.onclick = () => sendNotice(b.dataset.notice));
   document.querySelectorAll('[data-apogee]').forEach(b => b.onclick = () => attachApogee(b.dataset.apogee));
   document.querySelectorAll('[data-unlock]').forEach(b => b.onclick = () => unlockProof(b.dataset.unlock));
@@ -454,6 +472,7 @@ function render(rows) {
 }
 let _genReg = {};
 let _selCust = null;   // הלקוח שנבחר ברשימת-הצד (master-detail)
+let _jobCollapsed = {};   // jobId → מכווץ? (כיווץ ריצות של עבודה)
 
 // הורדת הקובץ למחשב (לשליחה ידנית בוואטסאפ וכו')
 async function downloadFile(url, name, btn) {

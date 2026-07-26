@@ -249,8 +249,16 @@ async function loadHistory(){
     var lockNote = locked ? '<div style="font-size:.74rem;color:#166534;margin-top:3px">🔒 נעול לדפוס — לשינויים פנו לבית הדפוס</div>' : '';
     var rowStyle = locked ? 'border-inline-start:4px solid #16a34a;background:#f6fbf6;padding-inline-start:9px;border-radius:8px' : '';
     var _appDate = locked ? new Date(p.apogeeApprovedAt || p.approvedAt || p.createdAt).toLocaleDateString('he-IL') : '';
+    // חיווי "הדפוס קיבל" — נכתב ע"י בית-הדפוס בלחיצת "✓ ראיתי" על הבאנר (shopSeenAt).
+    // כולל גם ריצות: מספיק שריצה אחת סומנה כדי להראות ללקוח שההעלאה נתקבלה.
+    var _seenAt = p.shopSeenAt || (function(){ var m=0; if(p.parts) Object.keys(p.parts).forEach(function(k){ var t=p.parts[k]; if(t&&t.shopSeenAt&&t.shopSeenAt>m) m=t.shopSeenAt; }); return m||0; })();
+    var _seenBy = p.shopSeenBy || (function(){ if(!p.parts) return ''; var b=''; Object.keys(p.parts).forEach(function(k){ var t=p.parts[k]; if(t&&t.shopSeenBy) b=t.shopSeenBy; }); return b; })();
+    var seenNote = (_seenAt && !locked)
+      ? '<div style="font-size:.76rem;color:#166534;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:4px 8px;margin-top:4px;display:inline-block">📩 בית-הדפוס קיבל את הקבצים'
+        + (_seenBy?(' — '+esc(_seenBy)):'') + ' · ' + new Date(_seenAt).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+        + ' <span style="color:#92400e">· ממתין לאישור סופי</span></div>' : '';
     return '<div class="row" style="'+rowStyle+'"><div class="main"><div class="title">'+(locked?'✅ ':'')+esc(p.title || (p.customer? p.customer+' — עיתון' : 'עיתון'))+'</div>'
-      + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(locked?'אושר '+_appDate:'')+'</div>'+lockNote+'</div>'
+      + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(locked?'אושר '+_appDate:'')+'</div>'+lockNote+seenNote+'</div>'
       + '<span class="badge '+(locked?'b-approved':b.cls)+'" style="'+(locked?'font-size:.78rem;padding:4px 11px':'')+'">'+(locked?'✓ אושר לדפוס':b.txt)+'</span>'
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">'+acts+'</div></div>';
   }).join('');
