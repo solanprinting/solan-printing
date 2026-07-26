@@ -74,6 +74,9 @@
   #spread img { display:block; height:78vh; width:auto; max-width:48vw; background:#fff; box-shadow:none; }
   /* תצוגת "גלישות": חיתוך נטו רק בצד השדרה (חיבור נקי); בצדדים החיצוניים בליד + צלבי חיתוך + מסגרת trim — כדי לבדוק שיש מספיק גלישות */
   #spread .mediacrop { display:block; height:78vh; width:auto; max-width:48vw; background-color:#fff; background-repeat:no-repeat; }
+  /* כפולה שלמה מוצגת לבדה (page:only-child) — היא רחבה פי-2, ולכן max-width:48vw שבר את
+     יחס-הצדדים והעמודים נראו "דחוסים". נותנים לה כמעט את כל רוחב-החלון. */
+  #spread .page:only-child img, #spread .page:only-child .mediacrop { max-width:94vw; }
   #spread .trimframe { position:absolute; box-sizing:border-box; pointer-events:none; }
   #spread .cmark { position:absolute; background:#111; pointer-events:none; }
   #spread .pgdel { position:absolute; top:8px; left:8px; width:34px; height:34px; border:none; border-radius:50%;
@@ -582,7 +585,7 @@ function _pcAssignRunPages() {
       if (endB || startB) {
         var keep = endB ? 'right' : 'left', other = endB ? (pg+1) : (pg-1);
         p._runSplit = { kept: pg, dropped: other, side: keep };   // לחיווי-אזהרה למשתמש
-        if (p.spreadKeep !== keep) { p.spreadKeep = keep; if (p.src) _cropHalf(p.src, keep).then(function(u){ p.displaySrc=u; renderAll(); }); }
+        if (p.spreadKeep !== keep) { p.spreadKeep = keep; if (p.src) _cropHalf(p.src, keep, p.trimFrac).then(function(u){ p.displaySrc=u; renderAll(); }); }
         si += 1;
       } else { p._runSplit = null; p.spreadKeep = 'both'; p.displaySrc = null; si += 2; }
       p._asked = true;                               // רק שאלת ה"האם כפולה / איזה צד" נפתרת ע"י פריסת-הריצה
@@ -705,11 +708,25 @@ function _pcShowAnomalyModal(items, baseW, baseH) {
   };
   m._draw();
 }
-// חיתוך תמונת-תצוגה לחצי (ימין=החלק הימני של התמונה = העמוד הנמוך ב-RTL)
-function _cropHalf(src, side){
+// חיתוך תמונת-תצוגה לחצי (ימין=החלק הימני = העמוד הנמוך ב-RTL).
+// ⚠️ החיתוך נעשה לפי ה-TrimBox ולא לפי אמצע-התמונה: התמונה כוללת גלישות/שוליים,
+//    ולכן חצי-תמונה ≠ חצי-נטו. עם trimFrac ({l,t,w,h} יחסי-תמונה) חותכים בדיוק
+//    את חצי-הטרים (למשל 165 מ״מ מתוך כפולה 330) — כולל הגלישה החיצונית, בלי השדרה.
+function _cropHalf(src, side, tf){
   return new Promise(function(res){
     var img=new Image();
-    img.onload=function(){ var hw=Math.floor(img.width/2); var c=document.createElement('canvas'); c.width=hw; c.height=img.height; var sx=(side==='right')?(img.width-hw):0; try{ c.getContext('2d').drawImage(img, sx,0,hw,img.height, 0,0,hw,img.height); res(c.toDataURL('image/jpeg',0.85)); }catch(e){ res(src); } };
+    img.onload=function(){
+      var W=img.width, H=img.height, sx, sw, sy=0, sh=H;
+      if (tf && tf.w>0 && tf.h>0) {
+        var tL=tf.l*W, tW=tf.w*W, tMid=tL+tW/2;          // גבולות-הטרים ואמצעו (=קו-השדרה)
+        if (side==='right') { sx=tMid; sw=(W-tMid); }     // מאמצע-הטרים עד קצה-התמונה (כולל גלישה חיצונית)
+        else { sx=0; sw=tMid; }                           // מקצה-התמונה עד אמצע-הטרים
+        sy=0; sh=H;
+      } else { sw=Math.floor(W/2); sx=(side==='right')?(W-sw):0; }   // בלי TrimBox — נפילה-לאחור לחצי-תמונה
+      sx=Math.max(0,Math.round(sx)); sw=Math.max(1,Math.round(Math.min(sw, W-sx)));
+      var c=document.createElement('canvas'); c.width=sw; c.height=sh;
+      try{ c.getContext('2d').drawImage(img, sx,sy,sw,sh, 0,0,sw,sh); res(c.toDataURL('image/jpeg',0.85)); }catch(e){ res(src); }
+    };
     img.onerror=function(){ res(src); };
     img.src=src;
   });
@@ -727,7 +744,7 @@ window._pcAnomalyAns = function(uid, type, val) {
     if (p) {
       p.spreadKeep = val;                 // 'both' | 'right' | 'left'
       p._asked = true; p.displaySrc = null;
-      if ((val==='right'||val==='left') && p.src) _cropHalf(p.src, val).then(function(u){ p.displaySrc=u; renderAll(); });
+      if ((val==='right'||val==='left') && p.src) _cropHalf(p.src, val, p.trimFrac).then(function(u){ p.displaySrc=u; renderAll(); });
     }
     if (it) it._done=true;
   } else {
@@ -806,7 +823,7 @@ function renderSidebar() {
     d.className = 'thumb' + (active.includes(idx) ? ' active' : '');
     d.draggable = true; d.dataset.uid = p.uid;
     d.innerHTML = `<img src="${p.displaySrc||p.src}" alt=""><span class="n" title="לחצו להעברת העמוד למיקום אחר">${labels[idx]}</span>
-      ${p.isSpread ? '<span style="position:absolute;top:4px;left:4px;background:#1d4ed8;color:#fff;font-size:.62rem;font-weight:800;border-radius:5px;padding:1px 6px">📖 כפולה</span>' : ''}
+      
       ${p.blank ? '<span style="position:absolute;top:4px;left:4px;background:#64748b;color:#fff;font-size:.62rem;font-weight:800;border-radius:5px;padding:1px 6px">ריק</span>' : ''}
       <div class="tools"><button class="rep">החלף</button><button class="blk">רוקן</button><button class="rm">מחק</button></div>`;
     d.onclick = e => { if (!e.target.closest('.tools') && !e.target.closest('.n')) { vIndex = alignSpread(idx); renderViewer(); renderSidebar(); } };
@@ -966,7 +983,7 @@ function renderViewer() {
         + `<div class="page" data-idx="${i}" data-uid="${p.uid}">`
         + `<div class="mediacrop" style="${mc}"></div><div class="trimframe" style="${fst}"></div>${_pcCropMarks(f)}`
         + `<button class="pgdel" title="רוקן עמוד זה — יישאר ריק" data-uid="${p.uid}">✕</button></div>`
-        + `<div class="pgnum">${p.isSpread ? '📖 כפולה — עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
+        + `<div class="pgnum">${p.isSpread ? 'עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
     }
     if (tf && (tf.w < 1 || tf.h < 1)) {
       // נטו (ברירת-מחדל) — חיתוך לגודל הסופי בכל הצדדים, בלי בליד/צלבים (תצוגה נקייה)
@@ -981,13 +998,13 @@ function renderViewer() {
         + `<div class="page" data-idx="${i}" data-uid="${p.uid}">`
         + `<div class="mediacrop" style="${mc}"></div>`
         + `<button class="pgdel" title="רוקן עמוד זה — יישאר ריק" data-uid="${p.uid}">✕</button></div>`
-        + `<div class="pgnum">${p.isSpread ? '📖 כפולה — עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
+        + `<div class="pgnum">${p.isSpread ? 'עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
     }
     return `<div class="pagewrap">`
       + `<div class="page" data-idx="${i}" data-uid="${p.uid}">`
       + `<img src="${p.displaySrc||p.src}" alt="">`
       + `<button class="pgdel" title="מחק עמוד זה" data-uid="${p.uid}">✕</button></div>`
-      + `<div class="pgnum">${p.isSpread ? '📖 כפולה — עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
+      + `<div class="pgnum">${p.isSpread ? 'עמודים ' : 'עמוד '}${_lbls[i]}</div></div>`;
   }).join('');
   // כפתור מחיקה בדפדוף → מרוקן את העמוד (נשאר ריק, הפגינציה נשמרת)
   spread.querySelectorAll('.pgdel').forEach(b => {

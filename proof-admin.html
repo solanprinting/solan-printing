@@ -48,6 +48,22 @@
   #msg { margin:12px 0; font-size:.85rem; color:#374151; min-height:1.2em; }
   .empty { text-align:center; padding:46px; color:#9ca3af; background:#fff; border-radius:12px; box-shadow:0 4px 20px rgba(45,53,97,.07); }
   .folder { background:#fff; border-radius:12px; box-shadow:0 4px 20px rgba(45,53,97,.07); margin-bottom:14px; overflow:hidden; border:1px solid var(--line); }
+  /* ── master-detail: רשימת-לקוחות בצד · עבודות הלקוח הנבחר במרכז ── */
+  .mdWrap { display:flex; gap:14px; align-items:flex-start; }
+  .mdSide { flex:0 0 240px; max-width:240px; background:#fff; border:1px solid var(--line); border-radius:12px;
+    box-shadow:0 4px 20px rgba(45,53,97,.07); overflow:hidden; position:sticky; top:8px; max-height:calc(100vh - 90px); overflow-y:auto; }
+  .mdSideTitle { padding:9px 12px; background:#2d3561; color:#fff; font-weight:800; font-size:.86rem; }
+  .custItem { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:11px 12px;
+    cursor:pointer; border-bottom:1px solid #eee; font-weight:700; color:#2d3561; font-size:.9rem; transition:background .12s; }
+  .custItem:hover { background:#f5f3ec; }
+  .custItem.on { background:#2d3561; color:#fff; }
+  .custItem .cName { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .custItem .cCount { flex:0 0 auto; background:rgba(0,0,0,.10); border-radius:10px; padding:1px 8px; font-size:.76rem; }
+  .custItem.on .cCount { background:rgba(255,255,255,.25); }
+  .mdMain { flex:1; min-width:0; background:#fff; border:1px solid var(--line); border-radius:12px;
+    box-shadow:0 4px 20px rgba(45,53,97,.07); overflow:hidden; }
+  .custHead { padding:11px 14px; border-bottom:1px solid var(--line); background:#faf8f2; }
+  @media (max-width:760px){ .mdWrap{flex-direction:column} .mdSide{flex:auto;max-width:none;width:100%;position:static;max-height:230px} }
   .folder > summary { cursor:pointer; padding:13px 16px; font-weight:800; font-size:.95rem; color:var(--press);
     background:#eef0f6; list-style:none; user-select:none; border-right:4px solid var(--gold); }
   .folder > summary::-webkit-details-marker { display:none; }
@@ -356,19 +372,35 @@ function render(rows) {
       </div></td></tr>`;
   };
 
-  const folders = [...byCustomer.entries()].map(([customer, items]) => `
-    <details class="folder" open>
-      <summary>📁 ${escapeHtml(customer)} <span class="count">(${items.length})</span></summary>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;padding:7px 10px 2px">
-        <button data-portal="${escapeHtml(customer)}" title="קישור קבוע לפורטל האישי של הלקוח">🔗 קישור-פורטל</button>
-        <button data-notice="${escapeHtml(customer)}" title="שלח דרישה שתופיע בפורטל הלקוח">📢 שלח דרישה</button>
-        <button data-apogee="${escapeHtml(customer)}" title="העלה פרופר-אפוגי לדפדוף+אישור בפורטל">📎 פרופר-אפוגי לפורטל</button>
+  // ── פריסת master-detail: רשימת-לקוחות בצד · עבודות הלקוח הנבחר במרכז ──
+  const custNames = [...byCustomer.keys()];
+  if (!_selCust || !byCustomer.has(_selCust)) _selCust = custNames[0] || null;
+  const sideList = custNames.map(c => {
+    const items = byCustomer.get(c), on = (c === _selCust);
+    return `<div class="custItem${on?' on':''}" data-cust="${escapeHtml(c)}">
+      <span class="cName">📁 ${escapeHtml(c)}</span><span class="cCount">${items.length}</span></div>`;
+  }).join('') || '<div style="padding:12px;color:#9ca3af;font-size:.85rem">אין לקוחות</div>';
+
+  const sel = _selCust ? byCustomer.get(_selCust) : null;
+  const detail = sel ? `
+      <div class="custHead">
+        <div style="font-size:1.05rem;font-weight:900;color:#2d3561">📁 ${escapeHtml(_selCust)} <span class="count">(${sel.length})</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
+          <button data-portal="${escapeHtml(_selCust)}" title="קישור קבוע לפורטל האישי של הלקוח">🔗 קישור-פורטל</button>
+          <button data-notice="${escapeHtml(_selCust)}" title="שלח דרישה שתופיע בפורטל הלקוח">📢 שלח דרישה</button>
+          <button data-apogee="${escapeHtml(_selCust)}" title="העלה פרופר-אפוגי לדפדוף+אישור בפורטל">📎 פרופר-אפוגי לפורטל</button>
+        </div>
       </div>
       <table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
-      <tbody>${items.map(rowHtml).join('')}</tbody></table>
-    </details>`).join('');
+      <tbody>${sel.map(rowHtml).join('')}</tbody></table>`
+    : '<div style="padding:26px;text-align:center;color:#9ca3af">בחרו לקוח מהרשימה בצד</div>';
 
-  $('tableWrap').innerHTML = folders;
+  $('tableWrap').innerHTML = `<div class="mdWrap">
+      <aside class="mdSide"><div class="mdSideTitle">לקוחות (${custNames.length})</div>${sideList}</aside>
+      <section class="mdMain">${detail}</section>
+    </div>`;
+  // בחירת-לקוח → מציג את עבודותיו במרכז (בלי טעינה-מחדש מהשרת)
+  document.querySelectorAll('.custItem').forEach(el => el.onclick = () => { _selCust = el.dataset.cust; render(rows); });
 
   document.querySelectorAll('[data-link]').forEach(b => b.onclick = () => shareLink(b.dataset.link));
   document.querySelectorAll('[data-portal]').forEach(b => b.onclick = () => portalLink(b.dataset.portal));
@@ -392,6 +424,7 @@ function render(rows) {
   });
 }
 let _genReg = {};
+let _selCust = null;   // הלקוח שנבחר ברשימת-הצד (master-detail)
 
 // הורדת הקובץ למחשב (לשליחה ידנית בוואטסאפ וכו')
 async function downloadFile(url, name, btn) {
