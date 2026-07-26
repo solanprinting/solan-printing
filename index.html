@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785066007';
+window.APP_VERSION = '1785066282';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -9506,9 +9506,27 @@ function buildPrintCard(c) {
     [_sheetsLabel, _sheetsVal],
   ].map(([l,v])=>_fldRow(l,v)).join('') + _pagesRow;
 
+  // סוג-נייר: כשיש נייר שונה בין הריצות — מפרטים "עטיפה" מול "פנים".
+  // ריצה 1 היא החיצונית (מכילה שער+גב) ⇒ העטיפה; הריצות הפנימיות ⇒ פנים.
+  const _paperField = (function(){
+    var _rs = (_runs && _runs.length) ? _runs : [];
+    var _pp = _rs.map(function(r){ return String(r.paper || c.paper || '').trim(); });
+    var _distinct = _pp.filter(function(v,i){ return v && _pp.indexOf(v)===i; });
+    if (_rs.length > 1 && _distinct.length > 1) {
+      var line = function(lbl,val){ return '<div style="display:flex;gap:6px;align-items:baseline"><span style="font-size:.76rem;font-weight:800;color:#555;min-width:54px">'+lbl+'</span><span>'+escHtml(val)+_paperTagPrint(val)+'</span></div>'; };
+      var cover = _pp[0], inner = _pp.slice(1);
+      var innerDistinct = inner.filter(function(v,i){ return v && inner.indexOf(v)===i; });
+      var out = cover ? line('עטיפה:', cover) : '';
+      if (innerDistinct.length === 1) out += line('פנים:', innerDistinct[0]);
+      else inner.forEach(function(v,i){ if(v) out += line('ריצה '+(i+2)+':', v); });
+      return out;
+    }
+    return c.paper ? (escHtml(c.paper) + _paperTagPrint(c.paper)) : '';
+  })();
+
   const fieldsBottom = [
     ['גודל סופי', c.size||''],
-    ['סוג נייר', c.paper ? (escHtml(c.paper) + _paperTagPrint(c.paper)) : ''],
+    ['סוג נייר', _paperField],
     ['מכונה', c.machine||''],
     ['צבע', c.color||''],
     ['סה"כ עותקים', _totalCopiesBottomRow],
