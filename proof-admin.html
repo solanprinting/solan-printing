@@ -263,7 +263,34 @@ async function loadProofs() {
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   render(_allRows);
   msg(_allRows.length ? `${_allRows.length} קבצים` : '');
+  _sig = _rowsSig(_allRows);
 }
+
+// ── רענון-אוטומטי: כשלקוח מעלה קובץ/מאשר — המסך מתעדכן לבד, בלי רענון ידני ──
+//    מרענן *רק* כששונה משהו בפועל (חתימת-תוכן), כדי לא לקטוע עבודה/גלילה.
+let _sig = '';
+function _rowsSig(rows){
+  try{ return (rows||[]).map(function(p){
+    var parts = p.parts ? Object.keys(p.parts).map(function(k){ var t=p.parts[k]; return k+':'+(t.approvedAt||0)+':'+(t.fileUrl?1:0); }).sort().join(',') : '';
+    var files = p.files ? Object.keys(p.files).sort().join(',') : '';
+    return [p.id, p.updatedAt||0, p.approvedAt||0, p.apogeeApprovedAt||0, parts, files].join('|');
+  }).sort().join(';'); }catch(e){ return String(Math.random()); }
+}
+async function _autoRefresh(){
+  try{
+    if (document.hidden) return;                       // בלשונית-רקע אין טעם
+    if (document.querySelector('.modal,[data-busy="1"]')) return;   // לא קוטעים דיאלוג פתוח
+    const data = await (await fetch(await _au(`${_FBURL}/customerProofs.json`))).json() || {};
+    const rows = Object.entries(data).map(function(e){ return Object.assign({id:e[0]}, e[1]); })
+      .sort(function(a,b){ return (b.createdAt||0)-(a.createdAt||0); });
+    const sig = _rowsSig(rows);
+    if (sig === _sig) return;                          // אין שינוי — לא נוגעים במסך
+    _sig = sig; _allRows = rows; render(_allRows);
+    msg(_allRows.length ? (_allRows.length + ' קבצים · ✓ עודכן') : '');
+  }catch(e){}
+}
+setInterval(_autoRefresh, 15000);
+document.addEventListener('visibilitychange', function(){ if(!document.hidden) _autoRefresh(); });   // חזרה ללשונית → רענון מיידי
 
 function render(rows) {
   if (!rows.length) { $('tableWrap').innerHTML = '<div class="empty">אין קבצים עדיין. לחץ "קובץ חדש".</div>'; return; }

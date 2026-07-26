@@ -594,10 +594,18 @@ function _pcAssignRunPages() {
     //    גודל-חריג / גלישות עדיין מופיעות ב-_pcAnomalyCheck (תיקון ספרינט-1 שלב-3).
   });
 }
+// הריצה הבאה לפי כרטיס-העבודה: כמה ריצות כבר הועלו/אושרו → הבאה בתור.
+function _pcSuggestedRun(){
+  try{ var n = record && record.parts ? Object.keys(record.parts).length : 0; return n + 1; }catch(e){ return 1; }
+}
 function _pcRunListHtml(total) {
   var runs = total ? _pcRunLayout(total, _pcFullSheet()) : [];
   if (!runs.length) return '<div style="color:#9ca3af;font-size:.85rem;padding:6px 0">הזינו מספר עמודים כדי לראות את הריצות</div>';
-  return runs.map(function(r){ return '<button onclick="_pcPickRun('+r.num+')" style="display:block;width:100%;text-align:right;margin-bottom:6px;padding:11px 13px;border:1.5px solid #c7d2fe;border-radius:10px;background:#eef2ff;color:#3730a3;font-weight:700;cursor:pointer;font-family:inherit;font-size:.9rem">📄 ריצה '+r.num+' · '+r.label+' <span style="color:#6b7280;font-weight:500">('+r.pages+' עמ\')</span></button>'; }).join('');
+  var sug = _pcSuggestedRun();
+  return runs.map(function(r){
+    var on = (r.num === sug);
+    return '<button onclick="_pcPickRun('+r.num+')" style="display:block;width:100%;text-align:right;margin-bottom:6px;padding:11px 13px;border:'+(on?'2.5px solid #16a34a':'1.5px solid #c7d2fe')+';border-radius:10px;background:'+(on?'#f0fdf4':'#eef2ff')+';color:'+(on?'#166534':'#3730a3')+';font-weight:'+(on?'800':'700')+';cursor:pointer;font-family:inherit;font-size:.9rem">📄 ריצה '+r.num+' · '+r.label+' <span style="color:#6b7280;font-weight:500">('+r.pages+' עמ\')</span>'+(on?' <span style="background:#16a34a;color:#fff;border-radius:8px;padding:1px 7px;font-size:.72rem">מומלץ</span>':'')+'</button>';
+  }).join('');
 }
 function _pcRunPicker() {
   var m = document.getElementById('pc-runpick');
@@ -622,7 +630,21 @@ window._pcPickRun = function(num) {
   var m = document.getElementById('pc-runpick'); if (m) m.remove();
   if (pages.length) { detectSpreads(); _pcAssignRunPages(); renderAll(); }
 };
-window._pcSkipRun = function(){ window._pcRun = null; var m=document.getElementById('pc-runpick'); if(m) m.remove(); };
+// "דלג" — עדיין מנסים לזהות את הריצה מכרטיס-העבודה (סה"כ-עמודים + כמה ריצות כבר הועלו),
+// כדי שזיהוי כפולה-חוצת-ריצה ימשיך לעבוד. רק אם אין מספר-עמודים בכרטיס — מוותרים.
+window._pcSkipRun = function(){
+  window._pcRun = null;
+  try{
+    var total = parseInt((document.getElementById('pc-total')||{}).value) || parseInt(record.totalPages) || 0;
+    if (total) {
+      var runs = _pcRunLayout(total, _pcFullSheet());
+      var sug = _pcSuggestedRun();
+      window._pcRun = runs.find(function(r){ return r.num===sug; }) || null;
+    }
+  }catch(e){}
+  var m=document.getElementById('pc-runpick'); if(m) m.remove();
+  if (pages.length) { detectSpreads(); _pcAssignRunPages(); renderAll(); }
+};
 function detectSpreads() {
   const tol = 6;                                     // סובלנות במ"מ
   let baseW = _toMM(record.reqW), baseH = _toMM(record.reqH);
