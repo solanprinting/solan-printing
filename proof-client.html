@@ -559,8 +559,11 @@ function _pcRunLayout(total, fullSheet) {
       label = (fe+1===bs) ? ('עמ\' '+front+'–'+back) : ('עמ\' '+front+'–'+fe+' + '+bs+'–'+back);
       front+=half; back-=half;
     }
-    var boundary={}; seq.forEach(function(pp){ if (setO[pp] && !setO[pp+1]) boundary[pp]=1; });   // עמוד שבריצה אך העמוד הבא לא (גבול)
-    runs.push({ num:i+1, pages:lp, seq:seq, set:setO, boundary:boundary, label:label });
+    var boundary={}; seq.forEach(function(pp){ if (setO[pp] && !setO[pp+1]) boundary[pp]=1; });   // עמוד שבריצה אך העמוד *הבא* לא (גבול-סוף)
+    // גבול-*תחילת*-ריצה: העמוד בריצה אך הקודם לו שייך לריצה אחרת (למשל ריצה 2 מתחילה בעמ' 9,
+    // והכפולה שהועלתה היא 8–9 → עמ' 8 שייך לריצה 1 ויש לקחת רק את הצד של עמ' 9).
+    var startBoundary={}; seq.forEach(function(pp){ if (setO[pp] && !setO[pp-1]) startBoundary[pp]=1; });
+    runs.push({ num:i+1, pages:lp, seq:seq, set:setO, boundary:boundary, startBoundary:startBoundary, label:label });
   });
   return runs;
 }
@@ -572,12 +575,18 @@ function _pcAssignRunPages() {
     if (si >= seq.length) { p._runPage = null; return; }   // מעבר לרצף הריצה — בלי מספר-ריצה (שאלות גודל עדיין רלוונטיות)
     var pg = seq[si]; p._runPage = pg;
     if (p.isSpread) {
-      if (run.boundary[pg]) {                        // כפולה על גבול ריצה → רק הצד הימני (העמוד שבריצה)
-        if (p.spreadKeep !== 'right') { p.spreadKeep = 'right'; if (p.src) _cropHalf(p.src,'right').then(function(u){ p.displaySrc=u; renderAll(); }); }
+      // RTL: בכפולה העמוד הנמוך מימין והגבוה משמאל.
+      //   גבול-סוף  (pg בריצה, pg+1 לא) → הכפולה היא (pg, pg+1) → שומרים ימין.
+      //   גבול-תחילה (pg בריצה, pg-1 לא) → הכפולה היא (pg-1, pg) → שומרים שמאל.
+      var endB = !!run.boundary[pg], startB = !!(run.startBoundary && run.startBoundary[pg]);
+      if (endB || startB) {
+        var keep = endB ? 'right' : 'left', other = endB ? (pg+1) : (pg-1);
+        p._runSplit = { kept: pg, dropped: other, side: keep };   // לחיווי-אזהרה למשתמש
+        if (p.spreadKeep !== keep) { p.spreadKeep = keep; if (p.src) _cropHalf(p.src, keep).then(function(u){ p.displaySrc=u; renderAll(); }); }
         si += 1;
-      } else { p.spreadKeep = 'both'; p.displaySrc = null; si += 2; }
+      } else { p._runSplit = null; p.spreadKeep = 'both'; p.displaySrc = null; si += 2; }
       p._asked = true;                               // רק שאלת ה"האם כפולה / איזה צד" נפתרת ע"י פריסת-הריצה
-    } else { p.spreadKeep = undefined; si += 1; }
+    } else { p._runSplit = null; p.spreadKeep = undefined; si += 1; }
     // ⚠️ עמוד רגיל: בחירת-הריצה קובעת רק את מספר-העמוד — לא מסמנים _asked, כך ששאלות
     //    גודל-חריג / גלישות עדיין מופיעות ב-_pcAnomalyCheck (תיקון ספרינט-1 שלב-3).
   });
@@ -744,11 +753,13 @@ function pageLabels() {
 function buildWarnings() {
   const reqW = _toMM(record.reqW), reqH = _toMM(record.reqH);
   const wb = $('warnBox');
-  if (!reqW || !reqH || !pages.length) { wb.classList.add('hidden'); wb.innerHTML = ''; return; }
+  // ⚠️ בלי גודל-עיתון מוגדר עדיין צריך להציג אזהרות-כפולה/פיצול-ריצה — לכן לא יוצאים כאן.
+  if (!pages.length) { wb.classList.add('hidden'); wb.innerHTML = ''; return; }
   const tol = 1.5;
   const bad = [];
   const labels = pageLabels();
   pages.forEach((p, idx) => {
+    if (!reqW || !reqH) return;   // בדיקת-גודל רק כשהוגדר גודל נדרש
     if (p.wmm == null) return;
     if (p.isSpread) return;   // כפולה: רוחב כפול הוא תקין בכוונה — לא "גודל שגוי"
     if (p.sizeConfirmed) return;   // הלקוח אישר שהגודל בכוונה (גלישות) — לא להתריע
@@ -760,13 +771,23 @@ function buildWarnings() {
   const sprInfo = spr
     ? `<div style="margin-top:6px;color:#1d4ed8"><b>📖 זוהו ${spr} כפולות</b> — כל כפולה נספרת כ-2 עמודים (סה"כ ${effPageCount()} עמודים).</div>`
     : '';
-  if (!bad.length && !spr) { wb.classList.add('hidden'); wb.innerHTML = ''; return; }
+  // כפולה שחוצה גבול-ריצה — פוצלה אוטומטית; מציגים בדיוק איזה עמוד נלקח ואיזה שייך לריצה אחרת
+  const splits = [];
+  pages.forEach((p, idx) => { if (p._runSplit) splits.push(p._runSplit); });
+  const runNum = (window._pcRun && window._pcRun.num) || null;
+  const splitInfo = splits.length
+    ? `<div style="margin-top:8px;padding:9px 11px;background:#fff7ed;border:2px solid #f59e0b;border-radius:8px;color:#92400e">`
+      + `<b>✂️ כפולה פוצלה — היא חוצה גבול בין ריצות</b><div style="margin-top:4px">`
+      + splits.map(s => `העמוד <b>${s.dropped}</b> אינו שייך לריצה${runNum?(' '+runNum):''} הזו — נלקח רק העמוד <b>${s.kept}</b> (הצד ה${s.side==='right'?'ימני':'שמאלי'} של הכפולה).`).join('<br>')
+      + `</div><div style="margin-top:4px;font-size:.85rem">אם זו טעות — בדקו שבחרתם את הריצה הנכונה, או העלו את העמוד בנפרד.</div></div>`
+    : '';
+  if (!bad.length && !spr && !splits.length) { wb.classList.add('hidden'); wb.innerHTML = ''; return; }
   wb.classList.remove('hidden');
   wb.innerHTML = (bad.length
     ? `<b>⚠️ גודל לא תואם.</b> הגודל הנדרש: <b>${reqW}×${reqH} מ"מ</b>. ` +
       `העמודים הבאים בגודל שונה: <span class="bad">${bad.join(', ')}</span>. ` +
       `אפשר לתקן ולהעלות מחדש, או לשלוח כך אם זה בכוונה.`
-    : '') + sprInfo;
+    : '') + sprInfo + splitInfo;
 }
 
 // ── סרגל צד ──
