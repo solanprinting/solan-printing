@@ -1078,6 +1078,66 @@ document.addEventListener('keydown', e => {
 function renderAll() { detectSpreads(); _pcAssignRunPages(); renderSidebar(); renderViewer(); buildWarnings(); buildPreflight(); }
 
 // ── אישור + העלאה עם מד אחוזים ──
+// ── עמודים חסרים: כמה צפויים · אילו חסרים · השארה ריקים להשלמה ─────────────
+//    קריטי: עמוד חסר באמצע *מסיט* את כל העמודים אחריו — לכן מכניסים מציין-מקום
+//    ריק במיקום המדויק, כך שהמספור נשאר נכון וההשלמה בהמשך תיכנס בדיוק למקום.
+function _pcExpectedPages(){
+  try{
+    if (mode === 'run' && window._pcRun && window._pcRun.seq) return window._pcRun.seq.length;
+    var t = parseInt(record.totalPages) || 0; return t || 0;
+  }catch(e){ return 0; }
+}
+// מספרי-העמוד הצפויים לפי סדר (ריצה → seq; עיתון מלא → 1..N)
+function _pcExpectedNumbers(){
+  if (mode === 'run' && window._pcRun && window._pcRun.seq) return window._pcRun.seq.slice();
+  var t = _pcExpectedPages(), a = []; for (var i=1;i<=t;i++) a.push(i); return a;
+}
+function _pcMissingCheck(){
+  return new Promise(function(resolve){
+    var expected = _pcExpectedPages(), got = effPageCount();
+    if (!expected || got >= expected) { resolve([]); return; }      // אין ציפייה ידועה / לא חסר
+    var missCount = expected - got, nums = _pcExpectedNumbers();
+    var m = document.getElementById('pc-missing');
+    if (!m) { m = document.createElement('div'); m.id='pc-missing'; document.body.appendChild(m); }
+    m.style.cssText = 'position:fixed;inset:0;z-index:140;background:rgba(15,23,42,.66);display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
+    m.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:520px;width:96vw;padding:18px 20px;font-family:Heebo,Arial,sans-serif">'
+      + '<div style="font-size:1.1rem;font-weight:900;color:#b45309;margin-bottom:6px">⚠️ חסרים ' + missCount + ' עמודים</div>'
+      + '<div style="font-size:.9rem;color:#444;margin-bottom:10px">הועלו <b>' + got + '</b> עמודים מתוך <b>' + expected + '</b>'
+      + (mode==='run' && window._pcRun ? (' (ריצה ' + (window._pcRun.num||'') + ' · ' + (window._pcRun.label||'') + ')') : '') + '.<br>'
+      + 'איזה מספרי-עמוד חסרים? נשאיר אותם ריקים במקום הנכון, ותוכלו להשלים אותם בהמשך.</div>'
+      + '<input id="pc-miss-nums" type="text" placeholder="למשל: 16, 19" style="width:100%;padding:9px 10px;border:1.5px solid #d1d5db;border-radius:8px;font-size:1rem;font-family:inherit">'
+      + '<div id="pc-miss-err" style="color:#b91c1c;font-size:.82rem;margin-top:6px;min-height:1em"></div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
+      +   '<button id="pc-miss-ok" style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-weight:800;cursor:pointer;font-family:inherit">✓ השאר ריקים והשלם בהמשך</button>'
+      +   '<button id="pc-miss-end" style="background:#f3f4f6;color:#374151;border:1.5px solid #d1d5db;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer;font-family:inherit">הריקים בסוף</button>'
+      +   '<button id="pc-miss-cancel" style="background:none;border:none;color:#6b7280;cursor:pointer;text-decoration:underline;font-family:inherit">חזור לעריכה</button>'
+      + '</div></div>';
+    function addBlanks(list){
+      // list = מספרי-עמוד חסרים (בסדר עולה) → מכניסים ריק במיקום היחסי בתוך הריצה
+      list.slice().sort(function(a,b){return a-b;}).forEach(function(pn){
+        var idx = nums.indexOf(pn); if (idx < 0) idx = pages.length;
+        var blank = { uid: nextUid++, fileId: null, pageIndex: 0, blank: true, pendingFill: true, _missingPage: pn };
+        pages.splice(Math.min(idx, pages.length), 0, blank);
+      });
+      window._pcPendingPages = list.slice();
+      m.remove(); renderAll(); resolve(list.slice());
+    }
+    document.getElementById('pc-miss-cancel').onclick = function(){ m.remove(); resolve(false); };
+    document.getElementById('pc-miss-end').onclick = function(){    // בלי לציין מספרים — ריקים בסוף
+      var list = nums.slice(got);                                    // המספרים שלא כוסו
+      addBlanks(list.slice(0, missCount));
+    };
+    document.getElementById('pc-miss-ok').onclick = function(){
+      var raw = (document.getElementById('pc-miss-nums').value||'').split(/[^0-9]+/).filter(Boolean).map(Number);
+      var uniq = raw.filter(function(v,i){ return raw.indexOf(v)===i; });
+      var err = document.getElementById('pc-miss-err');
+      if (uniq.length !== missCount) { err.textContent = 'יש לציין בדיוק ' + missCount + ' מספרי-עמוד (צוינו ' + uniq.length + ').'; return; }
+      var bad = uniq.filter(function(v){ return nums.indexOf(v) < 0; });
+      if (bad.length) { err.textContent = 'העמודים ' + bad.join(', ') + ' אינם שייכים ל' + (mode==='run'?'ריצה הזו':'עיתון') + '.'; return; }
+      addBlanks(uniq);
+    };
+  });
+}
 $('approve').onclick = async () => {
   if (!pages.length) return;
   let runName = '';
@@ -1086,8 +1146,12 @@ $('approve').onclick = async () => {
     runName = (prompt('שם / מספר הריצה:', `ריצה ${count + 1}`) || '').trim();
     if (!runName) return;
   }
+  // ── בדיקת עמודים-חסרים מול הצפוי (ריצה/עיתון) — לפני האישור ──
+  //    מזהה כמה חסרים ואילו מספרי-עמוד, ומאפשר להשאיר ריקים ולהשלים בהמשך.
+  const _pend = await _pcMissingCheck();
+  if (_pend === false) return;                      // הלקוח ביטל — חוזר לעריכה
   const _spr = spreadCount();
-  if (!confirm(`לאשר ולשלוח ${effPageCount()} עמודים${_spr ? ` (כולל ${_spr} כפולות שנספרות כ-2 עמודים)` : ''} בסדר הנוכחי?\nלאחר האישור לא ניתן לשנות.`)) return;
+  if (!confirm(`לאשר ולשלוח ${effPageCount()} עמודים${_spr ? ` (כולל ${_spr} כפולות שנספרות כ-2 עמודים)` : ''}${(_pend&&_pend.length)?` · ${_pend.length} עמודים יישארו ריקים להשלמה`:''} בסדר הנוכחי?\nלאחר האישור לא ניתן לשנות.`)) return;
   _uploading = true; await acquireWakeLock();
   // אות "לקוח מעלה קובץ" — כדי שבית הדפוס יקבל התראה (גם קולית) בזמן אמת
   try { patch({ uploading: { at: Date.now(), name: (mode === 'run' ? runName : 'עיתון מלא'), pages: effPageCount() } }); } catch(e){}
@@ -1136,8 +1200,9 @@ $('approve').onclick = async () => {
       const fileUrl = await uploadBytes(path, pdfBytes, onUp);
       // תצוגה מהירה: שמירת העמודים המרונדרים (שכבר קיימים) לפתיחה מיידית בקדם-דפוס/דפסים — תקף 12ש'
       const cache = await uploadPagesCache(`customerProofs/${folder}/${proofId}/pages.json`);
-      await patch({ status:'approved', mode:'full', fileUrl, filePath:path, fileName:'full.pdf', pageCount:effPageCount(), spreadCount:_spr, fileSize:pdfBytes.byteLength, approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at });
-      return done('✓ העיתון אושר ונשלח לדפוס. תודה!');
+      await patch({ status:'approved', mode:'full', fileUrl, filePath:path, fileName:'full.pdf', pageCount:effPageCount(), spreadCount:_spr, fileSize:pdfBytes.byteLength, approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at,
+        pendingPages: (_pend && _pend.length) ? _pend : null });   // עמודים שנשארו ריקים להשלמה
+      return done((_pend&&_pend.length) ? ('✓ נשלח. נשארו להשלמה: עמ׳ '+_pend.join(', ')) : '✓ העיתון אושר ונשלח לדפוס. תודה!');
     } else {
       const partId = 'p' + Date.now();
       const path = `customerProofs/${folder}/${proofId}/${partId}.pdf`;
@@ -1145,10 +1210,15 @@ $('approve').onclick = async () => {
       const cache = await uploadPagesCache(`customerProofs/${folder}/${proofId}/${partId}-pages.json`);
       await fetch(await _au(`${_FBURL}/customerProofs/${proofId}/parts/${partId}.json`), {
         method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ name:runName, fileUrl, filePath:path, pageCount:effPageCount(), spreadCount:_spr, fileSize:pdfBytes.byteLength, status:'approved', approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at }) });
+        body: JSON.stringify({ name:runName, fileUrl, filePath:path, pageCount:effPageCount(), spreadCount:_spr, fileSize:pdfBytes.byteLength, status:'approved', approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at,
+          pendingPages: (_pend && _pend.length) ? _pend : null }) });   // עמודים שנשארו ריקים להשלמה
       await patch({ status:'parts', mode:'parts' });
       record = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
-      showOverlay('', false); alert(`✓ "${runName}" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.`); goHome();
+      showOverlay('', false);
+      alert((_pend&&_pend.length)
+        ? `✓ "${runName}" נשלחה.\nנשארו להשלמה: עמ׳ ${_pend.join(', ')} — אפשר להעלות אותם בהמשך כ"השלמת עמודים".`
+        : `✓ "${runName}" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.`);
+      goHome();
     }
   } catch (e) { console.error(e); showOverlay('שגיאה: ' + e.message + '\n\nנסו שוב או פנו לבית הדפוס.', true); }
   finally { _uploading = false; releaseWakeLock(); try { patch({ uploading: null }); } catch(e){} }
