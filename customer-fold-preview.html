@@ -754,6 +754,21 @@ function workerScreen(){
     if($('linkHint')) $('linkHint').style.display = on ? 'none' : '';
     if($('intChkWrap')) $('intChkWrap').style.borderColor = $('intChk').checked ? '#16a34a' : '#f59e0b';
     if(on) $('linkBtn').style.boxShadow='0 0 0 3px rgba(22,163,74,.4)'; else $('linkBtn').style.boxShadow=''; };
+  // ── כניסה מ"פרופר-אפוגי לפורטל": הקובץ כבר הועלה — טוענים אותו ישירות וממלאים פרטים ──
+  (async function _autoFromUrl(){
+    const src=qs.get('src'); if(!src) return;
+    const cust=qs.get('cust')||'', job=qs.get('job')||'', nm=qs.get('name')||'';
+    if(cust && $('custName')) $('custName').value=cust;
+    if(job && $('jobId')) $('jobId').value=job;
+    if($('jobName') && !$('jobName').value) $('jobName').value = (nm||'').replace(/\.pdf$/i,'') || cust;
+    $('wstatus').textContent='⏳ טוען את הפרופר שהועלה…';
+    try{
+      const r=await fetch(src); if(!r.ok) throw new Error('HTTP '+r.status);
+      _srcU8=new Uint8Array(await r.arrayBuffer()); _srcName=nm||'proof.pdf';
+      $('wstatus').innerHTML='📄 '+_srcName+' <span class="ok">· נטען מהעלאת-הפורטל</span> — בחר עמודים/טמפלט וצור חוברת.';
+      setStep(0); await _autoDetectSingle(); updFold();
+    }catch(e){ $('wstatus').innerHTML='<span class="bad">טעינת הפרופר נכשלה: '+(e.message||e)+' — אפשר לבחור את הקובץ ידנית.</span>'; }
+  })();
   $('linkBtn').onclick=async ()=>{
     if(!$('intChk').checked || !_folded) return;
     if(!_isProd()){ $('linkStatus').innerHTML='<span class="bad">יצירת-קישור פועלת רק באתר החי (הגנת-סביבה).</span>'; return; }

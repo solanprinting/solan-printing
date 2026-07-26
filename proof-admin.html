@@ -549,20 +549,23 @@ function attachApogee(customer){
   inp.style.display = 'none'; document.body.appendChild(inp);
   inp.onchange = async function(){
     const f = inp.files && inp.files[0]; inp.remove(); if (!f) return;
-    const fold = prompt('סוג הקיפול של פרופר-האפוגי (32 / 16perf / 16p / 8perf / 8p / 4perf / 4p):', '32');
-    if (fold == null) return;
-    msg('מעלה פרופר-אפוגי…');
+    msg('מעלה פרופר…');
     try {
       const buf = new Uint8Array(await f.arrayBuffer());
       const jobId = 'apogee_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
       const safe = (f.name||'apogee.pdf').replace(/[\\/:*?"<>|#%&{}]+/g,'_').slice(0,90);
       const path = 'customerProofs/'+slug+'/'+jobId+'/'+safe;
       const url = await uploadBytes(path, buf);
+      // רשומה בעבודות (הסטטוס מופיע ב"לקוחות ועבודות"); סוג-הקיפול ייקבע בכלי "פרופר ללקוח"
       await fetch(await _au(`${_FBURL}/customerProofs/${jobId}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ customer:customer, title:'פרופר אפוגי — '+(f.name||''), status:'apogee', apogeeUrl:url, apogeeFold:(fold||'32'), apogeePath:path, source:'shop', createdAt:Date.now() }) });
-      const nid = 'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-      await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${nid}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:'יש פרופר חדש לאישור לדפוס', type:'approve', at:Date.now(), done:false }) });
-      msg('✓ הפרופר הועלה לפורטל הלקוח'); await loadProofs();
+        body: JSON.stringify({ customer:customer, title:'פרופר — '+(f.name||''), status:'apogee', apogeeUrl:url, apogeePath:path, source:'shop', createdAt:Date.now() }) });
+      msg('✓ הועלה — נפתח בכלי "פרופר ללקוח"'); await loadProofs();
+      // ממשיכים בכלי החדש: קיפול לפי טמפלט → בדיקה → שליחה ללקוח לאישור
+      const q = 'customer-fold-preview.html?cfp=1&src=' + encodeURIComponent(url)
+              + '&cust=' + encodeURIComponent(customer) + '&job=' + encodeURIComponent(jobId)
+              + '&name=' + encodeURIComponent(f.name||'');
+      try { if (window.parent && window.parent !== window && window.parent._npTab) { window.parent._npTab('send'); } } catch(e){}
+      window.open(q, '_blank');
     } catch(e){ console.error(e); msg('✗ העלאה נכשלה: ' + (e.message||e)); }
   };
   inp.click();
