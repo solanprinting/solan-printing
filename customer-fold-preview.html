@@ -230,10 +230,20 @@ async function foldMultiRun(runDescs, bleedMm){
   if(!_bridge) _bridge=LB.createLegacyBridge({ iframeUrl:'imposition-tool.html' });
   await _bridge.ready();
   const runs=[];   // { outBytes, srcBytes, plan, pages }
+  const _u8=(v)=>{ if(v instanceof Uint8Array) return v; if(v instanceof ArrayBuffer) return new Uint8Array(v); return null; };
   for(let i=0;i<runDescs.length;i++){
-    const d=runDescs[i], u=d.u8;
-    const out=await _bridge.runFold({ arrayBuffer:u.slice(0), type:d.legacyType, firstSide:0, mirror:false, bleedMm:bleedMm, requestId:Date.now()+i });
-    const bytes = bleedMm>0 ? await _trimSpineBleed(out.bytes, bleedMm) : out.bytes;   // שדרה בקו-0
+    const d=runDescs[i], tag='R-'+(i+1)+(d.name?(' ('+d.name+')'):'');
+    // אימות-קלט: קובץ פגום/חסר לריצה → שגיאה שמזהה בדיוק איזו ריצה (במקום שגיאת-pdf עמומה)
+    const u=_u8(d.u8);
+    if(!u || !u.length) throw new Error('קובץ הריצה '+tag+' לא נטען כראוי — בחר אותו מחדש');
+    if(!d.legacyType) throw new Error('לריצה '+tag+' לא נבחר טמפלט');
+    let out;
+    try{
+      out=await _bridge.runFold({ arrayBuffer:u.slice(0), type:d.legacyType, firstSide:0, mirror:false, bleedMm:bleedMm, requestId:'mr'+Date.now()+'_'+i });
+    }catch(e){ throw new Error('קיפול ריצה '+tag+' נכשל: '+(e&&e.message||e)); }
+    const raw=_u8(out&&out.bytes);
+    if(!raw || !raw.length) throw new Error('קיפול ריצה '+tag+' לא החזיר קובץ תקין (טמפלט '+d.legacyType+')');
+    const bytes = bleedMm>0 ? await _trimSpineBleed(raw, bleedMm) : raw;   // שדרה בקו-0
     let plan=null; try{ plan=await _appPlanFor(u, d.legacyType, bleedMm); }catch(e){ plan=null; }
     runs.push({ outBytes:bytes, srcBytes:u, plan, pages:d.pages });
   }
@@ -242,7 +252,13 @@ async function foldMultiRun(runDescs, bleedMm){
   // ⚠️ copyPages פעם-אחת לכל ריצה (עם כל האינדקסים) — כך pdf-lib ממחזר את תמונת-הגיליון
   //    המשותפת פעם-אחת לריצה. copyPages עמוד-בכל-פעם היה מכפיל את התמונה (76MB × 64 = 2.4GB).
   const outDoc=await PDFLib.PDFDocument.create();
-  const loaded=[]; for(const r of runs) loaded.push(await PDFLib.PDFDocument.load(r.outBytes, { ignoreEncryption:true }));
+  const loaded=[];
+  for(let ri=0;ri<runs.length;ri++){
+    const rb=runs[ri].outBytes;
+    if(!rb || !rb.length) throw new Error('הרכבת החוברת נכשלה — לריצה R-'+(ri+1)+' אין קובץ');
+    try{ loaded.push(await PDFLib.PDFDocument.load(rb, { ignoreEncryption:true })); }
+    catch(e){ throw new Error('הרכבת החוברת נכשלה בריצה R-'+(ri+1)+': '+(e&&e.message||e)); }
+  }
   const copied=[];   // copied[runIndex][posInRun] = copied page
   for(let ri=0;ri<loaded.length;ri++){
     const positions=order.filter(o=>o.runIndex===ri).map(o=>o.posInRun);
@@ -693,23 +709,37 @@ function workerScreen(){
     if(!_multiNames.length){ $('multiTable').innerHTML=''; $('multiSum').textContent=''; updFold(); return; }
     const tot=parseInt($('totPages').value,10)||0;
     const pm=ADP.planMultiRun(_multiNames, tot);   // ברירת-מחדל: שם→סוג→עמודים
-    _runRows=pm.runs.map((r,i)=>({ name:_multiNames[i], u8:_multiU8[i], perfector:r.perfector, pages:r.pages, legacyType:r.legacyType }));
+    _runRows=pm.runs.map((r,i)=>({ name:_multiNames[i], u8:_multiU8[i], perfector:r.perfector, pages:r.pages, legacyType:r.legacyType,
+      tplId:_catalogIdForLegacy(r.legacyType)||'', tplManual:false }));   // טמפלט מוצע לכל ריצה (ניתן לשינוי)
     _drawRows();
   }
   function _drawRows(){
-    let html='<table style="width:100%;border-collapse:collapse;font-size:.85rem"><tr style="opacity:.7"><th style="text-align:right">ריצה</th><th style="text-align:right">קובץ</th><th>סוג</th><th>עמ׳</th></tr>';
+    // בורר-טמפלט מלא לכל ריצה — כי לפעמים ריצה אחת ב-4 צבעים (מתהפך) והשאר ב-8 צבעים (פרפקטור)
+    const _tplOpts=(cur)=>_catalog.filter(t=>_legacyTypeFor(t.id)).map(t=>
+      '<option value="'+t.id+'"'+(t.id===cur?' selected':'')+'>'+t.label+'</option>').join('');
+    let html='<table style="width:100%;border-collapse:collapse;font-size:.85rem"><tr style="opacity:.7"><th style="text-align:right">ריצה</th><th style="text-align:right">קובץ</th><th>סוג</th><th>עמ׳</th><th>טמפלט לריצה</th></tr>';
     _runRows.forEach((r,i)=>{
+      const curTpl = r.tplId || _catalogIdForLegacy(r.legacyType) || '';
       html+='<tr><td><b>R-'+(i+1)+'</b>'+(i===0?' <span class="muted">(חיצוני)</span>':'')+'</td>'
-        + '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.name+'">'+r.name+'</td>'
+        + '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.name+'">'+r.name+'</td>'
         + '<td><select data-i="'+i+'" class="rowType"><option value="perf"'+(r.perfector?' selected':'')+'>פרפקטור (8 צבע)</option><option value="tumble"'+(!r.perfector?' selected':'')+'>מתהפך (4 צבע)</option></select></td>'
-        + '<td><input type="number" data-i="'+i+'" class="rowPages" value="'+r.pages+'" step="2" min="4" style="width:70px"></td></tr>';
+        + '<td><input type="number" data-i="'+i+'" class="rowPages" value="'+r.pages+'" step="2" min="4" style="width:66px"></td>'
+        + '<td><select data-i="'+i+'" class="rowTpl" style="max-width:230px">'+_tplOpts(curTpl)+'</select></td></tr>';
     });
     html+='</table>';
     $('multiTable').innerHTML=html;
+    // שינוי סוג/עמודים → מעדכן את הטמפלט המוצע (אלא אם המשתמש בחר טמפלט ידנית לריצה)
+    const _sync=(i)=>{ const r=_runRows[i];
+      if(!r.tplManual){ r.legacyType=ADP.legacyTypeForRun(r.perfector,r.pages); r.tplId=_catalogIdForLegacy(r.legacyType)||r.tplId; } };
     Array.from(document.getElementsByClassName('rowType')).forEach(sel=>sel.onchange=e=>{ const i=+e.target.dataset.i;
-      _runRows[i].perfector=(e.target.value==='perf'); _runRows[i].legacyType=ADP.legacyTypeForRun(_runRows[i].perfector,_runRows[i].pages); _sumLine(); updFold(); });
+      _runRows[i].perfector=(e.target.value==='perf'); _sync(i); _drawRows(); });
     Array.from(document.getElementsByClassName('rowPages')).forEach(inp=>inp.onchange=e=>{ const i=+e.target.dataset.i;
-      _runRows[i].pages=parseInt(e.target.value,10)||0; _runRows[i].legacyType=ADP.legacyTypeForRun(_runRows[i].perfector,_runRows[i].pages); _sumLine(); updFold(); });
+      _runRows[i].pages=parseInt(e.target.value,10)||0; _sync(i); _drawRows(); });
+    Array.from(document.getElementsByClassName('rowTpl')).forEach(sel=>sel.onchange=e=>{ const i=+e.target.dataset.i, id=e.target.value;
+      const lt=_legacyTypeFor(id); if(!lt) return;
+      _runRows[i].tplId=id; _runRows[i].tplManual=true; _runRows[i].legacyType=lt;      // בחירה ידנית גוברת
+      _runRows[i].perfector=/perf$|^32$|^16perf$/.test(lt) || lt==='32';                 // מסנכרן את תג-הסוג לתצוגה
+      _drawRows(); });
     _sumLine(); updFold();
   }
   function _sumLine(){

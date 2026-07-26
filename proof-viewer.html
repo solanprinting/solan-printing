@@ -82,6 +82,7 @@
     <span id="vlabel"></span>
     <button id="vnext">הבא ›</button>
     <button id="vfs">⛶ מסך מלא</button>
+    <button id="vzoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button>
   </div>
 </div>
 
@@ -374,6 +375,36 @@ function step(d){
 $('vprev').onclick = () => step(-1);
 $('vnext').onclick = () => step(+1);
 $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) document.exitFullscreen(); else (v.requestFullscreen||v.webkitRequestFullscreen).call(v); };
+// ── זום בדפדוף (לחצן + גלגלת + גרירה) — לצפייה מקרוב בגיליון שהלקוח העלה ──
+(function(){
+  var sp=$('spread'), btn=$('vzoom'); if(!sp||!btn) return;
+  var on=false, sc=1, tx=0, ty=0, drag=null;
+  function targets(){ return sp.querySelectorAll('canvas,img'); }
+  function apply(){
+    Array.prototype.forEach.call(targets(), function(t){
+      t.style.transformOrigin='center center';
+      t.style.transform='translate('+tx+'px,'+ty+'px) scale('+sc+')';
+      t.style.cursor = (on && sc>1) ? 'grab' : (on ? 'zoom-in' : '');
+    });
+    sp.style.overflow = on ? 'hidden' : '';
+    btn.textContent = on ? ('🔍 זום '+Math.round(sc*100)+'%') : '🔍 זום';
+    btn.style.background = on ? '#c9a84c' : ''; btn.style.color = on ? '#1a1a2e' : '';
+  }
+  function reset(){ sc=1; tx=0; ty=0; apply(); }
+  window._pvZoomReset = reset;                       // מעבר-עמוד מאפס
+  btn.onclick=function(){ on=!on; if(!on) reset(); else apply(); };
+  sp.addEventListener('wheel', function(e){
+    if(!on) return; e.preventDefault();
+    var prev=sc; sc=Math.min(6, Math.max(1, sc*(e.deltaY<0?1.15:1/1.15)));
+    if(sc===1){ tx=0; ty=0; } else { var k=sc/prev; tx*=k; ty*=k; }
+    apply();
+  }, {passive:false});
+  sp.addEventListener('mousedown', function(e){ if(!on||sc<=1) return; e.preventDefault(); drag={x:e.clientX-tx,y:e.clientY-ty}; });
+  window.addEventListener('mousemove', function(e){ if(!drag) return; tx=e.clientX-drag.x; ty=e.clientY-drag.y; apply(); });
+  window.addEventListener('mouseup', function(){ drag=null; apply(); });
+  sp.addEventListener('dblclick', function(){ if(on) reset(); });
+  ['vprev','vnext'].forEach(function(id){ var b=$(id); if(b) b.addEventListener('click', function(){ setTimeout(reset,0); }); });
+})();
 document.addEventListener('keydown', e => { if (e.key==='ArrowLeft') step(+1); if (e.key==='ArrowRight') step(-1); });
 
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }

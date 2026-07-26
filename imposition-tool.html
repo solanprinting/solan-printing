@@ -310,6 +310,51 @@ const TEMPLATES = {
 const _DEFAULT_TEMPLATES = JSON.parse(JSON.stringify(TEMPLATES));   // גיבוי ברירת-מחדל (לאיפוס)
 let _tplOverrides = {};
 try { _tplOverrides = JSON.parse(localStorage.getItem('solanFoldTemplates') || '{}') || {}; } catch(e){ _tplOverrides = {}; }
+// ── שיתוף טמפלטים בין כל המשתמשים ─────────────────────────────────────────────
+//    טמפלט שנשמר במכשיר אחד נדחף ל-Firebase, וכל מכשיר ממזג אותו בטעינה.
+//    שמירה מקומית תמיד מתבצעת (עובד גם בלי רשת); הענן הוא שכבת-שיתוף.
+var _TPL_FB = 'impositionFoldTemplates';
+function _tplPersist(){
+  try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
+  try { _tplPushCloud(); } catch(e){}
+}
+function _tplCustomOnly(){
+  var out={}; Object.keys(_tplOverrides||{}).forEach(function(k){ var o=_tplOverrides[k];
+    if (o && o.custom && o.grids && o.grids.length) out[k]=o; });
+  return out;
+}
+function _tplPushCloud(){
+  var mine=_tplCustomOnly(); if(!Object.keys(mine).length) return Promise.resolve();
+  Object.keys(mine).forEach(function(k){ if(!mine[k]._upd) mine[k]._upd = Date.now(); });
+  var _auth = (typeof _itAuth==='function') ? _itAuth : (window._itAuth || null);
+  if (!_auth) return Promise.resolve();
+  return _auth().then(function(tok){
+    return fetch(_FBURL + '/' + _TPL_FB + '.json' + (tok ? ('?auth=' + tok) : ''),
+      { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(mine) });
+  }).catch(function(){});
+}
+function _tplPullCloud(){
+  var _auth = (typeof _itAuth==='function') ? _itAuth : (window._itAuth || null);
+  if (!_auth) return Promise.resolve(false);
+  return _auth().then(function(tok){
+    return fetch(_FBURL + '/' + _TPL_FB + '.json' + (tok ? ('?auth=' + tok) : ''));
+  }).then(function(r){ return r && r.ok ? r.json() : null; }).then(function(cloud){
+    if (!cloud || typeof cloud !== 'object') return false;
+    var changed=false;
+    Object.keys(cloud).forEach(function(k){
+      var c=cloud[k], l=_tplOverrides[k];
+      if (!c || !c.custom || !c.grids || !c.grids.length) return;
+      if (!l || ((c._upd||0) > (l._upd||0))) { _tplOverrides[k]=c; changed=true; }   // החדש מנצח
+    });
+    if (changed) {
+      try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
+      try { _applyTplOverrides(TEMPLATES, _tplOverrides); } catch(e){}
+      try { if (typeof _renderTypeOptions === 'function') _renderTypeOptions(); } catch(e){}
+    }
+    return changed;
+  }).catch(function(){ return false; });
+}
+setTimeout(function(){ _tplPullCloud().then(function(){ _tplPushCloud(); }); }, 1200);
 // מחיל override על טמפלט רק אם המבנה תואם (אותו מספר צדדים) — בטוח מול שינויי-מבנה עתידיים
 function _applyTplOverrides(templates, overrides){
   if (!overrides) return;
@@ -595,7 +640,7 @@ function _tplSave(){
   }
   else
     _tplOverrides[type] = { grids: grids };
-  try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
+  _tplPersist();
   var dlg=document.getElementById('tplEditDlg'); if(dlg) dlg.remove();
   _tplNote('💾 הטמפלט נשמר — ישמש גם בעתיד');
   if (_file && $('go') && !$('go').disabled) $('go').click();   // קפל מחדש עם הטמפלט המעודכן אם כבר יש קובץ
@@ -605,7 +650,7 @@ function _tplReset(){
   if (tpl && tpl.custom){   // טמפלט מותאם-אישית — "אפס" = מחיקת הטמפלט
     if(!confirm('למחוק את הטמפלט "'+_tplLabel()+'"?')) return;
     delete TEMPLATES[type]; delete _tplOverrides[type];
-    try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
+    _tplPersist();
     var opt=$('sheet').querySelector('option[value="'+type+'"]'); if(opt) opt.remove();
     $('sheet').selectedIndex=0;
     try { _bkPopulate(); } catch(e){}
@@ -616,7 +661,7 @@ function _tplReset(){
   if(!confirm('לאפס את הטמפלט "'+_tplLabel()+'" לברירת-המחדל של המערכת?')) return;
   TEMPLATES[type].grids = JSON.parse(JSON.stringify(_DEFAULT_TEMPLATES[type].grids));
   delete _tplOverrides[type];
-  try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
+  _tplPersist();
   _tplNote('↺ הטמפלט אופס לברירת-מחדל');
   _tplEdit();
   if (_file && $('go') && !$('go').disabled) $('go').click();
@@ -649,7 +694,7 @@ function _tplNew(){
   var key='c'+N+'_'+Math.random().toString(36).slice(2,6);
   TEMPLATES[key]={ N:N, sides:sides, rot:rot, grids:grids, custom:true, label:name };
   _tplOverrides[key]={ grids:grids, N:N, sides:sides, rot:rot, label:name, custom:true };
-  try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
+  _tplPersist();
   _tplAddOption(key, name);
   $('sheet').value=key;
   try { _bkPopulate(); _bkSyncFromSheet(); } catch(e){}
@@ -736,7 +781,7 @@ async function _tplImportPdf(file){
       geom: { colX:colX, rowY:rowY, trimWmm:trimW, trimHmm:trimH, sheetWmm:sheetW, sheetHmm:sheetH } };
     TEMPLATES[key] = tpl;
     _tplOverrides[key] = { grids:grids, N:N, sides:sides, rot:rotOut, rotGrids:rotGrids, label:name, custom:true, sizeLabel:sizeLabel, geom: tpl.geom };
-    try { localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); } catch(e){}
+    _tplPersist();
     _tplAddOption(key, name);
     $('sheet').value = key;
     try { _bkPopulate(); _bkSyncFromSheet(); } catch(e){}
@@ -768,7 +813,7 @@ function _tplManage(){
 function _tplDeleteKey(k){
   var o=_tplOverrides[k]; if(!confirm('למחוק את הטמפלט "'+((o&&o.label)||k)+'"? פעולה בלתי-הפיכה.')) return;
   delete TEMPLATES[k]; delete _tplOverrides[k];
-  try{ localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); }catch(e){}
+  _tplPersist();
   var opt=$('sheet').querySelector('option[value="'+k+'"]'); if(opt) opt.remove();
   if($('sheet').value===k) $('sheet').selectedIndex=0;
   try{ _bkPopulate(); }catch(e){}
@@ -1008,7 +1053,7 @@ function _tbSave(){
   TEMPLATES[key]=tpl;
   _tplOverrides[key]={ grids:tpl.grids, N:tpl.N, sides:tpl.sides, rot:tpl.rot, label:tpl.label, custom:true, sizeLabel:tpl.sizeLabel, geom:tpl.geom };
   if (tpl.rotGrids) _tplOverrides[key].rotGrids = tpl.rotGrids;
-  try{ localStorage.setItem('solanFoldTemplates', JSON.stringify(_tplOverrides)); }catch(e){}
+  _tplPersist();
   _tplAddOption(key, tpl.label);
   $('sheet').value=key;
   try{ _bkPopulate(); _bkSyncFromSheet(); }catch(e){}
@@ -1950,6 +1995,7 @@ function _itAuth(){
   }).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('auth ' + r.status)); })
     .then(function(j){ _itTok = { id:j.idToken, exp: Date.now() + (parseInt(j.expiresIn)||3600)*1000 }; return _itTok.id; });
 }
+window._itAuth = _itAuth;
 function _itUpload(path, bytes, onPct){
   return _itAuth().then(function(tok){
     return new Promise(function(resolve, reject){
