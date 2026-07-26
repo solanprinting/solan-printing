@@ -451,6 +451,12 @@ function workerScreen(){
   document.title='הצגת פרופר מקופל ללקוח';
   $('app').innerHTML = ''
    + '<h2>הצגת פרופר מקופל ללקוח <span class="muted">(Beta · פנימי)</span> <a href="?approvals=1" style="font-size:.8rem;font-weight:400">📋 מערכת אישור לקוחות</a></h2>'
+   + '<div style="display:flex;gap:6px;margin-bottom:12px;border-bottom:2px solid var(--line);padding-bottom:0">'
+   +   '<div id="navSend" class="navtab" style="padding:9px 18px;cursor:pointer;font-weight:800;border-radius:8px 8px 0 0;background:var(--press);color:#fff">📤 שליחת פרופר</div>'
+   +   '<div id="navTpl" class="navtab" style="padding:9px 18px;cursor:pointer;font-weight:700;border-radius:8px 8px 0 0;background:#fff;color:var(--press);border:1px solid var(--line);border-bottom:none">🧩 הוספת טמפלט</div>'
+   + '</div>'
+   + '<div id="tplPane" style="display:none"></div>'
+   + '<div id="sendPane">'
    + '<div class="steps">'+['העלאת פרופר','בחירת טמפלט','יצירת חוברת','בדיקה פנימית','שליחה ללקוח'].map((s,i)=>'<div class="step" id="wstep'+i+'">'+(i+1)+'. '+s+'</div>').join('')+'</div>'
    + '<div class="card"><b>1–2.</b> פרופר: <input type="file" id="proof" accept="application/pdf"> · טמפלט (לכל קונטרס): '
    + '<select id="tpl"><option value="">— בחר —</option></select> '
@@ -470,7 +476,59 @@ function workerScreen(){
    + '<div class="card" id="checkCard" style="display:none"><h3>4. בדיקה פנימית → שליחה</h3>'
    + '<label class="chk" id="intChkWrap" style="display:block;padding:10px;border:2px solid #f59e0b;border-radius:8px;background:rgba(245,158,11,.08);cursor:pointer"><input type="checkbox" id="intChk" style="transform:scale(1.4);margin-left:6px;vertical-align:middle"> <b>סמן כאן:</b> בדקתי שהשער, סדר העמודים, הכיוונים והחיתוך תקינים.</label>'
    + '<div style="margin-top:12px"><button id="linkBtn" class="primary" disabled>🔗 צור קישור לשליחה ללקוח</button> <span id="linkHint" class="muted" style="margin-right:8px">← סמן קודם את הבדיקה הפנימית למעלה</span> <span id="linkStatus" class="muted"></span></div>'
-   + '<div id="linkOut" style="margin-top:10px"></div></div>';
+   + '<div id="linkOut" style="margin-top:10px"></div></div>'
+   + '</div>';   // סוף sendPane
+
+  // ── לשוניות: שליחת-פרופר ↔ הוספת-טמפלט ──────────────────────────────────────
+  function _showPane(which){
+    const send=which==='send';
+    $('sendPane').style.display=send?'':'none'; $('tplPane').style.display=send?'none':'';
+    $('navSend').style.cssText='padding:9px 18px;cursor:pointer;font-weight:'+(send?'800':'700')+';border-radius:8px 8px 0 0;'+(send?'background:var(--press);color:#fff':'background:#fff;color:var(--press);border:1px solid var(--line);border-bottom:none');
+    $('navTpl').style.cssText='padding:9px 18px;cursor:pointer;font-weight:'+(send?'700':'800')+';border-radius:8px 8px 0 0;'+(send?'background:#fff;color:var(--press);border:1px solid var(--line);border-bottom:none':'background:var(--press);color:#fff');
+    if(!send) _renderTplPane();
+  }
+  $('navSend').onclick=()=>_showPane('send'); $('navTpl').onclick=()=>_showPane('tpl');
+
+  // ── לשונית "הוספת טמפלט": רשימת הטמפלטים המותאמים + הוספה חדשה דרך כלי-הסימון ──
+  function _renderTplPane(){
+    let rows='';
+    try{
+      const ov=JSON.parse(localStorage.getItem('solanFoldTemplates')||'{}')||{};
+      const keys=Object.keys(ov).filter(k=>ov[k]&&ov[k].custom&&Array.isArray(ov[k].grids)&&ov[k].grids.length);
+      rows = keys.length ? ('<table style="width:100%;border-collapse:collapse;font-size:.88rem"><tr style="opacity:.7"><th style="text-align:right">טמפלט</th><th>עמ׳</th><th>גודל עמוד</th><th>צדדים</th><th></th></tr>'
+        + keys.map(k=>{ const o=ov[k], g=o.geom||{};
+            return '<tr><td><b>🧩 '+(o.label||k)+'</b></td><td style="text-align:center">'+(o.N||'?')+'</td>'
+              + '<td style="text-align:center">'+(g.trimWmm?(g.trimWmm+'×'+g.trimHmm+' מ״מ'):'—')+'</td>'
+              + '<td style="text-align:center">'+(o.sides===2?'פרפקטור':'מתהפך')+'</td>'
+              + '<td style="text-align:left"><button class="tplDel" data-k="'+k+'" style="font-size:.8rem">🗑 הסר</button></td></tr>'; }).join('')
+        + '</table>') : '<div class="muted">אין עדיין טמפלטים מותאמים. הוסף אחד כדי לקפל גדלים שאינם ברשימה הקבועה.</div>';
+    }catch(e){ rows='<div class="bad">שגיאה בקריאת הטמפלטים</div>'; }
+    $('tplPane').innerHTML='<div class="card"><h3>🧩 טמפלטים מותאמים</h3>'
+      + '<div class="muted" style="margin-bottom:8px">טמפלטים אלה מצטרפים לרשימת-הטמפלטים בשליחת-פרופר וגם בכלי-הקיפול. נשמרים במכשיר הזה.</div>'
+      + rows + '</div>'
+      + '<div class="card"><h3>➕ הוספת טמפלט חדש</h3>'
+      + '<div class="muted" style="margin-bottom:10px">מעלים <b>קובץ-טמפלט מ-Apogee</b> (גיליון עם מספרי-עמוד בכל משבצת). הכלי קורא את הגיאומטריה אוטומטית, מציג לבדיקה — ובשמירה הטמפלט מצטרף לרשימה כאן.</div>'
+      + '<button id="openMarker" class="primary">🧩 פתח את כלי סימון-הטמפלט</button> '
+      + '<button id="tplRefresh">🔄 רענן רשימה</button>'
+      + '<div class="muted" style="margin-top:10px;font-size:.82rem">אחרי השמירה בכלי-הסימון — חזור לכאן ולחץ "רענן רשימה" (או פתח מחדש את הדף), והטמפלט יופיע גם בבורר של שליחת-הפרופר.</div></div>';
+    $('openMarker').onclick=()=>window.open('imposition-decoder-preview.html','_blank');
+    $('tplRefresh').onclick=()=>{ _renderTplPane(); _reloadCatalog(); };
+    Array.from(document.getElementsByClassName('tplDel')).forEach(b=>b.onclick=()=>{
+      if(!confirm('להסיר את הטמפלט מהרשימה? (לא ימחק קבצים — רק מהרשימה במכשיר הזה)')) return;
+      try{ const ov=JSON.parse(localStorage.getItem('solanFoldTemplates')||'{}')||{}; delete ov[b.dataset.k];
+        localStorage.setItem('solanFoldTemplates', JSON.stringify(ov)); _renderTplPane(); _reloadCatalog(); }catch(e){}
+    });
+  }
+  // רענון בורר-הטמפלטים בלי לרענן את הדף (אחרי הוספה/הסרה)
+  function _reloadCatalog(){
+    try{ const cur=$('tpl').value; const fresh=_cfpCatalog();
+      _catalog.length=0; fresh.forEach(t=>_catalog.push(t));
+      $('tpl').innerHTML='<option value="">— בחר —</option>';
+      _catalog.forEach(t=>{ const o=document.createElement('option'); o.value=t.id; o.textContent=t.label; $('tpl').appendChild(o); });
+      if(cur && _catalog.some(t=>t.id===cur)) $('tpl').value=cur;
+      updFold();
+    }catch(e){}
+  }
 
   let _srcU8=null, _srcName='', _folded=null, _multiU8=[], _multiNames=[];   // {bytes,result}
   // מיון-טבעי לפי שם-קובץ → R-1 לפני R-2 לפני R-10 (בחירת-קבצים מרובה לא שומרת סדר)
