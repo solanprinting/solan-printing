@@ -309,9 +309,9 @@ function render(rows) {
   _genReg = {}; let gi = 0;
   const genCell = (fileUrl, title, jobId, partId) => {
     const key = 'g' + (gi++); _genReg[key] = { fileUrl, title, jobId, partId };
-    return `<button class="dl" data-dl="${key}">⬇ הורד עיתון</button>
+    return `<button class="dl" data-dl="${key}" title="הקובץ המקורי שהתקבל מהלקוח">⬇ הקובץ המקורי</button>
             <select data-sheet="${key}"><option value="32">70×100</option><option value="16">64×90</option></select>
-            <button class="gen" data-gen="${key}">⬇ ייצר ריצות</button>`;
+            <button class="gen" data-gen="${key}" title="כל ריצה כקובץ-PDF אחד — לגרירה ישירה לאפוגי">⬇ הורד ריצות (PDF לכל ריצה)</button>`;
   };
 
   const rowHtml = p => {
@@ -711,24 +711,31 @@ async function generateRuns(proof, fullSheet, btn) {
     const total = src.getPageCount();
     const runs = splitToKontresim(total, fullSheet);
 
-    const zip = new JSZip();
-    const pad = n => String(n).padStart(2, '0');
+    // ── כל ריצה = קובץ-PDF אחד (לגרירה ישירה לאפוגי), לא עמודים בודדים בתיקייה ──
+    //    סדר-העמודים וסט-העמודים זהים לקודם; רק האריזה השתנתה (מיזוג במקום פיצול).
+    const safe = s => String(s || '').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const issue = proof.issue || proof.issueNo || proof.edition || '';
+    const baseName = safe(proof.title || 'חוברת') + (issue ? (' — גיליון ' + safe(issue)) : '');
+    const built = [];
     for (const run of runs) {
-      const folder = zip.folder(`ריצה ${run.num} (עמ ${run.label})`);
-      for (let i = 0; i < run.pages.length; i++) {
-        const sp = run.pages[i];
-        if (sp > total) continue;
-        const out = await PDFLib.PDFDocument.create();
-        const [pg] = await out.copyPages(src, [sp - 1]);
-        out.addPage(pg);
-        const lbl = norm.labels[sp - 1] || String(sp);
-        const mark = norm.spread[sp - 1] ? '_כפולה' : '';
-        folder.file(`${pad(i + 1)}_pg${lbl}${mark}.pdf`, await out.save());
-      }
+      btn.textContent = `בונה ריצה ${run.num}/${runs.length}…`;
+      const out = await PDFLib.PDFDocument.create();
+      const idxs = run.pages.filter(sp => sp <= total).map(sp => sp - 1);
+      if (!idxs.length) continue;
+      const copied = await out.copyPages(src, idxs);      // קריאה-אחת → משאבים משותפים לא משוכפלים
+      copied.forEach(pg => out.addPage(pg));
+      built.push({ num: run.num, label: run.label, bytes: await out.save() });
     }
-    btn.textContent = 'בונה ZIP…';
-    const blob = await zip.generateAsync({ type: 'blob' });
-    downloadBlob(blob, `${(proof.title || 'חוברת')} — ריצות.zip`);
+    if (!built.length) throw new Error('לא נוצרו עמודים');
+    if (built.length === 1) {                              // ריצה אחת → הורדה ישירה, בלי ZIP
+      const r = built[0];
+      downloadBlob(new Blob([r.bytes], { type: 'application/pdf' }), `${baseName} — ריצה ${r.num} (עמ ${r.label}).pdf`);
+    } else {
+      btn.textContent = 'בונה ZIP…';
+      const zip = new JSZip();
+      built.forEach(r => zip.file(`${baseName} — ריצה ${r.num} (עמ ${r.label}).pdf`, r.bytes));   // שטוח: קובץ לכל ריצה
+      downloadBlob(await zip.generateAsync({ type: 'blob' }), `${baseName} — ${built.length} ריצות.zip`);
+    }
     // סימון "הריצות הורדו" — מכבה את התראת האישור באפליקציה
     try {
       if (proof.jobId) {
