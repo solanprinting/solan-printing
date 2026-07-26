@@ -497,10 +497,11 @@ function workerScreen(){
       const keys=Object.keys(ov).filter(k=>ov[k]&&ov[k].custom&&Array.isArray(ov[k].grids)&&ov[k].grids.length);
       rows = keys.length ? ('<table style="width:100%;border-collapse:collapse;font-size:.88rem"><tr style="opacity:.7"><th style="text-align:right">טמפלט</th><th>עמ׳</th><th>גודל עמוד</th><th>צדדים</th><th></th></tr>'
         + keys.map(k=>{ const o=ov[k], g=o.geom||{};
-            return '<tr><td><b>🧩 '+(o.label||k)+'</b></td><td style="text-align:center">'+(o.N||'?')+'</td>'
+            return '<tr><td><b class="tplOpen" data-k="'+k+'" style="cursor:pointer;color:var(--press);text-decoration:underline" title="הצג פריסה / ערוך">🧩 '+(o.label||k)+'</b></td><td style="text-align:center">'+(o.N||'?')+'</td>'
               + '<td style="text-align:center">'+(g.trimWmm?(g.trimWmm+'×'+g.trimHmm+' מ״מ'):'—')+'</td>'
               + '<td style="text-align:center">'+(o.sides===2?'פרפקטור':'מתהפך')+'</td>'
-              + '<td style="text-align:left"><button class="tplDel" data-k="'+k+'" style="font-size:.8rem">🗑 הסר</button></td></tr>'; }).join('')
+              + '<td style="text-align:left"><button class="tplView" data-k="'+k+'" style="font-size:.8rem">👁 הצג פריסה</button> <button class="tplDel" data-k="'+k+'" style="font-size:.8rem">🗑 הסר</button></td></tr>'
+              + '<tr id="tplRow_'+k+'" style="display:none"><td colspan="5" style="padding:0"><div id="tplBox_'+k+'"></div></td></tr>'; }).join('')
         + '</table>') : '<div class="muted">אין עדיין טמפלטים מותאמים. הוסף אחד כדי לקפל גדלים שאינם ברשימה הקבועה.</div>';
     }catch(e){ rows='<div class="bad">שגיאה בקריאת הטמפלטים</div>'; }
     $('tplPane').innerHTML='<div class="card"><h3>🧩 טמפלטים מותאמים</h3>'
@@ -518,6 +519,72 @@ function workerScreen(){
       try{ const ov=JSON.parse(localStorage.getItem('solanFoldTemplates')||'{}')||{}; delete ov[b.dataset.k];
         localStorage.setItem('solanFoldTemplates', JSON.stringify(ov)); _renderTplPane(); _reloadCatalog(); }catch(e){}
     });
+    const _openTpl=(k)=>{ const row=$('tplRow_'+k); if(!row) return;
+      const open=row.style.display!=='none'; row.style.display=open?'none':''; if(!open) _renderTplLayout(k); };
+    Array.from(document.getElementsByClassName('tplView')).forEach(b=>b.onclick=()=>_openTpl(b.dataset.k));
+    Array.from(document.getElementsByClassName('tplOpen')).forEach(b=>b.onclick=()=>_openTpl(b.dataset.k));
+  }
+  // ── תצוגת-פריסה + עריכה של טמפלט מותאם ──────────────────────────────────────
+  //    מציג את הרשת פר-צד (מספר-עמוד + סיבוב בכל תא) בדיוק כפי שמנוע-הקיפול יקרא אותה.
+  //    עריכה: שינוי מספרי-עמוד/סיבוב פר-תא + שם. שמירה כותבת חזרה ל-solanFoldTemplates.
+  let _tplEdit={};   // k → true כשבמצב-עריכה
+  function _renderTplLayout(k){
+    const box=$('tplBox_'+k); if(!box) return;
+    let o=null; try{ o=(JSON.parse(localStorage.getItem('solanFoldTemplates')||'{}')||{})[k]; }catch(e){}
+    if(!o||!Array.isArray(o.grids)){ box.innerHTML='<div class="bad" style="padding:10px">לא נמצאה פריסה</div>'; return; }
+    const edit=!!_tplEdit[k], g=o.geom||{};
+    const rotOf=(s,r,c)=>{ const rg=o.rotGrids&&o.rotGrids[s]; return (rg&&rg[r]&&rg[r][c]!=null)?rg[r][c]:((o.rot&&o.rot[c])||0); };
+    let html='<div style="padding:12px;background:#faf8f2;border:1px solid var(--line);border-radius:8px;margin:6px 0">';
+    html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">'
+      + (edit?('<input type="text" id="tplName_'+k+'" value="'+(o.label||k).replace(/"/g,'&quot;')+'" style="width:200px">')
+             :('<b>'+(o.label||k)+'</b>'))
+      + '<span class="muted">גיליון '+(g.sheetWmm||'?')+'×'+(g.sheetHmm||'?')+' · עמוד '+(g.trimWmm||'?')+'×'+(g.trimHmm||'?')+' מ״מ · '+(o.N||'?')+' עמ׳ · '+(o.sides===2?'2 צדדים (פרפקטור)':'צד אחד (מתהפך)')+'</span>'
+      + '<span style="margin-right:auto"></span>'
+      + (edit?('<button class="primary tplSave" data-k="'+k+'">💾 שמור שינויים</button> <button class="tplCancel" data-k="'+k+'">בטל</button>')
+             :('<button class="tplEditBtn" data-k="'+k+'">✎ ערוך</button>'))
+      + '</div>';
+    o.grids.forEach((grid,s)=>{
+      html+='<div style="margin-bottom:10px"><div style="font-weight:800;color:var(--press);margin-bottom:4px">'+(s===0?'צד קדמי (עמ׳ 1 בקובץ)':'צד אחורי (עמ׳ 2 בקובץ)')+'</div>';
+      html+='<table style="border-collapse:collapse"><tbody>';
+      grid.forEach((row,r)=>{ html+='<tr>'; row.forEach((pg,c)=>{
+        const rot=rotOf(s,r,c);
+        html+='<td style="border:1px solid var(--line);background:#fff;padding:6px;text-align:center;min-width:74px">';
+        if(edit){
+          html+='<input type="number" class="cellPg" data-k="'+k+'" data-s="'+s+'" data-r="'+r+'" data-c="'+c+'" value="'+pg+'" min="0" style="width:52px;text-align:center;font-weight:800">'
+             + '<select class="cellRot" data-k="'+k+'" data-s="'+s+'" data-r="'+r+'" data-c="'+c+'" style="width:62px;margin-top:3px;font-size:.75rem">'
+             + [0,90,180,270].map(v=>'<option value="'+v+'"'+(v===rot?' selected':'')+'>'+v+'°</option>').join('')+'</select>';
+        } else {
+          html+='<div style="font-weight:900;font-size:1.05rem;color:var(--press)">'+(pg||'—')+'</div>'
+             + '<div class="muted" style="font-size:.72rem">'+rot+'°</div>';
+        }
+        html+='</td>'; }); html+='</tr>'; });
+      html+='</tbody></table></div>';
+    });
+    html+='<div class="muted" style="font-size:.8rem">המספר = עמוד-הקריאה שיופיע בתא · המעלות = תיקון-הסיבוב שהמנוע יחיל. הרשת היא כפי שהגיליון מונח בפועל.</div>';
+    if(edit) html+='<div class="muted" style="font-size:.8rem;margin-top:4px;color:var(--danger)">⚠ שינוי שגוי יגרום לחוברת בסדר שגוי — ודא מול קובץ-הטמפלט המקורי.</div>';
+    html+='</div>';
+    box.innerHTML=html;
+    const be=box.querySelector('.tplEditBtn'); if(be) be.onclick=()=>{ _tplEdit[k]=true; _renderTplLayout(k); };
+    const bc=box.querySelector('.tplCancel'); if(bc) bc.onclick=()=>{ _tplEdit[k]=false; _renderTplLayout(k); };
+    const bs=box.querySelector('.tplSave'); if(bs) bs.onclick=()=>{
+      try{
+        const all=JSON.parse(localStorage.getItem('solanFoldTemplates')||'{}')||{}; const t=all[k]; if(!t) return;
+        box.querySelectorAll('.cellPg').forEach(inp=>{ const s=+inp.dataset.s,r=+inp.dataset.r,c=+inp.dataset.c;
+          t.grids[s][r][c]=parseInt(inp.value,10)||0; });
+        if(!Array.isArray(t.rotGrids)) t.rotGrids=t.grids.map(gr=>gr.map(row=>row.map(()=>0)));
+        box.querySelectorAll('.cellRot').forEach(sel=>{ const s=+sel.dataset.s,r=+sel.dataset.r,c=+sel.dataset.c;
+          if(!t.rotGrids[s]) t.rotGrids[s]=[]; if(!t.rotGrids[s][r]) t.rotGrids[s][r]=[];
+          t.rotGrids[s][r][c]=parseInt(sel.value,10)||0; });
+        const nm=$('tplName_'+k); if(nm && nm.value.trim()) t.label=nm.value.trim();
+        // אזהרת-שפיות: כיסוי 1..N בלי כפילויות (לא חוסם — המשתמש מחליט)
+        const seen={}; let dup=false, cnt=0;
+        t.grids.forEach(gr=>gr.forEach(row=>row.forEach(v=>{ if(v>0){ if(seen[v]) dup=true; seen[v]=true; cnt++; } })));
+        all[k]=t; localStorage.setItem('solanFoldTemplates', JSON.stringify(all));
+        _tplEdit[k]=false; _renderTplPane(); _reloadCatalog();
+        const warn = dup ? 'שים לב: יש מספרי-עמוד כפולים ברשת.' : (Object.keys(seen).length!==(t.N||cnt) ? 'שים לב: לא כל העמודים 1..'+(t.N||cnt)+' מופיעים.' : '');
+        if(warn) alert('נשמר — אך '+warn);
+      }catch(e){ alert('שמירה נכשלה: '+(e.message||e)); }
+    };
   }
   // רענון בורר-הטמפלטים בלי לרענן את הדף (אחרי הוספה/הסרה)
   function _reloadCatalog(){
