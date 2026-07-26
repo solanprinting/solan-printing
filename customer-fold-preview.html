@@ -298,6 +298,38 @@ async function renderThumbs(host, bytes){ const pdf=await getOutDoc(bytes); host
   for(let i=1;i<=pdf.numPages;i++){ const th=document.createElement('div'); th.className='th'; th.dataset.p=i;
     th.innerHTML='<div class="ph" style="width:88px;height:120px;display:flex;align-items:center;justify-content:center;color:#475569">⏳</div><div>'+i+'</div>'; host.appendChild(th); io.observe(th); } }
 function _spreadGroups(n){ const g=[]; if(n<=0)return g; g.push([0]); for(let k=1;k<n;k+=2) g.push(k+1<n?[k,k+1]:[k]); return g; }
+// ── זום בדפדוף (עובד גם אצל הלקוח וגם בצד-הדפוס) ────────────────────────────
+//    לחצן 🔍 מפעיל מצב-זום; אז גלגלת-העכבר מקרבת/מרחיקה, וגרירה מזיזה את התצוגה.
+//    מיושם ב-CSS transform על התוכן (לא רינדור מחדש) → מיידי ולא מעמיס.
+function _setupZoom(){
+  const sp=$('_sp'), btn=$('_zoom'); if(!sp||!btn) return;
+  let on=false, sc=1, tx=0, ty=0, drag=null;
+  const target=()=> sp.querySelector('img,canvas');
+  const apply=()=>{ const t=target(); if(!t) return;
+    t.style.transformOrigin='center center';
+    t.style.transform='translate('+tx+'px,'+ty+'px) scale('+sc+')';
+    t.style.cursor = (on && sc>1) ? 'grab' : (on?'zoom-in':'');
+    sp.style.overflow='hidden';
+    btn.textContent = on ? ('🔍 זום '+Math.round(sc*100)+'%') : '🔍 זום';
+    btn.style.background = on ? '#c9a84c' : ''; btn.style.color = on ? '#1a1a2e' : '';
+  };
+  const reset=()=>{ sc=1; tx=0; ty=0; apply(); };
+  window._zoomReset=reset;                  // מעבר-עמוד מאפס את הזום
+  btn.onclick=()=>{ on=!on; if(!on) reset(); else apply(); };
+  sp.addEventListener('wheel', (e)=>{
+    if(!on) return;                          // בלי מצב-זום — גלילת-הדף רגילה
+    e.preventDefault();
+    const prev=sc;
+    sc = Math.min(6, Math.max(1, sc * (e.deltaY<0 ? 1.15 : 1/1.15)));
+    if(sc===1){ tx=0; ty=0; } else { const k=sc/prev; tx*=k; ty*=k; }   // שומר על נקודת-המיקוד
+    apply();
+  }, {passive:false});
+  sp.addEventListener('mousedown',(e)=>{ if(!on||sc<=1) return; e.preventDefault(); drag={x:e.clientX-tx,y:e.clientY-ty}; const t=target(); if(t) t.style.cursor='grabbing'; });
+  window.addEventListener('mousemove',(e)=>{ if(!drag) return; tx=e.clientX-drag.x; ty=e.clientY-drag.y; apply(); });
+  window.addEventListener('mouseup',()=>{ if(!drag) return; drag=null; apply(); });
+  sp.addEventListener('dblclick',()=>{ if(on) reset(); });   // דאבל-קליק = איפוס
+  apply();
+}
 function _loadImg(url){ return new Promise(res=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>res(null); im.src=url; }); }
 // חיתוך "מסגרת-לבנה" מכל 4 הצדדים של כל עמוד (מסיר שוליים-לבנים/קצה-נייר בשדרה ובחוץ),
 // ואז חיבור העמודים לכפולה על canvas אחד (hi=שמאל · lo=ימין · צמוד).
@@ -320,7 +352,7 @@ async function mountFlipbook(host, bytes){
   host.innerHTML='<div id="_fbwrap" style="background:#1a1a2e;border:1px solid var(--line);border-radius:10px;padding:8px">'
     + '<div class="spread" id="_sp" dir="ltr" style="min-height:220px;align-items:center"></div>'
     + '<div dir="rtl" class="fbctl" style="text-align:center;margin-top:8px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">'
-    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div>'
+    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <button id="_zoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div>'
     + '<div dir="rtl" class="fbtune" style="text-align:center;margin-top:6px;font-size:.82rem;color:#94a3b8">חיתוך מסגרת-לבנה (מכל 4 הצדדים של כל עמוד): '
     + '<input type="range" id="_spine" min="0" max="8" step="0.1" value="'+_SPINE_TRIM_PCT+'" style="vertical-align:middle;width:240px"> <b id="_spineVal">'+_SPINE_TRIM_PCT.toFixed(1)+'%</b> <span style="opacity:.7">— הגדל עד שהמסגרת הלבנה נעלמת, ותגיד לי את המספר</span></div></div>';
   function progHtml(){ return '<div style="max-width:340px;margin:auto;text-align:center;color:#94a3b8;padding:18px">📖 מרנדר…'
@@ -339,8 +371,9 @@ async function mountFlipbook(host, bytes){
     sp.innerHTML='<img src="'+view+'">';
     $('_pi').textContent='כפולה '+(gi+1)+' / '+groups.length; $('_prev').disabled=gi<=0; $('_next').disabled=gi>=groups.length-1;
   }
-  $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} };
+  $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} if(window._zoomReset)window._zoomReset(); }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} if(window._zoomReset)window._zoomReset(); };
   $('_full').onclick=()=>{ const w=$('_fbwrap'); (w.requestFullscreen||w.webkitRequestFullscreen||function(){}).call(w); };
+  _setupZoom();   // 🔍 זום: לחצן + גלגלת + גרירה
   $('_spine').oninput=async ()=>{ _SPINE_TRIM_PCT=parseFloat($('_spine').value)||0; $('_spineVal').textContent=_SPINE_TRIM_PCT.toFixed(1)+'%';
     if(curPages){ const u=await _composeView(curPages, _SPINE_TRIM_PCT); if($('_sp'))$('_sp').innerHTML='<img src="'+u+'">'; } };   // כוונון חי — בלי רינדור-מחדש
   // ── preload 50% מהקונטרס עם פס-התקדמות → ואז צפייה; שאר ה-50% נטענים ברקע תוך-כדי דפדוף ──
@@ -399,7 +432,7 @@ async function mountFlipbookFast(host, thumbsHost, book){
   host.innerHTML='<div id="_fbwrap" style="background:#1a1a2e;border:1px solid var(--line);border-radius:10px;padding:8px">'
     + '<div class="spread" id="_sp" dir="ltr" style="min-height:220px;align-items:center"><div id="_prog" style="width:100%;text-align:center;color:#94a3b8">📖 טוען את הפרופר…</div></div>'
     + '<div dir="rtl" class="fbctl" style="text-align:center;margin-top:8px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">'
-    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div></div>';
+    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <button id="_zoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div></div>';
   function cellCanvas(N){ if(hiCell[N]) return hiCell[N]; if(ccache[N]) return ccache[N];   // חד גובר על נמוך
     const o=order[N-1]; const run=R[o.runIndex]; if(!run) return null;
     const p=run.byPos[o.posInRun]; if(!p) return null; const s=run.srcCv[p.sourcePdfPage]; if(!s) return null;
@@ -416,8 +449,9 @@ async function mountFlipbookFast(host, thumbsHost, book){
     if(!view){ sp.innerHTML='<div style="color:#94a3b8;padding:24px;width:100%;text-align:center">⏳ טוען…</div>'; return; }
     sp.replaceChildren(view);
     $('_pi').textContent='כפולה '+(gi+1)+' / '+groups.length; $('_prev').disabled=gi<=0; $('_next').disabled=gi>=groups.length-1; }
-  $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} };
+  $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} if(window._zoomReset)window._zoomReset(); }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} if(window._zoomReset)window._zoomReset(); };
   $('_full').onclick=()=>{ const w=$('_fbwrap'); (w.requestFullscreen||w.webkitRequestFullscreen||function(){}).call(w); };
+  _setupZoom();   // 🔍 זום: לחצן + גלגלת + גרירה
   function renderThumbsFast(){ if(!thumbsHost) return; thumbsHost.innerHTML=''; for(let N=1;N<=n;N++){ const c=cellCanvas(N); const t=document.createElement('div'); t.className='th';
     if(c){ const tc=document.createElement('canvas'); const s=88/c.width; tc.width=88; tc.height=Math.round(c.height*s); tc.getContext('2d').drawImage(c,0,0,tc.width,tc.height); const im=new Image(); im.src=tc.toDataURL('image/jpeg',0.7); im.style.width='88px'; t.appendChild(im); }
     const l=document.createElement('div'); l.textContent=N; t.appendChild(l); thumbsHost.appendChild(t); } }
@@ -450,7 +484,8 @@ async function mountFlipbookFast(host, thumbsHost, book){
 function workerScreen(){
   document.title='הצגת פרופר מקופל ללקוח';
   $('app').innerHTML = ''
-   + '<h2>הצגת פרופר מקופל ללקוח <span class="muted">(Beta · פנימי)</span> <a href="?approvals=1" style="font-size:.8rem;font-weight:400">📋 מערכת אישור לקוחות</a></h2>'
+   + '<h2>הצגת פרופר מקופל ללקוח <span class="muted">(Beta · פנימי)</span> <a href="?approvals=1" style="font-size:.8rem;font-weight:400">📋 מערכת אישור לקוחות</a>'
+   + ' <button id="newJobBtn" style="font-size:.8rem;font-weight:700;margin-right:8px" title="מנקה את המסך ומתחיל עיתון חדש מאפס">🆕 עיתון חדש (נקה מסך)</button></h2>'
    + '<div style="display:flex;gap:6px;margin-bottom:12px;border-bottom:2px solid var(--line);padding-bottom:0">'
    +   '<div id="navSend" class="navtab" style="padding:9px 18px;cursor:pointer;font-weight:800;border-radius:8px 8px 0 0;background:var(--press);color:#fff">📤 שליחת פרופר</div>'
    +   '<div id="navTpl" class="navtab" style="padding:9px 18px;cursor:pointer;font-weight:700;border-radius:8px 8px 0 0;background:#fff;color:var(--press);border:1px solid var(--line);border-bottom:none">🧩 הוספת טמפלט</div>'
@@ -754,6 +789,13 @@ function workerScreen(){
     if($('linkHint')) $('linkHint').style.display = on ? 'none' : '';
     if($('intChkWrap')) $('intChkWrap').style.borderColor = $('intChk').checked ? '#16a34a' : '#f59e0b';
     if(on) $('linkBtn').style.boxShadow='0 0 0 3px rgba(22,163,74,.4)'; else $('linkBtn').style.boxShadow=''; };
+  // 🆕 עיתון חדש — ניקוי-מסך מלא. טעינה-מחדש נקייה משחררת גם את זיכרון-הרינדור
+  //    ומסמכי-pdf.js (בטוח יותר מאיפוס-ידני של עשרות משתני-מצב).
+  if($('newJobBtn')) $('newJobBtn').onclick=()=>{
+    const busy = _folded || _srcU8 || (_multiU8 && _multiU8.length);
+    if(busy && !confirm('לנקות את המסך ולהתחיל עיתון חדש?\n\nהפרופר והחוברת שנוצרו כאן יימחקו מהמסך.\n(קישורים שכבר נשלחו ללקוחות נשמרים ואינם נמחקים.)')) return;
+    location.href = location.pathname + '?cfp=1';
+  };
   // ── כניסה מ"פרופר-אפוגי לפורטל": הקובץ כבר הועלה — טוענים אותו ישירות וממלאים פרטים ──
   (async function _autoFromUrl(){
     const src=qs.get('src'); if(!src) return;
