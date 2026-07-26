@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785062983';
+window.APP_VERSION = '1785064951';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -6570,7 +6570,11 @@ function _renderCurrentRunsOutput() {
   const rows = currentRuns.map(function(r,i){
     var _is4c = r.machine === 'מכונה 4 צבעים';
     // מתהפך = רק מכונת 4 צבעים. 8 צבעים = פרפקטור (מדפיס 2 צדדים במעבר אחד) — לא מתהפך.
-    var _showTumble = _is4c && ((_is32 && r.pages < 32) || (_is16 && r.pages < 16));
+    // ⚠️ תוקן: קודם ההצגה הותנתה בהתאמת-טקסט של שדה-הגודל (regex), ולכן בגדלים שנכתבו
+    //    אחרת הכפתור פשוט לא הופיע. עכשיו הקריטריון הוא הגיליון-בפועל שממנו נבנו הריצות
+    //    (_runsFs), עם נפילה-לאחור ל-regex הישן אם אינו זמין.
+    var _fsEff = _runsFs || (_is32 ? 32 : (_is16 ? 16 : 0));
+    var _showTumble = _is4c && _fsEff > 0 && r.pages < _fsEff;
     var _tumbleBtn = _showTumble ? (
       '<label onclick="currentRuns['+i+'].tumble=!currentRuns['+i+'].tumble;_renderCurrentRunsOutput()" '+
       'style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:.82rem;font-weight:700;'+
@@ -6579,6 +6583,20 @@ function _renderCurrentRunsOutput() {
       '🔄 מתהפך'+(r.tumble?' ✓':'')+
       '</label>'
     ) : '';
+    // ── אפשרויות-הדפסה לריצה: צד-אחד · ש/ל בצד אחד + פרוצס בשני · פיצול-כריכה 32→16+16 ──
+    var _chip = function(on, label, onclick, col){
+      return '<label onclick="'+onclick+'" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:.78rem;font-weight:700;'
+        + 'padding:3px 9px;border-radius:6px;border:1.5px solid '+(on?col:'#cbd5e1')+';background:'+(on?'#f8fbff':'#f8fafc')+';'
+        + 'color:'+(on?col:'#64748b')+';white-space:nowrap;margin:4px 0 0 4px">'+label+(on?' ✓':'')+'</label>'; };
+    var _oneSideBtn = _chip(!!r.oneSide, '📄 צד אחד',
+      'currentRuns['+i+'].oneSide=!currentRuns['+i+'].oneSide; if(currentRuns['+i+'].oneSide){currentRuns['+i+'].bwProcess=false;} _renderCurrentRunsOutput()', '#0369a1');
+    var _bwProcBtn = _chip(!!r.bwProcess, '🎨 ש/ל + פרוצס',
+      'currentRuns['+i+'].bwProcess=!currentRuns['+i+'].bwProcess; if(currentRuns['+i+'].bwProcess){currentRuns['+i+'].oneSide=false;} _renderCurrentRunsOutput()', '#7c3aed');
+    // פיצול-כריכה: בהדפסה נשארת ריצה אחת; בקיפול/כריכה מתייחסים לשתי חתימות (למשל 32 → 16+16)
+    var _canSplitBind = (r.pages >= 8 && r.pages % 2 === 0 && (r.pages/2) % 4 === 0);
+    var _splitBtn = _canSplitBind ? _chip(!!r.bindSplit, '✂️ פיצול לכריכה ('+(r.pages/2)+'+'+(r.pages/2)+')',
+      'currentRuns['+i+'].bindSplit=!currentRuns['+i+'].bindSplit; _renderCurrentRunsOutput()', '#b45309') : '';
+    var _modeRow = '<div style="margin-top:3px">'+_oneSideBtn+_bwProcBtn+_splitBtn+'</div>';
     var _abInner = _runAbInnerHtml(r, i);
     var _abRow = _abInner ? '<tr><td colspan="6" style="padding:6px 10px;background:#faf8ff;border-top:1px dashed #e2e8f0">'+_abInner+'</td></tr>' : '';
     // נייר לריצה — מאפשר לסמן נייר שונה לכל ריצה (מתחיל מקופל מאחורי לחצן)
@@ -6618,7 +6636,8 @@ function _renderCurrentRunsOutput() {
         '</div>'+
       '</td>'+
       '<td>'+(_runIsAB(r) ? ('<b style="color:#6d28d9">'+_runPagesLabel(r)+'</b> עמ\' <span style="font-size:.68rem;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px;font-weight:800;white-space:nowrap">🗞️ A+B</span>') : (r.pages+' עמ\''))+'</td>'+
-      '<td style="font-size:.8rem;color:#444">'+_runRangeText(r)+'</td>'+
+      // פיצול-לכריכה → לא מציגים טווח-עמודים (בהדפסה זו ריצה אחת; החלוקה היא לקיפול/כריכה בלבד)
+      '<td style="font-size:.8rem;color:#444">'+(r.bindSplit ? '<span style="color:#b45309;font-weight:700">✂️ '+(r.pages/2)+'+'+(r.pages/2)+' לכריכה</span>' : _runRangeText(r))+'</td>'+
       '<td><strong>'+r.copies.toLocaleString()+'</strong></td>'+
       '<td style="font-size:.76rem;color:#888">'+r.folds+'</td>'+
       '<td>'+
@@ -6627,7 +6646,7 @@ function _renderCurrentRunsOutput() {
           '<option value="מכונה 4 צבעים"'+(r.machine==='מכונה 4 צבעים'?' selected':'')+'>מכונה 4 צבעים</option>'+
           '<option value="מכונה 8 צבעים"'+(r.machine==='מכונה 8 צבעים'?' selected':'')+'>מכונה 8 צבעים (פרפקטור)</option>'+
         '</select>'+
-        _tumbleBtn+
+        _tumbleBtn+_modeRow+
       '</td>'+
     '</tr>'+_abRow+_paperRow+_manualRow;
   }).join('');
@@ -6898,6 +6917,22 @@ function renderManualRuns() {
           padding:6px 10px;border-radius:6px;border:1.5px solid ${r.tumble?'#2563eb':'#cbd5e1'};
           background:${r.tumble?'#eff6ff':'#f8fafc'};color:${r.tumble?'#1d4ed8':'#64748b'}">
         🔄 מתהפך${r.tumble?' ✓':''}</label>
+      <label onclick="manualRuns[${i}].oneSide=!manualRuns[${i}].oneSide; if(manualRuns[${i}].oneSide){manualRuns[${i}].bwProcess=false;} renderManualRuns()"
+        style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:.82rem;font-weight:700;white-space:nowrap;
+          padding:6px 10px;border-radius:6px;border:1.5px solid ${r.oneSide?'#0369a1':'#cbd5e1'};
+          background:${r.oneSide?'#f0f9ff':'#f8fafc'};color:${r.oneSide?'#0369a1':'#64748b'}">
+        📄 צד אחד${r.oneSide?' ✓':''}</label>
+      <label onclick="manualRuns[${i}].bwProcess=!manualRuns[${i}].bwProcess; if(manualRuns[${i}].bwProcess){manualRuns[${i}].oneSide=false;} renderManualRuns()"
+        style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:.82rem;font-weight:700;white-space:nowrap;
+          padding:6px 10px;border-radius:6px;border:1.5px solid ${r.bwProcess?'#7c3aed':'#cbd5e1'};
+          background:${r.bwProcess?'#f6f1ff':'#f8fafc'};color:${r.bwProcess?'#6d28d9':'#64748b'}">
+        🎨 ש/ל + פרוצס${r.bwProcess?' ✓':''}</label>
+      ${(parseInt(r.pages)>=8 && parseInt(r.pages)%2===0 && (parseInt(r.pages)/2)%4===0) ? `<label onclick="manualRuns[${i}].bindSplit=!manualRuns[${i}].bindSplit;renderManualRuns()"
+        style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:.82rem;font-weight:700;white-space:nowrap;
+          padding:6px 10px;border-radius:6px;border:1.5px solid ${r.bindSplit?'#b45309':'#cbd5e1'};
+          background:${r.bindSplit?'#fffbeb':'#f8fafc'};color:${r.bindSplit?'#b45309':'#64748b'}"
+        title="בהדפסה נשארת ריצה אחת — בקיפול/כריכה מתייחסים לשתי חתימות">
+        ✂️ פיצול לכריכה (${parseInt(r.pages)/2}+${parseInt(r.pages)/2})${r.bindSplit?' ✓':''}</label>` : ''}
       <button onclick="removeManualRun(${r.id})"
         style="background:none;border:none;color:#ccc;font-size:1.1rem;cursor:pointer;padding:0 2px"
         onmouseover="this.style.color='#c62828'" onmouseout="this.style.color='#ccc'">✕</button>
@@ -6963,6 +6998,7 @@ function getEffectiveRuns() {
         machine: r.machine,
         paper: r.paper||'',
         tumble: !!r.tumble,
+        oneSide: !!r.oneSide, bwProcess: !!r.bwProcess, bindSplit: !!r.bindSplit,   // מצבי-הדפסה/כריכה לריצה
         upCount: parseInt(r.upCount)||0,
         abEnabled: !!r.abEnabled,
         abExtras: (r.abExtras||[]).slice(),
@@ -8132,6 +8168,7 @@ function editCard(id) {
   // runs
   if (c.runs && c.runs.length) {
     manualRuns = c.runs.map(function(r){ return { id: Date.now()+Math.random(), pages: r.pages||'', copies: r.copies||'', machine: r.machine||'', paper: r.paper||'', tumble: !!r.tumble,
+      oneSide: !!r.oneSide, bwProcess: !!r.bwProcess, bindSplit: !!r.bindSplit,
       upCount: r.upCount||'', abEnabled: !!r.abEnabled, abExtras: (r.abExtras||[]).slice(), abExtraCustomSize: r.abExtraCustomSize||'', manualExtra: r.manualExtra||'', folds: r.folds||'',
       abParts: r.abParts||null, abPartRanges: r.abPartRanges||null, pageRange: r.pageRange||'' }; });
     renderManualRuns();
@@ -9346,9 +9383,9 @@ function buildPrintCard(c) {
     <tr>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd"><strong>ריצה ${r.num}</strong></td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.pages ? _runPagesLabel(r)+' עמ\''+(_runIsAB(r)?' <span style="font-size:.66rem;font-weight:800;color:#fff;background:#7c3aed;border-radius:5px;padding:1px 6px;white-space:nowrap">🗞️ A+B</span>' : '') : '—'}${(r.upCount && r.upCount>1) ? ` <span style="font-size:.7rem;font-weight:700;color:#6d28d9;white-space:nowrap">· ×${r.upCount} בגיליון</span>` : ''}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-size:.8rem">${_runRangeText(r)||'—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-size:.8rem">${r.bindSplit ? `<span style="color:#b45309;font-weight:700">✂️ ${Math.floor(r.pages/2)}+${Math.floor(r.pages/2)} לכריכה</span>` : (_runRangeText(r)||'—')}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-weight:700">${(c.singleSheet && _runs.length>1) ? '<span style="font-size:.72rem;font-weight:700;color:#6d28d9">גיליון משותף</span>' : (r.copies?parseInt(r.copies).toLocaleString():'—')}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.folds||'—'}${r.tumble?' <span style="color:#1d4ed8;font-weight:600;font-size:.65rem"> · מתהפך</span>':''}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center">${r.folds||'—'}${r.tumble?' <span style="color:#1d4ed8;font-weight:600;font-size:.65rem"> · מתהפך</span>':''}${r.oneSide?' <span style="color:#0369a1;font-weight:700;font-size:.65rem"> · צד אחד</span>':''}${r.bwProcess?' <span style="color:#7c3aed;font-weight:700;font-size:.65rem"> · ש/ל + פרוצס</span>':''}${r.bindSplit?` <span style="color:#b45309;font-weight:700;font-size:.65rem"> · כריכה ${Math.floor(r.pages/2)}+${Math.floor(r.pages/2)}</span>`:''}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-weight:700">${r.machine||'—'}${_perfBadge(r.machine)}</td>
       ${_hasPaper ? `<td style="padding:7px 10px;border-bottom:1px solid #ddd;text-align:center;font-size:.8rem">${r.paper||c.paper||'—'}${_paperTagBadge(r.paper||c.paper)}</td>` : ''}
     </tr>${_abRowHtml}`;
@@ -14814,7 +14851,9 @@ function editCardCopies(id) {
       var newRuns = buildRuns(c.pages, c.copies, fs);
       c.runs = newRuns.map(function(r, i) {
         var old = c.runs[i]||{};
-        return Object.assign({}, r, { machine: old.machine||'', paper: old.paper||'', color: c.color });
+        // שומרים גם את מצבי-ההדפסה/כריכה שנבחרו ידנית (לא נמחקים בבנייה-מחדש של הריצות)
+        return Object.assign({}, r, { machine: old.machine||'', paper: old.paper||'', color: c.color,
+          tumble: !!old.tumble, oneSide: !!old.oneSide, bwProcess: !!old.bwProcess, bindSplit: !!old.bindSplit });
       });
     } else {
       // עדכן כמות יחסית בכל ריצה
