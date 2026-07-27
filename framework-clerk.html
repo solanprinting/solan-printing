@@ -161,16 +161,19 @@ function render(){
   }).join('') : '<div style="padding:14px" class="muted">אין לקוחות עם הסכם מסגרת</div>';
 
   const readyAll=_all.reduce((s,a)=>s+(a.orders||[]).filter(o=>o&&o.status==='ready').length,0);
-  const allItem=`<div class="cItem${_sel==='ALL'?' on':''}" data-a="ALL" style="border-bottom:2px solid var(--line)">
-    <span>🔄 כל הלקוחות</span>${readyAll?`<span class="b">${readyAll} מוכן</span>`:''}</div>`;
+  const allItem=`<div class="cItem${_sel==='ALL'?' on':''}" data-a="ALL">
+    <span>🔄 כל העבודות</span>${readyAll?`<span class="b">${readyAll} מוכן</span>`:''}</div>
+    <div class="cItem${_sel==='AGR'?' on':''}" data-a="AGR" style="border-bottom:2px solid var(--line)">
+    <span>📋 הסכמי מסגרת</span><span class="b" style="background:var(--press)">${_all.length}</span></div>`;
 
   const a=cur();
   $('app').innerHTML=`<div class="wrap">
     <aside class="side"><div class="sideT">לקוחות (${_all.length})</div>${allItem}${side}</aside>
-    <section class="main">${_sel==='ALL'?detailAll():(a?detail(a):'<div class="card muted">בחרו לקוח מהרשימה.</div>')}</section>
+    <section class="main">${_sel==='ALL'?detailAll():_sel==='AGR'?detailAgreements()
+      :(a?detail(a):'<div class="card muted">בחרו לקוח מהרשימה.</div>')}</section>
   </div>`;
   document.querySelectorAll('[data-a]').forEach(el=>el.onclick=()=>{ _sel=el.dataset.a; _newLines=[];
-    if(_sel==='ALL' && _tab!=='flow') _tab='flow'; render(); });
+    if((_sel==='ALL'||_sel==='AGR') && _tab!=='flow') _tab='flow'; render(); });
   wire(a);
 }
 
@@ -194,8 +197,37 @@ function detail(a){
   const ready=orders.filter(o=>o.status==='ready');
   const notes=(a.deliveryNotes||[]).slice().reverse();
 
-  const stock = `<div class="card">
-    <h3>📦 המלאי של ${esc(a.customer)}</h3>
+  // המסך הראשי = זרימת העבודות. המלאי חי בקטגוריה "📋 הסכמי מסגרת" (ובטופס ההזמנה עצמו).
+  let body='';
+  if(_tab==='new')        body = newOrderCard(a,b);
+  else if(_tab==='ready') body = readyCard(ready,a);
+  else if(_tab==='notes') body = notesCard(notes,a);
+  else                    body = flowBoard([{ag:a, orders:orders}]);
+
+  const open=orders.filter(o=>o.status==='pending'||o.status==='ready').length;
+  return `<div class="tabs">
+      <div class="tab${_tab==='flow'?' on':''}" data-t="flow">🔄 זרימת עבודות${open?`<span class="n">${open}</span>`:''}</div>
+      <div class="tab${_tab==='new'?' on':''}" data-t="new">➕ הזמנה חדשה</div>
+      <div class="tab${_tab==='ready'?' on':''}" data-t="ready">✅ מוכן לאספקה${ready.length?`<span class="n">${ready.length}</span>`:''}</div>
+      <div class="tab${_tab==='notes'?' on':''}" data-t="notes">📄 תעודות משלוח${notes.length?`<span class="n">${notes.length}</span>`:''}</div>
+    </div>${body}`;
+}
+
+/* ═══════════ 📋 הסכמי מסגרת — הלקוחות והמלאי שלהם ═══════════
+   כאן (ולא במסך העבודות) יושב המלאי: כמה יש, כמה משוריין, כמה פנוי להתחייבות. */
+function stockCard(a){
+  const b=FW.computeBalances(a), t=b.totals;
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <h3 style="margin:0">📋 ${esc(a.customer)}</h3>
+      <div class="muted">${a.agreementNo?'מס׳ הסכם '+esc(a.agreementNo)+' · ':''}${a.endDate?'בתוקף עד '+esc(a.endDate):''}</div>
+    </div>
+    <div style="margin:8px 0 4px">
+      <span class="stat">יתרה במלאי<b>${t.remainingQty.toLocaleString()}</b></span>
+      <span class="stat">משוריין<b style="color:#b45309">${t.pendingQty.toLocaleString()}</b></span>
+      <span class="stat">פנוי<b class="${t.shortItems?'bad':''}">${t.availableQty.toLocaleString()}</b></span>
+      <span class="stat">ניצול ההסכם<b>${t.pctUsed}%</b></span>
+    </div>
     <div style="overflow-x:auto"><table>
       <thead><tr><th>מק״ט</th><th>פריט</th><th>יח׳ באריזה</th><th>יתרה במלאי</th><th>משוריין להזמנות</th><th>פנוי להזמנה חדשה</th></tr></thead>
       <tbody>${b.items.map(r=>`<tr>
@@ -206,25 +238,16 @@ function detail(a){
         <td>${r.pendingQty?`<span style="color:#b45309;font-weight:700">${r.pendingQty.toLocaleString()}</span>`:'<span class="muted">—</span>'}</td>
         <td class="${r.shortForPending?'bad':''}"><b>${r.availableQty.toLocaleString()}</b>${r.availablePacks!=null?`<div class="muted" style="font-size:.75rem">≈ ${r.availablePacks.toLocaleString()} ${esc(_plu(r.packName))}</div>`:''}</td>
       </tr>`).join('')||'<tr><td colspan="6" class="muted" style="text-align:center;padding:12px">אין פריטים בהסכם</td></tr>'}</tbody></table></div>
-    <div class="muted" style="margin-top:6px;font-size:.8rem">אפשר להתחייב ללקוח רק על העמודה <b>פנוי</b> — היתר כבר משוריין להזמנות קודמות.</div>
+    <div style="margin-top:8px"><button class="goOrder" data-ag="${a.agreementId}">➕ הזמנה חדשה ללקוח זה</button></div>
   </div>`;
-
-  // המסך הראשי = זרימת העבודות. המלאי עבר ללשונית נפרדת (ובטופס ההזמנה עצמו).
-  let body='';
-  if(_tab==='flow')       body = flowBoard([{ag:a, orders:orders}]);
-  else if(_tab==='new')   body = newOrderCard(a,b);
-  else if(_tab==='ready') body = readyCard(ready,a);
-  else if(_tab==='notes') body = notesCard(notes,a);
-  else                    body = stock;
-
-  const open=orders.filter(o=>o.status==='pending'||o.status==='ready').length;
-  return `<div class="tabs">
-      <div class="tab${_tab==='flow'?' on':''}" data-t="flow">🔄 זרימת עבודות${open?`<span class="n">${open}</span>`:''}</div>
-      <div class="tab${_tab==='new'?' on':''}" data-t="new">➕ הזמנה חדשה</div>
-      <div class="tab${_tab==='ready'?' on':''}" data-t="ready">✅ מוכן לאספקה${ready.length?`<span class="n">${ready.length}</span>`:''}</div>
-      <div class="tab${_tab==='notes'?' on':''}" data-t="notes">📄 תעודות משלוח${notes.length?`<span class="n">${notes.length}</span>`:''}</div>
-      <div class="tab${_tab==='stock'?' on':''}" data-t="stock">📦 מלאי</div>
-    </div>${body}`;
+}
+function detailAgreements(){
+  return `<div class="card" style="padding:10px 14px">
+      <b style="color:var(--press)">📋 הסכמי מסגרת</b>
+      <div class="muted" style="margin-top:3px">הלקוחות שיש להם הסכם מסגרת והמלאי שנשאר לכל אחד.
+        אפשר להתחייב ללקוח רק על העמודה <b>פנוי</b> — היתר כבר משוריין להזמנות שטרם סופקו.</div>
+    </div>
+    ${_all.map(stockCard).join('')||'<div class="card muted">אין הסכמי מסגרת עדיין.</div>'}`;
 }
 
 /* ═══════════ לוח זרימת עבודות ═══════════
@@ -359,6 +382,8 @@ function wire(a){
   // מלוח-הזרימה אפשר לקפוץ ישר ללקוח וללשונית הרלוונטית
   document.querySelectorAll('.goReady').forEach(el=>el.onclick=e=>{
     e.stopPropagation(); _sel=el.dataset.ag; _tab='ready'; render(); });
+  document.querySelectorAll('.goOrder').forEach(el=>el.onclick=e=>{
+    e.stopPropagation(); _sel=el.dataset.ag; _tab='new'; _newLines=[]; render(); });
   document.querySelectorAll('.dnView').forEach(el=>el.onclick=()=>{
     const ag=_all.find(x=>x.agreementId===el.dataset.ag)||a; if(!ag) return;
     const d=(ag.deliveryNotes||[]).find(x=>x.noteId===el.dataset.d); if(d) showNote(d,ag);
