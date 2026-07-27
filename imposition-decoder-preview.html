@@ -85,6 +85,19 @@
     <div><button id="tplRead">🔍 קרא אוטומטית</button> <button class="sec" id="tplSave" disabled>💾 שמור טמפלט</button></div>
   </div>
   <div id="tplMapPrev" style="margin-top:10px"></div>
+  <div id="ovlBox" style="margin-top:10px;display:none;border:1px solid var(--line,#d0c8b8);border-radius:8px;padding:9px 11px;background:#faf8f2">
+    <div style="font-weight:800;margin-bottom:6px">🧿 טמפלט על גבי הפרופר <span style="font-weight:500;opacity:.75;font-size:.85rem">— סובב עד שמספרי-הטמפלט יושבים על העמודים הנכונים</span></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:7px">
+      <button id="ovlRot" type="button">↻ סובב 90°</button>
+      <span id="ovlRotTxt" style="font-weight:800">0°</span>
+      <label style="font-size:.85rem">שקיפות טמפלט: <input type="range" id="ovlOp" min="10" max="100" value="55" style="vertical-align:middle;width:150px"></label>
+      <label style="font-size:.85rem">צד: <select id="ovlSide"><option value="0">קדמי</option><option value="1">אחורי</option></select></label>
+      <button id="ovlSave" type="button" class="primary">💾 שמור סיבוב לטמפלט זה</button>
+      <span id="ovlMsg" class="muted"></span>
+    </div>
+    <div style="overflow:auto;background:#fff;border:1px solid #e5e7eb;border-radius:6px;text-align:center">
+      <canvas id="ovlCv" style="max-width:100%;height:auto"></canvas></div>
+  </div>
   <div id="tplStatus" class="muted" style="margin-top:8px">טען טמפלט → המערכת תקרא את מספרי-העמוד, תזהה עמודות/שורות/שדרה, ותבנה מפה. אפשר לכוונן את הפער ולפרק פרופר לבדיקה. השמירה עד <code>tested</code> רק אחרי אישור חזותי.</div>
 </div>
 
@@ -233,6 +246,65 @@ function _drawTplMap(cellMap, layout, tplRot){
   host.innerHTML = html;
 }
 
+// ── תצוגה חופפת: טמפלט מעל הפרופר + סיבוב ידני + שמירת-העדפה ─────────────────
+//    מרנדר את שני העמודים לאותו גודל-קנבס; הטמפלט מצויר מעל בשקיפות ובסיבוב הנבחר.
+//    הסיבוב שנשמר נטען אוטומטית בפעם הבאה לאותו טמפלט (לפי מזהה-הטמפלט).
+var _ovlRot = 0, _ovlBusy = false;
+function _ovlKey(){ return 'solanTplRot_' + (($('tplId') && $('tplId').value) || 'template'); }
+function _ovlLoadSaved(){ try{ var v = parseInt(localStorage.getItem(_ovlKey()),10); return isFinite(v) ? ((v%360)+360)%360 : null; }catch(e){ return null; } }
+async function _ovlRenderPage(bytes, pageNo, scale){
+  var pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+  var n = Math.min(pageNo, pdf.numPages);
+  var pg = await pdf.getPage(n < 1 ? 1 : n);
+  var vp = pg.getViewport({ scale: scale });
+  var cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+  var cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0,0,cv.width,cv.height);
+  await pg.render({ canvasContext: cx, viewport: vp }).promise;
+  try{ pdf.destroy(); }catch(e){}
+  return cv;
+}
+async function _ovlDraw(){
+  if (_ovlBusy) return; 
+  var box = $('ovlBox'); if(!box) return;
+  if (!_tplBytes || !_proofBytes){ box.style.display='none'; return; }
+  box.style.display='';
+  _ovlBusy = true;
+  var msg = $('ovlMsg'); if(msg) msg.textContent = 'מרנדר…';
+  try{
+    var side = parseInt(($('ovlSide')&&$('ovlSide').value)||'0',10);
+    var proofCv = await _ovlRenderPage(_proofBytes, side+1, 0.55);
+    var tplCv   = await _ovlRenderPage(_tplBytes,  side+1, 0.55);
+    var out = $('ovlCv'); out.width = proofCv.width; out.height = proofCv.height;
+    var c = out.getContext('2d');
+    c.fillStyle='#fff'; c.fillRect(0,0,out.width,out.height);
+    c.drawImage(proofCv, 0, 0);                                    // רקע: הפרופר
+    var op = (parseInt(($('ovlOp')&&$('ovlOp').value)||'55',10))/100;
+    c.save(); c.globalAlpha = op;
+    var rad = _ovlRot * Math.PI/180;
+    c.translate(out.width/2, out.height/2); c.rotate(rad);
+    var dw = (_ovlRot===90||_ovlRot===270) ? out.height : out.width;
+    var dh = (_ovlRot===90||_ovlRot===270) ? out.width  : out.height;
+    c.drawImage(tplCv, -dw/2, -dh/2, dw, dh);                      // מעל: הטמפלט, מסובב ובשקיפות
+    c.restore();
+    if(msg) msg.textContent='';
+  }catch(e){ if(msg) msg.textContent = 'שגיאה: ' + (e.message||e); }
+  finally{ _ovlBusy = false; }
+}
+function _ovlWire(){
+  var r=$('ovlRot'), o=$('ovlOp'), sd=$('ovlSide'), sv=$('ovlSave');
+  if(r) r.onclick=function(){ _ovlRot=(_ovlRot+90)%360; var t=$('ovlRotTxt'); if(t) t.textContent=_ovlRot+'°'; _ovlDraw(); };
+  if(o) o.oninput=function(){ _ovlDraw(); };
+  if(sd) sd.onchange=function(){ _ovlDraw(); };
+  if(sv) sv.onclick=function(){
+    try{ localStorage.setItem(_ovlKey(), String(_ovlRot));
+      var m=$('ovlMsg'); if(m) m.innerHTML='<span style="color:#15803d;font-weight:700">✓ נשמר — ייטען אוטומטית לטמפלט הזה</span>';
+      // 0/180 משפיעים על המפה עצמה → מסנכרנים את בורר-הסיבוב וקוראים מחדש
+      var selEl=$('tplRotSel');
+      if(selEl && (_ovlRot===0 || _ovlRot===180)){ selEl.value=String(_ovlRot); if(_tplBytes) readTemplate(_tplBytes); }
+    }catch(e){ var m2=$('ovlMsg'); if(m2) m2.textContent='שמירה נכשלה'; }
+  };
+}
+
 // קופסאות-הפרופר: חילוץ-הגיליון עבר ל-EXEC._sheetFromDoc (מקור-אמת יחיד · U3)
 
 async function _sha256(bytes){
@@ -334,9 +406,13 @@ async function setBytes(bytes, name){
   _sha256(bytes).then(h=>{ $('hashLine').innerHTML='testProofHash (SHA-256): <code>'+h+'</code>'; window._proofHash=h; });
 }
 
-$('proofFile').onchange = async e => { const f=e.target.files[0]; if(!f) return; setBytes(new Uint8Array(await f.arrayBuffer()), f.name); };
+$('proofFile').onchange = async e => { const f=e.target.files[0]; if(!f) return; setBytes(new Uint8Array(await f.arrayBuffer()), f.name); _ovlDraw(); };
+_ovlWire();
 var _tplBytes = null;
-$('tplFile').onchange = async e => { const f=e.target.files[0]; if(!f) return; _tplBytes = new Uint8Array(await f.arrayBuffer()); await readTemplate(_tplBytes); };
+$('tplFile').onchange = async e => { const f=e.target.files[0]; if(!f) return; _tplBytes = new Uint8Array(await f.arrayBuffer());
+  var _sv=_ovlLoadSaved(); if(_sv!=null){ _ovlRot=_sv; var _t=$('ovlRotTxt'); if(_t)_t.textContent=_ovlRot+'°';
+    var _rs=$('tplRotSel'); if(_rs && (_sv===0||_sv===180)) _rs.value=String(_sv); }   // סיבוב שמור לטמפלט זה
+  await readTemplate(_tplBytes); _ovlDraw(); };
 // שינוי-סיבוב → קריאה-מחדש של אותו טמפלט (בלי לבחור קובץ שוב)
 if ($('tplRotSel')) $('tplRotSel').onchange = async () => { if (_tplBytes) await readTemplate(_tplBytes); };
 $('tplRead').onclick = () => $('tplFile').click();
