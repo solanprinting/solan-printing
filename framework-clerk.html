@@ -6,7 +6,12 @@
 <meta name="robots" content="noindex, nofollow">
 <title>משרד — הזמנות ותעודות משלוח | סולן הדפסות</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; }catch(e){}</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="framework-orders.js"></script>
+<script src="framework-file-reader.js"></script>
 <style>
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
         --ok:#16a34a;--warn:#f59e0b;--bg:#e8e4dc;--card:#fff;--ink:#1a1a2e;--muted:#6b7280}
@@ -56,6 +61,13 @@
   .fCard{border:1px solid var(--line);border-inline-start:5px solid var(--line);border-radius:9px;padding:8px 10px;background:#fff}
   .fCard:hover{border-color:var(--gold)}
   @media(max-width:900px){.flow{grid-template-columns:1fr}.fBody{max-height:none}}
+  /* ── גרירת קובץ למסך ── */
+  #dropZone{display:none;position:fixed;inset:0;z-index:400;background:rgba(45,53,97,.92);color:#fff;
+    align-items:center;justify-content:center;text-align:center;font-size:1.5rem;font-weight:800;
+    border:6px dashed var(--gold);pointer-events:none}
+  #dropZone.on{display:flex}
+  .modal{position:fixed;inset:0;z-index:320;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;padding:14px}
+  .modalIn{background:#fff;border-radius:14px;max-width:940px;width:97vw;max-height:92vh;overflow:auto;padding:16px 18px}
   /* ── תעודת משלוח להדפסה ── */
   #dnPrint{display:none}
   @media print{
@@ -75,10 +87,13 @@
   <span style="color:var(--gold-light);font-size:.85rem">· משרד — הזמנות לקוחות ותעודות משלוח</span>
   <span style="margin-right:auto"></span>
   <span id="whoami" class="muted" style="color:var(--gold-light)"></span>
+  <button id="impBtn" class="primary">📥 קליטת הזמנה מקובץ</button>
+  <input type="file" id="impFile" accept=".pdf,.xlsx,.xls,.docx,.csv,.txt" style="display:none">
   <button id="reloadBtn">🔄 רענן</button>
 </div>
 <div id="app"><div class="card muted">טוען…</div></div>
 <div id="dnPrint"></div>
+<div id="dropZone"><div><div style="font-size:3rem">📥</div>שחררו כאן את קובץ ההזמנה<div class="muted" style="color:#e8d5a3;font-weight:400">PDF · Excel · Word · CSV</div></div></div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -137,6 +152,8 @@ async function load(){
   render();
 }
 function cur(){ return _all.find(a=>a.agreementId===_sel)||null; }
+// לקוחות עם הסכם מסגרת ומלאי (להבדיל מלקוחות שרק נרשמות להם הזמנות)
+function _frame(){ return _all.filter(a=>a.kind!=='orders' && (a.items||[]).length); }
 function allNotes(){ return _all.reduce((s,a)=>s.concat(a.deliveryNotes||[]),[]); }
 async function save(ag){
   if(!_isProd()){ alert('שמירה פועלת רק באתר החי (הגנת-סביבה).'); return false; }
@@ -164,7 +181,7 @@ function render(){
   const allItem=`<div class="cItem${_sel==='ALL'?' on':''}" data-a="ALL">
     <span>🔄 כל העבודות</span>${readyAll?`<span class="b">${readyAll} מוכן</span>`:''}</div>
     <div class="cItem${_sel==='AGR'?' on':''}" data-a="AGR" style="border-bottom:2px solid var(--line)">
-    <span>📋 הסכמי מסגרת</span><span class="b" style="background:var(--press)">${_all.length}</span></div>`;
+    <span>📋 הסכמי מסגרת</span><span class="b" style="background:var(--press)">${_frame().length}</span></div>`;
 
   const a=cur();
   $('app').innerHTML=`<div class="wrap">
@@ -247,7 +264,7 @@ function detailAgreements(){
       <div class="muted" style="margin-top:3px">הלקוחות שיש להם הסכם מסגרת והמלאי שנשאר לכל אחד.
         אפשר להתחייב ללקוח רק על העמודה <b>פנוי</b> — היתר כבר משוריין להזמנות שטרם סופקו.</div>
     </div>
-    ${_all.map(stockCard).join('')||'<div class="card muted">אין הסכמי מסגרת עדיין.</div>'}`;
+    ${_frame().map(stockCard).join('')||'<div class="card muted">אין הסכמי מסגרת עדיין.</div>'}`;
 }
 
 /* ═══════════ לוח זרימת עבודות ═══════════
@@ -488,9 +505,158 @@ function showNote(d,a){
 }
 function closeNote(){ $('dnPrint').style.cssText=''; $('dnPrint').style.display='none'; }
 
+/* ═══════════ קליטת הזמנה מקובץ — גרירה למסך או בחירת קובץ ═══════════
+   הקובץ מנותח לשורות, המשתמש *עורך ומאשר*, ואז נרשמת הזמנה ממתינה.
+   לקוח עם הסכם מסגרת → השורות משויכות לפריטיו ומשריינות מלאי.
+   לקוח אחר → נרשם כלקוח-הזמנות (kind='orders') והשורות נשמרות כשורות חופשיות. */
+let _impRows=[], _impName='';
+
+async function _impRead(f){
+  if(!f) return;
+  _openImport('קורא '+f.name+'…', true);
+  try{
+    const res=await FWFile.read(f);
+    const ps=FW.parseSheetRows(res.rows||[]);
+    let lines=ps.lines;
+    if(!lines.length) lines=FW.parseOrderText(res.text||'');
+    if(!lines.length){ $('impMsg').innerHTML='<span class="bad">לא זוהו שורות עם כמות בקובץ. אפשר להקליד ידנית למטה.</span>';
+      _impRows=[]; _impName=f.name; _impRender(); return; }
+    _impRows=lines.map(l=>({ sku:l.sku||'', name:l.name||l.sku||'', qty:l.qty||0, packs:l.packs||0 }));
+    _impName=f.name;
+    $('impMsg').innerHTML='<span class="ok">✓ נקרא '+esc(f.name)+' — זוהו '+_impRows.length+' שורות</span>';
+    _impRender();
+  }catch(e){ $('impMsg').innerHTML='<span class="bad">קריאה נכשלה: '+esc(e.message||e)+'</span>'; _impRows=[]; _impRender(); }
+}
+
+function _openImport(msg,busy){
+  let m=$('impModal');
+  if(!m){ m=document.createElement('div'); m.id='impModal'; m.className='modal'; document.body.appendChild(m);
+    m.innerHTML=`<div class="modalIn">
+      <h3 style="margin:0 0 4px">📥 קליטת הזמנה מקובץ</h3>
+      <div class="muted" style="margin-bottom:10px">הכלי מנתח את הקובץ — ואפשר <b>לערוך כל שורה</b> לפני האישור.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+        <span>לקוח:</span><select id="impCust" style="min-width:210px"></select>
+        <input id="impNewCust" placeholder="שם הלקוח החדש" style="display:none;width:190px">
+        <span>מס׳ הזמנה:</span><input id="impRef" style="width:150px">
+        <span>לאספקה עד:</span><input id="impDue" type="date">
+      </div>
+      <div id="impMsg" class="muted" style="margin-bottom:8px"></div>
+      <div id="impPrev"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;justify-content:flex-end">
+        <button id="impAddRow">➕ שורה ידנית</button>
+        <button id="impCancel">ביטול</button>
+        <button id="impSave" class="primary">✓ רשום הזמנה</button>
+      </div></div>`;
+    $('impCancel').onclick=()=>{ m.remove(); _impRows=[]; };
+    $('impAddRow').onclick=()=>{ _impRows.push({sku:'',name:'',qty:0,packs:0}); _impRender(); };
+    $('impSave').onclick=_impSave;
+    $('impCust').onchange=()=>{ $('impNewCust').style.display = $('impCust').value==='NEW'?'':'none'; _impRender(); };
+  }
+  const sel=$('impCust');
+  if(sel && !sel.options.length){
+    sel.innerHTML=_all.map(a=>`<option value="${a.agreementId}"${a.agreementId===_sel?' selected':''}>${esc(a.customer)}${a.kind==='orders'?'':' (הסכם מסגרת)'}</option>`).join('')
+      +'<option value="NEW">➕ לקוח חדש…</option>';
+  }
+  if(msg) $('impMsg').innerHTML=busy?('<span class="muted">'+esc(msg)+'</span>'):esc(msg);
+}
+
+// תצוגה מקדימה: לכל שורה מוצג האם היא משויכת לפריט בהסכם, וכמה יישאר פנוי
+function _impRender(){
+  const agId=$('impCust').value, ag=_all.find(x=>x.agreementId===agId)||null;
+  const b=ag?FW.computeBalances(ag):{items:[]};
+  const used={};
+  const rows=_impRows.map((r,i)=>{
+    const it=ag?FW.findItem(ag, r.sku||r.name):null;
+    const bal=it?b.items.find(x=>x.itemId===it.itemId):null;
+    // ⚠️ שורה שהקובץ נתן לה רק "קרטונים" ואין לה פריט בהסכם (אין גודל-אריזה) —
+    //    המספר נלקח ככמות, אחרת השורה הייתה נשמטת בשקט בשמירה.
+    let qty=r.qty|0;
+    if(!qty && r.packs>0) qty = (bal && bal.packSize>0) ? r.packs*bal.packSize : r.packs;
+    const prior=used[it?it.itemId:'-']||0;
+    const after=bal?(bal.availableQty-prior-qty):null;
+    if(it) used[it.itemId]=prior+qty;
+    return `<tr${after!=null&&after<0?' style="background:#fff7ed"':''}>
+      <td><input class="ipSku" data-i="${i}" value="${esc(r.sku)}" style="width:95px" placeholder="ריק=ללא"></td>
+      <td><input class="ipName" data-i="${i}" value="${esc(r.name)}" style="width:180px"></td>
+      <td>${bal&&bal.packSize?`<input type="number" class="ipPacks" data-i="${i}" value="${r.packs||0}" min="0" style="width:70px"><div class="muted" style="font-size:.72rem">×${bal.packSize.toLocaleString()}</div>`:'<span class="muted">—</span>'}</td>
+      <td><input type="number" class="ipQty" data-i="${i}" value="${qty}" min="0" style="width:100px"></td>
+      <td>${it?'<span class="ok">✓ '+esc(it.name)+'</span>':'<span class="muted">שורה חופשית</span>'}</td>
+      <td class="${after!=null&&after<0?'bad':''}">${after!=null?after.toLocaleString():'<span class="muted">—</span>'}</td>
+      <td><button class="ipDel danger" data-i="${i}">🗑</button></td></tr>`;
+  }).join('');
+  $('impPrev').innerHTML=_impRows.length?`<div style="overflow-x:auto"><table>
+      <thead><tr><th>מק״ט</th><th>תיאור</th><th>אריזות</th><th>יח׳</th><th>שיוך</th><th>יישאר פנוי</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div class="muted" style="margin-top:6px;font-size:.8rem">שורה שלא שויכה לפריט בהסכם תירשם כפי שהיא — לתיעוד ולזרימת העבודה, בלי לגעת במלאי.</div>`
+    :'<div class="muted">אין שורות. אפשר להוסיף שורה ידנית.</div>';
+  document.querySelectorAll('.ipSku').forEach(el=>el.onchange=e=>{ _impRows[+e.target.dataset.i].sku=e.target.value.trim(); _impRender(); });
+  document.querySelectorAll('.ipName').forEach(el=>el.onchange=e=>{ _impRows[+e.target.dataset.i].name=e.target.value.trim(); _impRender(); });
+  document.querySelectorAll('.ipQty').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i;
+    _impRows[i].qty=parseInt(e.target.value,10)||0; _impRows[i].packs=0; _impRender(); });
+  document.querySelectorAll('.ipPacks').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i;
+    _impRows[i].packs=parseInt(e.target.value,10)||0; _impRows[i].qty=0; _impRender(); });
+  document.querySelectorAll('.ipDel').forEach(el=>el.onclick=e=>{ _impRows.splice(+e.target.dataset.i,1); _impRender(); });
+}
+
+async function _impSave(){
+  const sel=$('impCust').value;
+  let ag;
+  if(sel==='NEW'){
+    const nm=($('impNewCust').value||'').trim();
+    if(!nm){ alert('הזינו שם לקוח'); return; }
+    const exist=FW.findAgreementForCustomer(_all,nm);
+    if(exist) ag=exist;                                   // לקוח קיים — נרשם לתוכו ולא נפתחת כפילות
+    else{
+      const b=FW.buildAgreement({customer:nm,kind:'orders',createdAt:new Date().toISOString(),createdBy:_me()});
+      if(!b.ok){ alert('לקוח לא תקין: '+b.errors.join(', ')); return; }
+      ag=_normAg(b.agreement);
+    }
+  } else ag=_all.find(x=>x.agreementId===sel);
+  if(!ag){ alert('בחרו לקוח'); return; }
+
+  // אותה נוסחה כמו בתצוגה המקדימה — מה שנראה על המסך הוא מה שנרשם
+  const lines=_impRows.filter(r=>(r.name||r.sku)).map(r=>{
+    const it=FW.findItem(ag, r.sku||r.name);
+    const ps=it?(parseInt(it.packSize,10)||0):0;
+    let qty=r.qty||0;
+    if(!qty && r.packs>0) qty = ps>0 ? r.packs*ps : r.packs;
+    return {raw:'',sku:r.sku||'',name:r.name||r.sku,qty:qty,packs:(ps>0?(r.packs||0):0)};
+  }).filter(l=>l.qty>0);
+  if(!lines.length){ alert('אין שורות עם כמות לרישום'); return; }
+  const dropped=_impRows.filter(r=>(r.name||r.sku)).length-lines.length;
+  if(dropped>0 && !confirm(dropped+' שורות ללא כמות לא יירשמו.\nלהמשיך?')) return;
+  // שורות שיש להן פריט בהסכם → משוריינות · השאר → שורות חופשיות
+  const m=FW.matchOrder(ag,lines);
+  const rows=m.rows.map(r=> r.matched ? r : Object.assign({},r,{free:true,name:r.name||r.sku}));
+  const over=rows.filter(r=>r.exceeds);
+  if(over.length && !confirm('⚠️ אין מספיק מלאי פנוי ל-'+over.length+' שורות.\nלרשום את ההזמנה בכל זאת?')) return;
+  const res=FW.placeOrder(ag,rows,{orderRef:($('impRef').value||'').trim(),dueDate:$('impDue').value||null,
+    date:_today(),by:_me(),notes:_impName?('מקור: '+_impName):null});
+  if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+  if(await save(_normAg(res.agreement))){
+    const free=res.order.lines.filter(l=>l.free).length;
+    $('impModal').remove(); _impRows=[]; _sel=res.agreement.agreementId; _tab='flow'; render();
+    alert('✓ ההזמנה נרשמה ('+res.order.lines.length+' שורות'+(free?(', מתוכן '+free+' ללא שיוך למלאי'):'')+').');
+  }
+}
+
+// גרירה לכל המסך
+['dragenter','dragover'].forEach(ev=>document.addEventListener(ev,e=>{
+  if(!e.dataTransfer || [...e.dataTransfer.types||[]].indexOf('Files')<0) return;
+  e.preventDefault(); $('dropZone').classList.add('on'); }));
+['dragleave','dragend'].forEach(ev=>document.addEventListener(ev,e=>{
+  if(e.relatedTarget) return; $('dropZone').classList.remove('on'); }));
+document.addEventListener('drop',e=>{
+  if(!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+  e.preventDefault(); $('dropZone').classList.remove('on');
+  _impRead(e.dataTransfer.files[0]);
+});
+$('impBtn').onclick=()=>$('impFile').click();
+$('impFile').onchange=e=>{ const f=e.target.files[0]; e.target.value=''; _impRead(f); };
+
 $('reloadBtn').onclick=load;
 load();
-setInterval(()=>{ if(!_busy && !_newLines.length && $('dnPrint').style.display!=='block') load(); }, 60000);
+setInterval(()=>{ if(!_busy && !_newLines.length && !$('impModal') && $('dnPrint').style.display!=='block') load(); }, 60000);
 </script>
 </body>
 </html>

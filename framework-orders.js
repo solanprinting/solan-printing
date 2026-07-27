@@ -74,7 +74,9 @@
       agreement: {
         agreementId: _s(input.agreementId) || makeId('fw', input.rng),
         customer: customer,
-        title: _s(input.title) || ('הסכם מסגרת — ' + customer),
+        // 'framework' = הסכם מסגרת עם מלאי · 'orders' = לקוח רגיל שרק נרשמות לו הזמנות
+        kind: input.kind === 'orders' ? 'orders' : 'framework',
+        title: _s(input.title) || ((input.kind === 'orders' ? 'הזמנות — ' : 'הסכם מסגרת — ') + customer),
         agreementNo: _s(input.agreementNo) || null,   // מספר הסכם (פנימי/מול הלקוח)
         poNumber: _s(input.poNumber) || null,         // מספר הזמנת-רכש (PO) של הלקוח
         status: STATUSES.indexOf(input.status) >= 0 ? input.status : 'active',
@@ -421,8 +423,21 @@
     var ag = JSON.parse(JSON.stringify(agreement || {}));
     var lines = [];
     (matchedRows || []).forEach(function (r) {
-      if (!r || !r.matched || !r.itemId) return;
+      if (!r) return;
       var q = _int(r.qty); if (q <= 0) return;
+      // שורה "חופשית": הזמנה מלקוח שאין לו פריט בהסכם (או לקוח בלי הסכם מסגרת כלל).
+      // נרשמת לתיעוד ולזרימת-העבודה בלבד — לא משריינת ולא מורידה מלאי.
+      if (!r.itemId) {
+        var nm = _s(r.name) || _s(r.sku);
+        if (!r.free || !nm) return;
+        lines.push({ itemId: null, free: true, sku: _s(r.sku) || null, name: nm, qty: q,
+          packs: _int(r.packs) || null, packSize: _int(r.packSize) || null,
+          packName: _s(r.packName) || null,
+          price1000: r.price1000 != null ? _num(r.price1000) : null,
+          value: (q / 1000) * _num(r.price1000) });
+        return;
+      }
+      if (!r.matched) return;
       if (!(ag.items || []).some(function (it) { return it.itemId === r.itemId; })) return;
       lines.push({
         itemId: r.itemId, sku: r.sku || null, name: r.name || null, qty: q,
@@ -472,7 +487,8 @@
       });
       if (mb.ok) { mb.movement.orderId = o.orderId; added.push(mb.movement); }
     });
-    if (!added.length) return { ok: false, errors: ['NO_LINES'] };
+    // הזמנה שכולה שורות חופשיות (לקוח בלי מלאי בהסכם) — אין תנועות מלאי, אבל היא עדיין מסופקת
+    if (!added.length && !effectiveLines(o).length) return { ok: false, errors: ['NO_LINES'] };
     o.status = 'supplied';
     o.suppliedAt = _s(meta.date) || null;
     o.suppliedBy = _s(meta.by) || null;
@@ -559,7 +575,7 @@
       else qty = _int(ln.qty);
       if (!packs && packSize > 0) packs = Math.floor(qty / packSize);
       return {
-        itemId: ln.itemId, sku: ln.sku || null, name: ln.name || null,
+        itemId: ln.itemId || null, free: !!ln.free, sku: ln.sku || null, name: ln.name || null,
         qty: qty, packs: packs || null, packSize: packSize || null,
         packName: ln.packName || null,
         price1000: ln.price1000 != null ? _num(ln.price1000) : null,
@@ -610,8 +626,8 @@
       order2.push({ orderId: o.orderId, orderRef: o.orderRef || null, poNumber: o.poNumber || null });
       effectiveLines(o).forEach(function (ln) {
         var it = (ag.items || []).find(function (x) { return x.itemId === ln.itemId; }) || {};
-        var k = ln.itemId;
-        if (!byItem[k]) byItem[k] = { itemId: k, sku: ln.sku || it.sku || null, name: ln.name || it.name || '',
+        var k = ln.itemId || ('free:' + (ln.sku || ln.name || ''));   // שורה חופשית — מפתח לפי שם/מק״ט
+        if (!byItem[k]) byItem[k] = { itemId: ln.itemId || null, free: !!ln.free, sku: ln.sku || it.sku || null, name: ln.name || it.name || '',
           packName: ln.packName || it.packName || 'קרטון', packSize: _int(ln.packSize || it.packSize) || null,
           qty: 0, packs: 0, price1000: _num(ln.price1000 != null ? ln.price1000 : it.price1000), value: 0 };
         byItem[k].qty += _int(ln.qty);
