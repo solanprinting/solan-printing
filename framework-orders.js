@@ -684,10 +684,24 @@
   /* שלב בלוח-הזרימה של המשרד — מאחד שני עולמות למסלול אחד:
      כרטיס-עבודה של הדפוס (status: pending/inprogress/finishing/done/trash)
      והזמנת-מסגרת (pending/ready/supplied/cancelled).  null = לא מוצג. */
+  /* מה המשרד רואה מתוך כרטיסי-העבודה של הדפוס:
+     ⚠️ שני כללים שהוגדרו במפורש —
+       1) רק עבודות ב"גימורים" או "הושלם" (מהלך הייצור עצמו לא מעניין את המשרד)
+       2) כל עבודה שמופיע בה "גרפיק" מוסתרת לגמרי (עבודות הגרפיקאי) */
+  var HIDE_RE = /גרפיק/;
+  function isHiddenName(text) { return HIDE_RE.test(_s(text)); }
+  function isClerkJob(card) {
+    if (!card) return false;
+    var st = _s(card.status);
+    if (st !== 'finishing' && st !== 'done') return false;
+    return !(isHiddenName(card.name) || isHiddenName(card.customer) || isHiddenName(card.notes) || isHiddenName(card.type));
+  }
+
   function jobStage(card, hasNote) {
     if (!card) return null;
     var st = _s(card.status);
     if (st === 'trash') return null;
+    if (!isClerkJob(card)) return null;
     if (hasNote) return 'delivered';
     if (st === 'done') return 'ready';                       // הודפס והושלם — ממתין למסירה
     if (st === 'inprogress' || st === 'finishing' || st === 'printing') return 'production';
@@ -838,6 +852,7 @@
     markReady: markReady, unmarkReady: unmarkReady, effectiveLines: effectiveLines,
     buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,
     buildJobNote: buildJobNote, jobStage: jobStage, orderStage: orderStage,
+    isClerkJob: isClerkJob, isHiddenName: isHiddenName,
     applyStock: applyStock, findAgreementForCustomer: findAgreementForCustomer,
     alerts: alerts, findItem: findItem, validate: validate
   };

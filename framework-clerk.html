@@ -88,6 +88,7 @@
   <span style="color:var(--gold-light);font-size:.85rem">· משרד — הזמנות לקוחות ותעודות משלוח</span>
   <span style="margin-right:auto"></span>
   <span id="whoami" class="muted" style="color:var(--gold-light)"></span>
+  <button id="manBtn">➕ הזמנה חדשה</button>
   <button id="impBtn" class="primary">📥 קליטת הזמנה מקובץ</button>
   <input type="file" id="impFile" accept=".pdf,.xlsx,.xls,.docx,.csv,.txt" style="display:none">
   <button id="reloadBtn">🔄 רענן</button>
@@ -149,16 +150,23 @@ async function load(){
   try{
     const obj=await _get(_P);
     _all = obj && typeof obj==='object' ? Object.values(obj).filter(a=>a&&a.agreementId).map(_normAg) : [];
+    _all=_all.filter(a=>!FW.isHiddenName(a.customer));      // ⚠️ עבודות גרפיק מוסתרות מהמשרד
     _all.sort((a,b)=>String(a.customer||'').localeCompare(String(b.customer||''),'he'));
   }catch(e){ _all=[]; }
-  // עבודות הדפוס + התעודות שהופקו עליהן — קריאה בלבד, במקביל (לא מעכב את המסך)
-  try{
-    const [cs,ns]=await Promise.all([_get('cards'), _get('clerkDeliveryNotes')]);
-    _cards=_arr(cs).filter(c=>c && c.id!=null && c.status!=='trash' && !c._deleted);
-    _jobNotes=(ns && typeof ns==='object') ? Object.values(ns).filter(Boolean) : [];
-  }catch(e){ /* אין הרשאה/רשת — הלוח עדיין מציג את ההזמנות */ }
   if(_sel!=='ALL' && _sel!=='AGR' && !_all.some(a=>a.agreementId===_sel)) _sel='ALL';
   render();
+  loadJobs();          // ⚠️ ברקע! קריאת כרטיסי-העבודה כבדה — אסור שתעכב את הצגת המסך
+}
+
+// עבודות הדפוס + התעודות שהופקו עליהן — קריאה בלבד, ברקע, עם תקרת-זמן
+async function loadJobs(){
+  const cap=(p)=>Promise.race([p, new Promise(r=>setTimeout(()=>r(null), 20000))]);
+  try{
+    const [cs,ns]=await Promise.all([cap(_get('cards')), cap(_get('clerkDeliveryNotes'))]);
+    if(cs) _cards=_arr(cs).filter(c=>c && c.id!=null && !c._deleted && FW.isClerkJob(c));
+    _jobNotes=(ns && typeof ns==='object') ? Object.values(ns).filter(Boolean) : [];
+    if(_cards.length || _jobNotes.length) render();
+  }catch(e){ /* אין הרשאה/רשת — הלוח עדיין מציג את ההזמנות */ }
 }
 function cur(){ return _all.find(a=>a.agreementId===_sel)||null; }
 // לקוחות עם הסכם מסגרת ומלאי (להבדיל מלקוחות שרק נרשמות להם הזמנות)
@@ -705,6 +713,9 @@ document.addEventListener('drop',e=>{
   _impRead(e.dataTransfer.files[0]);
 });
 $('impBtn').onclick=()=>$('impFile').click();
+// הזמנה ידנית — לכל לקוח, גם כזה שאין לו הסכם מסגרת
+$('manBtn').onclick=()=>{ _impRows=[{sku:'',name:'',qty:0,packs:0}]; _impName='';
+  _openImport('רשמו את שורות ההזמנה'); _impRender(); };
 $('impFile').onchange=e=>{ const f=e.target.files[0]; e.target.value=''; _impRead(f); };
 
 $('reloadBtn').onclick=load;
