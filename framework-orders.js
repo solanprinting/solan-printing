@@ -678,6 +678,63 @@
     return { ok: true, agreement: ag, note: b.note };
   }
 
+  /* ── תעודת משלוח על כרטיסי-עבודה רגילים (לא הסכם מסגרת) ──
+     המשרד מוציא תעודה גם על עבודות דפוס שהושלמו. אותו מבנה-תעודה בדיוק,
+     כדי שההדפסה והמספור יהיו זהים; השורות הן "חופשיות" (אין מלאי מאחוריהן). */
+  /* שלב בלוח-הזרימה של המשרד — מאחד שני עולמות למסלול אחד:
+     כרטיס-עבודה של הדפוס (status: pending/inprogress/finishing/done/trash)
+     והזמנת-מסגרת (pending/ready/supplied/cancelled).  null = לא מוצג. */
+  function jobStage(card, hasNote) {
+    if (!card) return null;
+    var st = _s(card.status);
+    if (st === 'trash') return null;
+    if (hasNote) return 'delivered';
+    if (st === 'done') return 'ready';                       // הודפס והושלם — ממתין למסירה
+    if (st === 'inprogress' || st === 'finishing' || st === 'printing') return 'production';
+    return 'new';
+  }
+  function orderStage(order) {
+    if (!order) return null;
+    var st = _s(order.status);
+    if (st === 'cancelled') return null;
+    if (st === 'supplied') return 'delivered';
+    if (st === 'ready') return 'ready';
+    return 'new';
+  }
+
+  function buildJobNote(jobs, meta) {
+    meta = meta || {};
+    var lines = (jobs || []).map(function (j) {
+      if (!j) return null;
+      var nm = _s(j.name); if (!nm) return null;
+      return {
+        itemId: null, free: true, cardId: j.cardId != null ? String(j.cardId) : null,
+        sku: _s(j.sku) || null, name: nm,
+        qty: _int(j.qty), packs: _int(j.packs) || 0,
+        packSize: _int(j.packSize) || null, packName: _s(j.packName) || 'קרטון',
+        price1000: 0, value: 0, notes: _s(j.notes) || null
+      };
+    }).filter(Boolean);
+    if (!lines.length) return { ok: false, errors: ['NO_JOBS'] };
+    return {
+      ok: true,
+      note: {
+        noteId: makeId('dn', meta.rng),
+        number: _int(meta.number) || 1001,
+        source: 'jobs',                         // להבדיל מתעודה על הסכם מסגרת
+        agreementId: null, agreementNo: null,
+        customer: _s(meta.customer) || '',
+        date: _s(meta.date) || null, by: _s(meta.by) || null,
+        reference: _s(meta.reference) || null, notes: _s(meta.notes) || null,
+        orders: [], cardIds: lines.map(function (l) { return l.cardId; }).filter(Boolean),
+        lines: lines,
+        qty: lines.reduce(function (a, l) { return a + l.qty; }, 0),
+        packs: lines.reduce(function (a, l) { return a + l.packs; }, 0),
+        value: 0
+      }
+    };
+  }
+
   // הסכם פעיל קיים של אותו לקוח — כדי לצבור לתוכו במקום לפתוח כפילות
   function findAgreementForCustomer(agreements, customer) {
     var c = _s(customer).toLowerCase(); if (!c) return null;
@@ -780,6 +837,7 @@
     placeOrder: placeOrder, supplyOrder: supplyOrder, cancelOrder: cancelOrder, findOrder: findOrder,
     markReady: markReady, unmarkReady: unmarkReady, effectiveLines: effectiveLines,
     buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,
+    buildJobNote: buildJobNote, jobStage: jobStage, orderStage: orderStage,
     applyStock: applyStock, findAgreementForCustomer: findAgreementForCustomer,
     alerts: alerts, findItem: findItem, validate: validate
   };

@@ -52,7 +52,7 @@
   .tab .n{background:var(--warn);color:#fff;border-radius:9px;padding:0 7px;font-size:.72rem;margin-inline-start:5px}
   .ready{border-inline-start:5px solid var(--ok);background:#f0fdf4}
   /* ── לוח זרימת עבודות ── */
-  .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}
+  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start}
   .fCol{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
   .fHead{color:#fff;font-weight:800;padding:9px 12px;font-size:.9rem;display:flex;justify-content:space-between;align-items:center}
   .fN{background:rgba(255,255,255,.28);border-radius:10px;padding:0 9px;font-size:.8rem}
@@ -60,7 +60,8 @@
   .fBody{padding:9px;display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 250px);overflow-y:auto}
   .fCard{border:1px solid var(--line);border-inline-start:5px solid var(--line);border-radius:9px;padding:8px 10px;background:#fff}
   .fCard:hover{border-color:var(--gold)}
-  @media(max-width:900px){.flow{grid-template-columns:1fr}.fBody{max-height:none}}
+  @media(max-width:1200px){.flow{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:760px){.flow{grid-template-columns:1fr}.fBody{max-height:none}}
   /* ── גרירת קובץ למסך ── */
   #dropZone{display:none;position:fixed;inset:0;z-index:400;background:rgba(45,53,97,.92);color:#fff;
     align-items:center;justify-content:center;text-align:center;font-size:1.5rem;font-weight:800;
@@ -126,6 +127,8 @@ function _put(p,o){ return _auth().then(t=>fetch(_FBURL+'/'+p+'.json?auth='+t,{m
   .then(r=>{ if(!r.ok) return r.text().then(x=>{ throw new Error('כתיבה נכשלה ('+r.status+') '+String(x||'').slice(0,120)); }); return r; })); }
 
 let _all=[], _sel='ALL', _tab='flow', _busy=false, _newLines=[];
+// עבודות הדפוס (cards) — נקראות בלבד · ותעודות משלוח שהופקו עליהן
+let _cards=[], _jobNotes=[];
 
 // ⚠️ Firebase RTDB לא שומר מערך ריק, ומערך "עם חורים" חוזר כאובייקט — חובה לנרמל.
 function _arr(v){
@@ -148,13 +151,19 @@ async function load(){
     _all = obj && typeof obj==='object' ? Object.values(obj).filter(a=>a&&a.agreementId).map(_normAg) : [];
     _all.sort((a,b)=>String(a.customer||'').localeCompare(String(b.customer||''),'he'));
   }catch(e){ _all=[]; }
-  if(_sel!=='ALL' && !_all.some(a=>a.agreementId===_sel)) _sel='ALL';
+  // עבודות הדפוס + התעודות שהופקו עליהן — קריאה בלבד, במקביל (לא מעכב את המסך)
+  try{
+    const [cs,ns]=await Promise.all([_get('cards'), _get('clerkDeliveryNotes')]);
+    _cards=_arr(cs).filter(c=>c && c.id!=null && c.status!=='trash' && !c._deleted);
+    _jobNotes=(ns && typeof ns==='object') ? Object.values(ns).filter(Boolean) : [];
+  }catch(e){ /* אין הרשאה/רשת — הלוח עדיין מציג את ההזמנות */ }
+  if(_sel!=='ALL' && _sel!=='AGR' && !_all.some(a=>a.agreementId===_sel)) _sel='ALL';
   render();
 }
 function cur(){ return _all.find(a=>a.agreementId===_sel)||null; }
 // לקוחות עם הסכם מסגרת ומלאי (להבדיל מלקוחות שרק נרשמות להם הזמנות)
 function _frame(){ return _all.filter(a=>a.kind!=='orders' && (a.items||[]).length); }
-function allNotes(){ return _all.reduce((s,a)=>s.concat(a.deliveryNotes||[]),[]); }
+function allNotes(){ return _all.reduce((s,a)=>s.concat(a.deliveryNotes||[]),[]).concat(_jobNotes); }
 async function save(ag){
   if(!_isProd()){ alert('שמירה פועלת רק באתר החי (הגנת-סביבה).'); return false; }
   if(_busy){ alert('פעולה קודמת עדיין נשמרת — נסו שוב בעוד רגע'); return false; } _busy=true;
@@ -197,15 +206,18 @@ function render(){
 // מבט-על: זרימת כל העבודות בבית-הדפוס, בלי להיכנס ללקוח מסוים
 function detailAll(){
   const groups=_all.map(a=>({ag:a, orders:(a.orders||[]).slice().reverse()}));
-  const cnt=s=>groups.reduce((n,g)=>n+g.orders.filter(o=>o.status===s).length,0);
+  const noteFor=c=>_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0);
+  const cnt=s=>groups.reduce((n,g)=>n+g.orders.filter(o=>FW.orderStage(o)===s).length,0)
+    + _cards.filter(c=>FW.jobStage(c,noteFor(c))===s).length;
   return `<div class="card" style="padding:10px 14px">
-      <span class="stat">ממתינות לייצור<b style="color:#b45309">${cnt('pending')}</b></span>
+      <span class="stat">התקבלו<b style="color:#b45309">${cnt('new')}</b></span>
+      <span class="stat">בייצור<b style="color:#0369a1">${cnt('production')}</b></span>
       <span class="stat">מוכנות לאספקה<b style="color:#15803d">${cnt('ready')}</b></span>
-      <span class="stat">סופקו<b>${cnt('supplied')}</b></span>
-      <span class="stat">לקוחות<b>${_all.length}</b></span>
+      <span class="stat">סופקו<b>${cnt('delivered')}</b></span>
+      <span class="stat">עבודות דפוס<b>${_cards.length}</b></span>
     </div>
-    <div class="muted" style="margin:0 2px 10px">כל העבודות של כל הלקוחות. לרישום הזמנה או להוצאת תעודה — בחרו לקוח מהרשימה בצד.</div>
-    ${flowBoard(groups)}`;
+    <div class="muted" style="margin:0 2px 10px">כל מה שרץ בדפוס — הזמנות מסגרת <b>וכרטיסי עבודה</b> (🖨). כרטיסי העבודה נקראים מהאפליקציה ולא נערכים כאן.</div>
+    ${flowBoard(groups,true)}`;
 }
 
 function detail(a){
@@ -270,9 +282,10 @@ function detailAgreements(){
 /* ═══════════ לוח זרימת עבודות ═══════════
    שלושה שלבים לפי סטטוס ההזמנה. זה המסך הראשי של הפקיד — לא טבלת מלאי. */
 const _STAGES=[
-  { k:'pending',  t:'📝 נרשמה — ממתינה לייצור', c:'#f59e0b', hint:'הוזמן ע״י הלקוח · הכמות משוריינת' },
-  { k:'ready',    t:'✅ מוכנה לאספקה',           c:'#16a34a', hint:'הדפוס סיים — אפשר להוציא תעודת משלוח' },
-  { k:'supplied', t:'🚚 סופקה',                  c:'#2d3561', hint:'יצאה ללקוח · המלאי ירד' }
+  { k:'new',        t:'📝 התקבלה',        c:'#f59e0b', hint:'הזמנה/עבודה שנרשמה — טרם נכנסה לייצור' },
+  { k:'production', t:'🖨 בייצור',         c:'#0ea5e9', hint:'בהדפסה או בגימורים' },
+  { k:'ready',      t:'✅ מוכנה לאספקה',   c:'#16a34a', hint:'הושלמה — אפשר להוציא תעודת משלוח' },
+  { k:'delivered',  t:'🚚 סופקה',          c:'#2d3561', hint:'יצאה ללקוח' }
 ];
 function _orderCard(o,a,stage){
   const note=(a.deliveryNotes||[]).find(d=>(d.orders||[]).some(x=>x.orderId===o.orderId));
@@ -280,8 +293,8 @@ function _orderCard(o,a,stage){
     const it=(a.items||[]).find(x=>x.itemId===l.itemId);
     return `<div>• ${esc((it&&it.name)||l.name||'')} — ${l.packs?`<b>${l.packs.toLocaleString()} ${esc(_plu(l.packName||(it&&it.packName)))}</b>`:`${l.qty.toLocaleString()} יח׳`}</div>`;
   }).join('');
-  const late = stage==='pending' && o.dueDate && o.dueDate < _today();
-  const short = stage!=='pending' && FW.effectiveLines(o).some(l=>l.orderedQty && l.qty<l.orderedQty);
+  const late = stage==='new' && o.dueDate && o.dueDate < _today();
+  const short = stage!=='new' && FW.effectiveLines(o).some(l=>l.orderedQty && l.qty<l.orderedQty);
   return `<div class="fCard" style="border-inline-start-color:${_STAGES.find(s=>s.k===stage).c}">
     <div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">
       <b>${esc(o.orderRef||o.orderId)}</b><span class="muted" style="font-size:.75rem">${esc(o.date||'')}</span></div>
@@ -294,10 +307,29 @@ function _orderCard(o,a,stage){
     ${stage==='ready'?`<div style="margin-top:5px"><button class="goReady" data-ag="${a.agreementId}" class="primary" style="padding:3px 9px;font-size:.78rem">📄 הפק תעודה</button></div>`:''}
   </div>`;
 }
-function flowBoard(groups){
+/* כרטיס-עבודה של הדפוס (מ-cards) — נקרא בלבד; המשרד לא עורך עבודות. */
+function _jobCard(c,stage){
+  const note=_jobNotes.find(n=>(n.cardIds||[]).indexOf(String(c.id))>=0);
+  const late = stage!=='delivered' && c.deliveryDate && c.deliveryDate < _today();
+  return `<div class="fCard" style="border-inline-start-color:${_STAGES.find(s=>s.k===stage).c};background:#fcfcff">
+    <div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">
+      <b>🖨 ${esc(c.name||'עבודה')}</b><span class="muted" style="font-size:.75rem">${esc(c.orderDate||'')}</span></div>
+    <div style="font-size:.82rem;margin-top:4px">
+      ${c.copies?`• ${Number(c.copies).toLocaleString()} עותקים`:''}${c.pages?` · ${c.pages} עמ׳`:''}
+      ${c.paper?`<div class="muted">${esc(c.paper)}</div>`:''}</div>
+    ${c.deliveryDate?`<div class="${late?'bad':'muted'}" style="font-size:.76rem;margin-top:3px">${late?'⚠ עבר מועד: ':'לאספקה: '}${esc(c.deliveryDate)}</div>`:''}
+    ${note?`<div style="margin-top:5px"><button class="jnView" data-n="${note.noteId}" style="padding:3px 9px;font-size:.78rem">📄 תעודה ${note.number}</button></div>`
+      :stage==='ready'?`<div style="margin-top:5px"><button class="jnMake primary" data-c="${c.id}" style="padding:3px 9px;font-size:.78rem">📄 הפק תעודה</button></div>`:''}
+  </div>`;
+}
+function flowBoard(groups,withJobs){
   const cols=_STAGES.map(s=>{
     const cards=[];
-    groups.forEach(g=>{ (g.orders||[]).filter(o=>o.status===s.k).forEach(o=>cards.push(_orderCard(o,g.ag,s.k))); });
+    groups.forEach(g=>{ (g.orders||[]).forEach(o=>{ if(FW.orderStage(o)===s.k) cards.push(_orderCard(o,g.ag,s.k)); }); });
+    if(withJobs) _cards.forEach(c=>{
+      const note=_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0);
+      if(FW.jobStage(c,note)===s.k) cards.push(_jobCard(c,s.k));
+    });
     return `<div class="fCol">
       <div class="fHead" style="background:${s.c}">${s.t}<span class="fN">${cards.length}</span></div>
       <div class="fHint">${s.hint}</div>
@@ -399,6 +431,26 @@ function wire(a){
   // מלוח-הזרימה אפשר לקפוץ ישר ללקוח וללשונית הרלוונטית
   document.querySelectorAll('.goReady').forEach(el=>el.onclick=e=>{
     e.stopPropagation(); _sel=el.dataset.ag; _tab='ready'; render(); });
+  // 📄 תעודת משלוח על עבודת-דפוס שהושלמה (לא הסכם מסגרת)
+  document.querySelectorAll('.jnMake').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation();
+    const c=_cards.find(x=>String(x.id)===String(el.dataset.c)); if(!c) return;
+    const cust=prompt('שם הלקוח לתעודה:', c.customer||c.name||''); if(cust===null||!cust.trim()) return;
+    const qty=parseInt(prompt('כמות שנמסרת:', String(c.copies||0)),10)||0;
+    const packs=parseInt(prompt('כמה חבילות/קרטונים? (0 = לא רלוונטי):','0'),10)||0;
+    const num=FW.nextNoteNumber(allNotes());
+    const jn=FW.buildJobNote([{cardId:c.id,name:c.name,qty:qty,packs:packs}],
+      {number:num,customer:cust.trim(),date:_today(),by:_me()});
+    if(!jn.ok){ alert('נכשל: '+jn.errors.join(', ')); return; }
+    if(!confirm('להפיק תעודת משלוח מס׳ '+num+' על "'+(c.name||'')+'"?')) return;
+    if(!_isProd()){ alert('הפקה פועלת רק באתר החי (הגנת-סביבה).'); return; }
+    try{ await _put('clerkDeliveryNotes/'+jn.note.noteId, jn.note); }
+    catch(err){ alert('שמירה נכשלה: '+(err.message||err)); return; }
+    _jobNotes.push(jn.note); render(); showNote(jn.note,null);
+  });
+  document.querySelectorAll('.jnView').forEach(el=>el.onclick=()=>{
+    const n=_jobNotes.find(x=>x.noteId===el.dataset.n); if(n) showNote(n,null);
+  });
   document.querySelectorAll('.goOrder').forEach(el=>el.onclick=e=>{
     e.stopPropagation(); _sel=el.dataset.ag; _tab='new'; _newLines=[]; render(); });
   document.querySelectorAll('.dnView').forEach(el=>el.onclick=()=>{
@@ -459,7 +511,7 @@ function showNote(d,a){
   $('dnPrint').innerHTML=`
     <div class="dnHead">
       <div><div style="font-size:1.5em;font-weight:900;color:#2d3561">סולן הדפסות</div>
-        <div style="font-size:.85em">דפוס · הזמנות מסגרת</div></div>
+        <div style="font-size:.85em">בית דפוס · תעודת משלוח</div></div>
       <div style="text-align:center"><div style="font-size:1.25em;font-weight:900">תעודת משלוח</div>
         <div style="font-size:1.4em;font-weight:900;color:#c9a84c">${d.number}</div>
         <div style="font-size:.85em">${esc(d.date||'')}</div></div>
@@ -468,8 +520,9 @@ function showNote(d,a){
       <div class="dnBox" style="flex:1"><b>לכבוד:</b> ${esc(d.customer)}
         ${d.agreementNo?`<div>מס׳ הסכם: ${esc(d.agreementNo)}</div>`:''}
         ${d.reference?`<div>אסמכתא: ${esc(d.reference)}</div>`:''}</div>
-      <div class="dnBox" style="flex:1"><b>הזמנות בתעודה:</b>
-        ${(d.orders||[]).map(o=>esc(o.orderRef||o.orderId)).join(', ')||'—'}</div>
+      <div class="dnBox" style="flex:1">${d.source==='jobs'
+        ? `<b>עבודות בתעודה:</b> ${(d.lines||[]).map(l=>esc(l.name)).join(', ')}`
+        : `<b>הזמנות בתעודה:</b> ${(d.orders||[]).map(o=>esc(o.orderRef||o.orderId)).join(', ')||'—'}`}</div>
     </div>
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="background:#f0ede6">
