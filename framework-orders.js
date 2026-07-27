@@ -797,12 +797,86 @@
     if (ov) {
       if (ov.removed) c._removed = true;
       if (_s(ov.status)) c.status = _s(ov.status);
-      if (ov.qty != null) c.doneQty = _int(ov.qty);
-      if (ov.packs != null) c.donePacks = _int(ov.packs);
+      // עבודה אחת יכולה להכיל כמה פריטים — ולכל אחד לקוח וכמות משלו
+      if (ov.lines && ov.lines.length) {
+        c.doneLines = ov.lines.map(function (l) {
+          return { name: _s(l.name), customer: _s(l.customer), qty: _int(l.qty), packs: _int(l.packs) || 0 };
+        }).filter(function (l) { return l.name || l.qty; });
+        c.doneQty = c.doneLines.reduce(function (a, l) { return a + l.qty; }, 0);
+        c.donePacks = c.doneLines.reduce(function (a, l) { return a + l.packs; }, 0);
+      }
+      if (ov.qty != null && !(ov.lines && ov.lines.length)) c.doneQty = _int(ov.qty);
+      if (ov.packs != null && !(ov.lines && ov.lines.length)) c.donePacks = _int(ov.packs);
       if (_s(ov.note)) c.clerkNote = _s(ov.note);
       c._byClerk = true;
     }
     return c;
+  }
+
+  /* שורות העבודה: הדפסה אחת יכולה להכיל כמה פריטים ולכמה לקוחות שונים
+     (למשל גיליון פלייסמנטים עם שיבא + עידית + ליבר יחד).
+     כשלא הוגדרו שורות — העבודה עצמה היא השורה היחידה. */
+  function jobLines(card) {
+    if (!card) return [];
+    if (card.doneLines && card.doneLines.length) {
+      return card.doneLines.map(function (l) {
+        return { name: _s(l.name) || _s(card.name), customer: _s(l.customer) || _s(card.customer),
+                 qty: _int(l.qty), packs: _int(l.packs) || 0 };
+      });
+    }
+    return [{ name: _s(card.name), customer: _s(card.customer),
+              qty: _int(card.doneQty != null ? card.doneQty : card.copies), packs: _int(card.donePacks) || 0 }];
+  }
+
+  // הלקוחות שמופיעים בעבודה (לתעודת משלוח נפרדת לכל אחד)
+  function jobCustomers(card) {
+    var seen = {}, out = [];
+    jobLines(card).forEach(function (l) {
+      var c = _s(l.customer); if (!c || seen[c]) return; seen[c] = 1; out.push(c);
+    });
+    return out;
+  }
+
+  /* ── עדכון "מלאי לקוחות" (קונסיגנציה) מתוך עבודה שהושלמה ──
+     המבנה זהה לזה שבאפליקציה:
+       stock[custId] = { name, items:[{id,name,unit,qty}], log:[{...}], updatedAt }
+     התאמת לקוח ופריט לפי *שם* (בלי תלות ברווחים/אותיות), ואם אין — נוצר חדש.
+     טהור: מקבל עותק ומחזיר עותק חדש + רשימת מה שהשתנה. */
+  function _norm(s) { return _s(s).replace(/\s+/g, ' ').toLowerCase(); }
+
+  function applyToCustomerStock(stockRoot, entries, meta) {
+    meta = meta || {};
+    var stock = JSON.parse(JSON.stringify(stockRoot || {}));
+    var applied = [], skipped = [];
+    (entries || []).forEach(function (e) {
+      var cname = _s(e && e.customer), iname = _s(e && e.item), qty = _int(e && e.qty);
+      if (!cname || !iname || qty === 0) { skipped.push({ customer: cname, item: iname, reason: 'MISSING' }); return; }
+      // לקוח לפי שם; אם אין — נפתח מזהה חדש
+      var custId = Object.keys(stock).find(function (id) {
+        return stock[id] && !stock[id]._deleted && _norm(stock[id].name) === _norm(cname);
+      });
+      var isNewCust = !custId;
+      if (isNewCust) { custId = makeId('cs', meta.rng); stock[custId] = { name: cname, items: [], log: [], updatedAt: 0 }; }
+      var st = stock[custId];
+      st.items = st.items || []; st.log = st.log || [];
+      var it = st.items.find(function (x) { return x && _norm(x.name) === _norm(iname); });
+      var isNewItem = !it;
+      if (isNewItem) {
+        it = { id: makeId('csi', meta.rng), name: iname, unit: _s(e.unit) || 'יח׳', qty: 0,
+               packSize: _int(e.packSize) || 1000 };
+        st.items.push(it);
+      }
+      var before = _int(it.qty);
+      it.qty = before + qty;
+      st.log.push({ id: makeId('csl', meta.rng), ts: _int(meta.ts) || null, delta: qty,
+        itemId: it.id, itemName: it.name, qtyAfter: it.qty,
+        note: _s(meta.note) || 'עדכון אוטומטי ממסך המשרד',
+        cardId: e.cardId != null ? String(e.cardId) : null, by: _s(meta.by) || null });
+      st.updatedAt = _int(meta.ts) || st.updatedAt || 0;
+      applied.push({ custId: custId, customer: cname, itemId: it.id, item: iname,
+        delta: qty, before: before, after: it.qty, newCustomer: isNewCust, newItem: isNewItem });
+    });
+    return { ok: applied.length > 0, stock: stock, applied: applied, skipped: skipped };
   }
 
   function isClerkJob(card) {
@@ -970,6 +1044,7 @@
     buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,
     buildJobNote: buildJobNote, jobStage: jobStage, orderStage: orderStage,
     isClerkJob: isClerkJob, isHiddenName: isHiddenName, applyJobOverlay: applyJobOverlay,
+    jobLines: jobLines, jobCustomers: jobCustomers, applyToCustomerStock: applyToCustomerStock,
     applyStock: applyStock, findAgreementForCustomer: findAgreementForCustomer,
     alerts: alerts, findItem: findItem, validate: validate
   };

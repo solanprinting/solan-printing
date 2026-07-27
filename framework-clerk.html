@@ -151,6 +151,8 @@ let _delivered={};
 let _open={framework:false,placemats:false,orders:false};
 // שכבת-המשרד על כרטיסי-עבודה: { cardId: {status,qty,packs,note,removed,at,by} }
 let _jobOv={};
+// מלאי-הלקוחות של האפליקציה (קריאה — לעדכון אוטומטי מעבודות)
+let _custStock={};
 
 // ⚠️ Firebase RTDB לא שומר מערך ריק, ומערך "עם חורים" חוזר כאובייקט — חובה לנרמל.
 function _arr(v){
@@ -183,11 +185,12 @@ async function load(){
 async function loadJobs(){
   const cap=(p)=>Promise.race([p, new Promise(r=>setTimeout(()=>r(null), 20000))]);
   try{
-    const [cs,ns,dv,dl,ov]=await Promise.all([cap(_get('cards')), cap(_get('clerkDeliveryNotes')),
-      cap(_get('clerkDelivered')), cap(_get('deletedIds')), cap(_get('clerkJobs'))]);
+    const [cs,ns,dv,dl,ov,st]=await Promise.all([cap(_get('cards')), cap(_get('clerkDeliveryNotes')),
+      cap(_get('clerkDelivered')), cap(_get('deletedIds')), cap(_get('clerkJobs')), cap(_get('customerStock'))]);
     // ⚠️ מחיקה באפליקציה = רשומת-מצבה ב-deletedIds; הכרטיס עצמו עדיין ב-cards
     const gone={}; _arr(dl && dl.cards).forEach(id=>{ gone[String(id)]=1; });
     _jobOv=(ov && typeof ov==='object') ? ov : {};
+    if(st && typeof st==='object') _custStock=st;
     // כל כרטיס עובר דרך שכבת-המשרד לפני הסינון (סטטוס/הסרה שהפקיד קבע)
     if(cs) _cards=_arr(cs).filter(c=>c && c.id!=null && !c._deleted && !gone[String(c.id)])
       .map(c=>FW.applyJobOverlay(c,_jobOv[c.id])).filter(c=>FW.isClerkJob(c));
@@ -391,7 +394,8 @@ function _jobCard(c,stage){
       <b>🖨 ${esc(c.name||'עבודה')}</b><span class="muted" style="font-size:.75rem">${esc(c.orderDate||'')}</span></div>
     <div style="font-size:.82rem;margin-top:4px">
       ${c.copies?`• ${Number(c.copies).toLocaleString()} עותקים`:''}${c.pages?` · ${c.pages} עמ׳`:''}
-      ${c.doneQty!=null?`<div class="ok" style="font-size:.78rem">יצא בפועל: ${c.doneQty.toLocaleString()}${c.donePacks?` (${c.donePacks} אריזות)`:''}</div>`:''}
+      ${c.doneLines&&c.doneLines.length>1?('<div class="ok" style="font-size:.78rem">'+c.doneLines.map(l=>'• '+esc(l.customer||'')+' — '+l.qty.toLocaleString()+(l.packs?(' ('+l.packs+' אריזות)'):'')).join('<br>')+'</div>')
+        : (c.doneQty!=null?`<div class="ok" style="font-size:.78rem">יצא בפועל: ${c.doneQty.toLocaleString()}${c.donePacks?` (${c.donePacks} אריזות)`:''}</div>`:'')}
       ${c.clerkNote?`<div class="muted" style="font-size:.76rem">📌 ${esc(c.clerkNote)}</div>`:''}
       ${c.paper?`<div class="muted">${esc(c.paper)}</div>`:''}</div>
     ${c.deliveryDate?`<div class="${late?'bad':'muted'}" style="font-size:.76rem;margin-top:3px">${late?'⚠ עבר מועד: ':'לאספקה: '}${esc(c.deliveryDate)}</div>`:''}
@@ -485,9 +489,12 @@ function _readyRows(agId){
   if(!agId) _cards.forEach(c=>{
     const done=_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0)||!!_delivered[c.id];
     if(FW.jobStage(c,done)!=='ready') return;
-    out.push({ kind:'job', key:'j:'+c.id, id:String(c.id), customer:c.customer||c.name||'',
+    const jl=FW.jobLines(c);
+    out.push({ kind:'job', key:'j:'+c.id, id:String(c.id),
+      customer:FW.jobCustomers(c).join(' · ')||c.customer||'',
       title:'🖨 '+(c.name||'עבודה'), date:c.orderDate||'',
-      detail:(c.copies?Number(c.copies).toLocaleString()+' עותקים':'')+(c.paper?' · '+esc(c.paper):''),
+      detail: jl.length>1 ? jl.map(l=>'• '+esc(l.customer||'')+' — '+l.qty.toLocaleString()+(l.packs?(' ('+l.packs+' אריזות)'):'')).join('<br>')
+        : ((c.doneQty!=null?c.doneQty:(parseInt(c.copies,10)||0)).toLocaleString()+' יח׳'+(c.paper?' · '+esc(c.paper):'')),
       ordered:'', short:false, by:'', value:0 });
   });
   return out;
@@ -575,12 +582,23 @@ function wire(a){
   document.querySelectorAll('.jnMake').forEach(el=>el.onclick=async e=>{
     e.stopPropagation();
     const c=_cards.find(x=>String(x.id)===String(el.dataset.c)); if(!c) return;
-    const cust=prompt('שם הלקוח לתעודה:', c.customer||c.name||''); if(cust===null||!cust.trim()) return;
-    const qty=parseInt(prompt('כמות שנמסרת:', String(c.copies||0)),10)||0;
-    const packs=parseInt(prompt('כמה חבילות/קרטונים? (0 = לא רלוונטי):','0'),10)||0;
+    // עבודה משותפת לכמה לקוחות → תעודה נפרדת לכל לקוח
+    const custs=FW.jobCustomers(c);
+    let cust='';
+    if(custs.length>1){
+      const pick=prompt('לאיזה לקוח להפיק את התעודה?\n'+custs.map((x,i)=>(i+1)+') '+x).join('\n'),'1');
+      if(pick===null) return;
+      cust=custs[parseInt(pick,10)-1]||'';
+      if(!cust){ alert('בחירה לא תקינה'); return; }
+    } else {
+      const ans=prompt('שם הלקוח לתעודה:', custs[0]||c.customer||c.name||'');
+      if(ans===null||!ans.trim()) return;
+      cust=ans.trim();
+    }
+    const lines=FW.jobLines(c).filter(l=>custs.length<=1 || l.customer===cust);
     const num=FW.nextNoteNumber(allNotes());
-    const jn=FW.buildJobNote([{cardId:c.id,name:c.name,qty:qty,packs:packs}],
-      {number:num,customer:cust.trim(),date:_today(),by:_me()});
+    const jn=FW.buildJobNote(lines.map(l=>({cardId:c.id,name:l.name||c.name,qty:l.qty,packs:l.packs})),
+      {number:num,customer:cust,date:_today(),by:_me()});
     if(!jn.ok){ alert('נכשל: '+jn.errors.join(', ')); return; }
     if(!confirm('להפיק תעודת משלוח מס׳ '+num+' על "'+(c.name||'')+'"?')) return;
     if(!_isProd()){ alert('הפקה פועלת רק באתר החי (הגנת-סביבה).'); return; }
@@ -745,9 +763,17 @@ function wire(a){
 /* ═══════════ עדכון עבודה מהמשרד ═══════════
    לחיצה על כרטיס-עבודה פותחת חלון: סטטוס · כמה יצא בפועל · הערה · הסרה מהרשימה.
    ⚠️ הכרטיס באפליקציה לא נערך — הכל נשמר בשכבה נפרדת (clerkJobs/<id>). */
+let _jbLines=[], _jbState={};
 function openJob(id){
   const c=_cards.find(x=>String(x.id)===String(id)); if(!c) return;
   const ov=_jobOv[c.id]||{};
+  // הדפסה אחת יכולה להכיל כמה פריטים ולכמה לקוחות — מתחילים ממה שכבר נשמר
+  _jbState={ status:(c.status==='done'?'done':'finishing'), note:ov.note||'', toStock:!ov.stockSynced };
+  _jbLines=(ov.lines&&ov.lines.length)?ov.lines.map(l=>({name:l.name||'',customer:l.customer||'',qty:l.qty||0,packs:l.packs||0}))
+    :[{name:c.name||'',customer:c.customer||'',qty:(ov.qty!=null?ov.qty:(parseInt(c.copies,10)||0)),packs:ov.packs||0}];
+  _jbRender(c,ov);
+}
+function _jbRender(c,ov){
   let m=$('jobModal');
   if(!m){ m=document.createElement('div'); m.id='jobModal'; m.className='modal'; document.body.appendChild(m); }
   m.innerHTML=`<div class="modalIn" style="max-width:520px">
@@ -758,17 +784,34 @@ function openJob(id){
     <div style="display:grid;gap:9px">
       <label>סטטוס העבודה
         <select id="jbStatus" style="width:100%;margin-top:3px">
-          <option value="finishing"${c.status==='finishing'?' selected':''}>🖨 בייצור / בגימורים</option>
-          <option value="done"${c.status==='done'?' selected':''}>✅ העבודה הושלמה — מוכנה לאספקה</option>
+          <option value="finishing"${_jbState.status==='finishing'?' selected':''}>🖨 בייצור / בגימורים</option>
+          <option value="done"${_jbState.status==='done'?' selected':''}>✅ העבודה הושלמה — מוכנה לאספקה</option>
         </select></label>
-      <div style="display:flex;gap:8px">
-        <label style="flex:1">כמה יצא בפועל (יח׳)
-          <input type="number" id="jbQty" min="0" style="width:100%;margin-top:3px" value="${ov.qty!=null?ov.qty:(c.copies||'')}"></label>
-        <label style="flex:1">אריזות / חבילות
-          <input type="number" id="jbPacks" min="0" style="width:100%;margin-top:3px" value="${ov.packs||''}"></label>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <b style="color:var(--press)">מה יצא בפועל</b>
+          <button id="jbAdd" style="padding:3px 10px;font-size:.8rem">➕ הוסף פריט</button></div>
+        <div class="muted" style="font-size:.78rem;margin-bottom:4px">בהדפסה משותפת (למשל פלייסמנטים לשיבא + עידית + ליבר) — שורה לכל פריט ולקוח.</div>
+        <div style="overflow-x:auto"><table>
+          <thead><tr><th>פריט</th><th>לקוח</th><th>יח׳</th><th>אריזות</th><th></th></tr></thead>
+          <tbody>${_jbLines.map((l,i)=>`<tr>
+            <td><input class="jbName" data-i="${i}" value="${esc(l.name)}" style="width:150px"></td>
+            <td><input class="jbCust" data-i="${i}" value="${esc(l.customer)}" list="jbCustList" style="width:120px"></td>
+            <td><input type="number" class="jbQ" data-i="${i}" value="${l.qty||0}" min="0" style="width:90px"></td>
+            <td><input type="number" class="jbP" data-i="${i}" value="${l.packs||0}" min="0" style="width:70px"></td>
+            <td><button class="jbDel danger" data-i="${i}">🗑</button></td></tr>`).join('')}</tbody>
+          <tfoot><tr><th>סה״כ</th><th></th>
+            <th>${_jbLines.reduce((a,l)=>a+(parseInt(l.qty,10)||0),0).toLocaleString()}</th>
+            <th>${_jbLines.reduce((a,l)=>a+(parseInt(l.packs,10)||0),0).toLocaleString()}</th><th></th></tr></tfoot>
+        </table></div>
+        <datalist id="jbCustList">${_custNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
       </div>
+      <label style="display:flex;align-items:center;gap:7px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:7px 10px">
+        <input type="checkbox" id="jbToStock" ${_jbState.toStock?'checked':''}>
+        <span>📦 עדכן גם את <b>מלאי הלקוחות</b> באפליקציה בכמויות האלה
+          ${ov.stockSynced?'<span class="muted">(כבר עודכן פעם אחת)</span>':''}</span></label>
       <label>הערה
-        <input id="jbNote" style="width:100%;margin-top:3px" value="${esc(ov.note||'')}" placeholder="לדוגמה: חסרו 150, נאסף ע״י הלקוח"></label>
+        <input id="jbNote" style="width:100%;margin-top:3px" value="${esc(_jbState.note||'')}" placeholder="לדוגמה: חסרו 150, נאסף ע״י הלקוח"></label>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;justify-content:flex-end">
       <button id="jbRemove" class="danger" style="margin-inline-end:auto">🗑 הסר מהרשימה</button>
@@ -778,11 +821,37 @@ function openJob(id){
     </div>
     <div class="muted" style="margin-top:8px;font-size:.78rem">העדכון נשמר במסך המשרד בלבד — כרטיס העבודה באפליקציה לא משתנה.</div>`;
   $('jbCancel').onclick=()=>m.remove();
+  // שומרים את השדות שמחוץ לטבלה, כדי שרינדור-מחדש לא ימחק אותם
+  $('jbStatus').onchange=e=>{ _jbState.status=e.target.value; };
+  $('jbNote').oninput=e=>{ _jbState.note=e.target.value; };
+  $('jbToStock').onchange=e=>{ _jbState.toStock=e.target.checked; };
+  $('jbAdd').onclick=()=>{ _jbLines.push({name:'',customer:'',qty:0,packs:0}); _jbRender(c,ov); };
+  document.querySelectorAll('.jbDel').forEach(el=>el.onclick=()=>{ _jbLines.splice(+el.dataset.i,1); _jbRender(c,ov); });
+  const bind=(cls,key,num)=>document.querySelectorAll(cls).forEach(el=>el.onchange=e=>{
+    const i=+e.target.dataset.i;
+    _jbLines[i][key]=num?(parseInt(e.target.value,10)||0):e.target.value.trim();
+    if(num) _jbRender(c,ov);
+  });
+  bind('.jbName','name',false); bind('.jbCust','customer',false);
+  bind('.jbQ','qty',true); bind('.jbP','packs',true);
+
   $('jbSave').onclick=async()=>{
-    const rec={ status:$('jbStatus').value, qty:parseInt($('jbQty').value,10),
-      packs:parseInt($('jbPacks').value,10)||null, note:($('jbNote').value||'').trim()||null,
-      at:_today(), by:_me() };
-    if(!isFinite(rec.qty)) rec.qty=null;
+    const lines=_jbLines.filter(l=>(l.name||'').trim() && (parseInt(l.qty,10)||0)>0)
+      .map(l=>({name:l.name.trim(),customer:(l.customer||'').trim(),qty:parseInt(l.qty,10)||0,packs:parseInt(l.packs,10)||0}));
+    if(!lines.length){ alert('הזינו לפחות פריט אחד עם כמות'); return; }
+    const rec={ status:$('jbStatus').value, lines:lines,
+      qty:lines.reduce((a,l)=>a+l.qty,0), packs:lines.reduce((a,l)=>a+l.packs,0),
+      note:($('jbNote').value||'').trim()||null, at:_today(), by:_me(),
+      stockSynced:(_jobOv[c.id]||{}).stockSynced||false };
+    // 📦 עדכון מלאי-הלקוחות באפליקציה — רק לשורות שיש להן לקוח
+    if($('jbToStock').checked){
+      const withCust=lines.filter(l=>l.customer);
+      if(!withCust.length) alert('לא עודכן מלאי לקוחות — אין שורה עם שם לקוח.');
+      else{
+        const okSync=await _syncCustomerStock(withCust, c);
+        if(okSync) rec.stockSynced=true;
+      }
+    }
     await _saveJobOv(c.id, rec, m);
   };
   $('jbRemove').onclick=async()=>{
@@ -795,6 +864,36 @@ function openJob(id){
     await _saveJobOv(c.id, null, m);
   };
 }
+// שמות לקוחות להשלמה אוטומטית — מההסכמים וממלאי-הלקוחות באפליקציה
+function _custNames(){
+  const s=new Set();
+  _all.forEach(a=>{ if(a.customer) s.add(a.customer); });
+  Object.keys(_custStock||{}).forEach(k=>{ const n=_custStock[k]&&_custStock[k].name; if(n) s.add(n); });
+  return [...s].sort((a,b)=>a.localeCompare(b,'he'));
+}
+
+/* 📦 עדכון "מלאי לקוחות" באפליקציה מתוך העבודה שהושלמה.
+   ⚠️ כותבים לכל לקוח בנפרד (customerStock/<id>) ולא את כל הצומת —
+      כדי לא לדרוס עריכות שנעשו במקביל באפליקציה. */
+async function _syncCustomerStock(lines, card){
+  if(!_isProd()){ alert('עדכון מלאי לקוחות פועל רק באתר החי (הגנת-סביבה).'); return false; }
+  let root=_custStock;
+  try{ const live=await _get('customerStock'); if(live && typeof live==='object') root=live; }
+  catch(e){ alert('קריאת מלאי הלקוחות נכשלה — המלאי לא עודכן'); return false; }
+  const res=FW.applyToCustomerStock(root,
+    lines.map(l=>({customer:l.customer, item:l.name, qty:l.qty, cardId:card&&card.id})),
+    { by:_me(), ts:Date.now(), note:'ממסך המשרד — '+((card&&card.name)||'עבודה') });
+  if(!res.ok){ alert('לא עודכן מלאי לקוחות (חסר לקוח או כמות)'); return false; }
+  const summary=res.applied.map(a=>'• '+a.customer+' / '+a.item+': '+a.before.toLocaleString()+' → '+a.after.toLocaleString()).join('\n');
+  if(!confirm('לעדכן את מלאי הלקוחות?\n\n'+summary)) return false;
+  try{
+    for(const a of res.applied) await _put('customerStock/'+a.custId, res.stock[a.custId]);
+  }catch(e){ alert('עדכון המלאי נכשל: '+(e.message||e)); return false; }
+  _custStock=res.stock;
+  alert('✓ מלאי הלקוחות עודכן\n\n'+summary);
+  return true;
+}
+
 async function _saveJobOv(id, rec, m){
   if(!_isProd()){ alert('שמירה פועלת רק באתר החי (הגנת-סביבה).'); return; }
   try{ await _put('clerkJobs/'+id, rec); }
