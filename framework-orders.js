@@ -1,0 +1,232 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * framework-orders.js — הסכמי-מסגרת ללקוחות · לוגיקה טהורה (UMD · Node + דפדפן)
+ * ───────────────────────────────────────────────────────────────────────────
+ * מודל: הסכם-מסגרת לכל לקוח, ובו פריטים (מק"ט אופציונלי) עם כמות מוסכמת ומחיר-יחידה.
+ * כל משיכה (הזמנה על-חשבון-ההסכם) מורידה כמות — והמעקב הוא *כפול*: יתרת-כמות ויתרת-כסף.
+ * הכל טהור: אין DOM/Firebase/רשת. החישוב הוא מקור-האמת היחיד לתצוגה ולשמירה.
+ *
+ * ⚠️ כללי-ברזל:
+ *   • משיכות נשמרות כתנועות (movements) — היתרה תמיד *נגזרת* מהן, לא נשמרת בנפרד.
+ *     כך אין "יתרה שנתקעה" אחרי עריכה/מחיקה, ותמיד יש היסטוריה מלאה לביקורת.
+ *   • כמויות שלמות ולא-שליליות; מחירים במספרים (₪). חריגה מותרת אך *מסומנת*.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.FrameworkOrders = factory();
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof self !== 'undefined' ? self : this), function () {
+  'use strict';
+
+  var STATUSES = ['active', 'closed', 'suspended'];
+  var MOVE_TYPES = ['draw', 'return', 'adjust'];   // משיכה · זיכוי/החזרה · תיקון-ידני
+
+  function _num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
+  function _int(v) { var n = parseInt(v, 10); return isFinite(n) ? n : 0; }
+  function _s(v) { return String(v == null ? '' : v).trim(); }
+
+  // ── מזהים ──────────────────────────────────────────────────────────────────
+  function makeId(prefix, rng) {
+    var r = rng ? rng() : Math.random();
+    return (prefix || 'id') + '_' + Date.now().toString(36) + '_' + r.toString(36).slice(2, 7);
+  }
+
+  // ── פריט בהסכם ─────────────────────────────────────────────────────────────
+  //    sku אופציונלי (יש פריטים בלי מק"ט). name חובה.
+  function buildItem(input) {
+    input = input || {};
+    var name = _s(input.name);
+    if (!name) return { ok: false, errors: ['ITEM_NAME_REQUIRED'] };
+    var qty = _int(input.qty);
+    if (qty < 0) return { ok: false, errors: ['ITEM_QTY_NEGATIVE'] };
+    return {
+      ok: true,
+      item: {
+        itemId: _s(input.itemId) || makeId('it', input.rng),
+        sku: _s(input.sku) || null,              // מק"ט — אופציונלי
+        name: name,
+        unit: _s(input.unit) || 'יח׳',
+        qty: qty,                                 // כמות מוסכמת בהסכם
+        unitPrice: _num(input.unitPrice),         // ₪ ליחידה (0 = לא תומחר)
+        notes: _s(input.notes) || null
+      }
+    };
+  }
+
+  // ── הסכם-מסגרת ─────────────────────────────────────────────────────────────
+  function buildAgreement(input) {
+    input = input || {};
+    var customer = _s(input.customer);
+    var errors = [];
+    if (!customer) errors.push('CUSTOMER_REQUIRED');
+    var items = [];
+    (input.items || []).forEach(function (it, i) {
+      var b = buildItem(it);
+      if (!b.ok) errors.push('ITEM_' + i + ':' + b.errors.join(','));
+      else items.push(b.item);
+    });
+    if (errors.length) return { ok: false, errors: errors };
+    return {
+      ok: true,
+      agreement: {
+        agreementId: _s(input.agreementId) || makeId('fw', input.rng),
+        customer: customer,
+        title: _s(input.title) || ('הסכם מסגרת — ' + customer),
+        status: STATUSES.indexOf(input.status) >= 0 ? input.status : 'active',
+        startDate: _s(input.startDate) || null,
+        endDate: _s(input.endDate) || null,        // תוקף — לתזכורת פקיעה
+        budget: _num(input.budget),                // תקרה כספית כוללת (0 = ללא תקרה)
+        items: items,
+        movements: [],                             // תנועות — מקור-האמת ליתרה
+        notes: _s(input.notes) || null,
+        createdAt: _s(input.createdAt) || null,
+        createdBy: _s(input.createdBy) || null
+      }
+    };
+  }
+
+  // ── תנועה (משיכה / החזרה / תיקון) ──────────────────────────────────────────
+  function buildMovement(input) {
+    input = input || {};
+    var type = MOVE_TYPES.indexOf(input.type) >= 0 ? input.type : 'draw';
+    var itemId = _s(input.itemId);
+    if (!itemId) return { ok: false, errors: ['MOVE_ITEM_REQUIRED'] };
+    var qty = _int(input.qty);
+    if (qty <= 0) return { ok: false, errors: ['MOVE_QTY_POSITIVE'] };
+    return {
+      ok: true,
+      movement: {
+        moveId: _s(input.moveId) || makeId('mv', input.rng),
+        itemId: itemId,
+        type: type,
+        qty: qty,
+        unitPrice: input.unitPrice != null ? _num(input.unitPrice) : null,   // null → מחיר-הפריט בהסכם
+        orderRef: _s(input.orderRef) || null,     // מס' הזמנה/כרטיס-עבודה
+        date: _s(input.date) || null,
+        by: _s(input.by) || null,
+        notes: _s(input.notes) || null
+      }
+    };
+  }
+
+  // כיוון-התנועה: משיכה מורידה · החזרה/תיקון מוסיפים בחזרה
+  function _sign(type) { return type === 'draw' ? -1 : 1; }
+
+  // ── חישוב יתרות — הלב של הכלי ──────────────────────────────────────────────
+  //    מחזיר לכל פריט: מוסכם · נמשך · יתרה · ערך-כספי, וסיכום כולל להסכם.
+  function computeBalances(agreement) {
+    var ag = agreement || {};
+    var items = ag.items || [], moves = ag.movements || [];
+    var byId = {};
+    items.forEach(function (it) {
+      byId[it.itemId] = {
+        itemId: it.itemId, sku: it.sku || null, name: it.name, unit: it.unit || 'יח׳',
+        agreedQty: _int(it.qty), unitPrice: _num(it.unitPrice),
+        drawnQty: 0, returnedQty: 0, remainingQty: 0,
+        agreedValue: _int(it.qty) * _num(it.unitPrice), drawnValue: 0, remainingValue: 0,
+        over: false
+      };
+    });
+    var orphanMoves = [];
+    moves.forEach(function (m) {
+      var row = byId[m.itemId];
+      if (!row) { orphanMoves.push(m.moveId || null); return; }   // תנועה לפריט שנמחק
+      var q = _int(m.qty), price = (m.unitPrice != null ? _num(m.unitPrice) : row.unitPrice);
+      if (m.type === 'draw') { row.drawnQty += q; row.drawnValue += q * price; }
+      else { row.returnedQty += q; row.drawnValue -= q * price; }
+    });
+    var list = items.map(function (it) {
+      var r = byId[it.itemId];
+      r.remainingQty = r.agreedQty - r.drawnQty + r.returnedQty;
+      r.remainingValue = r.agreedValue - r.drawnValue;
+      r.over = r.remainingQty < 0;                                 // חריגה מהכמות המוסכמת
+      return r;
+    });
+    var totals = list.reduce(function (a, r) {
+      a.agreedQty += r.agreedQty; a.drawnQty += (r.drawnQty - r.returnedQty);
+      a.remainingQty += r.remainingQty;
+      a.agreedValue += r.agreedValue; a.drawnValue += r.drawnValue; a.remainingValue += r.remainingValue;
+      if (r.over) a.overItems++;
+      return a;
+    }, { agreedQty: 0, drawnQty: 0, remainingQty: 0, agreedValue: 0, drawnValue: 0, remainingValue: 0, overItems: 0 });
+
+    // תקרה כספית (אם הוגדרה) — נמדדת מול הערך שנמשך בפועל
+    var budget = _num(ag.budget);
+    totals.budget = budget;
+    totals.budgetRemaining = budget > 0 ? (budget - totals.drawnValue) : null;
+    totals.budgetOver = budget > 0 && totals.drawnValue > budget;
+    totals.pctUsed = totals.agreedQty > 0 ? Math.round((totals.drawnQty / totals.agreedQty) * 100) : 0;
+    return { items: list, totals: totals, orphanMoves: orphanMoves };
+  }
+
+  // ── בדיקה לפני משיכה: האם יש מספיק יתרה? (לא חוסם — מתריע) ─────────────────
+  function checkDraw(agreement, itemId, qty) {
+    var b = computeBalances(agreement);
+    var row = b.items.find(function (r) { return r.itemId === itemId; });
+    if (!row) return { ok: false, reason: 'ITEM_NOT_FOUND' };
+    var q = _int(qty);
+    if (q <= 0) return { ok: false, reason: 'QTY_POSITIVE' };
+    var after = row.remainingQty - q;
+    return {
+      ok: true, remainingBefore: row.remainingQty, remainingAfter: after,
+      exceeds: after < 0, shortBy: after < 0 ? -after : 0,
+      valueAfter: row.remainingValue - q * row.unitPrice
+    };
+  }
+
+  // ── הוספת תנועה (מחזיר הסכם חדש — ללא מוטציה) ──────────────────────────────
+  function applyMovement(agreement, movementInput) {
+    var mb = buildMovement(movementInput);
+    if (!mb.ok) return { ok: false, errors: mb.errors };
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    if (!(ag.items || []).some(function (it) { return it.itemId === mb.movement.itemId; }))
+      return { ok: false, errors: ['ITEM_NOT_IN_AGREEMENT'] };
+    ag.movements = (ag.movements || []).concat([mb.movement]);
+    return { ok: true, agreement: ag, movement: mb.movement };
+  }
+
+  // ── התראות: פריטים שאזלו/נמוכים · תקרה · פקיעת-תוקף ────────────────────────
+  function alerts(agreement, opts) {
+    opts = opts || {};
+    var lowPct = opts.lowPct != null ? opts.lowPct : 15;    // "נמוך" = פחות מ-15% מהמוסכם
+    var b = computeBalances(agreement), out = [];
+    b.items.forEach(function (r) {
+      if (r.agreedQty <= 0) return;
+      if (r.remainingQty <= 0) out.push({ level: 'out', itemId: r.itemId, name: r.name, sku: r.sku, remaining: r.remainingQty });
+      else if ((r.remainingQty / r.agreedQty) * 100 <= lowPct) out.push({ level: 'low', itemId: r.itemId, name: r.name, sku: r.sku, remaining: r.remainingQty });
+    });
+    if (b.totals.budgetOver) out.push({ level: 'budget', over: b.totals.drawnValue - b.totals.budget });
+    if (agreement && agreement.endDate && opts.todayIso && String(opts.todayIso) > String(agreement.endDate))
+      out.push({ level: 'expired', endDate: agreement.endDate });
+    return out;
+  }
+
+  // ── חיפוש פריט לפי מק"ט או שם (לשיוך הזמנה נכנסת) ──────────────────────────
+  function findItem(agreement, query) {
+    var q = _s(query).toLowerCase(); if (!q) return null;
+    var items = (agreement && agreement.items) || [];
+    var bySku = items.find(function (it) { return it.sku && String(it.sku).toLowerCase() === q; });
+    if (bySku) return bySku;
+    var byName = items.find(function (it) { return String(it.name).toLowerCase() === q; });
+    if (byName) return byName;
+    return items.find(function (it) { return String(it.name).toLowerCase().indexOf(q) >= 0; }) || null;
+  }
+
+  function validate(agreement) {
+    var errors = [];
+    if (!agreement) return { valid: false, errors: ['NULL'] };
+    if (!_s(agreement.customer)) errors.push('NO_CUSTOMER');
+    if (STATUSES.indexOf(agreement.status) < 0) errors.push('BAD_STATUS');
+    var seen = {};
+    (agreement.items || []).forEach(function (it) {
+      if (!_s(it.name)) errors.push('ITEM_NO_NAME');
+      if (it.sku) { var k = String(it.sku).toLowerCase(); if (seen[k]) errors.push('DUP_SKU:' + it.sku); seen[k] = 1; }
+    });
+    return { valid: errors.length === 0, errors: errors };
+  }
+
+  return {
+    STATUSES: STATUSES, MOVE_TYPES: MOVE_TYPES,
+    makeId: makeId, buildItem: buildItem, buildAgreement: buildAgreement, buildMovement: buildMovement,
+    computeBalances: computeBalances, checkDraw: checkDraw, applyMovement: applyMovement,
+    alerts: alerts, findItem: findItem, validate: validate
+  };
+});

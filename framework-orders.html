@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>הסכמי מסגרת — סולן הדפסות</title>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<script src="framework-orders.js"></script>
+<style>
+  :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
+        --ok:#16a34a;--bg:#e8e4dc;--card:#fff;--ink:#1a1a2e;--muted:#6b7280}
+  *{box-sizing:border-box}
+  body{font-family:'Heebo',Arial,sans-serif;background:var(--bg);
+    background-image:repeating-linear-gradient(0deg,transparent,transparent 28px,rgba(0,0,0,.04) 28px,rgba(0,0,0,.04) 29px);
+    color:var(--ink);margin:0;padding:16px;direction:rtl;min-height:100vh}
+  h2{margin:0 0 8px;color:var(--press);font-weight:900} h3{margin:0 0 8px;color:var(--press);font-weight:800}
+  .brand{background:var(--press);color:#fff;padding:11px 20px;border-radius:12px;margin-bottom:16px;display:flex;
+    align-items:center;gap:10px;box-shadow:0 3px 12px rgba(0,0,0,.25);flex-wrap:wrap}
+  .brand b{font-size:1.2rem;font-weight:900} .brand span.g{color:var(--gold)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+  button{background:#fff;color:var(--press);border:1.5px solid var(--line);border-radius:7px;padding:8px 14px;cursor:pointer;
+    font-family:inherit;font-size:.9rem;font-weight:700;transition:all .15s}
+  button:hover:not(:disabled){border-color:var(--gold)} button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--gold);border-color:var(--gold);color:#1a1a2e;font-weight:800}
+  button.danger{color:var(--danger)}
+  input,select,textarea{background:#fff;color:var(--ink);border:1.5px solid var(--line);border-radius:7px;padding:8px 10px;font-family:inherit;font-size:.9rem}
+  .muted{color:var(--muted);font-size:.86rem} .ok{color:#15803d;font-weight:700} .bad{color:var(--danger);font-weight:700}
+  table{width:100%;border-collapse:collapse;font-size:.88rem}
+  th{background:#faf8f2;color:var(--press);text-align:right;padding:7px 9px;border-bottom:2px solid var(--line);font-weight:800}
+  td{padding:7px 9px;border-bottom:1px solid #eee}
+  .wrap{display:flex;gap:14px;align-items:flex-start}
+  .side{flex:0 0 230px;max-width:230px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;
+    position:sticky;top:8px;max-height:calc(100vh - 40px);overflow-y:auto}
+  .sideT{padding:9px 12px;background:var(--press);color:#fff;font-weight:800;font-size:.86rem}
+  .cItem{display:flex;justify-content:space-between;gap:8px;padding:11px 12px;cursor:pointer;border-bottom:1px solid #eee;
+    font-weight:700;color:var(--press);font-size:.9rem}
+  .cItem:hover{background:#faf8f2} .cItem.on{background:var(--press);color:#fff}
+  .cItem .b{background:rgba(0,0,0,.1);border-radius:10px;padding:1px 8px;font-size:.75rem} .cItem.on .b{background:rgba(255,255,255,.25)}
+  .main{flex:1;min-width:0}
+  .bar{height:9px;background:#eee;border-radius:5px;overflow:hidden;min-width:90px}
+  .bar>i{display:block;height:100%;background:var(--ok)}
+  .bar.warn>i{background:#f59e0b} .bar.over>i{background:var(--danger)}
+  .pill{font-size:.72rem;font-weight:800;padding:2px 8px;border-radius:10px;white-space:nowrap;color:#fff}
+  .stat{display:inline-block;background:#faf8f2;border:1px solid var(--line);border-radius:9px;padding:6px 12px;margin:0 0 6px 6px}
+  .stat b{font-size:1.15rem;display:block;color:var(--press)}
+  @media(max-width:760px){.wrap{flex-direction:column}.side{flex:auto;max-width:none;width:100%;position:static;max-height:220px}}
+</style>
+</head>
+<body>
+<div class="brand">
+  <b>סולן <span class="g">הדפסות</span></b>
+  <span style="color:var(--gold-light);font-size:.85rem">· הסכמי מסגרת ומלאי לקוחות</span>
+  <span style="margin-right:auto"></span>
+  <button id="newAg" class="primary">➕ הסכם חדש</button>
+</div>
+<div id="app"><div class="card muted">טוען…</div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const FW = window.FrameworkOrders;
+const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+const _APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+let _tok = { id:null, exp:0 };
+function _isProd(){ return /solanprinting\.github\.io/.test(location.host); }
+function _nowIso(){ return new Date().toISOString(); }
+function _today(){ return _nowIso().slice(0,10); }
+function esc(t){ return String(t==null?'':t).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+function _n(v){ return (Math.round((+v||0)*100)/100).toLocaleString('he-IL'); }
+function _auth(){
+  if(_tok.id && Date.now()<_tok.exp-120000) return Promise.resolve(_tok.id);
+  return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_APIKEY,
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})})
+    .then(r=>r.ok?r.json():Promise.reject(new Error('auth '+r.status)))
+    .then(j=>{ _tok={id:j.idToken,exp:Date.now()+(parseInt(j.expiresIn)||3600)*1000}; return j.idToken; });
+}
+const _P='frameworkAgreements';
+function _get(p){ return _auth().then(t=>fetch(_FBURL+'/'+p+'.json?auth='+t).then(r=>r.ok?r.json():null)); }
+function _put(p,o){ return _auth().then(t=>fetch(_FBURL+'/'+p+'.json?auth='+t,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)})); }
+
+let _all = [], _sel = null, _busy = false;
+
+async function load(){
+  try{
+    const obj = await _get(_P);
+    _all = obj && typeof obj==='object' ? Object.values(obj).filter(a=>a&&a.agreementId) : [];
+    _all.sort((a,b)=> String(a.customer||'').localeCompare(String(b.customer||''),'he'));
+  }catch(e){ _all=[]; }
+  if(_sel && !_all.some(a=>a.agreementId===_sel)) _sel=null;
+  if(!_sel && _all.length) _sel=_all[0].agreementId;
+  render();
+}
+function cur(){ return _all.find(a=>a.agreementId===_sel)||null; }
+async function save(ag){
+  if(!_isProd()){ alert('שמירה פועלת רק באתר החי (הגנת-סביבה).'); return false; }
+  if(_busy) return false; _busy=true;
+  try{ await _put(_P+'/'+ag.agreementId, ag);
+    const i=_all.findIndex(a=>a.agreementId===ag.agreementId);
+    if(i>=0) _all[i]=ag; else _all.push(ag);
+    return true;
+  }catch(e){ alert('שמירה נכשלה: '+(e.message||e)); return false; }
+  finally{ _busy=false; }
+}
+
+function render(){
+  const side = _all.length ? _all.map(a=>{
+    const b=FW.computeBalances(a), on=(a.agreementId===_sel);
+    const al=FW.alerts(a,{todayIso:_today()}).length;
+    return `<div class="cItem${on?' on':''}" data-a="${a.agreementId}">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📄 ${esc(a.customer)}</span>
+      <span class="b" title="ניצול">${b.totals.pctUsed}%${al?' ⚠':''}</span></div>`;
+  }).join('') : '<div style="padding:14px" class="muted">אין הסכמים עדיין</div>';
+
+  const a = cur();
+  $('app').innerHTML = `<div class="wrap">
+    <aside class="side"><div class="sideT">לקוחות (${_all.length})</div>${side}</aside>
+    <section class="main">${a?detail(a):'<div class="card muted">בחרו הסכם מהרשימה, או צרו הסכם חדש.</div>'}</section>
+  </div>`;
+  document.querySelectorAll('[data-a]').forEach(el=>el.onclick=()=>{ _sel=el.dataset.a; render(); });
+  if(a) wire(a);
+}
+
+function detail(a){
+  const b = FW.computeBalances(a), t = b.totals;
+  const al = FW.alerts(a,{todayIso:_today()});
+  const alHtml = al.length ? `<div class="card" style="border-color:#f59e0b;background:#fffbeb">
+    <b style="color:#b45309">⚠️ התראות</b><ul style="margin:6px 0 0;padding-inline-start:18px">
+    ${al.map(x=> x.level==='out' ? `<li><b>${esc(x.name)}</b>${x.sku?' ('+esc(x.sku)+')':''} — אזל (יתרה ${x.remaining})</li>`
+      : x.level==='low' ? `<li><b>${esc(x.name)}</b>${x.sku?' ('+esc(x.sku)+')':''} — יתרה נמוכה (${x.remaining})</li>`
+      : x.level==='budget' ? `<li>חריגה מהתקרה הכספית ב-<b>₪${_n(x.over)}</b></li>`
+      : `<li>ההסכם פג ב-${esc(x.endDate)}</li>`).join('')}</ul></div>` : '';
+
+  const rows = b.items.map(r=>{
+    const pct = r.agreedQty>0 ? Math.max(0,Math.min(100, Math.round((r.agreedQty-r.remainingQty)/r.agreedQty*100))) : 0;
+    const cls = r.over?'over':(r.agreedQty>0 && r.remainingQty/r.agreedQty<=0.15?'warn':'');
+    return `<tr>
+      <td>${r.sku?`<code>${esc(r.sku)}</code>`:'<span class="muted">—</span>'}</td>
+      <td><b>${esc(r.name)}</b></td>
+      <td>${r.agreedQty.toLocaleString()} <span class="muted">${esc(r.unit)}</span></td>
+      <td>${(r.drawnQty-r.returnedQty).toLocaleString()}</td>
+      <td class="${r.over?'bad':''}"><b>${r.remainingQty.toLocaleString()}</b></td>
+      <td style="min-width:110px"><div class="bar ${cls}"><i style="width:${pct}%"></i></div><span class="muted" style="font-size:.75rem">${pct}%</span></td>
+      <td>${r.unitPrice?('₪'+_n(r.unitPrice)):'—'}</td>
+      <td>${r.agreedValue?('₪'+_n(r.remainingValue)):'—'}</td>
+      <td style="white-space:nowrap">
+        <button class="drawBtn" data-i="${r.itemId}">➖ משיכה</button>
+        <button class="retBtn" data-i="${r.itemId}">➕ החזרה</button>
+        <button class="delItem danger" data-i="${r.itemId}" title="מחק פריט">🗑</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="9" class="muted" style="text-align:center;padding:14px">אין פריטים — הוסיפו פריט להסכם</td></tr>';
+
+  const moves = (a.movements||[]).slice().reverse().slice(0,25).map(m=>{
+    const it=(a.items||[]).find(x=>x.itemId===m.itemId);
+    return `<tr><td>${esc(m.date||'')}</td><td>${it?esc(it.name):'<span class="muted">(פריט שנמחק)</span>'}</td>
+      <td>${m.type==='draw'?'<span class="pill" style="background:#dc2626">משיכה</span>':'<span class="pill" style="background:#16a34a">החזרה</span>'}</td>
+      <td>${m.qty.toLocaleString()}</td><td>${esc(m.orderRef||'')}</td><td class="muted">${esc(m.notes||'')}</td>
+      <td><button class="delMove danger" data-m="${m.moveId}" title="בטל תנועה">🗑</button></td></tr>`;
+  }).join('') || '<tr><td colspan="7" class="muted" style="text-align:center;padding:10px">אין תנועות עדיין</td></tr>';
+
+  return `${alHtml}
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div><h3 style="margin:0">📄 ${esc(a.title||a.customer)}</h3>
+        <div class="muted">${esc(a.customer)}${a.startDate?' · מ-'+esc(a.startDate):''}${a.endDate?' · עד '+esc(a.endDate):''} · ${esc(a.status)}</div></div>
+      <div><button id="editAg">✎ ערוך הסכם</button> <button id="delAg" class="danger">🗑 מחק</button></div>
+    </div>
+    <div style="margin-top:10px">
+      <span class="stat">כמות מוסכמת<b>${t.agreedQty.toLocaleString()}</b></span>
+      <span class="stat">נמשך<b>${t.drawnQty.toLocaleString()}</b></span>
+      <span class="stat">יתרה<b class="${t.remainingQty<0?'bad':''}">${t.remainingQty.toLocaleString()}</b></span>
+      <span class="stat">ערך יתרה<b>₪${_n(t.remainingValue)}</b></span>
+      ${t.budget>0?`<span class="stat">תקרה<b class="${t.budgetOver?'bad':''}">₪${_n(t.budgetRemaining)}</b></span>`:''}
+      <span class="stat">ניצול<b>${t.pctUsed}%</b></span>
+    </div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+      <h3 style="margin:0">📦 פריטי ההסכם</h3>
+      <div><button id="addItem" class="primary">➕ הוסף פריט</button> <button id="quickDraw">⚡ משיכה מהירה (לפי מק״ט/שם)</button></div>
+    </div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>מק״ט</th><th>פריט</th><th>מוסכם</th><th>נמשך</th><th>יתרה</th><th>ניצול</th><th>מחיר יח׳</th><th>ערך יתרה</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+  </div>
+  <div class="card"><h3>🧾 תנועות אחרונות</h3>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>תאריך</th><th>פריט</th><th>סוג</th><th>כמות</th><th>הזמנה/כרטיס</th><th>הערה</th><th></th></tr></thead>
+      <tbody>${moves}</tbody></table></div>
+    <div class="muted" style="margin-top:6px;font-size:.8rem">היתרה מחושבת תמיד מהתנועות — ביטול תנועה מחזיר את הכמות אוטומטית.</div>
+  </div>`;
+}
+
+function wire(a){
+  $('addItem').onclick = async ()=>{
+    const name=prompt('שם הפריט:'); if(!name) return;
+    const sku=prompt('מק״ט (אפשר להשאיר ריק):','')||'';
+    const qty=parseInt(prompt('כמות מוסכמת:','0'),10)||0;
+    const price=parseFloat(prompt('מחיר ליחידה (₪) — 0 אם לא רלוונטי:','0'))||0;
+    const b=FW.buildItem({name,sku,qty,unitPrice:price});
+    if(!b.ok){ alert('פריט לא תקין: '+b.errors.join(', ')); return; }
+    const ag=JSON.parse(JSON.stringify(a)); ag.items.push(b.item);
+    if(await save(ag)) render();
+  };
+  document.querySelectorAll('.drawBtn').forEach(btn=>btn.onclick=()=>_move(a,btn.dataset.i,'draw'));
+  document.querySelectorAll('.retBtn').forEach(btn=>btn.onclick=()=>_move(a,btn.dataset.i,'return'));
+  document.querySelectorAll('.delItem').forEach(btn=>btn.onclick=async()=>{
+    const it=(a.items||[]).find(x=>x.itemId===btn.dataset.i); if(!it) return;
+    if(!confirm('למחוק את "'+it.name+'"?\n(תנועות שנרשמו עליו יישמרו בהיסטוריה)')) return;
+    const ag=JSON.parse(JSON.stringify(a)); ag.items=ag.items.filter(x=>x.itemId!==btn.dataset.i);
+    if(await save(ag)) render();
+  });
+  document.querySelectorAll('.delMove').forEach(btn=>btn.onclick=async()=>{
+    if(!confirm('לבטל את התנועה? היתרה תחזור אוטומטית.')) return;
+    const ag=JSON.parse(JSON.stringify(a)); ag.movements=(ag.movements||[]).filter(m=>m.moveId!==btn.dataset.m);
+    if(await save(ag)) render();
+  });
+  $('quickDraw').onclick = ()=>{
+    const q=prompt('מק״ט או שם הפריט:'); if(!q) return;
+    const it=FW.findItem(a,q);
+    if(!it){ alert('לא נמצא פריט מתאים ל-"'+q+'"'); return; }
+    _move(a,it.itemId,'draw');
+  };
+  $('editAg').onclick = async ()=>{
+    const ag=JSON.parse(JSON.stringify(a));
+    const t=prompt('כותרת ההסכם:',ag.title||''); if(t===null) return; ag.title=t.trim()||ag.title;
+    const e=prompt('תאריך סיום (YYYY-MM-DD, ריק=ללא):',ag.endDate||''); if(e!==null) ag.endDate=e.trim()||null;
+    const bd=prompt('תקרה כספית ₪ (0=ללא):',String(ag.budget||0)); if(bd!==null) ag.budget=parseFloat(bd)||0;
+    if(await save(ag)) render();
+  };
+  $('delAg').onclick = async ()=>{
+    if(!confirm('למחוק את ההסכם של "'+a.customer+'" כולל כל התנועות?\nפעולה בלתי-הפיכה.')) return;
+    if(!_isProd()){ alert('מחיקה פועלת רק באתר החי.'); return; }
+    try{ await _put(_P+'/'+a.agreementId, null); _all=_all.filter(x=>x.agreementId!==a.agreementId); _sel=null; await load(); }
+    catch(e){ alert('מחיקה נכשלה: '+(e.message||e)); }
+  };
+}
+
+async function _move(a, itemId, type){
+  const it=(a.items||[]).find(x=>x.itemId===itemId); if(!it) return;
+  const label = type==='draw' ? 'משיכה' : 'החזרה';
+  const qty=parseInt(prompt(label+' — כמות עבור "'+it.name+'":','0'),10)||0;
+  if(qty<=0) return;
+  if(type==='draw'){
+    const chk=FW.checkDraw(a,itemId,qty);
+    if(chk.ok && chk.exceeds && !confirm('⚠️ המשיכה חורגת מהיתרה ב-'+chk.shortBy+' יח׳.\nיתרה נוכחית: '+chk.remainingBefore+'\nלהמשיך בכל זאת?')) return;
+  }
+  const ref=prompt('מס׳ הזמנה / כרטיס-עבודה (אופציונלי):','')||'';
+  const res=FW.applyMovement(a,{ itemId, type, qty, orderRef:ref, date:_today(), by:'מנהל' });
+  if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+  if(await save(res.agreement)) render();
+}
+
+$('newAg').onclick = async ()=>{
+  const customer=prompt('שם הלקוח:'); if(!customer) return;
+  const b=FW.buildAgreement({ customer, createdAt:_nowIso(), createdBy:'מנהל' });
+  if(!b.ok){ alert('נכשל: '+b.errors.join(', ')); return; }
+  if(await save(b.agreement)){ _sel=b.agreement.agreementId; render(); }
+};
+
+load();
+</script>
+</body>
+</html>
