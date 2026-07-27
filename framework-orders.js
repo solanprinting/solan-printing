@@ -122,6 +122,13 @@
   // כיוון-התנועה: משיכה מורידה · החזרה/תיקון מוסיפים בחזרה
   function _sign(type) { return type === 'draw' ? -1 : 1; }
 
+  // השורות הקובעות של הזמנה: מה שיצא בפועל מהייצור (אם סומנה "מוכנה"), אחרת מה שהוזמן.
+  function effectiveLines(order) {
+    if (!order) return [];
+    if (order.ready && (order.ready.lines || []).length) return order.ready.lines;
+    return order.lines || [];
+  }
+
   // ── חישוב יתרות — הלב של הכלי ──────────────────────────────────────────────
   //    מחזיר לכל פריט: מוסכם · נמשך · יתרה · ערך-כספי, וסיכום כולל להסכם.
   function computeBalances(agreement) {
@@ -153,10 +160,11 @@
       if (m.type === 'draw') { row.drawnQty += q; row.drawnValue += val; }
       else { row.returnedQty += q; row.drawnValue -= val; }
     });
-    // ⚠️ הזמנות 'pending' משריינות בלבד — המלאי יורד רק כשהאספקה מאושרת (supplyOrder → תנועה)
+    // ⚠️ 'pending' ו-'ready' משריינות בלבד — המלאי יורד רק באספקה בפועל (supplyOrder → תנועה).
+    //    להזמנה שסומנה "מוכנה" משריינים את הכמות שיצאה בפועל מהייצור.
     (ag.orders || []).forEach(function (o) {
-      if (!o || o.status !== 'pending') return;
-      (o.lines || []).forEach(function (ln) {
+      if (!o || (o.status !== 'pending' && o.status !== 'ready')) return;
+      (effectiveLines(o) || []).forEach(function (ln) {
         var row = byId[ln.itemId]; if (!row) return;
         var q = _int(ln.qty);
         row.pendingQty += q;
@@ -190,6 +198,7 @@
     }, { agreedQty: 0, drawnQty: 0, remainingQty: 0, pendingQty: 0, pendingValue: 0, availableQty: 0,
          agreedValue: 0, drawnValue: 0, remainingValue: 0, overItems: 0, shortItems: 0 });
     totals.pendingOrders = (ag.orders || []).filter(function (o) { return o && o.status === 'pending'; }).length;
+    totals.readyOrders   = (ag.orders || []).filter(function (o) { return o && o.status === 'ready'; }).length;
 
     // תקרה כספית (אם הוגדרה) — נמדדת מול הערך שנמשך בפועל
     var budget = _num(ag.budget);
@@ -454,7 +463,7 @@
     if (o.status === 'supplied') return { ok: false, errors: ['ALREADY_SUPPLIED'] };
     if (o.status === 'cancelled') return { ok: false, errors: ['ORDER_CANCELLED'] };
     var added = [];
-    (o.lines || []).forEach(function (ln) {
+    effectiveLines(o).forEach(function (ln) {      // מה שיצא בפועל, לא מה שהוזמן
       var mb = buildMovement({
         itemId: ln.itemId, type: 'draw', qty: ln.qty, packs: ln.packs, packSize: ln.packSize,
         price1000: ln.price1000, orderRef: o.orderRef || o.poNumber || null,
@@ -525,6 +534,132 @@
       qty: log.reduce(function (a, l) { return a + l.qty; }, 0)
     }]);
     return { ok: true, agreement: ag, added: added, merged: merged, lines: log, errors: errors };
+  }
+
+  /* ═══════════ "מוכן לאספקה" → תעודת משלוח ═══════════
+     המנהל מסמן שההזמנה מוכנה וכמה יצא בפועל (בקרטונים) → הפקיד רואה אותה ב"מוכנות",
+     ומוציא עליה תעודת משלוח. הוצאת התעודה היא אירוע האספקה: אז המלאי יורד. */
+
+  // סימון "מוכן" + כמה יצא בפועל. rows = [{itemId, packs?, qty?}] — ריק = בדיוק מה שהוזמן.
+  function markReady(agreement, orderId, meta) {
+    meta = meta || {};
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    var o = (ag.orders || []).find(function (x) { return x && x.orderId === orderId; });
+    if (!o) return { ok: false, errors: ['ORDER_NOT_FOUND'] };
+    if (o.status === 'supplied') return { ok: false, errors: ['ALREADY_SUPPLIED'] };
+    if (o.status === 'cancelled') return { ok: false, errors: ['ORDER_CANCELLED'] };
+    var byId = {}; (meta.rows || []).forEach(function (r) { if (r && r.itemId) byId[r.itemId] = r; });
+    var lines = (o.lines || []).map(function (ln) {
+      var r = byId[ln.itemId];
+      var packSize = _int(ln.packSize);
+      var packs = r && r.packs != null ? _int(r.packs) : _int(ln.packs);
+      var qty;
+      if (r && r.qty != null) qty = _int(r.qty);
+      else if (r && r.packs != null && packSize > 0) qty = packs * packSize;   // קרטונים שיצאו → יחידות
+      else qty = _int(ln.qty);
+      if (!packs && packSize > 0) packs = Math.floor(qty / packSize);
+      return {
+        itemId: ln.itemId, sku: ln.sku || null, name: ln.name || null,
+        qty: qty, packs: packs || null, packSize: packSize || null,
+        packName: ln.packName || null,
+        price1000: ln.price1000 != null ? _num(ln.price1000) : null,
+        value: (qty / 1000) * _num(ln.price1000),
+        orderedQty: _int(ln.qty)                       // כדי לראות פער בין מוזמן למיוצר
+      };
+    }).filter(function (l) { return l.qty > 0; });
+    if (!lines.length) return { ok: false, errors: ['NO_LINES'] };
+    o.status = 'ready';
+    o.ready = {
+      lines: lines,
+      qty: lines.reduce(function (a, l) { return a + l.qty; }, 0),
+      packs: lines.reduce(function (a, l) { return a + (l.packs || 0); }, 0),
+      value: lines.reduce(function (a, l) { return a + l.value; }, 0),
+      at: _s(meta.date) || null, by: _s(meta.by) || null, notes: _s(meta.notes) || null
+    };
+    return { ok: true, agreement: ag, order: o };
+  }
+
+  // ביטול סימון "מוכן" — חוזר להמתנה (השריון נשמר, המלאי ממילא לא ירד)
+  function unmarkReady(agreement, orderId) {
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    var o = (ag.orders || []).find(function (x) { return x && x.orderId === orderId; });
+    if (!o) return { ok: false, errors: ['ORDER_NOT_FOUND'] };
+    if (o.status !== 'ready') return { ok: false, errors: ['NOT_READY'] };
+    o.status = 'pending'; o.ready = null;
+    return { ok: true, agreement: ag, order: o };
+  }
+
+  // מספר-רץ לתעודת משלוח, על-פני כל ההסכמים (מתחיל ב-1001)
+  function nextNoteNumber(allNotes) {
+    var max = 1000;
+    (allNotes || []).forEach(function (n) { var v = _int(n && n.number); if (v > max) max = v; });
+    return max + 1;
+  }
+
+  // בניית תעודת משלוח מהזמנות שסומנו "מוכנות" — טהור, בלי לגעת בהסכם
+  function buildDeliveryNote(agreement, orderIds, meta) {
+    meta = meta || {};
+    var ag = agreement || {};
+    var ids = orderIds || [];
+    var orders = (ag.orders || []).filter(function (o) { return o && ids.indexOf(o.orderId) >= 0; });
+    if (!orders.length) return { ok: false, errors: ['NO_ORDERS'] };
+    var bad = orders.filter(function (o) { return o.status !== 'ready'; });
+    if (bad.length) return { ok: false, errors: ['NOT_READY:' + bad.map(function (o) { return o.orderRef || o.orderId; }).join(',')] };
+    var byItem = {}, order2 = [];
+    orders.forEach(function (o) {
+      order2.push({ orderId: o.orderId, orderRef: o.orderRef || null, poNumber: o.poNumber || null });
+      effectiveLines(o).forEach(function (ln) {
+        var it = (ag.items || []).find(function (x) { return x.itemId === ln.itemId; }) || {};
+        var k = ln.itemId;
+        if (!byItem[k]) byItem[k] = { itemId: k, sku: ln.sku || it.sku || null, name: ln.name || it.name || '',
+          packName: ln.packName || it.packName || 'קרטון', packSize: _int(ln.packSize || it.packSize) || null,
+          qty: 0, packs: 0, price1000: _num(ln.price1000 != null ? ln.price1000 : it.price1000), value: 0 };
+        byItem[k].qty += _int(ln.qty);
+        byItem[k].packs += _int(ln.packs);
+        byItem[k].value += (_int(ln.qty) / 1000) * _num(ln.price1000 != null ? ln.price1000 : it.price1000);
+      });
+    });
+    var lines = Object.keys(byItem).map(function (k) { return byItem[k]; });
+    return {
+      ok: true,
+      note: {
+        noteId: makeId('dn', meta.rng),
+        number: _int(meta.number) || 1001,
+        agreementId: ag.agreementId || null,
+        agreementNo: ag.agreementNo || null,
+        customer: ag.customer || '',
+        date: _s(meta.date) || null,
+        by: _s(meta.by) || null,
+        reference: _s(meta.reference) || null,       // מס' הזמנת-רכש / אסמכתא ללקוח
+        notes: _s(meta.notes) || null,
+        orders: order2,
+        lines: lines,
+        qty: lines.reduce(function (a, l) { return a + l.qty; }, 0),
+        packs: lines.reduce(function (a, l) { return a + l.packs; }, 0),
+        value: lines.reduce(function (a, l) { return a + l.value; }, 0)
+      }
+    };
+  }
+
+  // הוצאת תעודת משלוח = אירוע האספקה: התעודה נשמרת, ההזמנות מסומנות שסופקו, והמלאי יורד
+  function issueDeliveryNote(agreement, orderIds, meta) {
+    meta = meta || {};
+    var b = buildDeliveryNote(agreement, orderIds, meta);
+    if (!b.ok) return b;
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    var errs = [];
+    (orderIds || []).forEach(function (id) {
+      var r = supplyOrder(ag, id, { date: meta.date, by: meta.by });
+      if (r.ok) ag = r.agreement; else errs.push(id + ':' + r.errors.join(','));
+    });
+    if (errs.length) return { ok: false, errors: errs };
+    b.note.noteId = b.note.noteId;
+    ag.deliveryNotes = (ag.deliveryNotes || []).concat([b.note]);
+    // קישור התנועות לתעודה — כדי שאפשר יהיה לעקוב אחורה מהמלאי לתעודה
+    (ag.movements || []).forEach(function (m) {
+      if (m && !m.noteId && (orderIds || []).indexOf(m.orderId) >= 0) m.noteId = b.note.noteId;
+    });
+    return { ok: true, agreement: ag, note: b.note };
   }
 
   // הסכם פעיל קיים של אותו לקוח — כדי לצבור לתוכו במקום לפתוח כפילות
@@ -627,6 +762,8 @@
     computeBalances: computeBalances, checkDraw: checkDraw, applyMovement: applyMovement,
     parseOrderText: parseOrderText, parseSheetRows: parseSheetRows, matchOrder: matchOrder, applyOrder: applyOrder,
     placeOrder: placeOrder, supplyOrder: supplyOrder, cancelOrder: cancelOrder, findOrder: findOrder,
+    markReady: markReady, unmarkReady: unmarkReady, effectiveLines: effectiveLines,
+    buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,
     applyStock: applyStock, findAgreementForCustomer: findAgreementForCustomer,
     alerts: alerts, findItem: findItem, validate: validate
   };

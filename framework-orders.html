@@ -108,8 +108,9 @@ function _normAg(a){
   if(!a || typeof a!=='object') return a;
   a.items = _arr(a.items);
   a.movements = _arr(a.movements);
-  a.orders = _arr(a.orders).map(o=>{ if(o) o.lines=_arr(o.lines); return o; });
+  a.orders = _arr(a.orders).map(o=>{ if(o){ o.lines=_arr(o.lines); if(o.ready) o.ready.lines=_arr(o.ready.lines); } return o; });
   a.topups = _arr(a.topups).map(t=>{ if(t) t.lines=_arr(t.lines); return t; });
+  a.deliveryNotes = _arr(a.deliveryNotes).map(d=>{ if(d){ d.lines=_arr(d.lines); d.orders=_arr(d.orders); } return d; });
   return a;
 }
 
@@ -188,21 +189,25 @@ function detail(a){
   }).join('') || '<tr><td colspan="12" class="muted" style="text-align:center;padding:14px">אין פריטים — הוסיפו פריט להסכם</td></tr>';
 
   // הזמנות ממתינות — משוריינות, לא ירדו מהמלאי עד אישור האספקה
-  const pend = (a.orders||[]).filter(o=>o&&o.status==='pending');
-  const hist = (a.orders||[]).filter(o=>o&&o.status!=='pending').slice().reverse().slice(0,10);
+  const pend = (a.orders||[]).filter(o=>o&&(o.status==='pending'||o.status==='ready'));
+  const hist = (a.orders||[]).filter(o=>o&&o.status!=='pending'&&o.status!=='ready').slice().reverse().slice(0,10);
   const oRow = (o,isPend)=>{
     const names=(o.lines||[]).map(l=>{ const it=(a.items||[]).find(x=>x.itemId===l.itemId);
       return `${esc((it&&it.name)||l.name||'')} — ${l.qty.toLocaleString()}${l.packs?` <span class="muted">(${l.packs} ${esc(_plu(l.packName))})</span>`:''}`; }).join('<br>');
     return `<tr><td>${esc(o.date||'')}</td><td><b>${esc(o.orderRef||o.poNumber||o.orderId)}</b></td>
       <td style="font-size:.84rem">${names}</td><td>${(o.qty||0).toLocaleString()}</td><td>₪${_n(o.value)}</td>
-      <td>${isPend?'<span class="pill" style="background:#f59e0b">ממתין לאספקה</span>'
-          : o.status==='supplied'?`<span class="pill" style="background:#16a34a">סופק ${esc(o.suppliedAt||'')}</span>`
+      <td>${o.status==='pending'?'<span class="pill" style="background:#f59e0b">ממתין לייצור</span>'
+          : o.status==='ready'?`<span class="pill" style="background:#16a34a">מוכן — אצל הפקיד</span>${o.ready&&o.ready.packs?`<div class="muted" style="font-size:.75rem">יצאו ${o.ready.packs.toLocaleString()} אריזות</div>`:''}`
+          : o.status==='supplied'?`<span class="pill" style="background:#2d3561">סופק ${esc(o.suppliedAt||'')}</span>`
           : '<span class="pill" style="background:#6b7280">בוטל</span>'}</td>
-      <td style="white-space:nowrap">${isPend?`<button class="supBtn primary" data-o="${o.orderId}">✓ אשר אספקה</button>
-        <button class="canBtn danger" data-o="${o.orderId}">✗ בטל</button>`:''}</td></tr>`;
+      <td style="white-space:nowrap">${isPend?`<button class="rdyBtn primary" data-o="${o.orderId}" title="סמן שההזמנה מוכנה — תופיע אצל הפקיד להוצאת תעודת משלוח">✅ מוכן</button>
+        <button class="supBtn" data-o="${o.orderId}">✓ אשר אספקה</button>
+        <button class="canBtn danger" data-o="${o.orderId}">✗ בטל</button>`
+        : o.status==='ready'?`<button class="supBtn" data-o="${o.orderId}">✓ אשר אספקה</button>
+        <button class="unrBtn" data-o="${o.orderId}" title="בטל סימון מוכן">↩</button>`:''}</td></tr>`;
   };
   const ordersCard = `<div class="card" style="${pend.length?'border-color:#f59e0b':''}">
-    <h3 style="margin:0 0 8px">🚚 הזמנות לקוח ${pend.length?`<span class="pill" style="background:#f59e0b">${pend.length} ממתינות</span>`:''}</h3>
+    <h3 style="margin:0 0 8px">🚚 הזמנות לקוח ${pend.length?`<span class="pill" style="background:#f59e0b">${pend.length} פתוחות</span>`:''}</h3>
     <div class="muted" style="margin-bottom:8px">הזמנה שנקלטה <b>משריינת</b> את הכמות בלבד — המלאי יורד רק בלחיצה על <b>✓ אשר אספקה</b>.</div>
     <div style="overflow-x:auto"><table>
       <thead><tr><th>תאריך</th><th>הזמנה</th><th>פריטים</th><th>יח׳</th><th>לחיוב</th><th>סטטוס</th><th></th></tr></thead>
@@ -284,6 +289,34 @@ function wire(a){
     if(!confirm('לבטל את התנועה? היתרה תחזור אוטומטית.')) return;
     const ag=_normAg(JSON.parse(JSON.stringify(a))); ag.movements=(ag.movements||[]).filter(m=>m.moveId!==btn.dataset.m);
     if(await save(ag)) render();
+  });
+  // ✅ "מוכן" — נשאל כמה יצא בפועל מכל פריט, וההזמנה עוברת לפקיד להוצאת תעודת משלוח
+  document.querySelectorAll('.rdyBtn').forEach(btn=>btn.onclick=async()=>{
+    const o=FW.findOrder(a,btn.dataset.o); if(!o) return;
+    const rows=[];
+    for(const ln of (o.lines||[])){
+      const it=(a.items||[]).find(x=>x.itemId===ln.itemId)||{};
+      const nm=(it.name||ln.name||'');
+      if(ln.packSize>0){
+        const ans=prompt('כמה '+_plu(it.packName||'קרטון')+' יצאו בפועל מ-"'+nm+'"?\n(הוזמנו '+(ln.packs||0).toLocaleString()+' = '+ln.qty.toLocaleString()+' יח׳)', String(ln.packs||0));
+        if(ans===null) return;
+        rows.push({itemId:ln.itemId, packs:parseInt(ans,10)||0});
+      } else {
+        const ans=prompt('כמה יח׳ יצאו בפועל מ-"'+nm+'"?\n(הוזמנו '+ln.qty.toLocaleString()+')', String(ln.qty));
+        if(ans===null) return;
+        rows.push({itemId:ln.itemId, qty:parseInt(ans,10)||0});
+      }
+    }
+    const note=prompt('הערה לפקיד (אופציונלי):','')||'';
+    const res=FW.markReady(a,o.orderId,{rows,date:_today(),by:'מנהל',notes:note});
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))){ render();
+      alert('✓ ההזמנה סומנה כמוכנה ('+res.order.ready.packs.toLocaleString()+' אריזות · '+res.order.ready.qty.toLocaleString()+' יח׳).\nהיא מופיעה עכשיו אצל הפקיד להוצאת תעודת משלוח.'); }
+  });
+  document.querySelectorAll('.unrBtn').forEach(btn=>btn.onclick=async()=>{
+    const res=FW.unmarkReady(a,btn.dataset.o);
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))) render();
   });
   // ✓ אישור אספקה — הנקודה היחידה שבה המלאי באמת יורד
   document.querySelectorAll('.supBtn').forEach(btn=>btn.onclick=async()=>{
