@@ -42,6 +42,7 @@
     font-weight:700;color:var(--press);font-size:.9rem}
   .cItem:hover{background:#faf8f2} .cItem.on{background:var(--press);color:#fff}
   .cItem.grp{background:#faf8f2;font-size:.88rem}
+  .cItem.grp.on,.cItem.sub.on{background:var(--press);color:#fff}
   .cItem.sub{padding-inline-start:26px;font-weight:600;font-size:.86rem}
   .cItem.sub::before{content:"🏢 ";opacity:.6}
   .cItem .b{background:var(--warn);color:#fff;border-radius:10px;padding:1px 8px;font-size:.72rem;font-weight:800}
@@ -136,7 +137,7 @@ let _cards=[], _jobNotes=[];
 // עבודות שסומנו כסופקו *בלי* תעודת משלוח — { cardId: {at,by} }
 let _delivered={};
 // אילו קטגוריות בתפריט פתוחות (ברירת-מחדל: הכל פתוח)
-let _open={};
+let _open={framework:false,placemats:false,orders:false};
 
 // ⚠️ Firebase RTDB לא שומר מערך ריק, ומערך "עם חורים" חוזר כאובייקט — חובה לנרמל.
 function _arr(v){
@@ -169,8 +170,11 @@ async function load(){
 async function loadJobs(){
   const cap=(p)=>Promise.race([p, new Promise(r=>setTimeout(()=>r(null), 20000))]);
   try{
-    const [cs,ns,dv]=await Promise.all([cap(_get('cards')), cap(_get('clerkDeliveryNotes')), cap(_get('clerkDelivered'))]);
-    if(cs) _cards=_arr(cs).filter(c=>c && c.id!=null && !c._deleted && FW.isClerkJob(c));
+    const [cs,ns,dv,dl]=await Promise.all([cap(_get('cards')), cap(_get('clerkDeliveryNotes')),
+      cap(_get('clerkDelivered')), cap(_get('deletedIds'))]);
+    // ⚠️ מחיקה באפליקציה = רשומת-מצבה ב-deletedIds; הכרטיס עצמו עדיין ב-cards
+    const gone={}; _arr(dl && dl.cards).forEach(id=>{ gone[String(id)]=1; });
+    if(cs) _cards=_arr(cs).filter(c=>c && c.id!=null && !c._deleted && !gone[String(c.id)] && FW.isClerkJob(c));
     _jobNotes=(ns && typeof ns==='object') ? Object.values(ns).filter(Boolean) : [];
     _delivered=(dv && typeof dv==='object') ? dv : {};
     if(_cards.length || _jobNotes.length || Object.keys(_delivered).length) render();
@@ -197,8 +201,9 @@ function render(){
   const readyOf=a=>(a.orders||[]).filter(o=>o&&o.status==='ready').length;
   const readyAll=_all.reduce((s,a)=>s+readyOf(a),0);
   const menu=FW.KINDS.map(k=>{
-    const list=_byKind(k), open=_open[k]!==false, sel=('GRP:'+k)===_sel;
-    const kids=list.map(a=>{
+    const list=_byKind(k), open=!!_open[k], sel=('GRP:'+k)===_sel;
+    // ⚠️ כשהקטגוריה מקופלת לא מרנדרים את הלקוחות בכלל — כדי שהתפריט יישאר קצר
+    const kids=!open?'':list.map(a=>{
       const r=readyOf(a);
       return `<div class="cItem sub${a.agreementId===_sel?' on':''}" data-a="${a.agreementId}">
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.customer)}</span>
@@ -222,7 +227,7 @@ function render(){
   </div>`;
   document.querySelectorAll('[data-a]').forEach(el=>el.onclick=()=>{
     const v=el.dataset.a;
-    if(/^GRP:/.test(v)){ const k=v.slice(4); if(_sel===v) _open[k]=(_open[k]===false); else _open[k]=true; }
+    if(/^GRP:/.test(v)){ const k=v.slice(4); _open[k]=!_open[k]; }   // לחיצה = פתיחה/קיפול
     _sel=v; _newLines=[];
     if((v==='ALL'||/^GRP:/.test(v)) && _tab!=='flow') _tab='flow';
     render();
