@@ -55,7 +55,7 @@
   .tab .n{background:var(--warn);color:#fff;border-radius:9px;padding:0 7px;font-size:.72rem;margin-inline-start:5px}
   .ready{border-inline-start:5px solid var(--ok);background:#f0fdf4}
   /* ── לוח זרימת עבודות ── */
-  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start}
+  .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}
   .fCol{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
   .fHead{color:#fff;font-weight:800;padding:9px 12px;font-size:.9rem;display:flex;justify-content:space-between;align-items:center}
   .fN{background:rgba(255,255,255,.28);border-radius:10px;padding:0 9px;font-size:.8rem}
@@ -255,15 +255,24 @@ function detailAll(){
   const noteFor=c=>_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0);
   const cnt=s=>groups.reduce((n,g)=>n+g.orders.filter(o=>FW.orderStage(o)===s).length,0)
     + _cards.filter(c=>FW.jobStage(c,noteFor(c))===s).length;
-  return `<div class="card" style="padding:10px 14px">
+  const nReady=_readyRows(null).length;
+  let body;
+  if(_tab==='ready')      body = readyView(null);
+  else if(_tab==='done')  body = deliveredView(null);
+  else body = `<div class="card" style="padding:10px 14px">
       <span class="stat">התקבלו<b style="color:#b45309">${cnt('new')}</b></span>
       <span class="stat">בייצור<b style="color:#0369a1">${cnt('production')}</b></span>
       <span class="stat">מוכנות לאספקה<b style="color:#15803d">${cnt('ready')}</b></span>
       <span class="stat">סופקו<b>${cnt('delivered')}</b></span>
       <span class="stat">עבודות דפוס<b>${_cards.length}</b></span>
     </div>
-    <div class="muted" style="margin:0 2px 10px">כל מה שרץ בדפוס — הזמנות מסגרת <b>וכרטיסי עבודה</b> (🖨). כרטיסי העבודה נקראים מהאפליקציה ולא נערכים כאן.</div>
+    <div class="muted" style="margin:0 2px 10px">כל מה שרץ בדפוס — הזמנות מסגרת <b>וכרטיסי עבודה</b> (🖨). מה שכבר סופק עבר ללשונית "🚚 סופקו".</div>
     ${flowBoard(groups,true)}`;
+  return `<div class="tabs">
+      <div class="tab${_tab!=='ready'&&_tab!=='done'?' on':''}" data-t="flow">🔄 זרימת עבודות</div>
+      <div class="tab${_tab==='ready'?' on':''}" data-t="ready">✅ מוכן לאספקה${nReady?`<span class="n">${nReady}</span>`:''}</div>
+      <div class="tab${_tab==='done'?' on':''}" data-t="done">🚚 סופקו</div>
+    </div>${body}`;
 }
 
 function detail(a){
@@ -275,7 +284,8 @@ function detail(a){
   // המסך הראשי = זרימת העבודות. המלאי חי בקטגוריה "📋 הסכמי מסגרת" (ובטופס ההזמנה עצמו).
   let body='';
   if(_tab==='new')        body = newOrderCard(a,b);
-  else if(_tab==='ready') body = readyCard(ready,a);
+  else if(_tab==='ready') body = readyView(a.agreementId);
+  else if(_tab==='done')  body = deliveredView(a.agreementId);
   else if(_tab==='notes') body = notesCard(notes,a);
   else                    body = flowBoard([{ag:a, orders:orders}]);
 
@@ -284,6 +294,7 @@ function detail(a){
       <div class="tab${_tab==='flow'?' on':''}" data-t="flow">🔄 זרימת עבודות${open?`<span class="n">${open}</span>`:''}</div>
       <div class="tab${_tab==='new'?' on':''}" data-t="new">➕ הזמנה חדשה</div>
       <div class="tab${_tab==='ready'?' on':''}" data-t="ready">✅ מוכן לאספקה${ready.length?`<span class="n">${ready.length}</span>`:''}</div>
+      <div class="tab${_tab==='done'?' on':''}" data-t="done">🚚 סופקו</div>
       <div class="tab${_tab==='notes'?' on':''}" data-t="notes">📄 תעודות משלוח${notes.length?`<span class="n">${notes.length}</span>`:''}</div>
     </div>${body}`;
 }
@@ -323,9 +334,10 @@ function stockCard(a){
 const _STAGES=[
   { k:'new',        t:'📝 התקבלה',        c:'#f59e0b', hint:'הזמנה/עבודה שנרשמה — טרם נכנסה לייצור' },
   { k:'production', t:'🖨 בייצור',         c:'#0ea5e9', hint:'בהדפסה או בגימורים' },
-  { k:'ready',      t:'✅ מוכנה לאספקה',   c:'#16a34a', hint:'הושלמה — אפשר להוציא תעודת משלוח' },
-  { k:'delivered',  t:'🚚 סופקה',          c:'#2d3561', hint:'יצאה ללקוח' }
+  { k:'ready',      t:'✅ מוכנה לאספקה',   c:'#16a34a', hint:'הושלמה — אפשר להוציא תעודת משלוח' }
 ];
+// "סופקה" אינו עמוד בלוח — הצבע נשמר לתצוגות אחרות
+const _DONE_COLOR='#2d3561';
 function _orderCard(o,a,stage){
   const note=(a.deliveryNotes||[]).find(d=>(d.orders||[]).some(x=>x.orderId===o.orderId));
   const lines=FW.effectiveLines(o).map(l=>{
@@ -431,29 +443,86 @@ function _oLines(o,a){
   }).join('<br>');
 }
 /* ── מוכן לאספקה → תעודת משלוח ── */
-function readyCard(ready,a){
-  if(!ready.length) return `<div class="card"><h3>✅ מוכן לאספקה</h3>
-    <div class="muted">אין כרגע הזמנות שסומנו כמוכנות. ברגע שהדפוס יסמן הזמנה כמוכנה — היא תופיע כאן עם הכמות שיצאה בפועל.</div></div>`;
+/* ═══════════ מוכן לאספקה — סימון מרובה ═══════════
+   מאחד הזמנות-מסגרת וכרטיסי-עבודה בטבלה אחת עם בחירה מרובה + "סמן הכל",
+   ושתי פעולות-אצווה: הפקת תעודה, או סימון כסופק בלי תעודה. */
+function _readyRows(agId){
+  const out=[];
+  _all.filter(a=>!agId||a.agreementId===agId).forEach(a=>{
+    (a.orders||[]).filter(o=>o&&o.status==='ready').forEach(o=>out.push({
+      kind:'order', key:'o:'+a.agreementId+':'+o.orderId, agId:a.agreementId, id:o.orderId,
+      customer:a.customer, title:o.orderRef||o.orderId, date:o.date||'',
+      detail:_oLines(o,a), ordered:(o.lines||[]).map(l=>l.qty.toLocaleString()+' יח׳').join('<br>'),
+      short:FW.effectiveLines(o).some(l=>l.orderedQty && l.qty<l.orderedQty),
+      by:((o.ready&&o.ready.by)||'')+' '+((o.ready&&o.ready.at)||''),
+      value:(o.ready&&o.ready.value)||o.value
+    }));
+  });
+  if(!agId) _cards.forEach(c=>{
+    const done=_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0)||!!_delivered[c.id];
+    if(FW.jobStage(c,done)!=='ready') return;
+    out.push({ kind:'job', key:'j:'+c.id, id:String(c.id), customer:c.customer||c.name||'',
+      title:'🖨 '+(c.name||'עבודה'), date:c.orderDate||'',
+      detail:(c.copies?Number(c.copies).toLocaleString()+' עותקים':'')+(c.paper?' · '+esc(c.paper):''),
+      ordered:'', short:false, by:'', value:0 });
+  });
+  return out;
+}
+function readyView(agId){
+  const rows=_readyRows(agId);
+  if(!rows.length) return `<div class="card"><h3>✅ מוכן לאספקה</h3>
+    <div class="muted">אין כרגע עבודות או הזמנות מוכנות. ברגע שעבודה תסומן כהושלמה — היא תופיע כאן.</div></div>`;
   return `<div class="card"><h3>✅ מוכן לאספקה — סמנו מה יוצא ללקוח</h3>
     <div style="overflow-x:auto"><table>
-      <thead><tr><th style="width:34px"></th><th>הזמנה</th><th>מה יצא בפועל</th><th>הוזמן</th><th>סומן</th><th>לחיוב</th><th></th></tr></thead>
-      <tbody>${ready.map(o=>{
-        const short=FW.effectiveLines(o).some(l=>l.orderedQty && l.qty<l.orderedQty);
-        return `<tr class="ready">
-          <td><input type="checkbox" class="rdChk" data-o="${o.orderId}" checked></td>
-          <td><b>${esc(o.orderRef||o.orderId)}</b><div class="muted" style="font-size:.75rem">${esc(o.date||'')}</div></td>
-          <td style="font-size:.85rem">${_oLines(o,a)}</td>
-          <td class="muted" style="font-size:.8rem">${(o.lines||[]).map(l=>l.qty.toLocaleString()+' יח׳').join('<br>')}${short?'<div class="bad">יצא פחות מההזמנה</div>':''}</td>
-          <td class="muted" style="font-size:.8rem">${esc((o.ready&&o.ready.at)||'')}<br>${esc((o.ready&&o.ready.by)||'')}</td>
-          <td>₪${_n((o.ready&&o.ready.value)||o.value)}</td>
-          <td><button class="odDone" data-ag="${a.agreementId}" data-o="${o.orderId}" style="padding:3px 9px;font-size:.78rem" title="נמסר ללקוח בלי תעודת משלוח">✓ סופק ללא תעודה</button></td></tr>`;
-      }).join('')}</tbody></table></div>
+      <thead><tr>
+        <th style="width:34px"><input type="checkbox" id="rdAll" checked title="סמן/בטל הכל"></th>
+        <th>לקוח</th><th>עבודה / הזמנה</th><th>מה יצא בפועל</th><th>הוזמן</th><th>סומן</th><th>לחיוב</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr class="ready">
+        <td><input type="checkbox" class="rdChk" data-k="${r.key}" checked></td>
+        <td>${esc(r.customer)}</td>
+        <td><b>${esc(r.title)}</b><div class="muted" style="font-size:.75rem">${esc(r.date)}</div></td>
+        <td style="font-size:.85rem">${r.detail}</td>
+        <td class="muted" style="font-size:.8rem">${r.ordered}${r.short?'<div class="bad">יצא פחות מההזמנה</div>':''}</td>
+        <td class="muted" style="font-size:.8rem">${esc(r.by)}</td>
+        <td>${r.value?('₪'+_n(r.value)):'<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">
-      <span>אסמכתא / הזמנת רכש:</span><input id="dnRef" style="width:170px">
-      <span>הערה לתעודה:</span><input id="dnNote" style="width:220px" placeholder="לדוגמה: נמסר לנהג">
+      <span id="rdCount" class="muted"></span>
+      <span style="margin-inline-start:auto">אסמכתא:</span><input id="dnRef" style="width:150px">
+      <span>הערה:</span><input id="dnNote" style="width:180px" placeholder="לדוגמה: נמסר לנהג">
       <button id="dnMake" class="primary">📄 הפק תעודת משלוח</button>
+      <button id="rdDone">✓ סמן כסופק (ללא תעודה)</button>
     </div>
-    <div class="muted" style="margin-top:6px;font-size:.8rem">הפקת התעודה מסמנת את ההזמנות כ<b>סופקו</b> ומורידה מהמלאי את מה שיצא בפועל.</div>
+    <div class="muted" style="margin-top:6px;font-size:.8rem">תעודה מופקת ללקוח אחד בכל פעם. סימון "סופק" אפשרי גם למספר לקוחות יחד — הזמנות מסגרת יורידו מהמלאי.</div>
+  </div>`;
+}
+
+/* ── מסך משני: מה שכבר סופק ── */
+function deliveredView(agId){
+  const out=[];
+  _all.filter(a=>!agId||a.agreementId===agId).forEach(a=>{
+    (a.orders||[]).filter(o=>o&&o.status==='supplied').forEach(o=>{
+      const note=(a.deliveryNotes||[]).find(d=>(d.orders||[]).some(x=>x.orderId===o.orderId));
+      out.push({ cust:a.customer, title:o.orderRef||o.orderId, date:o.suppliedAt||o.date||'',
+        detail:_oLines(o,a), note:note?`<button class="dnView" data-d="${note.noteId}" data-ag="${a.agreementId}">📄 ${note.number}</button>`:'<span class="muted">ללא תעודה</span>' });
+    });
+  });
+  if(!agId) _cards.forEach(c=>{
+    const note=_jobNotes.find(n=>(n.cardIds||[]).indexOf(String(c.id))>=0);
+    if(!note && !_delivered[c.id]) return;
+    out.push({ cust:c.customer||'', title:'🖨 '+(c.name||'עבודה'),
+      date:(note&&note.date)||(_delivered[c.id]&&_delivered[c.id].at)||'',
+      detail:c.copies?Number(c.copies).toLocaleString()+' עותקים':'',
+      note:note?`<button class="jnView" data-n="${note.noteId}">📄 ${note.number}</button>`
+        :`<span class="ok">✓ ללא תעודה</span> <button class="jnUndo" data-c="${c.id}" style="padding:2px 7px;font-size:.72rem">↩</button>` });
+  });
+  out.sort((x,y)=>String(y.date).localeCompare(String(x.date)));
+  return `<div class="card"><h3>🚚 סופקו</h3>
+    <div class="muted" style="margin-bottom:8px">כל מה שיצא ללקוחות — לא מוצג בלוח הזרימה כדי לא להעמיס עליו.</div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>תאריך</th><th>לקוח</th><th>עבודה / הזמנה</th><th>פירוט</th><th>תעודה</th></tr></thead>
+      <tbody>${out.map(r=>`<tr><td>${esc(r.date)}</td><td>${esc(r.cust)}</td>
+        <td><b>${esc(r.title)}</b></td><td style="font-size:.85rem">${r.detail}</td><td>${r.note}</td></tr>`).join('')
+        ||'<tr><td colspan="5" class="muted" style="text-align:center;padding:12px">עדיין לא סופק דבר</td></tr>'}</tbody></table></div>
   </div>`;
 }
 
@@ -532,6 +601,70 @@ function wire(a){
     const ag=_all.find(x=>x.agreementId===el.dataset.ag)||a; if(!ag) return;
     const d=(ag.deliveryNotes||[]).find(x=>x.noteId===el.dataset.d); if(d) showNote(d,ag);
   });
+  // ── בחירה מרובה ב"מוכן לאספקה" ──
+  const _sel2=()=>[...document.querySelectorAll('.rdChk')].filter(c=>c.checked)
+    .map(c=>{ const p=c.dataset.k.split(':'); return p[0]==='o'?{kind:'order',agId:p[1],id:p[2]}:{kind:'job',id:p[1]}; });
+  const _cnt=()=>{ const el=$('rdCount'); if(el){ const n=_sel2().length;
+    el.textContent = n?('נבחרו '+n+' מתוך '+document.querySelectorAll('.rdChk').length):'לא נבחר דבר'; } };
+  const all=$('rdAll');
+  if(all) all.onclick=()=>{ document.querySelectorAll('.rdChk').forEach(c=>c.checked=all.checked); _cnt(); };
+  document.querySelectorAll('.rdChk').forEach(c=>c.onclick=()=>{
+    if(all) all.checked=[...document.querySelectorAll('.rdChk')].every(x=>x.checked); _cnt(); });
+  _cnt();
+
+  const mk=$('dnMake');
+  if(mk) mk.onclick=async()=>{
+    const sel=_sel2();
+    if(!sel.length){ alert('לא נבחר דבר'); return; }
+    const orders=sel.filter(x=>x.kind==='order'), jobs=sel.filter(x=>x.kind==='job');
+    if(orders.length && jobs.length){ alert('תעודה אחת לא יכולה לכלול גם הזמנות-מסגרת וגם כרטיסי-עבודה. סמנו בנפרד.'); return; }
+    const num=FW.nextNoteNumber(allNotes());
+    const ref=($('dnRef').value||'').trim(), nt=($('dnNote').value||'').trim();
+    if(orders.length){
+      const ags=[...new Set(orders.map(o=>o.agId))];
+      if(ags.length>1){ alert('תעודה מופקת ללקוח אחד בכל פעם — סמנו הזמנות של אותו לקוח.'); return; }
+      const ag=_all.find(x=>x.agreementId===ags[0]); if(!ag) return;
+      if(!confirm('להפיק תעודת משלוח מס׳ '+num+' על '+orders.length+' הזמנות?\n\nההזמנות יסומנו כסופקו והמלאי ירד בהתאם.')) return;
+      const res=FW.issueDeliveryNote(ag,orders.map(o=>o.id),{number:num,date:_today(),by:_me(),reference:ref,notes:nt});
+      if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+      if(await save(_normAg(res.agreement))){ render(); showNote(res.note,ag); }
+      return;
+    }
+    // תעודה על כרטיסי-עבודה
+    const cs=jobs.map(j=>_cards.find(c=>String(c.id)===j.id)).filter(Boolean);
+    const cust=prompt('שם הלקוח לתעודה:', cs[0]&&(cs[0].customer||cs[0].name)||''); if(cust===null||!cust.trim()) return;
+    const jn=FW.buildJobNote(cs.map(c=>({cardId:c.id,name:c.name,qty:parseInt(c.copies,10)||0})),
+      {number:num,customer:cust.trim(),date:_today(),by:_me(),reference:ref,notes:nt});
+    if(!jn.ok){ alert('נכשל: '+jn.errors.join(', ')); return; }
+    if(!confirm('להפיק תעודת משלוח מס׳ '+num+' על '+cs.length+' עבודות?')) return;
+    if(!_isProd()){ alert('הפקה פועלת רק באתר החי (הגנת-סביבה).'); return; }
+    try{ await _put('clerkDeliveryNotes/'+jn.note.noteId, jn.note); }
+    catch(err){ alert('שמירה נכשלה: '+(err.message||err)); return; }
+    _jobNotes.push(jn.note); render(); showNote(jn.note,null);
+  };
+
+  // ✓ סימון-אצווה כסופק, בלי תעודה — עובד גם על כמה לקוחות יחד
+  const rd=$('rdDone');
+  if(rd) rd.onclick=async()=>{
+    const sel=_sel2();
+    if(!sel.length){ alert('לא נבחר דבר'); return; }
+    if(!confirm('לסמן '+sel.length+' פריטים כסופקו — בלי תעודת משלוח?\n(הזמנות מסגרת יורידו מהמלאי)')) return;
+    if(!_isProd()){ alert('סימון פועל רק באתר החי (הגנת-סביבה).'); return; }
+    let okN=0, err=[];
+    for(const x of sel){
+      if(x.kind==='job'){
+        try{ const rec={at:_today(),by:_me()}; await _put('clerkDelivered/'+x.id, rec); _delivered[x.id]=rec; okN++; }
+        catch(e){ err.push('עבודה '+x.id); }
+      } else {
+        const ag=_all.find(y=>y.agreementId===x.agId); if(!ag){ err.push(x.id); continue; }
+        const res=FW.supplyOrder(ag,x.id,{date:_today(),by:_me()});
+        if(!res.ok){ err.push(x.id+': '+res.errors.join(',')); continue; }
+        if(await save(_normAg(res.agreement))) okN++; else err.push(x.id);
+      }
+    }
+    render();
+    alert('✓ סומנו '+okN+' כסופקו'+(err.length?('\n⚠ נכשלו: '+err.join(', ')):''));
+  };
   if(!a) return;                                   // מבט "כל הלקוחות" — אין טפסים לחווט
 
   const b=FW.computeBalances(a);
@@ -565,18 +698,6 @@ function wire(a){
     if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
     if(await save(_normAg(res.agreement))){ _newLines=[]; render();
       alert('✓ ההזמנה נרשמה ומשוריינת. הדפוס יסמן אותה כמוכנה כשתהיה מוכנה לאספקה.'); }
-  };
-
-  const mk=$('dnMake');
-  if(mk) mk.onclick=async()=>{
-    const ids=[...document.querySelectorAll('.rdChk')].filter(c=>c.checked).map(c=>c.dataset.o);
-    if(!ids.length){ alert('לא נבחרו הזמנות'); return; }
-    const num=FW.nextNoteNumber(allNotes());
-    if(!confirm('להפיק תעודת משלוח מס׳ '+num+' על '+ids.length+' הזמנות?\n\nההזמנות יסומנו כסופקו והמלאי ירד בהתאם.')) return;
-    const res=FW.issueDeliveryNote(a,ids,{number:num,date:_today(),by:_me(),
-      reference:($('dnRef').value||'').trim(), notes:($('dnNote').value||'').trim()});
-    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
-    if(await save(_normAg(res.agreement))){ _tab='notes'; render(); showNote(res.note,a); }
   };
 
 }
@@ -660,14 +781,20 @@ function _openImport(msg,busy){
   let m=$('impModal');
   if(!m){ m=document.createElement('div'); m.id='impModal'; m.className='modal'; document.body.appendChild(m);
     m.innerHTML=`<div class="modalIn">
-      <h3 style="margin:0 0 4px">📥 קליטת הזמנה מקובץ</h3>
-      <div class="muted" style="margin-bottom:10px">הכלי מנתח את הקובץ — ואפשר <b>לערוך כל שורה</b> לפני האישור.</div>
+      <h3 style="margin:0 0 4px">📥 קליטת הזמנה / עבודה</h3>
+      <div class="muted" style="margin-bottom:8px">כל סוג הזמנה — הזמנת רכש, הזמנת עבודה טלפונית או במייל.
+        אפשר לגרור קובץ, לבחור קובץ, או פשוט לרשום שורות ידנית. הכל <b>ניתן לעריכה</b> לפני האישור.</div>
+      <div id="impDrop" style="border:2px dashed var(--line);border-radius:10px;padding:12px;text-align:center;
+        margin-bottom:10px;cursor:pointer;background:#faf8f2">
+        <b>📎 גררו קובץ לכאן</b> <span class="muted">או לחצו לבחירת קובץ · PDF · Excel · Word · CSV</span></div>
+      <input type="file" id="impFile2" accept=".pdf,.xlsx,.xls,.docx,.csv,.txt" style="display:none">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
         <span>לקוח:</span><select id="impCust" style="min-width:210px"></select>
         <input id="impNewCust" placeholder="שם הלקוח החדש" style="display:none;width:170px">
         <select id="impNewKind" style="display:none">${FW.KINDS.map(k=>`<option value="${k}"${k==='placemats'?' selected':''}>${FW.kindLabel(k)}</option>`).join('')}</select>
-        <span>מס׳ הזמנה:</span><input id="impRef" style="width:150px">
+        <span>מס׳ הזמנה / אסמכתא:</span><input id="impRef" style="width:140px" placeholder="PO / טלפוני / מייל">
         <span>לאספקה עד:</span><input id="impDue" type="date">
+        <input id="impNote" placeholder="הערה להזמנה (אופציונלי)" style="width:200px">
       </div>
       <div id="impMsg" class="muted" style="margin-bottom:8px"></div>
       <div id="impPrev"></div>
@@ -677,6 +804,14 @@ function _openImport(msg,busy){
         <button id="impSave" class="primary">✓ רשום הזמנה</button>
       </div></div>`;
     $('impCancel').onclick=()=>{ m.remove(); _impRows=[]; };
+    $('impDrop').onclick=()=>$('impFile2').click();
+    $('impFile2').onchange=e=>{ const f=e.target.files[0]; e.target.value=''; _impRead(f); };
+    ['dragenter','dragover'].forEach(ev=>$('impDrop').addEventListener(ev,e=>{ e.preventDefault(); e.stopPropagation();
+      $('impDrop').style.borderColor='var(--gold)'; $('impDrop').style.background='#fffbeb'; }));
+    ['dragleave','drop'].forEach(ev=>$('impDrop').addEventListener(ev,e=>{
+      $('impDrop').style.borderColor='var(--line)'; $('impDrop').style.background='#faf8f2'; }));
+    $('impDrop').addEventListener('drop',e=>{ e.preventDefault(); e.stopPropagation();
+      if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length) _impRead(e.dataTransfer.files[0]); });
     $('impAddRow').onclick=()=>{ _impRows.push({sku:'',name:'',qty:0,packs:0}); _impRender(); };
     $('impSave').onclick=_impSave;
     $('impCust').onchange=()=>{ const nw=$('impCust').value==='NEW';
@@ -761,7 +896,8 @@ async function _impSave(){
   const over=rows.filter(r=>r.exceeds);
   if(over.length && !confirm('⚠️ אין מספיק מלאי פנוי ל-'+over.length+' שורות.\nלרשום את ההזמנה בכל זאת?')) return;
   const res=FW.placeOrder(ag,rows,{orderRef:($('impRef').value||'').trim(),dueDate:$('impDue').value||null,
-    date:_today(),by:_me(),notes:_impName?('מקור: '+_impName):null});
+    date:_today(),by:_me(),
+    notes:[($('impNote').value||'').trim(), _impName?('מקור: '+_impName):''].filter(Boolean).join(' · ')||null});
   if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
   if(await save(_normAg(res.agreement))){
     const free=res.order.lines.filter(l=>l.free).length;
