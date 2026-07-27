@@ -13,6 +13,7 @@
 <script src="framework-orders.js"></script>
 <script src="framework-file-reader.js"></script>
 <script src="solan-order-ai.js"></script>
+<script src="idit-sites.js"></script>
 <style>
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
         --ok:#16a34a;--warn:#f59e0b;--bg:#e8e4dc;--card:#fff;--ink:#1a1a2e;--muted:#6b7280}
@@ -357,7 +358,7 @@ function _orderCard(o,a,stage){
   }).join('');
   const late = stage==='new' && o.dueDate && o.dueDate < _today();
   const short = stage!=='new' && FW.effectiveLines(o).some(l=>l.orderedQty && l.qty<l.orderedQty);
-  return `<div class="fCard" style="border-inline-start-color:${_STAGES.find(s=>s.k===stage).c}">
+  return `<div class="fCard ordCard" data-ag="${a.agreementId}" data-o="${o.orderId}" title="לחצו לעריכת ההזמנה" style="cursor:pointer;border-inline-start-color:${_STAGES.find(s=>s.k===stage).c}">
     <div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">
       <b>${esc(o.orderRef||o.orderId)}</b><span class="muted" style="font-size:.75rem">${esc(o.date||'')}</span></div>
     ${_sel==='ALL'?`<div class="muted" style="font-size:.78rem">🏢 ${esc(a.customer)}</div>`:''}
@@ -491,7 +492,7 @@ function readyView(agId){
       <thead><tr>
         <th style="width:34px"><input type="checkbox" id="rdAll" checked title="סמן/בטל הכל"></th>
         <th>לקוח</th><th>עבודה / הזמנה</th><th>מה יצא בפועל</th><th>הוזמן</th><th>סומן</th><th>לחיוב</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr class="ready">
+      <tbody>${rows.map(r=>`<tr class="ready${r.kind==='order'?' ordRow':''}" ${r.kind==='order'?`data-ag="${r.agId}" data-o="${r.id}" style="cursor:pointer" title="לחצו לעריכת ההזמנה"`:''}>
         <td><input type="checkbox" class="rdChk" data-k="${r.key}" checked></td>
         <td>${esc(r.customer)}</td>
         <td><b>${esc(r.title)}</b><div class="muted" style="font-size:.75rem">${esc(r.date)}</div></td>
@@ -619,6 +620,16 @@ function wire(a){
   document.querySelectorAll('.jobCard').forEach(el=>el.onclick=e=>{
     if(e.target.closest('button')) return;
     openJob(el.dataset.j);
+  });
+  // לחיצה על כרטיס-הזמנה → אותו חלון עריכה (גם אחרי אישור/אספקה)
+  document.querySelectorAll('.ordCard').forEach(el=>el.onclick=e=>{
+    if(e.target.closest('button')) return;
+    openOrder(el.dataset.ag, el.dataset.o);
+  });
+  // גם משורה בטבלאות "מוכן לאספקה" ו"סופקו"
+  document.querySelectorAll('.ordRow').forEach(el=>el.onclick=e=>{
+    if(e.target.closest('button')||e.target.closest('input')) return;
+    openOrder(el.dataset.ag, el.dataset.o);
   });
 
   // ── בחירה מרובה ב"מוכן לאספקה" ──
@@ -785,6 +796,109 @@ async function _saveJobOv(id, rec, m){
   render();
 }
 
+/* ═══════════ עריכת הזמנה — גם אחרי שאושרה ═══════════
+   אותו חלון כמו לעבודות: שורות, כמויות, אסמכתא, מועד, סטטוס.
+   ⚠️ עריכה של הזמנה שכבר סופקה בונה מחדש את תנועות-המלאי (editOrder). */
+let _edLines=[];
+function openOrder(agId, orderId){
+  const ag=_all.find(x=>x.agreementId===agId); if(!ag) return;
+  const o=FW.findOrder(ag,orderId); if(!o) return;
+  _edLines=FW.effectiveLines(o).map(l=>({itemId:l.itemId||null,name:l.name||'',sku:l.sku||'',
+    qty:l.qty||0,packs:l.packs||0,packSize:l.packSize||0}));
+  _edRender(ag,o);
+}
+function _edRender(ag,o){
+  const b=FW.computeBalances(ag);
+  let m=$('ordModal');
+  if(!m){ m=document.createElement('div'); m.id='ordModal'; m.className='modal'; document.body.appendChild(m); }
+  const opts=(ag.items||[]).map(it=>`<option value="${it.itemId}">${esc(it.name)}${it.sku?' ('+esc(it.sku)+')':''}</option>`).join('');
+  const st=o.status;
+  m.innerHTML=`<div class="modalIn" style="max-width:720px">
+    <h3 style="margin:0 0 2px">🧾 ${esc(o.orderRef||o.orderId)} — ${esc(ag.customer)}</h3>
+    <div class="muted" style="margin-bottom:10px">
+      ${st==='pending'?'ממתינה לייצור':st==='ready'?'מוכנה לאספקה':st==='supplied'?('סופקה '+esc(o.suppliedAt||'')):'בוטלה'}
+      ${o.date?' · נקלטה '+esc(o.date):''}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <label>אסמכתא <input id="edRef" style="width:150px" value="${esc(o.orderRef||'')}"></label>
+      <label>לאספקה עד <input id="edDue" type="date" value="${esc(o.dueDate||'')}"></label>
+      <label style="flex:1">הערה <input id="edNote" style="width:100%" value="${esc(o.notes||'')}"></label>
+    </div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>פריט</th><th>אריזות</th><th>יח׳</th><th>במלאי פנוי</th><th></th></tr></thead>
+      <tbody>${_edLines.map((l,i)=>{
+        const bal=l.itemId?b.items.find(x=>x.itemId===l.itemId):null;
+        return `<tr>
+          <td>${bal?`<select class="edIt" data-i="${i}">${opts.replace('value="'+l.itemId+'"','value="'+l.itemId+'" selected')}</select>`
+            :`<input class="edName" data-i="${i}" value="${esc(l.name)}" style="width:180px"><div class="muted" style="font-size:.72rem">שורה חופשית</div>`}</td>
+          <td>${bal&&bal.packSize?`<input type="number" class="edPacks" data-i="${i}" value="${l.packs||0}" min="0" style="width:70px"><div class="muted" style="font-size:.72rem">×${bal.packSize.toLocaleString()}</div>`:'<span class="muted">—</span>'}</td>
+          <td><input type="number" class="edQty" data-i="${i}" value="${l.qty}" min="0" style="width:100px"></td>
+          <td class="muted">${bal?bal.availableQty.toLocaleString():'—'}</td>
+          <td><button class="edDel danger" data-i="${i}">🗑</button></td></tr>`;
+      }).join('')}</tbody></table></div>
+    <div style="margin-top:8px"><button id="edAdd">➕ הוסף שורה</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;justify-content:flex-end">
+      ${st==='supplied'?`<button id="edRevert" style="margin-inline-end:auto">↩ בטל אספקה</button>`
+        :st==='ready'?`<button id="edUnready" style="margin-inline-end:auto">↩ החזר לייצור</button>`
+        :`<button id="edCancelOrd" class="danger" style="margin-inline-end:auto">🗑 בטל הזמנה</button>`}
+      ${st==='pending'?'<button id="edReady" class="primary">✅ סמן כמוכנה</button>':''}
+      <button id="edClose">סגירה</button>
+      <button id="edSave" class="primary">✓ שמור שינויים</button>
+    </div>
+    <div class="muted" style="margin-top:8px;font-size:.78rem">${st==='supplied'
+      ? 'ההזמנה כבר סופקה — שינוי כמות יעדכן גם את תנועות המלאי.'
+      : 'שינוי הכמות מעדכן את השריון במלאי.'}</div>`;
+
+  $('edClose').onclick=()=>m.remove();
+  $('edAdd').onclick=()=>{ const it=(ag.items||[])[0];
+    _edLines.push(it?{itemId:it.itemId,name:it.name,qty:0,packs:0,packSize:it.packSize||0}:{itemId:null,name:'',qty:0,packs:0});
+    _edRender(ag,o); };
+  document.querySelectorAll('.edDel').forEach(el=>el.onclick=()=>{ _edLines.splice(+el.dataset.i,1); _edRender(ag,o); });
+  document.querySelectorAll('.edIt').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i;
+    const it=(ag.items||[]).find(x=>x.itemId===e.target.value);
+    _edLines[i].itemId=e.target.value; _edLines[i].name=it?it.name:''; _edLines[i].packSize=it?(it.packSize||0):0;
+    _edRender(ag,o); });
+  document.querySelectorAll('.edName').forEach(el=>el.onchange=e=>{ _edLines[+e.target.dataset.i].name=e.target.value.trim(); });
+  document.querySelectorAll('.edQty').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i;
+    _edLines[i].qty=parseInt(e.target.value,10)||0;
+    _edLines[i].packs=_edLines[i].packSize>0?Math.floor(_edLines[i].qty/_edLines[i].packSize):0; _edRender(ag,o); });
+  document.querySelectorAll('.edPacks').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i;
+    _edLines[i].packs=parseInt(e.target.value,10)||0;
+    _edLines[i].qty=_edLines[i].packs*(_edLines[i].packSize||0); _edRender(ag,o); });
+
+  $('edSave').onclick=async()=>{
+    const res=FW.editOrder(ag,o.orderId,{ orderRef:$('edRef').value, dueDate:$('edDue').value,
+      notes:$('edNote').value, lines:_edLines });
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))){ m.remove(); render(); }
+  };
+  const rdy=$('edReady');
+  if(rdy) rdy.onclick=async()=>{
+    const res=FW.markReady(ag,o.orderId,{date:_today(),by:_me()});
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))){ m.remove(); render(); }
+  };
+  const unr=$('edUnready');
+  if(unr) unr.onclick=async()=>{
+    const res=FW.unmarkReady(ag,o.orderId);
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))){ m.remove(); render(); }
+  };
+  const rev=$('edRevert');
+  if(rev) rev.onclick=async()=>{
+    if(!confirm('לבטל את האספקה?\nהמלאי יוחזר וההזמנה תחזור למצב "מוכנה".')) return;
+    const res=FW.revertSupply(ag,o.orderId);
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))){ m.remove(); render(); }
+  };
+  const cn=$('edCancelOrd');
+  if(cn) cn.onclick=async()=>{
+    if(!confirm('לבטל את ההזמנה '+(o.orderRef||o.orderId)+'?')) return;
+    const res=FW.cancelOrder(ag,o.orderId,{});
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))){ m.remove(); render(); }
+  };
+}
+
 /* ── תעודת משלוח: תצוגה + הדפסה A4 ── */
 function showNote(d,a){
   $('dnPrint').innerHTML=`
@@ -895,11 +1009,19 @@ async function _impRead(f){
       try{
         const {ex,rows}=await _impAI(f);
         _impRows=rows; _impName=f.name;
-        if(ex.customer) _impPickCustomer(ex.customer);
+        // ⚠️ בהזמנות עידית מופיע מספר-אתר בלבד — מתרגמים אותו לשם וכתובת מהרשימה
+        const site=ex.siteNum?SolanIditSites.findSite(ex.siteNum):null;
+        if(site){
+          _impPickCustomer(ex.customer||'עידית');
+          $('impRef').value=('אתר '+SolanIditSites.siteLabel(site)).slice(0,80);
+        }
+        else if(ex.customer) _impPickCustomer(ex.customer);
+        else if(ex.siteNum) $('impRef').value='אתר '+ex.siteNum+' (לא נמצא ברשימת האתרים)';
         if(ex.date) $('impDue').value=/^\d{4}-\d{2}-\d{2}$/.test(ex.date)?ex.date:'';
-        if(ex.notes||ex.address) $('impNote').value=[ex.notes,ex.address].filter(Boolean).join(' · ');
+        const addr=(site&&(site.address||site.name))||ex.address;
+        $('impNote').value=[ex.notes,(site&&site.notes)||'',addr].filter(Boolean).join(' · ');
         $('impMsg').innerHTML='<span class="ok">✓ נותח '+esc(f.name)+' — '+rows.length+' שורות'
-          +(ex.customer?(' · לקוח: '+esc(ex.customer)):'')+'</span>';
+          +(site?(' · אתר '+esc(SolanIditSites.siteLabel(site))):(ex.customer?(' · לקוח: '+esc(ex.customer)):''))+'</span>';
         _impRender(); return;
       }catch(e){
         $('impMsg').innerHTML='<span class="bad">ניתוח AI נכשל: '+esc(e.message||e)+'</span><br>'

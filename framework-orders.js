@@ -506,6 +506,85 @@
     return { ok: true, agreement: ag, order: o, added: added.length };
   }
 
+  /* ── עריכת הזמנה שכבר נקלטה — גם אחרי שסומנה מוכנה או סופקה ──
+     ⚠️ אם ההזמנה כבר סופקה, התנועות שנוצרו ממנה נבנות מחדש לפי הכמויות החדשות,
+     אחרת המלאי היה נשאר תקוע על הכמות הישנה. */
+  function editOrder(agreement, orderId, patch) {
+    patch = patch || {};
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    var o = (ag.orders || []).find(function (x) { return x && x.orderId === orderId; });
+    if (!o) return { ok: false, errors: ['ORDER_NOT_FOUND'] };
+    if (o.status === 'cancelled') return { ok: false, errors: ['ORDER_CANCELLED'] };
+
+    if (patch.orderRef !== undefined) o.orderRef = _s(patch.orderRef) || null;
+    if (patch.poNumber !== undefined) o.poNumber = _s(patch.poNumber) || null;
+    if (patch.dueDate !== undefined) o.dueDate = _s(patch.dueDate) || null;
+    if (patch.notes !== undefined) o.notes = _s(patch.notes) || null;
+    if (patch.date !== undefined) o.date = _s(patch.date) || o.date;
+
+    if (patch.lines) {
+      var lines = [];
+      patch.lines.forEach(function (l) {
+        var q = _int(l && l.qty); if (q <= 0) return;
+        var inAg = l.itemId && (ag.items || []).some(function (it) { return it.itemId === l.itemId; });
+        var nm = _s(l.name);
+        if (!inAg && !nm) return;
+        var it = inAg ? (ag.items || []).find(function (x) { return x.itemId === l.itemId; }) : null;
+        var packSize = _int(l.packSize) || (it ? _int(it.packSize) : 0);
+        var packs = _int(l.packs) || (packSize > 0 ? Math.floor(q / packSize) : 0);
+        lines.push({
+          itemId: inAg ? l.itemId : null, free: !inAg,
+          sku: _s(l.sku) || (it && it.sku) || null, name: nm || (it && it.name) || '',
+          qty: q, packs: packs || null, packSize: packSize || null,
+          packName: _s(l.packName) || (it && it.packName) || null,
+          price1000: l.price1000 != null ? _num(l.price1000) : (it ? _num(it.price1000) : null),
+          value: (q / 1000) * (l.price1000 != null ? _num(l.price1000) : (it ? _num(it.price1000) : 0))
+        });
+      });
+      if (!lines.length) return { ok: false, errors: ['NO_LINES'] };
+      o.lines = lines;
+      // "מה שיצא בפועל" מתעדכן יחד עם ההזמנה, אלא אם נשלח במפורש אחרת
+      if (o.ready) {
+        var rl = lines.map(function (l) {
+          var m = {}; Object.keys(l).forEach(function (k) { m[k] = l[k]; });
+          m.orderedQty = l.qty; return m;
+        });
+        o.ready.lines = rl;
+        o.ready.qty = rl.reduce(function (a, l) { return a + l.qty; }, 0);
+        o.ready.packs = rl.reduce(function (a, l) { return a + (l.packs || 0); }, 0);
+        o.ready.value = rl.reduce(function (a, l) { return a + l.value; }, 0);
+      }
+      o.qty = lines.reduce(function (a, l) { return a + l.qty; }, 0);
+      o.value = lines.reduce(function (a, l) { return a + l.value; }, 0);
+
+      if (o.status === 'supplied') {                 // בונים מחדש את תנועות-המלאי של ההזמנה
+        ag.movements = (ag.movements || []).filter(function (m) { return !m || m.orderId !== o.orderId; });
+        var added = [];
+        effectiveLines(o).forEach(function (ln) {
+          if (!ln.itemId) return;
+          var mb = buildMovement({ itemId: ln.itemId, type: 'draw', qty: ln.qty, packs: ln.packs, packSize: ln.packSize,
+            price1000: ln.price1000, orderRef: o.orderRef || null, date: o.suppliedAt || o.date || null,
+            notes: 'אספקה להזמנה ' + (o.orderRef || o.orderId) + ' (עודכן)' });
+          if (mb.ok) { mb.movement.orderId = o.orderId; added.push(mb.movement); }
+        });
+        ag.movements = ag.movements.concat(added);
+      }
+    }
+    return { ok: true, agreement: ag, order: o };
+  }
+
+  // ביטול אספקה — מחזיר את ההזמנה ל"מוכנה" ומבטל את תנועות-המלאי שנוצרו ממנה
+  function revertSupply(agreement, orderId) {
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    var o = (ag.orders || []).find(function (x) { return x && x.orderId === orderId; });
+    if (!o) return { ok: false, errors: ['ORDER_NOT_FOUND'] };
+    if (o.status !== 'supplied') return { ok: false, errors: ['NOT_SUPPLIED'] };
+    ag.movements = (ag.movements || []).filter(function (m) { return !m || m.orderId !== o.orderId; });
+    o.status = (o.ready && (o.ready.lines || []).length) ? 'ready' : 'pending';
+    o.suppliedAt = null; o.suppliedBy = null;
+    return { ok: true, agreement: ag, order: o };
+  }
+
   // ביטול הזמנה ממתינה — משחרר את השריון (ללא השפעה על המלאי, כי מעולם לא ירד)
   function cancelOrder(agreement, orderId, meta) {
     meta = meta || {};
@@ -879,6 +958,7 @@
     parseOrderText: parseOrderText, parseSheetRows: parseSheetRows, matchOrder: matchOrder, applyOrder: applyOrder,
     placeOrder: placeOrder, supplyOrder: supplyOrder, cancelOrder: cancelOrder, findOrder: findOrder,
     markReady: markReady, unmarkReady: unmarkReady, effectiveLines: effectiveLines,
+    editOrder: editOrder, revertSupply: revertSupply,
     buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,
     buildJobNote: buildJobNote, jobStage: jobStage, orderStage: orderStage,
     isClerkJob: isClerkJob, isHiddenName: isHiddenName, applyJobOverlay: applyJobOverlay,
