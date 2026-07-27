@@ -459,6 +459,7 @@
     if (!lines.length) return { ok: false, errors: ['NO_ROWS'] };
     var order = {
       orderId: _s(meta.orderId) || makeId('or', meta.rng),
+      title: _s(meta.title) || null,          // שם חופשי להזמנה (ניתן לעריכה)
       orderRef: _s(meta.orderRef) || null,
       poNumber: _s(meta.poNumber) || null,
       status: 'pending',                       // ← לא ירד מהמלאי
@@ -473,6 +474,12 @@
     };
     ag.orders = (ag.orders || []).concat([order]);
     return { ok: true, agreement: ag, order: order, lines: lines.length };
+  }
+
+  // הכותרת שמוצגת להזמנה: שם חופשי אם ניתן, אחרת האסמכתא, אחרת המזהה
+  function orderTitle(order) {
+    if (!order) return '';
+    return _s(order.title) || _s(order.orderRef) || _s(order.orderId);
   }
 
   function findOrder(agreement, orderId) {
@@ -516,6 +523,7 @@
     if (!o) return { ok: false, errors: ['ORDER_NOT_FOUND'] };
     if (o.status === 'cancelled') return { ok: false, errors: ['ORDER_CANCELLED'] };
 
+    if (patch.title !== undefined) o.title = _s(patch.title) || null;
     if (patch.orderRef !== undefined) o.orderRef = _s(patch.orderRef) || null;
     if (patch.poNumber !== undefined) o.poNumber = _s(patch.poNumber) || null;
     if (patch.dueDate !== undefined) o.dueDate = _s(patch.dueDate) || null;
@@ -712,7 +720,7 @@
     if (bad.length) return { ok: false, errors: ['NOT_READY:' + bad.map(function (o) { return o.orderRef || o.orderId; }).join(',')] };
     var byItem = {}, order2 = [];
     orders.forEach(function (o) {
-      order2.push({ orderId: o.orderId, orderRef: o.orderRef || null, poNumber: o.poNumber || null });
+      order2.push({ orderId: o.orderId, title: o.title || null, orderRef: o.orderRef || null, poNumber: o.poNumber || null });
       effectiveLines(o).forEach(function (ln) {
         var it = (ag.items || []).find(function (x) { return x.itemId === ln.itemId; }) || {};
         var k = ln.itemId || ('free:' + (ln.sku || ln.name || ''));   // שורה חופשית — מפתח לפי שם/מק״ט
@@ -956,7 +964,7 @@
     makeId: makeId, buildItem: buildItem, buildAgreement: buildAgreement, buildMovement: buildMovement,
     computeBalances: computeBalances, checkDraw: checkDraw, applyMovement: applyMovement,
     parseOrderText: parseOrderText, parseSheetRows: parseSheetRows, matchOrder: matchOrder, applyOrder: applyOrder,
-    placeOrder: placeOrder, supplyOrder: supplyOrder, cancelOrder: cancelOrder, findOrder: findOrder,
+    placeOrder: placeOrder, supplyOrder: supplyOrder, cancelOrder: cancelOrder, findOrder: findOrder, orderTitle: orderTitle,
     markReady: markReady, unmarkReady: unmarkReady, effectiveLines: effectiveLines,
     editOrder: editOrder, revertSupply: revertSupply,
     buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,

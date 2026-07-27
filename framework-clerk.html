@@ -360,7 +360,7 @@ function _orderCard(o,a,stage){
   const short = stage!=='new' && FW.effectiveLines(o).some(l=>l.orderedQty && l.qty<l.orderedQty);
   return `<div class="fCard ordCard" data-ag="${a.agreementId}" data-o="${o.orderId}" title="לחצו לעריכת ההזמנה" style="cursor:pointer;border-inline-start-color:${_STAGES.find(s=>s.k===stage).c}">
     <div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">
-      <b>${esc(o.orderRef||o.orderId)}</b><span class="muted" style="font-size:.75rem">${esc(o.date||'')}</span></div>
+      <b>${esc(FW.orderTitle(o))}</b><span class="muted" style="font-size:.75rem">${esc(o.date||'')}</span></div>
     ${_sel==='ALL'?`<div class="muted" style="font-size:.78rem">🏢 ${esc(a.customer)}</div>`:''}
     <div style="font-size:.82rem;margin-top:4px">${lines}</div>
     ${o.dueDate?`<div class="${late?'bad':'muted'}" style="font-size:.76rem;margin-top:3px">${late?'⚠ עבר מועד: ':'לאספקה עד: '}${esc(o.dueDate)}</div>`:''}
@@ -466,7 +466,7 @@ function _readyRows(agId){
   _all.filter(a=>!agId||a.agreementId===agId).forEach(a=>{
     (a.orders||[]).filter(o=>o&&o.status==='ready').forEach(o=>out.push({
       kind:'order', key:'o:'+a.agreementId+':'+o.orderId, agId:a.agreementId, id:o.orderId,
-      customer:a.customer, title:o.orderRef||o.orderId, date:o.date||'',
+      customer:a.customer, title:FW.orderTitle(o), date:o.date||'',
       detail:_oLines(o,a), ordered:(o.lines||[]).map(l=>l.qty.toLocaleString()+' יח׳').join('<br>'),
       short:FW.effectiveLines(o).some(l=>l.orderedQty && l.qty<l.orderedQty),
       by:((o.ready&&o.ready.by)||'')+' '+((o.ready&&o.ready.at)||''),
@@ -517,7 +517,7 @@ function deliveredView(agId){
   _all.filter(a=>!agId||a.agreementId===agId).forEach(a=>{
     (a.orders||[]).filter(o=>o&&o.status==='supplied').forEach(o=>{
       const note=(a.deliveryNotes||[]).find(d=>(d.orders||[]).some(x=>x.orderId===o.orderId));
-      out.push({ cust:a.customer, title:o.orderRef||o.orderId, date:o.suppliedAt||o.date||'',
+      out.push({ cust:a.customer, title:FW.orderTitle(o), date:o.suppliedAt||o.date||'',
         detail:_oLines(o,a), note:note?`<button class="dnView" data-d="${note.noteId}" data-ag="${a.agreementId}">📄 ${note.number}</button>`:'<span class="muted">ללא תעודה</span>' });
     });
   });
@@ -605,7 +605,7 @@ function wire(a){
   document.querySelectorAll('.odDone').forEach(el=>el.onclick=async()=>{
     const ag=_all.find(x=>x.agreementId===el.dataset.ag)||a; if(!ag) return;
     const o=FW.findOrder(ag,el.dataset.o); if(!o) return;
-    if(!confirm('לסמן שההזמנה '+(o.orderRef||o.orderId)+' סופקה — בלי תעודת משלוח?\n\nהמלאי ירד לפי מה שיצא בפועל.')) return;
+    if(!confirm('לסמן שההזמנה '+FW.orderTitle(o)+' סופקה — בלי תעודת משלוח?\n\nהמלאי ירד לפי מה שיצא בפועל.')) return;
     const res=FW.supplyOrder(ag,o.orderId,{date:_today(),by:_me()});
     if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
     if(await save(_normAg(res.agreement))) render();
@@ -814,12 +814,13 @@ function _edRender(ag,o){
   const opts=(ag.items||[]).map(it=>`<option value="${it.itemId}">${esc(it.name)}${it.sku?' ('+esc(it.sku)+')':''}</option>`).join('');
   const st=o.status;
   m.innerHTML=`<div class="modalIn" style="max-width:720px">
-    <h3 style="margin:0 0 2px">🧾 ${esc(o.orderRef||o.orderId)} — ${esc(ag.customer)}</h3>
+    <h3 style="margin:0 0 2px">🧾 ${esc(FW.orderTitle(o))} — ${esc(ag.customer)}</h3>
     <div class="muted" style="margin-bottom:10px">
       ${st==='pending'?'ממתינה לייצור':st==='ready'?'מוכנה לאספקה':st==='supplied'?('סופקה '+esc(o.suppliedAt||'')):'בוטלה'}
       ${o.date?' · נקלטה '+esc(o.date):''}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-      <label>אסמכתא <input id="edRef" style="width:150px" value="${esc(o.orderRef||'')}"></label>
+      <label>שם ההזמנה <input id="edTitle" style="width:190px" value="${esc(o.title||'')}" placeholder="לדוגמה: פלייסמנטים לפסח"></label>
+      <label>אסמכתא <input id="edRef" style="width:130px" value="${esc(o.orderRef||'')}"></label>
       <label>לאספקה עד <input id="edDue" type="date" value="${esc(o.dueDate||'')}"></label>
       <label style="flex:1">הערה <input id="edNote" style="width:100%" value="${esc(o.notes||'')}"></label>
     </div>
@@ -866,7 +867,7 @@ function _edRender(ag,o){
     _edLines[i].qty=_edLines[i].packs*(_edLines[i].packSize||0); _edRender(ag,o); });
 
   $('edSave').onclick=async()=>{
-    const res=FW.editOrder(ag,o.orderId,{ orderRef:$('edRef').value, dueDate:$('edDue').value,
+    const res=FW.editOrder(ag,o.orderId,{ title:$('edTitle').value, orderRef:$('edRef').value, dueDate:$('edDue').value,
       notes:$('edNote').value, lines:_edLines });
     if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
     if(await save(_normAg(res.agreement))){ m.remove(); render(); }
@@ -892,7 +893,7 @@ function _edRender(ag,o){
   };
   const cn=$('edCancelOrd');
   if(cn) cn.onclick=async()=>{
-    if(!confirm('לבטל את ההזמנה '+(o.orderRef||o.orderId)+'?')) return;
+    if(!confirm('לבטל את ההזמנה '+FW.orderTitle(o)+'?')) return;
     const res=FW.cancelOrder(ag,o.orderId,{});
     if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
     if(await save(_normAg(res.agreement))){ m.remove(); render(); }
@@ -915,7 +916,7 @@ function showNote(d,a){
         ${d.reference?`<div>אסמכתא: ${esc(d.reference)}</div>`:''}</div>
       <div class="dnBox" style="flex:1">${d.source==='jobs'
         ? `<b>עבודות בתעודה:</b> ${(d.lines||[]).map(l=>esc(l.name)).join(', ')}`
-        : `<b>הזמנות בתעודה:</b> ${(d.orders||[]).map(o=>esc(o.orderRef||o.orderId)).join(', ')||'—'}`}</div>
+        : `<b>הזמנות בתעודה:</b> ${(d.orders||[]).map(o=>esc(o.title||o.orderRef||o.orderId)).join(', ')||'—'}`}</div>
     </div>
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="background:#f0ede6">
@@ -1065,7 +1066,8 @@ function _openImport(msg,busy){
         <span>לקוח:</span><select id="impCust" style="min-width:210px"></select>
         <input id="impNewCust" placeholder="שם הלקוח החדש" style="display:none;width:170px">
         <select id="impNewKind" style="display:none">${FW.KINDS.map(k=>`<option value="${k}"${k==='placemats'?' selected':''}>${FW.kindLabel(k)}</option>`).join('')}</select>
-        <span>מס׳ הזמנה / אסמכתא:</span><input id="impRef" style="width:140px" placeholder="PO / טלפוני / מייל">
+        <span>שם ההזמנה:</span><input id="impTitle" style="width:150px" placeholder="לדוגמה: פלייסמנטים לפסח">
+        <span>אסמכתא:</span><input id="impRef" style="width:120px" placeholder="PO / טלפוני / מייל">
         <span>לאספקה עד:</span><input id="impDue" type="date">
         <input id="impNote" placeholder="הערה להזמנה (אופציונלי)" style="width:200px">
       </div>
@@ -1168,7 +1170,7 @@ async function _impSave(){
   const rows=m.rows.map(r=> r.matched ? r : Object.assign({},r,{free:true,name:r.name||r.sku}));
   const over=rows.filter(r=>r.exceeds);
   if(over.length && !confirm('⚠️ אין מספיק מלאי פנוי ל-'+over.length+' שורות.\nלרשום את ההזמנה בכל זאת?')) return;
-  const res=FW.placeOrder(ag,rows,{orderRef:($('impRef').value||'').trim(),dueDate:$('impDue').value||null,
+  const res=FW.placeOrder(ag,rows,{title:($('impTitle').value||'').trim(),orderRef:($('impRef').value||'').trim(),dueDate:$('impDue').value||null,
     date:_today(),by:_me(),
     notes:[($('impNote').value||'').trim(), _impName?('מקור: '+_impName):''].filter(Boolean).join(' · ')||null});
   if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
