@@ -405,7 +405,8 @@ function _jobCard(c,stage){
           <button class="jnUndo" data-c="${c.id}" style="padding:2px 7px;font-size:.72rem" title="בטל סימון">↩</button></div>`
       : stage==='ready'?`<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">
           <button class="jnMake primary" data-c="${c.id}" style="padding:3px 9px;font-size:.78rem">📄 הפק תעודה</button>
-          <button class="jnDone" data-c="${c.id}" style="padding:3px 9px;font-size:.78rem" title="נמסר ללקוח בלי תעודת משלוח">✓ סמן כסופק</button></div>`:''}
+          <button class="jnDone" data-c="${c.id}" style="padding:3px 9px;font-size:.78rem" title="נמסר ללקוח בלי תעודת משלוח">✓ סמן כסופק</button>
+          <button class="jbUnready" data-c="${c.id}" style="padding:3px 9px;font-size:.78rem" title="חזרה לייצור — הכמות תוחזר ממלאי הלקוח">↩ החזר לייצור</button></div>`:''}
   </div>`;
 }
 function flowBoard(groups,withJobs){
@@ -507,7 +508,7 @@ function readyView(agId){
     <div style="overflow-x:auto"><table>
       <thead><tr>
         <th style="width:34px"><input type="checkbox" id="rdAll" checked title="סמן/בטל הכל"></th>
-        <th>לקוח</th><th>עבודה / הזמנה</th><th>מה יצא בפועל</th><th>הוזמן</th><th>סומן</th><th>לחיוב</th></tr></thead>
+        <th>לקוח</th><th>עבודה / הזמנה</th><th>מה יצא בפועל</th><th>הוזמן</th><th>סומן</th><th>לחיוב</th><th></th></tr></thead>
       <tbody>${rows.map(r=>`<tr class="ready${r.kind==='order'?' ordRow':''}" ${r.kind==='order'?`data-ag="${r.agId}" data-o="${r.id}" style="cursor:pointer" title="לחצו לעריכת ההזמנה"`:''}>
         <td><input type="checkbox" class="rdChk" data-k="${r.key}" checked></td>
         <td>${esc(r.customer)}</td>
@@ -515,7 +516,10 @@ function readyView(agId){
         <td style="font-size:.85rem">${r.detail}</td>
         <td class="muted" style="font-size:.8rem">${r.ordered}${r.short?'<div class="bad">יצא פחות מההזמנה</div>':''}</td>
         <td class="muted" style="font-size:.8rem">${esc(r.by)}</td>
-        <td>${r.value?('₪'+_n(r.value)):'<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>
+        <td>${r.value?('₪'+_n(r.value)):'<span class="muted">—</span>'}</td>
+        <td>${r.kind==='job'
+          ? `<button class="jbUnready" data-c="${r.id}" style="padding:3px 9px;font-size:.78rem" title="חזרה לייצור — הכמות תוחזר ממלאי הלקוח">↩ החזר לייצור</button>`
+          : `<button class="odUnready" data-ag="${r.agId}" data-o="${r.id}" style="padding:3px 9px;font-size:.78rem">↩ החזר לייצור</button>`}</td></tr>`).join('')}</tbody></table></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">
       <span id="rdCount" class="muted"></span>
       <span style="margin-inline-start:auto">אסמכתא:</span><input id="dnRef" style="width:150px">
@@ -660,6 +664,29 @@ function wire(a){
     if(el.dataset.n) _jobNotes=_jobNotes.filter(x=>x.noteId!==el.dataset.n);
     delete _delivered[c.id];
     render(); alert('✓ האספקה בוטלה');
+  });
+
+  /* ↩ החזרת עבודה מ"מוכנה לאספקה" חזרה לייצור — והכמות יורדת בחזרה ממלאי הלקוח */
+  document.querySelectorAll('.jbUnready').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation();
+    const c=_cards.find(x=>String(x.id)===String(el.dataset.c)); if(!c) return;
+    if(!confirm('להחזיר את "'+(c.name||'')+'" לייצור?\n\nהיא תרד מרשימת המוכנות לאספקה.')) return;
+    const ov=_jobOv[c.id]||{};
+    const lines=_jobLinesFor(c);
+    // אם הכמות נכנסה למלאי הלקוח בעת סימון "הושלמה" — מחזירים אותה משם
+    if(ov.stockSynced && lines.length && confirm('להוריד בחזרה את הכמויות ממלאי הלקוחות?')){
+      if(await _syncCustomerStock(lines, c, -1, 'החזרה לייצור')) ov.stockSynced=false;
+    }
+    await _saveJobOv(c.id, Object.assign({},ov,{status:'finishing',at:_today(),by:_me()}), null);
+    alert('✓ העבודה חזרה לייצור');
+  });
+  // ↩ החזרת הזמנת-מסגרת מ"מוכנה" ל"ממתינה לייצור" (השריון נשמר, המלאי לא זז)
+  document.querySelectorAll('.odUnready').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation();
+    const ag=_all.find(x=>x.agreementId===el.dataset.ag); if(!ag) return;
+    const res=FW.unmarkReady(ag,el.dataset.o);
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))) render();
   });
 
   document.querySelectorAll('.jnUndo').forEach(el=>el.onclick=async e=>{
