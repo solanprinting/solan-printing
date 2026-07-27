@@ -73,6 +73,9 @@
     align-items:center;justify-content:center;text-align:center;font-size:1.5rem;font-weight:800;
     border:6px dashed var(--gold);pointer-events:none}
   #dropZone.on{display:flex}
+  /* מצב "עובד על הקובץ" — בלי מסגרת מקווקוות, עם פס התקדמות */
+  #dropZone.busy{border-style:solid;border-color:var(--gold);cursor:progress}
+  @keyframes dzSlide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
   .modal{position:fixed;inset:0;z-index:320;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;padding:14px}
   .modalIn{background:#fff;border-radius:14px;max-width:940px;width:97vw;max-height:92vh;overflow:auto;padding:16px 18px}
   /* ── תעודת משלוח להדפסה ── */
@@ -101,7 +104,13 @@
 </div>
 <div id="app"><div class="card muted">טוען…</div></div>
 <div id="dnPrint"></div>
-<div id="dropZone"><div><div style="font-size:3rem">📥</div>שחררו כאן את קובץ ההזמנה<div class="muted" style="color:#e8d5a3;font-weight:400">PDF ותמונות → ניתוח AI · Excel · Word · CSV</div></div></div>
+<div id="dropZone"><div>
+  <div id="dzIcon" style="font-size:3rem">📥</div>
+  <div id="dzTitle">שחררו כאן את קובץ ההזמנה</div>
+  <div id="dzSub" class="muted" style="color:#e8d5a3;font-weight:400">PDF ותמונות → ניתוח AI · Excel · Word · CSV</div>
+  <div id="dzBar" style="display:none;width:260px;height:6px;border-radius:4px;background:rgba(255,255,255,.25);margin:14px auto 0;overflow:hidden">
+    <i style="display:block;height:100%;width:40%;background:var(--gold);animation:dzSlide 1.1s ease-in-out infinite"></i></div>
+</div></div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -957,6 +966,18 @@ function closeNote(){ $('dnPrint').style.cssText=''; $('dnPrint').style.display=
    לקוח עם הסכם מסגרת → השורות משויכות לפריטיו ומשריינות מלאי.
    לקוח אחר → נרשם כלקוח-הזמנות (kind='orders') והשורות נשמרות כשורות חופשיות. */
 let _impRows=[], _impName='';
+// כיסוי-המסך: מצב "גררו לכאן" מול מצב "עובד על הקובץ" — כדי שיהיה ברור מה קורה
+function _dz(mode, title, sub){
+  const z=$('dropZone'); if(!z) return;
+  if(mode==='off'){ z.classList.remove('on','busy'); return; }
+  z.classList.add('on');
+  const busy=(mode==='busy');
+  z.classList.toggle('busy', busy);
+  $('dzIcon').textContent = busy ? '⏳' : '📥';
+  $('dzTitle').textContent = title || (busy ? 'טוען את הקובץ…' : 'שחררו כאן את קובץ ההזמנה');
+  $('dzSub').textContent   = sub   || (busy ? '' : 'PDF ותמונות → ניתוח AI · Excel · Word · CSV');
+  $('dzBar').style.display = busy ? 'block' : 'none';
+}
 
 /* ── ניתוח בענן: אותו מנוע של מסך ההזמנות באפליקציה ──
    כותבים את הבקשה ל-aiRelay ב-Firebase; הפרוקסי המקומי מנתח וכותב תשובה.
@@ -994,7 +1015,9 @@ async function _impAI(f){
   const payload=SolanOrderAI.buildPayload(isPdf?{pdfB64:b64}
     :{imgB64:b64, mime:(f.type||'image/jpeg')});
   const data=await _aiRelay(payload, t=>{
-    const el=$('impMsg'); if(el) el.innerHTML='<span class="muted">🤖 מנתח בענן… '+Math.round(t*1.5)+' שניות</span>';
+    const sec=Math.round(t*1.5);
+    const el=$('impMsg'); if(el) el.innerHTML='<span class="muted">🤖 מנתח בענן… '+sec+' שניות</span>';
+    _dz('busy','🤖 מנתח את הקובץ', sec+' שניות · ממתין לתשובה מהשרת');
   });
   const ex=SolanOrderAI.parseOrderTags(SolanOrderAI.replyText(data));
   return { ex, rows:SolanOrderAI.toRows(ex) };
@@ -1002,11 +1025,13 @@ async function _impAI(f){
 
 async function _impRead(f){
   if(!f) return;
+  _dz('busy','טוען את '+f.name+'…','רגע, קורא את הקובץ');
   _openImport('קורא '+f.name+'…', true);
   try{
     // PDF/תמונה → אותו מנוע AI של מסך ההזמנות. אקסל/וורד/CSV → קריאה לפי עמודות.
     if(/\.(pdf|png|jpe?g|webp|gif)$/i.test(f.name||'')){
       $('impMsg').innerHTML='<span class="muted">🤖 מנתח את '+esc(f.name)+' בענן…</span>';
+      _dz('busy','🤖 מנתח את '+f.name,'הקובץ נשלח לניתוח — זה לוקח כמה שניות');
       try{
         const {ex,rows}=await _impAI(f);
         _impRows=rows; _impName=f.name;
@@ -1021,10 +1046,12 @@ async function _impRead(f){
         if(ex.date) $('impDue').value=/^\d{4}-\d{2}-\d{2}$/.test(ex.date)?ex.date:'';
         const addr=(site&&(site.address||site.name))||ex.address;
         $('impNote').value=[ex.notes,(site&&site.notes)||'',addr].filter(Boolean).join(' · ');
+        _dz('off');
         $('impMsg').innerHTML='<span class="ok">✓ נותח '+esc(f.name)+' — '+rows.length+' שורות'
           +(site?(' · אתר '+esc(SolanIditSites.siteLabel(site))):(ex.customer?(' · לקוח: '+esc(ex.customer)):''))+'</span>';
         _impRender(); return;
       }catch(e){
+        _dz('busy','ניתוח AI נכשל','ממשיך בקריאת טקסט רגילה…');
         $('impMsg').innerHTML='<span class="bad">ניתוח AI נכשל: '+esc(e.message||e)+'</span><br>'
           +'<span class="muted">ממשיך בקריאת טקסט רגילה…</span>';
       }
@@ -1033,13 +1060,14 @@ async function _impRead(f){
     const ps=FW.parseSheetRows(res.rows||[]);
     let lines=ps.lines;
     if(!lines.length) lines=FW.parseOrderText(res.text||'');
-    if(!lines.length){ $('impMsg').innerHTML='<span class="bad">לא זוהו שורות עם כמות בקובץ. אפשר להקליד ידנית למטה.</span>';
+    if(!lines.length){ _dz('off'); $('impMsg').innerHTML='<span class="bad">לא זוהו שורות עם כמות בקובץ. אפשר להקליד ידנית למטה.</span>';
       _impRows=[]; _impName=f.name; _impRender(); return; }
     _impRows=lines.map(l=>({ sku:l.sku||'', name:l.name||l.sku||'', qty:l.qty||0, packs:l.packs||0 }));
     _impName=f.name;
+    _dz('off');
     $('impMsg').innerHTML='<span class="ok">✓ נקרא '+esc(f.name)+' — זוהו '+_impRows.length+' שורות</span>';
     _impRender();
-  }catch(e){ $('impMsg').innerHTML='<span class="bad">קריאה נכשלה: '+esc(e.message||e)+'</span>'; _impRows=[]; _impRender(); }
+  }catch(e){ _dz('off'); $('impMsg').innerHTML='<span class="bad">קריאה נכשלה: '+esc(e.message||e)+'</span>'; _impRows=[]; _impRender(); }
 }
 
 // בוחר את הלקוח שה-AI זיהה; אם אינו קיים — ממלא אותו כלקוח חדש
@@ -1184,12 +1212,12 @@ async function _impSave(){
 // גרירה לכל המסך
 ['dragenter','dragover'].forEach(ev=>document.addEventListener(ev,e=>{
   if(!e.dataTransfer || [...e.dataTransfer.types||[]].indexOf('Files')<0) return;
-  e.preventDefault(); $('dropZone').classList.add('on'); }));
+  e.preventDefault(); if(!$('dropZone').classList.contains('busy')) _dz('drop'); }));
 ['dragleave','dragend'].forEach(ev=>document.addEventListener(ev,e=>{
-  if(e.relatedTarget) return; $('dropZone').classList.remove('on'); }));
+  if(e.relatedTarget || $('dropZone').classList.contains('busy')) return; _dz('off'); }));
 document.addEventListener('drop',e=>{
   if(!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
-  e.preventDefault(); $('dropZone').classList.remove('on');
+  e.preventDefault();
   _impRead(e.dataTransfer.files[0]);
 });
 $('impBtn').onclick=()=>$('impFile').click();
