@@ -210,6 +210,85 @@
     return items.find(function (it) { return String(it.name).toLowerCase().indexOf(q) >= 0; }) || null;
   }
 
+  // ── קליטת הזמנה: טקסט/CSV → שורות {sku?, name?, qty} ──────────────────────
+  //    תומך בפורמטים נפוצים: "AL-100, 5000" · "AL-100 x5000" · "עלון שבועי 5000" ·
+  //    "5000 עלון שבועי" · שורות CSV עם כותרת. מתעלם משורות ריקות/כותרות.
+  function parseOrderText(text) {
+    var lines = String(text == null ? '' : text).split(/\r?\n/), out = [];
+    var HEAD = /^\s*(מק|sku|פריט|item|כמות|qty|תיאור|desc)/i;
+    lines.forEach(function (raw) {
+      var s = _s(raw); if (!s) return;
+      if (HEAD.test(s) && !/\d/.test(s)) return;                  // שורת-כותרת
+      var parts = s.split(/[,\t;|]/).map(_s).filter(function (x) { return x !== ''; });
+      var sku = null, name = null, qty = 0;
+      if (parts.length >= 2) {
+        // עמודות: מזהה + כמות (הכמות = העמודה המספרית האחרונה)
+        var nums = parts.filter(function (p) { return /^\d[\d,\.]*$/.test(p); });
+        if (nums.length) {
+          qty = _int(String(nums[nums.length - 1]).replace(/[,\.]/g, ''));
+          var rest = parts.filter(function (p) { return p !== nums[nums.length - 1]; });
+          if (rest.length) { name = rest[rest.length - 1]; if (rest.length > 1) sku = rest[0]; }
+        }
+      }
+      if (!qty) {
+        // שורה חופשית: "…x5000" / "5000 …" / "… 5000"
+        var m = s.match(/[xX*×]\s*(\d[\d,]*)\s*$/) || s.match(/(\d[\d,]{2,})\s*$/) || s.match(/^\s*(\d[\d,]{2,})\b/);
+        if (m) { qty = _int(m[1].replace(/,/g, '')); name = _s(s.replace(m[0], '')).replace(/[xX*×]\s*$/, ''); }
+      }
+      if (!qty || !(name || sku)) return;                          // בלי כמות/מזהה — מדלגים
+      // מזהה שנראה כמק"ט (אותיות+ספרות/מקפים, בלי רווח) → sku
+      if (!sku && name && /^[A-Za-z0-9][A-Za-z0-9\-_.\/]{1,}$/.test(name) && /\d/.test(name)) { sku = name; name = null; }
+      out.push({ raw: s, sku: sku || null, name: name || null, qty: qty });
+    });
+    return out;
+  }
+
+  // ── שיוך שורות-ההזמנה לפריטי-ההסכם + חישוב לפני/יורד/אחרי ─────────────────
+  function matchOrder(agreement, lines) {
+    var b = computeBalances(agreement);
+    var byId = {}; b.items.forEach(function (r) { byId[r.itemId] = r; });
+    var used = {};                                                  // כמויות מצטברות באותה הזמנה
+    var rows = (lines || []).map(function (ln) {
+      var it = findItem(agreement, ln.sku || '') || findItem(agreement, ln.name || '');
+      if (!it) return { raw: ln.raw, sku: ln.sku, name: ln.name, qty: _int(ln.qty), matched: false, itemId: null };
+      var r = byId[it.itemId];
+      var prior = used[it.itemId] || 0;
+      var before = r.remainingQty - prior;                          // מתחשב בשורות קודמות באותה הזמנה
+      var q = _int(ln.qty);
+      used[it.itemId] = prior + q;
+      var after = before - q;
+      return {
+        raw: ln.raw, matched: true, itemId: it.itemId, sku: it.sku || null, name: it.name,
+        unit: r.unit, qty: q, before: before, after: after,
+        exceeds: after < 0, shortBy: after < 0 ? -after : 0,
+        unitPrice: r.unitPrice, value: q * r.unitPrice
+      };
+    });
+    var sum = rows.reduce(function (a, r) {
+      if (r.matched) { a.qty += r.qty; a.value += r.value; if (r.exceeds) a.exceeding++; } else a.unmatched++;
+      return a;
+    }, { qty: 0, value: 0, exceeding: 0, unmatched: 0 });
+    return { rows: rows, summary: sum };
+  }
+
+  // ── החלת הזמנה שלמה (כל השורות המשויכות) — מחזיר הסכם חדש ─────────────────
+  function applyOrder(agreement, matchedRows, meta) {
+    meta = meta || {};
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    var added = [], errors = [];
+    (matchedRows || []).forEach(function (r, i) {
+      if (!r.matched || !r.itemId) return;
+      var mb = buildMovement({ itemId: r.itemId, type: 'draw', qty: r.qty,
+        orderRef: _s(meta.orderRef) || null, date: _s(meta.date) || null, by: _s(meta.by) || null,
+        notes: _s(meta.notes) || null });
+      if (!mb.ok) { errors.push('ROW_' + i + ':' + mb.errors.join(',')); return; }
+      added.push(mb.movement);
+    });
+    if (!added.length) return { ok: false, errors: errors.length ? errors : ['NO_ROWS'] };
+    ag.movements = (ag.movements || []).concat(added);
+    return { ok: true, agreement: ag, added: added.length, errors: errors };
+  }
+
   function validate(agreement) {
     var errors = [];
     if (!agreement) return { valid: false, errors: ['NULL'] };
@@ -227,6 +306,7 @@
     STATUSES: STATUSES, MOVE_TYPES: MOVE_TYPES,
     makeId: makeId, buildItem: buildItem, buildAgreement: buildAgreement, buildMovement: buildMovement,
     computeBalances: computeBalances, checkDraw: checkDraw, applyMovement: applyMovement,
+    parseOrderText: parseOrderText, matchOrder: matchOrder, applyOrder: applyOrder,
     alerts: alerts, findItem: findItem, validate: validate
   };
 });

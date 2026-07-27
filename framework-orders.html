@@ -6,6 +6,9 @@
 <meta name="robots" content="noindex, nofollow">
 <title>הסכמי מסגרת — סולן הדפסות</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; }catch(e){}</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="framework-orders.js"></script>
 <style>
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -176,7 +179,7 @@ function detail(a){
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
       <h3 style="margin:0">📦 פריטי ההסכם</h3>
-      <div><button id="addItem" class="primary">➕ הוסף פריט</button> <button id="quickDraw">⚡ משיכה מהירה (לפי מק״ט/שם)</button></div>
+      <div><button id="addItem">➕ הוסף פריט</button> <button id="quickDraw">⚡ משיכה מהירה</button> <button id="impStock">📥 ייבוא מלאי (PDF/אקסל)</button> <button id="impOrder" class="primary">🧾 קליטת הזמנה</button></div>
     </div>
     <div style="overflow-x:auto"><table>
       <thead><tr><th>מק״ט</th><th>פריט</th><th>מוסכם</th><th>נמשך</th><th>יתרה</th><th>ניצול</th><th>מחיר יח׳</th><th>ערך יתרה</th><th></th></tr></thead>
@@ -214,6 +217,8 @@ function wire(a){
     const ag=JSON.parse(JSON.stringify(a)); ag.movements=(ag.movements||[]).filter(m=>m.moveId!==btn.dataset.m);
     if(await save(ag)) render();
   });
+  $('impStock').onclick = ()=>_impOpen('stock');
+  $('impOrder').onclick = ()=>_impOpen('order');
   $('quickDraw').onclick = ()=>{
     const q=prompt('מק״ט או שם הפריט:'); if(!q) return;
     const it=FW.findItem(a,q);
@@ -248,6 +253,167 @@ async function _move(a, itemId, type){
   const res=FW.applyMovement(a,{ itemId, type, qty, orderRef:ref, date:_today(), by:'מנהל' });
   if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
   if(await save(res.agreement)) render();
+}
+
+/* ═══════════ ייבוא מקובץ: PDF / אקסל / CSV / הדבקה ═══════════
+   שני מצבים: 'stock' = הוספת פריטים+כמויות להסכם · 'order' = משיכה על-חשבון ההסכם.
+   בשניהם: ניתוח → טבלה *הניתנת לעריכה* → אישור. אף פעם לא מחילים בלי שהמשתמש ראה. */
+let _impMode='order', _impRows=[];
+
+async function _textFromFile(f){
+  const nm=(f.name||'').toLowerCase();
+  if(/\.(xlsx|xls)$/.test(nm)){
+    if(!window.XLSX) throw new Error('ספריית האקסל לא נטענה');
+    const wb=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'});
+    let out=[];
+    wb.SheetNames.forEach(n=>{ XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,blankrows:false})
+      .forEach(row=>{ const line=row.map(c=>String(c==null?'':c).trim()).filter(Boolean).join(', '); if(line) out.push(line); }); });
+    return out.join('\n');
+  }
+  if(/\.pdf$/.test(nm)){
+    if(!window.pdfjsLib) throw new Error('ספריית ה-PDF לא נטענה');
+    const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;
+    let out=[];
+    for(let i=1;i<=pdf.numPages;i++){
+      const tc=await (await pdf.getPage(i)).getTextContent();
+      // קיבוץ לפי שורה (לפי קואורדינטת-Y) — כדי לשמר "פריט … כמות" באותה שורה
+      const byY={};
+      tc.items.forEach(it=>{ const y=Math.round((it.transform&&it.transform[5])||0);
+        (byY[y]=byY[y]||[]).push({x:(it.transform&&it.transform[4])||0, s:it.str}); });
+      Object.keys(byY).sort((a,b)=>b-a).forEach(y=>{
+        const line=byY[y].sort((p,q)=>q.x-p.x).map(p=>p.s).join(' ').replace(/\s+/g,' ').trim();
+        if(line) out.push(line);
+      });
+    }
+    try{ pdf.destroy(); }catch(e){}
+    return out.join('\n');
+  }
+  return await f.text();   // CSV / TXT
+}
+
+function _impOpen(mode){
+  _impMode=mode; _impRows=[];
+  const isOrder = mode==='order';
+  let m=$('impModal');
+  if(!m){ m=document.createElement('div'); m.id='impModal'; document.body.appendChild(m); }
+  m.style.cssText='position:fixed;inset:0;z-index:200;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;padding:14px';
+  m.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:900px;width:97vw;max-height:92vh;overflow:auto;padding:16px 18px">
+    <h3 style="margin:0 0 4px">${isOrder?'🧾 קליטת הזמנה — משיכה מההסכם':'📥 ייבוא מלאי — הוספת כמויות'}</h3>
+    <div class="muted" style="margin-bottom:10px">העלו PDF / אקסל / CSV, או הדביקו שורות. הכלי ינתח — ותוכלו <b>לערוך כל שורה</b> לפני האישור.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <input type="file" id="impFile" accept=".pdf,.xlsx,.xls,.csv,.txt">
+      <span class="muted">או הדביקו:</span>
+    </div>
+    <textarea id="impText" placeholder="מק״ט, שם פריט, כמות&#10;AL-100, עלון שבועי, 5000" style="width:100%;height:90px"></textarea>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
+      <button id="impParse" class="primary">🔍 נתח</button>
+      <span id="impMsg" class="muted"></span>
+    </div>
+    <div id="impPrev"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;justify-content:flex-end">
+      <button id="impCancel">ביטול</button>
+      <button id="impApply" class="primary" disabled>${isOrder?'✓ אשר וקלוט הזמנה':'✓ אשר והוסף למלאי'}</button>
+    </div></div>`;
+  $('impCancel').onclick=()=>m.remove();
+  $('impFile').onchange=async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    $('impMsg').textContent='קורא '+f.name+'…';
+    try{ $('impText').value=await _textFromFile(f); $('impMsg').innerHTML='<span class="ok">✓ נקרא — לחצו "נתח"</span>'; _impParse(); }
+    catch(err){ $('impMsg').innerHTML='<span class="bad">קריאה נכשלה: '+esc(err.message||err)+'</span>'; }
+  };
+  $('impParse').onclick=_impParse;
+  $('impApply').onclick=_impApply;
+}
+
+function _impParse(){
+  const a=cur(); if(!a) return;
+  const lines=FW.parseOrderText($('impText').value||'');
+  if(!lines.length){ $('impMsg').innerHTML='<span class="bad">לא זוהו שורות עם כמות. אפשר להקליד ידנית בפורמט: שם, כמות</span>'; $('impPrev').innerHTML=''; return; }
+  if(_impMode==='order'){
+    const m=FW.matchOrder(a,lines);
+    _impRows=m.rows;
+    $('impMsg').innerHTML=`זוהו <b>${m.rows.length}</b> שורות · ${m.summary.unmatched?('<span class="bad">'+m.summary.unmatched+' לא שויכו</span>'):'<span class="ok">כולן שויכו</span>'}${m.summary.exceeding?(' · <span class="bad">'+m.summary.exceeding+' חורגות</span>'):''}`;
+    $('impPrev').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>שורה מהקובץ</th><th>פריט בהסכם</th><th>במלאי לפני</th><th>יורד</th><th>נשאר אחרי</th></tr></thead><tbody>'
+      + _impRows.map((r,i)=>{
+          const opts=(a.items||[]).map(it=>`<option value="${it.itemId}"${r.itemId===it.itemId?' selected':''}>${esc(it.name)}${it.sku?' ('+esc(it.sku)+')':''}</option>`).join('');
+          return `<tr${r.exceeds?' style="background:#fff7ed"':''}>
+            <td class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.raw)}">${esc(r.raw)}</td>
+            <td><select class="impIt" data-i="${i}"><option value="">— דלג —</option>${opts}</select></td>
+            <td>${r.matched?r.before.toLocaleString():'—'}</td>
+            <td><input type="number" class="impQty" data-i="${i}" value="${r.qty}" min="0" style="width:90px"></td>
+            <td class="${r.exceeds?'bad':''}"><b>${r.matched?r.after.toLocaleString():'—'}</b>${r.exceeds?' ⚠':''}</td></tr>`;
+        }).join('') + '</tbody></table></div>';
+    _impBind();
+  } else {
+    _impRows=lines.map(l=>({ raw:l.raw, sku:l.sku||'', name:l.name||l.sku||'', qty:l.qty, unitPrice:0 }));
+    $('impMsg').innerHTML=`זוהו <b>${_impRows.length}</b> פריטים — ערכו לפי הצורך`;
+    $('impPrev').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>שורה מהקובץ</th><th>מק״ט</th><th>שם פריט</th><th>כמות</th><th>מחיר יח׳</th></tr></thead><tbody>'
+      + _impRows.map((r,i)=>`<tr>
+          <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.raw)}">${esc(r.raw)}</td>
+          <td><input class="impSku" data-i="${i}" value="${esc(r.sku)}" style="width:100px" placeholder="ריק=ללא"></td>
+          <td><input class="impName" data-i="${i}" value="${esc(r.name)}" style="width:190px"></td>
+          <td><input type="number" class="impQty" data-i="${i}" value="${r.qty}" min="0" style="width:100px"></td>
+          <td><input type="number" class="impPrice" data-i="${i}" value="0" min="0" step="0.01" style="width:90px"></td></tr>`).join('')
+      + '</tbody></table></div>';
+    _impBind();
+  }
+  $('impApply').disabled=false;
+}
+
+function _impBind(){
+  const a=cur();
+  document.querySelectorAll('.impQty').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i;
+    _impRows[i].qty=parseInt(e.target.value,10)||0; if(_impMode==='order') _impRecalc(); });
+  document.querySelectorAll('.impIt').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i, id=e.target.value;
+    _impRows[i].itemId=id||null; _impRows[i].matched=!!id; _impRecalc(); });
+  document.querySelectorAll('.impSku').forEach(el=>el.onchange=e=>{ _impRows[+e.target.dataset.i].sku=e.target.value.trim(); });
+  document.querySelectorAll('.impName').forEach(el=>el.onchange=e=>{ _impRows[+e.target.dataset.i].name=e.target.value.trim(); });
+  document.querySelectorAll('.impPrice').forEach(el=>el.onchange=e=>{ _impRows[+e.target.dataset.i].unitPrice=parseFloat(e.target.value)||0; });
+}
+// חישוב-מחדש של לפני/יורד/אחרי אחרי עריכה ידנית (כולל הצטברות של כמה שורות לאותו פריט)
+function _impRecalc(){
+  const a=cur(); if(!a) return;
+  const b=FW.computeBalances(a), byId={}; b.items.forEach(r=>byId[r.itemId]=r);
+  const used={};
+  _impRows.forEach(r=>{
+    if(!r.matched||!r.itemId||!byId[r.itemId]){ r.before=null; r.after=null; r.exceeds=false; return; }
+    const prior=used[r.itemId]||0;
+    r.before=byId[r.itemId].remainingQty-prior; used[r.itemId]=prior+(r.qty||0);
+    r.after=r.before-(r.qty||0); r.exceeds=r.after<0;
+  });
+  const rows=document.querySelectorAll('#impPrev tbody tr');
+  _impRows.forEach((r,i)=>{ const tr=rows[i]; if(!tr) return;
+    tr.style.background=r.exceeds?'#fff7ed':'';
+    tr.children[2].textContent = r.matched?Number(r.before).toLocaleString():'—';
+    const c4=tr.children[4]; c4.className=r.exceeds?'bad':'';
+    c4.innerHTML = '<b>'+(r.matched?Number(r.after).toLocaleString():'—')+'</b>'+(r.exceeds?' ⚠':'');
+  });
+}
+
+async function _impApply(){
+  const a=cur(); if(!a) return;
+  if(_impMode==='order'){
+    const use=_impRows.filter(r=>r.matched&&r.itemId&&r.qty>0);
+    if(!use.length){ alert('אין שורות לקליטה'); return; }
+    const over=use.filter(r=>r.exceeds);
+    if(over.length && !confirm('⚠️ '+over.length+' שורות חורגות מהיתרה.\nלהמשיך בכל זאת?')) return;
+    const ref=prompt('מס׳ הזמנה / אסמכתא:','')||'';
+    const res=FW.applyOrder(a,use,{orderRef:ref,date:_today(),by:'מנהל'});
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(res.agreement)){ $('impModal').remove(); render(); }
+  } else {
+    const ag=JSON.parse(JSON.stringify(a));
+    let added=0, merged=0;
+    _impRows.forEach(r=>{
+      if(!r.name || !(r.qty>0)) return;
+      // פריט קיים (לפי מק״ט/שם) → מוסיפים לכמות; אחרת פריט חדש
+      const ex=FW.findItem(ag, r.sku||r.name);
+      if(ex){ ex.qty=(parseInt(ex.qty,10)||0)+r.qty; if(r.unitPrice>0) ex.unitPrice=r.unitPrice; merged++; }
+      else { const b=FW.buildItem({name:r.name,sku:r.sku,qty:r.qty,unitPrice:r.unitPrice}); if(b.ok){ ag.items.push(b.item); added++; } }
+    });
+    if(!added && !merged){ alert('לא נוספו פריטים (חסר שם או כמות)'); return; }
+    if(await save(ag)){ $('impModal').remove(); render(); alert('✓ נוספו '+added+' פריטים חדשים · עודכנו '+merged+' קיימים'); }
+  }
 }
 
 $('newAg').onclick = async ()=>{
