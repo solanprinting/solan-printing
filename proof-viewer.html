@@ -163,6 +163,25 @@ const RENDER_H = 1100;
 
 const $ = id => document.getElementById(id);
 const overlay = $('overlay');
+// הורדה עם מד-התקדמות אמיתי (fetch לא מדווח התקדמות) — כדי שלא ייראה "מסך תקוע" בקבצים גדולים
+function _fetchWithProgress(url, onPct){
+  return new Promise(function(res, rej){
+    try{
+      var x = new XMLHttpRequest();
+      x.open('GET', url); x.responseType = 'arraybuffer';
+      x.onprogress = function(e){
+        try{
+          var mb = (e.loaded/1048576).toFixed(1);
+          if (e.lengthComputable && e.total) onPct(Math.round(e.loaded/e.total*100), mb, (e.total/1048576).toFixed(1));
+          else onPct(0, mb, 0);
+        }catch(_){}
+      };
+      x.onload = function(){ (x.status>=200 && x.status<300) ? res(x.response) : rej(new Error('HTTP '+x.status)); };
+      x.onerror = function(){ rej(new Error('שגיאת רשת')); };
+      x.send();
+    }catch(e){ rej(e); }
+  });
+}
 function showOverlay(t, on=true, pct=null){
   $('ovText').textContent = t; overlay.style.display = on ? 'flex' : 'none';
   if (pct == null) $('ovBar').style.display = 'none';
@@ -273,8 +292,11 @@ async function _loadTrimsBg(){
   }
 
   try {
-    showOverlay('טוען עיתון…', true, 0);
-    const rawBuf = await (await fetch(url)).arrayBuffer();
+    showOverlay('מוריד את הקובץ… 0%', true, 0);
+    const rawBuf = await _fetchWithProgress(url, function(pct, mb, totMb){
+      showOverlay(totMb ? ('מוריד את הקובץ… ' + pct + '%  (' + mb + '/' + totMb + ' MB)')
+                        : ('מוריד את הקובץ… ' + mb + ' MB'), true, pct);
+    });
     const orig = new Uint8Array(rawBuf);
     let norm = orig;
     try { norm = await splitSpreadsPdf(orig); } catch(e){ norm = orig; }   // כפולה → 2 עמודים בודדים

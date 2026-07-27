@@ -717,10 +717,14 @@ function workerScreen(){
     // בורר-טמפלט מלא לכל ריצה — כי לפעמים ריצה אחת ב-4 צבעים (מתהפך) והשאר ב-8 צבעים (פרפקטור)
     const _tplOpts=(cur)=>_catalog.filter(t=>_legacyTypeFor(t.id)).map(t=>
       '<option value="'+t.id+'"'+(t.id===cur?' selected':'')+'>'+t.label+'</option>').join('');
-    let html='<table style="width:100%;border-collapse:collapse;font-size:.85rem"><tr style="opacity:.7"><th style="text-align:right">ריצה</th><th style="text-align:right">קובץ</th><th>סוג</th><th>עמ׳</th><th>טמפלט לריצה</th></tr>';
+    let html='<div class="muted" style="margin-bottom:5px">הסדר נקבע לפי שם-הקובץ. אם הוא לא נכון — סדר ידנית עם ▲▼ (R-1 = הקונטרס החיצוני).</div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:.85rem"><tr style="opacity:.7"><th></th><th style="text-align:right">ריצה</th><th style="text-align:right">קובץ</th><th>סוג</th><th>עמ׳</th><th>טמפלט לריצה</th></tr>';
     _runRows.forEach((r,i)=>{
       const curTpl = r.tplId || _catalogIdForLegacy(r.legacyType) || '';
-      html+='<tr><td><b>R-'+(i+1)+'</b>'+(i===0?' <span class="muted">(חיצוני)</span>':'')+'</td>'
+      html+='<tr><td style="white-space:nowrap">'
+        + '<button class="rowUp" data-i="'+i+'"'+(i===0?' disabled':'')+' title="העלה ריצה" style="padding:1px 6px;font-size:.75rem">▲</button>'
+        + '<button class="rowDn" data-i="'+i+'"'+(i===_runRows.length-1?' disabled':'')+' title="הורד ריצה" style="padding:1px 6px;font-size:.75rem">▼</button></td>'
+        + '<td><b>R-'+(i+1)+'</b>'+(i===0?' <span class="muted">(חיצוני)</span>':'')+'</td>'
         + '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.name+'">'+r.name+'</td>'
         + '<td><select data-i="'+i+'" class="rowType"><option value="perf"'+(r.perfector?' selected':'')+'>פרפקטור (8 צבע)</option><option value="tumble"'+(!r.perfector?' selected':'')+'>מתהפך (4 צבע)</option></select></td>'
         + '<td><input type="number" data-i="'+i+'" class="rowPages" value="'+r.pages+'" step="2" min="4" style="width:66px"></td>'
@@ -735,6 +739,11 @@ function workerScreen(){
       _runRows[i].perfector=(e.target.value==='perf'); _sync(i); _drawRows(); });
     Array.from(document.getElementsByClassName('rowPages')).forEach(inp=>inp.onchange=e=>{ const i=+e.target.dataset.i;
       _runRows[i].pages=parseInt(e.target.value,10)||0; _sync(i); _drawRows(); });
+    // סדר-ריצות ידני — R-1 חייב להיות הקונטרס החיצוני; שם-הקובץ הוא רק ניחוש-פתיחה
+    const _move=(i,d)=>{ const j=i+d; if(j<0||j>=_runRows.length) return;
+      const t=_runRows[i]; _runRows[i]=_runRows[j]; _runRows[j]=t; _drawRows(); };
+    Array.from(document.getElementsByClassName('rowUp')).forEach(b=>b.onclick=()=>_move(+b.dataset.i,-1));
+    Array.from(document.getElementsByClassName('rowDn')).forEach(b=>b.onclick=()=>_move(+b.dataset.i, 1));
     Array.from(document.getElementsByClassName('rowTpl')).forEach(sel=>sel.onchange=e=>{ const i=+e.target.dataset.i, id=e.target.value;
       const lt=_legacyTypeFor(id); if(!lt) return;
       _runRows[i].tplId=id; _runRows[i].tplManual=true; _runRows[i].legacyType=lt;      // בחירה ידנית גוברת
@@ -770,7 +779,11 @@ function workerScreen(){
     $('autoNote').innerHTML='זוהה: '+typeLabel+' · '+pages+' עמ׳ → '+((_tplInfo($('tpl').value)||{}).label||'')+' <span class="muted">(ניתן לשנות)</span>';
     updFold();
   }
-  $('proof').onchange=async e=>{ const f=e.target.files[0]; if(!f)return; _srcU8=new Uint8Array(await f.arrayBuffer()); _srcName=f.name; $('wstatus').textContent='📄 '+f.name; setStep(0); await _autoDetectSingle(); updFold(); };
+  $('proof').onchange=async e=>{ const f=e.target.files[0]; if(!f)return;
+    const _mb=(f.size/1048576).toFixed(1);
+    $('wstatus').innerHTML='⏳ טוען את הקובץ… <b>'+f.name+'</b> ('+_mb+' MB)';   // חיווי-טעינה
+    try{ _srcU8=new Uint8Array(await f.arrayBuffer()); }catch(err){ $('wstatus').innerHTML='<span class="bad">טעינת הקובץ נכשלה: '+(err.message||err)+'</span>'; return; }
+    _srcName=f.name; $('wstatus').innerHTML='📄 '+f.name+' <span class="ok">· נטען ('+_mb+' MB)</span>'; setStep(0); await _autoDetectSingle(); updFold(); };
   $('singlePages').onchange=_autoDetectSingle;
   $('tpl').onchange=()=>{ $('autoNote').textContent=''; updFold(); };
   $('multiRun').onchange=()=>{ const m=_multi(); $('multiBox').style.display=m?'':'none'; $('singleAuto').style.display=m?'none':'';
@@ -780,7 +793,12 @@ function workerScreen(){
   $('proofMulti').onchange=async e=>{
     const files=Array.from(e.target.files||[]).sort((a,b)=>_natSort(a.name,b.name));   // R-1 לפני R-2…
     _multiU8=[]; _multiNames=[];
-    for(const f of files){ _multiU8.push(new Uint8Array(await f.arrayBuffer())); _multiNames.push(f.name); }
+    const _tot=files.length, _totMb=(files.reduce((a,f)=>a+f.size,0)/1048576).toFixed(0);
+    for(let _i=0;_i<files.length;_i++){ const f=files[_i];
+      $('wstatus').innerHTML='⏳ טוען קובץ <b>'+(_i+1)+'/'+_tot+'</b> — '+f.name+' <span class="muted">(סה״כ ~'+_totMb+' MB)</span>';
+      try{ _multiU8.push(new Uint8Array(await f.arrayBuffer())); _multiNames.push(f.name); }
+      catch(err){ $('wstatus').innerHTML='<span class="bad">טעינת '+f.name+' נכשלה: '+(err.message||err)+'</span>'; return; }
+    }
     _srcName=_multiNames[0]||''; if(_multiU8.length) $('wstatus').textContent='📄 '+_multiU8.length+' ריצות';
     const sz = _multiU8.length ? await _detectSizeLabel(_multiU8[0]) : null;   // זיהוי-גודל מהפרופר
     $('sizeDetected').textContent = sz ? ('· '+sz) : '';
