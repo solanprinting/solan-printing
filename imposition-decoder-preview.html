@@ -84,6 +84,7 @@
     <div><label>מזהה טמפלט</label><br><input type="text" id="tplId" value="88x63-16p-perfector" style="width:180px;background:#0b1220;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:5px 6px;font-family:inherit"></div>
     <div><button id="tplRead">🔍 קרא אוטומטית</button> <button class="sec" id="tplSave" disabled>💾 שמור טמפלט</button></div>
   </div>
+  <div id="tplMapPrev" style="margin-top:10px"></div>
   <div id="tplStatus" class="muted" style="margin-top:8px">טען טמפלט → המערכת תקרא את מספרי-העמוד, תזהה עמודות/שורות/שדרה, ותבנה מפה. אפשר לכוונן את הפער ולפרק פרופר לבדיקה. השמירה עד <code>tested</code> רק אחרי אישור חזותי.</div>
 </div>
 
@@ -190,7 +191,46 @@ async function readTemplate(bytes){
       +' · שדרה '+d.layout.spineGutterMm+' מ״מ · שוליים-רגל '+d.layout.footMarginMm+' מ״מ'+rotNote+warn
       +' — טען פרופר ולחץ "פרק והצג".';
     $('tplSave').disabled = false;
+    _drawTplMap(cellMap, _derived.layout, tplRot);   // תצוגת-כיוון לפני "פרק והצג"
   } catch(e){ console.error(e); $('tplStatus').innerHTML = '<span class="err">שגיאה: '+(e.message||e)+'</span>'; }
+}
+
+// ── תצוגת-כיוון: איך המפה יושבת על הגיליון (לבדיקה לפני "פרק והצג") ──
+//    כל תא = מספר-העמוד שייצא ממנו. עמ' 1 (השער) מודגש — אם הוא לא בפינה הצפויה,
+//    הטמפלט מסובב וצריך לשנות את בורר-הסיבוב.
+function _drawTplMap(cellMap, layout, tplRot){
+  var host = $('tplMapPrev'); if(!host) return;
+  if(!cellMap || !cellMap.length || !layout){ host.innerHTML=''; return; }
+  var rows = layout.rows||0, cols = layout.cols||0;
+  if(!rows || !cols){ host.innerHTML=''; return; }
+  var sides = {};   // side → grid[row][col] = pageNumber
+  cellMap.forEach(function(c){
+    var sIdx = (c.sourceSide!=null ? c.sourceSide : 0);
+    if(!sides[sIdx]){ sides[sIdx] = []; for(var r=0;r<rows;r++){ sides[sIdx].push(new Array(cols).fill(null)); } }
+    if(c.row<rows && c.column<cols) sides[sIdx][c.row][c.column] = (c.outputPageOffset!=null ? c.outputPageOffset+1 : null);
+  });
+  var html = '<div style="border:1px solid var(--line,#d0c8b8);border-radius:8px;padding:9px 11px;background:#faf8f2">'
+    + '<div style="font-weight:800;margin-bottom:6px">🧭 כיוון המפה על הגיליון'
+    + '<span style="font-weight:500;opacity:.75;font-size:.85rem"> · סיבוב בשימוש: '+tplRot+'° · עמ׳ 1 = השער</span></div>'
+    + '<div style="display:flex;gap:16px;flex-wrap:wrap">';
+  Object.keys(sides).sort().forEach(function(sIdx){
+    html += '<div><div style="font-size:.82rem;font-weight:700;margin-bottom:3px">'
+         + (String(sIdx)==='0' ? 'צד קדמי (עמ׳ 1 בקובץ)' : 'צד אחורי (עמ׳ 2 בקובץ)') + '</div>'
+         + '<table style="border-collapse:collapse"><tbody>';
+    sides[sIdx].forEach(function(rowArr){
+      html += '<tr>';
+      rowArr.forEach(function(pg){
+        var isCover = (pg===1);
+        html += '<td style="border:1px solid #cbd5e1;min-width:44px;height:34px;text-align:center;font-weight:'
+             + (isCover?'900':'600') + ';background:' + (isCover?'#16a34a':'#fff') + ';color:' + (isCover?'#fff':'#1a1a2e')
+             + ';font-size:.86rem">' + (pg==null?'—':pg) + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+  });
+  html += '</div><div style="font-size:.78rem;opacity:.75;margin-top:6px">הרשת מוצגת כפי שהגיליון מונח. אם עמ׳ 1 אינו במקום הצפוי — שנה את "סיבוב הטמפלט".</div></div>';
+  host.innerHTML = html;
 }
 
 // קופסאות-הפרופר: חילוץ-הגיליון עבר ל-EXEC._sheetFromDoc (מקור-אמת יחיד · U3)
