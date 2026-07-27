@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785157195';
+window.APP_VERSION = '1785157528';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1898,7 +1898,7 @@ window._fbSnapshot = {};
         <label>סוג נייר</label>
         <div class="ac-wrap">
           <input class="fi" type="text" id="f-paper" placeholder='כרומו מט 80 גר...' autocomplete="off"
-            oninput="acInput(this,'ac-paper',acSugg('f-paper',this.value));checkPlacementPaperLive()" onfocus="acInput(this,'ac-paper',acSugg('f-paper',this.value))" onblur="acDelay('ac-paper');checkPlacementPaperLive()">
+            oninput="acInput(this,'ac-paper',acSugg('f-paper',this.value));checkPlacementPaperLive()" onfocus="acInput(this,'ac-paper',acSugg('f-paper',this.value))" onblur="acDelay('ac-paper');checkPlacementPaperLive();checkBrownPaperProof()">
           <div class="ac-list" id="ac-paper"></div>
         </div>
       </div>
@@ -6143,6 +6143,32 @@ function clearPrinterPaper() {
   document.getElementById('f-paper').focus();
   document.getElementById('printer-paper-picker').style.display = 'none';
 }
+/* ── נייר חום: שואלים את מכין הכרטיס אם להציג לדפסים את הפרופר על נייר חום ──
+   הבחירה נשמרת בכרטיס (proofOnBrown); לדפס תמיד נשאר מתג לחזור לנייר רגיל. */
+window._cardProofOnBrown = false;
+function checkBrownPaperProof() {
+  var el = document.getElementById('f-paper'); if (!el) return;
+  var isBrown = _isBrownPaper(el.value);
+  if (!isBrown) { window._cardProofOnBrown = false; window._brownAsked = ''; _brownHint(false); return; }
+  if (window._brownAsked === el.value.trim()) { _brownHint(true); return; }   // שואלים פעם אחת לכל ערך
+  window._brownAsked = el.value.trim();
+  window._cardProofOnBrown = confirm('העבודה על נייר חום.\n\nלהציג לדפסים את הפרופר על רקע נייר חום?\n(לדפס תישאר אפשרות לחזור לנייר רגיל)');
+  _brownHint(true);
+}
+function _brownHint(show) {
+  var wrap = document.getElementById('f-paper'); if (!wrap) return;
+  var old = document.getElementById('brown-proof-hint'); if (old) old.remove();
+  if (!show) return;
+  var d = document.createElement('div');
+  d.id = 'brown-proof-hint';
+  d.style.cssText = 'margin-top:5px;font-size:.78rem;font-weight:700;display:flex;align-items:center;gap:6px;'
+    + 'background:#faf5eb;border:1px solid #d9c9a8;border-radius:7px;padding:5px 8px;color:#6b5a35';
+  d.innerHTML = '<span style="width:16px;height:16px;border-radius:4px;border:1px solid #b9a781;background:#c4b088;display:inline-block"></span>'
+    + (window._cardProofOnBrown ? 'הפרופר יוצג לדפסים על נייר חום' : 'הפרופר יוצג לדפסים על נייר רגיל')
+    + ' <span onclick="window._cardProofOnBrown=!window._cardProofOnBrown;_brownHint(true)" style="cursor:pointer;text-decoration:underline;margin-inline-start:auto">שנה</span>';
+  wrap.parentNode.parentNode.appendChild(d);
+}
+
 function checkPlacementPaperLive() {
   var sizeVal = (document.getElementById('f-size')||{value:''}).value || '';
   var paperVal = (document.getElementById('f-paper')||{value:''}).value || '';
@@ -9187,6 +9213,7 @@ function _saveCardNew() {
     color:        getColor(),
     size:         document.getElementById('f-size').value.trim(),
     paper:        document.getElementById('f-paper').value.trim(),
+    proofOnBrown: !!window._cardProofOnBrown,
     notes:        document.getElementById('f-notes').value.trim(),
     internalNotes: (document.getElementById('f-internal-notes')||{value:''}).value.trim(),
     placementDetails: (document.getElementById('f-placement-details')||{value:''}).value.trim(),
@@ -9257,6 +9284,7 @@ function buildTempCard() {
     color:        getColor(),
     size:         document.getElementById('f-size').value.trim(),
     paper:        document.getElementById('f-paper').value.trim(),
+    proofOnBrown: !!window._cardProofOnBrown,
     notes:        document.getElementById('f-notes').value.trim(),
     internalNotes: (document.getElementById('f-internal-notes')||{value:''}).value.trim(),
     placementDetails: (document.getElementById('f-placement-details')||{value:''}).value.trim(),
@@ -21587,6 +21615,8 @@ function _opSetPrinting(machine, qid) {
 var OP_PAPER_EXTRA = ['נייר חום', 'נייר חום 90 גר', 'נייר לבן'];
 
 // גוון לתצוגה — כדי שהדפס יזהה את הנייר בלי לקרוא (חום = קראפט בהיר)
+function _isBrownPaper(name){ return /חום|קראפט|kraft/i.test(String(name||'')); }
+
 function _paperSwatch(name) {
   var n = String(name || '');
   if (/חום|קראפט|kraft/i.test(n)) return '#c4b088';
@@ -22127,7 +22157,8 @@ function _opProofImagesOverlay(pagesUrl, pdfUrl, type, label) {
   fetch(pagesUrl).then(function(r){ return r.json(); }).then(function(imgs){
     var l = document.getElementById('op-proof-loading'); if (l) l.remove();
     if (!Array.isArray(imgs) || !imgs.length) { if (pdfUrl){ _opCloseProof(); _opRenderPdfToImages(pdfUrl, type||'application/pdf', label); } return; }
-    window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: pdfUrl, type: type, label: label };
+    window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: pdfUrl, type: type, label: label,
+      brown: !!window._opProofBrown };
     _opInk.previewSrc = null; _opInk._hiResIdx = undefined;   // איפוס תצוגת ברזי-צבע ברזולוציה גבוהה לפרופר חדש
     _opPVBuild(ov);
   }).catch(function(){
@@ -22154,7 +22185,8 @@ function _opRenderPdfToImages(url, type, label){
           pdf.cleanup && pdf.cleanup();
           var l = document.getElementById('op-proof-loading'); if (l) l.remove();
           if (!imgs.length){ _opCloseProof(); _opProofOverlay(url, type, label, false); return; }
-          window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label };
+          window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label,
+            brown: !!window._opProofBrown };
           _opInk.previewSrc = null; _opInk._hiResIdx = undefined;
           _opPVBuild(ov);
           return;
@@ -22196,6 +22228,7 @@ function _opPVBuild(ov){
     + _opPVbtn('🔍➕','הגדל').replace('<button','<button id="op-pv-zin"')
     + (multi ? _opPVbtn('⊞ כפולה','הצג שני עמודים').replace('<button','<button id="op-pv-spread"') : '')
     + (pv.pdfUrl ? _opPVbtn('📄 PDF','פתח PDF מלא').replace('<button','<button id="op-pv-pdf"') : '')
+    + _opPVbtn('🟤 נייר חום','הצג את הפרופר על נייר חום / חזרה לנייר רגיל').replace('<button','<button id="op-pv-brown"').replace('#1e3a5f', pv.brown?'#8a6d3b':'#334155')
     + _opPVbtn('🎨 ברזי צבע','מחשבון ברזי צבע').replace('<button','<button id="op-pv-ink"').replace('#1e3a5f','#7c5a00')
     + _opPVbtn('⛶','מסך מלא').replace('<button','<button id="op-pv-fs"')
     + _opPVbtn('✕','סגור').replace('<button','<button id="op-pv-close"').replace('#1e3a5f','#b91c1c');
@@ -22207,6 +22240,10 @@ function _opPVBuild(ov){
   // wiring
   var on = function(id,fn){ var b=document.getElementById(id); if(b) b.onclick=fn; };
   on('op-pv-ink', _opInkToggle);
+  on('op-pv-brown', function(){ var p=window._opPV; if(!p) return;
+    p.brown=!p.brown;
+    var b=document.getElementById('op-pv-brown'); if(b) b.style.background=p.brown?'#8a6d3b':'#334155';
+    _opPVRender(); });
   on('op-pv-prev', function(){ _opPVNav(-1); });
   on('op-pv-next', function(){ _opPVNav(1); });
   on('op-pv-zout', function(){ _opPVZoom('out'); });
@@ -22229,8 +22266,9 @@ function _opPVRender(){
   if (pv.idx > pv.imgs.length-1) pv.idx = pv.imgs.length-1;
   var pages = inSpread ? [pv.imgs[pv.idx], pv.imgs[pv.idx+1]].filter(Boolean) : [pv.imgs[pv.idx]];
   var z = pv.zoom;
-  vp.innerHTML = '<div class="op-pv-stage" style="position:relative;width:'+(z*100)+'%;height:'+(z*100)+'%;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;padding:10px;margin:auto">'
-    + pages.map(function(src){ return '<img class="op-pv-img" src="'+src+'" style="max-width:'+(inSpread?'49%':'100%')+';max-height:100%;object-fit:contain;background:#fff;box-shadow:0 3px 16px rgba(0,0,0,.55)">'; }).join('')
+  vp.style.background = pv.brown ? '#8a7a5c' : '';   // מסביב לגיליון — גוון כהה יותר של קראפט
+  vp.innerHTML = '<div class="op-pv-stage" style="position:relative;width:'+(z*100)+'%;height:'+(z*100)+'%;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;padding:10px;margin:auto'+(pv.brown?';background:#c4b088;border-radius:4px':'')+'">'
+    + pages.map(function(src){ return '<img class="op-pv-img" src="'+src+'" style="max-width:'+(inSpread?'49%':'100%')+';max-height:100%;object-fit:contain;background:'+(pv.brown?'#c4b088':'#fff')+';box-shadow:0 3px 16px rgba(0,0,0,.55)'+(pv.brown?';mix-blend-mode:multiply':'')+'">'; }).join('')
     + '</div>';
   vp.scrollTop = (vp.scrollHeight - vp.clientHeight)/2;
   vp.scrollLeft = (vp.scrollWidth - vp.clientWidth)/2;
@@ -22482,6 +22520,11 @@ function _opInkFromProof(){
 function _opViewProof(cardId, runKey) {
   if (!cardId) return;
   var c0 = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  // האם להציג את הפרופר על נייר חום — לפי מה שנקבע בכרטיס (הדפס יכול להחליף בכל רגע)
+  try {
+    var _r0 = (c0 && c0.runs || []).find(function(r){ return r && runKey && ('R'+(r.num||'')) === runKey; });
+    window._opProofBrown = !!((_r0 && _r0.proofOnBrown) || (c0 && c0.proofOnBrown));
+  } catch(e){ window._opProofBrown = false; }
   // חסינות לכפילויות: אם לכרטיס עצמו אין פרופר — לוקחים מכרטיס אחר עם אותו שם שיש לו
   var c = _opProofCardFor(c0) || c0;
   cardId = c ? c.id : cardId;
