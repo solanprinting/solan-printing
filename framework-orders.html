@@ -71,6 +71,15 @@ function _nowIso(){ return new Date().toISOString(); }
 function _today(){ return _nowIso().slice(0,10); }
 function esc(t){ return String(t==null?'':t).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
 function _n(v){ return (Math.round((+v||0)*100)/100).toLocaleString('he-IL'); }
+// ריבוי עברי לשם-האריזה: חבילה→חבילות · אריזה→אריזות · קרטון→קרטונים
+// ⚠️ אות סופית חייבת לחזור לצורה הרגילה לפני הסיומת: קרטון → קרטונים (לא "קרטוןים")
+const _FIN={'ך':'כ','ם':'מ','ן':'נ','ף':'פ','ץ':'צ'};
+function _plu(w){
+  w=String(w||'קרטון');
+  if(/ה$/.test(w)) return w.slice(0,-1)+'ות';
+  const last=w.slice(-1);
+  return (_FIN[last] ? w.slice(0,-1)+_FIN[last] : w)+'ים';
+}
 function _auth(){
   if(_tok.id && Date.now()<_tok.exp-120000) return Promise.resolve(_tok.id);
   return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_APIKEY,
@@ -165,7 +174,7 @@ function detail(a){
       <td>${r.agreedQty.toLocaleString()} <span class="muted">${esc(r.unit)}</span></td>
       <td>${r.packSize?(r.packSize.toLocaleString()+' <span class="muted">/'+esc(r.packName)+'</span>'):'<span class="muted">—</span>'}</td>
       <td>${(r.drawnQty-r.returnedQty).toLocaleString()}</td>
-      <td class="${r.over?'bad':''}"><b>${r.remainingQty.toLocaleString()}</b>${r.remainingPacks!=null?`<div class="muted" style="font-size:.75rem">≈ ${r.remainingPacks.toLocaleString()} ${esc(r.packName)}</div>`:''}</td>
+      <td class="${r.over?'bad':''}"><b>${r.remainingQty.toLocaleString()}</b>${r.remainingPacks!=null?`<div class="muted" style="font-size:.75rem">≈ ${r.remainingPacks.toLocaleString()} ${esc(_plu(r.packName))}</div>`:''}</td>
       <td>${r.pendingQty?`<span style="color:#b45309;font-weight:700">${r.pendingQty.toLocaleString()}</span>`:'<span class="muted">—</span>'}</td>
       <td class="${r.shortForPending?'bad':''}"><b>${r.availableQty.toLocaleString()}</b>${r.shortForPending?' ⚠':''}</td>
       <td style="min-width:110px"><div class="bar ${cls}"><i style="width:${pct}%"></i></div><span class="muted" style="font-size:.75rem">${pct}%</span></td>
@@ -183,7 +192,7 @@ function detail(a){
   const hist = (a.orders||[]).filter(o=>o&&o.status!=='pending').slice().reverse().slice(0,10);
   const oRow = (o,isPend)=>{
     const names=(o.lines||[]).map(l=>{ const it=(a.items||[]).find(x=>x.itemId===l.itemId);
-      return `${esc((it&&it.name)||l.name||'')} — ${l.qty.toLocaleString()}${l.packs?` <span class="muted">(${l.packs} ${esc(l.packName||'קרטון')})</span>`:''}`; }).join('<br>');
+      return `${esc((it&&it.name)||l.name||'')} — ${l.qty.toLocaleString()}${l.packs?` <span class="muted">(${l.packs} ${esc(_plu(l.packName))})</span>`:''}`; }).join('<br>');
     return `<tr><td>${esc(o.date||'')}</td><td><b>${esc(o.orderRef||o.poNumber||o.orderId)}</b></td>
       <td style="font-size:.84rem">${names}</td><td>${(o.qty||0).toLocaleString()}</td><td>₪${_n(o.value)}</td>
       <td>${isPend?'<span class="pill" style="background:#f59e0b">ממתין לאספקה</span>'
@@ -205,7 +214,8 @@ function detail(a){
     const it=(a.items||[]).find(x=>x.itemId===m.itemId);
     return `<tr><td>${esc(m.date||'')}</td><td>${it?esc(it.name):'<span class="muted">(פריט שנמחק)</span>'}</td>
       <td>${m.type==='draw'?'<span class="pill" style="background:#dc2626">משיכה</span>':'<span class="pill" style="background:#16a34a">החזרה</span>'}</td>
-      <td>${m.qty.toLocaleString()}</td><td>${esc(m.orderRef||'')}</td><td class="muted">${esc(m.notes||'')}</td>
+      <td>${m.packs>0?`<b>${m.packs.toLocaleString()} ${esc(_plu(it&&it.packName))}</b><div class="muted" style="font-size:.75rem">${m.qty.toLocaleString()} יח׳${m.packSize?' (×'+m.packSize.toLocaleString()+')':''}</div>`:m.qty.toLocaleString()+' <span class="muted">יח׳</span>'}</td>
+      <td>${esc(m.orderRef||'')}</td><td class="muted">${esc(m.notes||'')}</td>
       <td><button class="delMove danger" data-m="${m.moveId}" title="בטל תנועה">🗑</button></td></tr>`;
   }).join('') || '<tr><td colspan="7" class="muted" style="text-align:center;padding:10px">אין תנועות עדיין</td></tr>';
 
@@ -318,14 +328,29 @@ function wire(a){
 async function _move(a, itemId, type){
   const it=(a.items||[]).find(x=>x.itemId===itemId); if(!it) return;
   const label = type==='draw' ? 'משיכה' : 'החזרה';
-  const qty=parseInt(prompt(label+' — כמות עבור "'+it.name+'":','0'),10)||0;
+  const packSize=parseInt(it.packSize,10)||0, packName=it.packName||'קרטון';
+  let qty=0, packs=0;
+  // פריט הארוז בקרטונים → מבקשים קרטונים, והמלאי יורד ביחידות לפי גודל-הקרטון
+  if(packSize>0){
+    const ans=prompt(label+' — כמה '+_plu(packName)+' עבור "'+it.name+'"?\n('+packSize.toLocaleString()+' יח׳ ב'+packName+' · השאירו ריק כדי להזין יחידות ישירות)','0');
+    if(ans===null) return;
+    packs=parseInt(ans,10)||0;
+    if(packs>0){
+      qty=packs*packSize;
+      if(!confirm(packs.toLocaleString()+' '+_plu(packName)+' × '+packSize.toLocaleString()+' = '+qty.toLocaleString()+' יח׳\n\nל'+label+' מהמלאי?')) return;
+    }
+  }
+  if(qty<=0){
+    qty=parseInt(prompt(label+' — כמות ביחידות עבור "'+it.name+'":','0'),10)||0;
+    packs = packSize>0 ? Math.floor(qty/packSize) : 0;      // לתיעוד בלבד
+  }
   if(qty<=0) return;
   if(type==='draw'){
     const chk=FW.checkDraw(a,itemId,qty);
-    if(chk.ok && chk.exceeds && !confirm('⚠️ המשיכה חורגת מהיתרה ב-'+chk.shortBy+' יח׳.\nיתרה נוכחית: '+chk.remainingBefore+'\nלהמשיך בכל זאת?')) return;
+    if(chk.ok && chk.exceeds && !confirm('⚠️ המשיכה חורגת מהיתרה ב-'+chk.shortBy.toLocaleString()+' יח׳.\nיתרה נוכחית: '+chk.remainingBefore.toLocaleString()+'\nלהמשיך בכל זאת?')) return;
   }
   const ref=prompt('מס׳ הזמנה / כרטיס-עבודה (אופציונלי):','')||'';
-  const res=FW.applyMovement(a,{ itemId, type, qty, orderRef:ref, date:_today(), by:'מנהל' });
+  const res=FW.applyMovement(a,{ itemId, type, qty, packs:packs||null, packSize:packSize||null, orderRef:ref, date:_today(), by:'מנהל' });
   if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
   if(await save(res.agreement)) render();
 }
