@@ -138,6 +138,8 @@ let _cards=[], _jobNotes=[];
 let _delivered={};
 // אילו קטגוריות בתפריט פתוחות (ברירת-מחדל: הכל פתוח)
 let _open={framework:false,placemats:false,orders:false};
+// שכבת-המשרד על כרטיסי-עבודה: { cardId: {status,qty,packs,note,removed,at,by} }
+let _jobOv={};
 
 // ⚠️ Firebase RTDB לא שומר מערך ריק, ומערך "עם חורים" חוזר כאובייקט — חובה לנרמל.
 function _arr(v){
@@ -170,14 +172,17 @@ async function load(){
 async function loadJobs(){
   const cap=(p)=>Promise.race([p, new Promise(r=>setTimeout(()=>r(null), 20000))]);
   try{
-    const [cs,ns,dv,dl]=await Promise.all([cap(_get('cards')), cap(_get('clerkDeliveryNotes')),
-      cap(_get('clerkDelivered')), cap(_get('deletedIds'))]);
+    const [cs,ns,dv,dl,ov]=await Promise.all([cap(_get('cards')), cap(_get('clerkDeliveryNotes')),
+      cap(_get('clerkDelivered')), cap(_get('deletedIds')), cap(_get('clerkJobs'))]);
     // ⚠️ מחיקה באפליקציה = רשומת-מצבה ב-deletedIds; הכרטיס עצמו עדיין ב-cards
     const gone={}; _arr(dl && dl.cards).forEach(id=>{ gone[String(id)]=1; });
-    if(cs) _cards=_arr(cs).filter(c=>c && c.id!=null && !c._deleted && !gone[String(c.id)] && FW.isClerkJob(c));
+    _jobOv=(ov && typeof ov==='object') ? ov : {};
+    // כל כרטיס עובר דרך שכבת-המשרד לפני הסינון (סטטוס/הסרה שהפקיד קבע)
+    if(cs) _cards=_arr(cs).filter(c=>c && c.id!=null && !c._deleted && !gone[String(c.id)])
+      .map(c=>FW.applyJobOverlay(c,_jobOv[c.id])).filter(c=>FW.isClerkJob(c));
     _jobNotes=(ns && typeof ns==='object') ? Object.values(ns).filter(Boolean) : [];
     _delivered=(dv && typeof dv==='object') ? dv : {};
-    if(_cards.length || _jobNotes.length || Object.keys(_delivered).length) render();
+    if(_cards.length || _jobNotes.length || Object.keys(_delivered).length || Object.keys(_jobOv).length) render();
   }catch(e){ /* אין הרשאה/רשת — הלוח עדיין מציג את ההזמנות */ }
 }
 function cur(){ return _all.find(a=>a.agreementId===_sel)||null; }
@@ -365,15 +370,18 @@ function _orderCard(o,a,stage){
       <button class="odDone" data-ag="${a.agreementId}" data-o="${o.orderId}" style="padding:3px 9px;font-size:.78rem" title="נמסר ללקוח בלי תעודת משלוח">✓ סמן כסופק</button></div>`:''}
   </div>`;
 }
-/* כרטיס-עבודה של הדפוס (מ-cards) — נקרא בלבד; המשרד לא עורך עבודות. */
+/* כרטיס-עבודה של הדפוס (מ-cards). הכרטיס עצמו נקרא-בלבד — שינויי המשרד
+   נשמרים בשכבה נפרדת (clerkJobs) כדי לא להתנגש בסנכרון של האפליקציה. */
 function _jobCard(c,stage){
   const note=_jobNotes.find(n=>(n.cardIds||[]).indexOf(String(c.id))>=0);
   const late = stage!=='delivered' && c.deliveryDate && c.deliveryDate < _today();
-  return `<div class="fCard" style="border-inline-start-color:${_STAGES.find(s=>s.k===stage).c};background:#fcfcff">
+  return `<div class="fCard jobCard" data-j="${c.id}" title="לחצו לעדכון סטטוס / כמות" style="cursor:pointer;border-inline-start-color:${_STAGES.find(s=>s.k===stage).c};background:#fcfcff">
     <div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">
       <b>🖨 ${esc(c.name||'עבודה')}</b><span class="muted" style="font-size:.75rem">${esc(c.orderDate||'')}</span></div>
     <div style="font-size:.82rem;margin-top:4px">
       ${c.copies?`• ${Number(c.copies).toLocaleString()} עותקים`:''}${c.pages?` · ${c.pages} עמ׳`:''}
+      ${c.doneQty!=null?`<div class="ok" style="font-size:.78rem">יצא בפועל: ${c.doneQty.toLocaleString()}${c.donePacks?` (${c.donePacks} אריזות)`:''}</div>`:''}
+      ${c.clerkNote?`<div class="muted" style="font-size:.76rem">📌 ${esc(c.clerkNote)}</div>`:''}
       ${c.paper?`<div class="muted">${esc(c.paper)}</div>`:''}</div>
     ${c.deliveryDate?`<div class="${late?'bad':'muted'}" style="font-size:.76rem;margin-top:3px">${late?'⚠ עבר מועד: ':'לאספקה: '}${esc(c.deliveryDate)}</div>`:''}
     ${note?`<div style="margin-top:5px"><button class="jnView" data-n="${note.noteId}" style="padding:3px 9px;font-size:.78rem">📄 תעודה ${note.number}</button></div>`
@@ -606,6 +614,12 @@ function wire(a){
     const ag=_all.find(x=>x.agreementId===el.dataset.ag)||a; if(!ag) return;
     const d=(ag.deliveryNotes||[]).find(x=>x.noteId===el.dataset.d); if(d) showNote(d,ag);
   });
+  // לחיצה על כרטיס-עבודה → חלון עדכון (הכפתורים שבתוכו עוצרים את ההתפשטות)
+  document.querySelectorAll('.jobCard').forEach(el=>el.onclick=e=>{
+    if(e.target.closest('button')) return;
+    openJob(el.dataset.j);
+  });
+
   // ── בחירה מרובה ב"מוכן לאספקה" ──
   const _sel2=()=>[...document.querySelectorAll('.rdChk')].filter(c=>c.checked)
     .map(c=>{ const p=c.dataset.k.split(':'); return p[0]==='o'?{kind:'order',agId:p[1],id:p[2]}:{kind:'job',id:p[1]}; });
@@ -705,6 +719,69 @@ function wire(a){
       alert('✓ ההזמנה נרשמה ומשוריינת. הדפוס יסמן אותה כמוכנה כשתהיה מוכנה לאספקה.'); }
   };
 
+}
+
+/* ═══════════ עדכון עבודה מהמשרד ═══════════
+   לחיצה על כרטיס-עבודה פותחת חלון: סטטוס · כמה יצא בפועל · הערה · הסרה מהרשימה.
+   ⚠️ הכרטיס באפליקציה לא נערך — הכל נשמר בשכבה נפרדת (clerkJobs/<id>). */
+function openJob(id){
+  const c=_cards.find(x=>String(x.id)===String(id)); if(!c) return;
+  const ov=_jobOv[c.id]||{};
+  let m=$('jobModal');
+  if(!m){ m=document.createElement('div'); m.id='jobModal'; m.className='modal'; document.body.appendChild(m); }
+  m.innerHTML=`<div class="modalIn" style="max-width:520px">
+    <h3 style="margin:0 0 2px">🖨 ${esc(c.name||'עבודה')}</h3>
+    <div class="muted" style="margin-bottom:10px">
+      ${c.customer?esc(c.customer)+' · ':''}${c.copies?Number(c.copies).toLocaleString()+' עותקים':''}${c.pages?' · '+c.pages+' עמ׳':''}
+      ${c.deliveryDate?' · לאספקה '+esc(c.deliveryDate):''}</div>
+    <div style="display:grid;gap:9px">
+      <label>סטטוס העבודה
+        <select id="jbStatus" style="width:100%;margin-top:3px">
+          <option value="finishing"${c.status==='finishing'?' selected':''}>🖨 בייצור / בגימורים</option>
+          <option value="done"${c.status==='done'?' selected':''}>✅ העבודה הושלמה — מוכנה לאספקה</option>
+        </select></label>
+      <div style="display:flex;gap:8px">
+        <label style="flex:1">כמה יצא בפועל (יח׳)
+          <input type="number" id="jbQty" min="0" style="width:100%;margin-top:3px" value="${ov.qty!=null?ov.qty:(c.copies||'')}"></label>
+        <label style="flex:1">אריזות / חבילות
+          <input type="number" id="jbPacks" min="0" style="width:100%;margin-top:3px" value="${ov.packs||''}"></label>
+      </div>
+      <label>הערה
+        <input id="jbNote" style="width:100%;margin-top:3px" value="${esc(ov.note||'')}" placeholder="לדוגמה: חסרו 150, נאסף ע״י הלקוח"></label>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;justify-content:flex-end">
+      <button id="jbRemove" class="danger" style="margin-inline-end:auto">🗑 הסר מהרשימה</button>
+      ${Object.keys(ov).length?'<button id="jbReset">↩ בטל שינויי משרד</button>':''}
+      <button id="jbCancel">ביטול</button>
+      <button id="jbSave" class="primary">✓ שמור</button>
+    </div>
+    <div class="muted" style="margin-top:8px;font-size:.78rem">העדכון נשמר במסך המשרד בלבד — כרטיס העבודה באפליקציה לא משתנה.</div>`;
+  $('jbCancel').onclick=()=>m.remove();
+  $('jbSave').onclick=async()=>{
+    const rec={ status:$('jbStatus').value, qty:parseInt($('jbQty').value,10),
+      packs:parseInt($('jbPacks').value,10)||null, note:($('jbNote').value||'').trim()||null,
+      at:_today(), by:_me() };
+    if(!isFinite(rec.qty)) rec.qty=null;
+    await _saveJobOv(c.id, rec, m);
+  };
+  $('jbRemove').onclick=async()=>{
+    if(!confirm('להסיר את "'+(c.name||'')+'" מרשימת המשרד?\n(העבודה עצמה נשארת באפליקציה)')) return;
+    await _saveJobOv(c.id, Object.assign({},_jobOv[c.id]||{},{removed:true,at:_today(),by:_me()}), m);
+  };
+  const rs=$('jbReset');
+  if(rs) rs.onclick=async()=>{
+    if(!confirm('לבטל את כל שינויי המשרד על העבודה הזו?')) return;
+    await _saveJobOv(c.id, null, m);
+  };
+}
+async function _saveJobOv(id, rec, m){
+  if(!_isProd()){ alert('שמירה פועלת רק באתר החי (הגנת-סביבה).'); return; }
+  try{ await _put('clerkJobs/'+id, rec); }
+  catch(e){ alert('שמירה נכשלה: '+(e.message||e)); return; }
+  if(rec) _jobOv[id]=rec; else delete _jobOv[id];
+  if(m) m.remove();
+  await loadJobs();      // טוענים מחדש כדי שהשכבה תוחל על הכרטיס
+  render();
 }
 
 /* ── תעודת משלוח: תצוגה + הדפסה A4 ── */

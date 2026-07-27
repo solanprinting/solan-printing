@@ -701,8 +701,26 @@
           "גרפיק" (עבודות הגרפיקאי) · "השיעור השבועי" */
   var HIDE_RE = /גרפיק|השיעור\s*השבועי/;
   function isHiddenName(text) { return HIDE_RE.test(_s(text)); }
+  /* שכבת-משרד על כרטיס-עבודה: המשרד לא עורך את הכרטיס באפליקציה (כדי לא להתנגש
+     בסנכרון), אלא שומר עליו שכבה משלו — סטטוס, כמה יצא בפועל, הערה, והסרה מהרשימה. */
+  function applyJobOverlay(card, ov) {
+    if (!card) return null;
+    var c = {};
+    Object.keys(card).forEach(function (k) { c[k] = card[k]; });
+    if (ov) {
+      if (ov.removed) c._removed = true;
+      if (_s(ov.status)) c.status = _s(ov.status);
+      if (ov.qty != null) c.doneQty = _int(ov.qty);
+      if (ov.packs != null) c.donePacks = _int(ov.packs);
+      if (_s(ov.note)) c.clerkNote = _s(ov.note);
+      c._byClerk = true;
+    }
+    return c;
+  }
+
   function isClerkJob(card) {
     if (!card) return false;
+    if (card._removed) return false;                 // הוסר ידנית מרשימת המשרד
     var st = _s(card.status);
     if (st !== 'finishing' && st !== 'done') return false;
     return !(isHiddenName(card.name) || isHiddenName(card.customer) || isHiddenName(card.notes) || isHiddenName(card.type));
@@ -863,7 +881,7 @@
     markReady: markReady, unmarkReady: unmarkReady, effectiveLines: effectiveLines,
     buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,
     buildJobNote: buildJobNote, jobStage: jobStage, orderStage: orderStage,
-    isClerkJob: isClerkJob, isHiddenName: isHiddenName,
+    isClerkJob: isClerkJob, isHiddenName: isHiddenName, applyJobOverlay: applyJobOverlay,
     applyStock: applyStock, findAgreementForCustomer: findAgreementForCustomer,
     alerts: alerts, findItem: findItem, validate: validate
   };
