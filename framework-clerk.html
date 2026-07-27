@@ -12,6 +12,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="framework-orders.js"></script>
 <script src="framework-file-reader.js"></script>
+<script src="solan-order-ai.js"></script>
 <style>
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
         --ok:#16a34a;--warn:#f59e0b;--bg:#e8e4dc;--card:#fff;--ink:#1a1a2e;--muted:#6b7280}
@@ -99,7 +100,7 @@
 </div>
 <div id="app"><div class="card muted">טוען…</div></div>
 <div id="dnPrint"></div>
-<div id="dropZone"><div><div style="font-size:3rem">📥</div>שחררו כאן את קובץ ההזמנה<div class="muted" style="color:#e8d5a3;font-weight:400">PDF · Excel · Word · CSV</div></div></div>
+<div id="dropZone"><div><div style="font-size:3rem">📥</div>שחררו כאן את קובץ ההזמנה<div class="muted" style="color:#e8d5a3;font-weight:400">PDF ותמונות → ניתוח AI · Excel · Word · CSV</div></div></div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -842,10 +843,69 @@ function closeNote(){ $('dnPrint').style.cssText=''; $('dnPrint').style.display=
    לקוח אחר → נרשם כלקוח-הזמנות (kind='orders') והשורות נשמרות כשורות חופשיות. */
 let _impRows=[], _impName='';
 
+/* ── ניתוח בענן: אותו מנוע של מסך ההזמנות באפליקציה ──
+   כותבים את הבקשה ל-aiRelay ב-Firebase; הפרוקסי המקומי מנתח וכותב תשובה.
+   ⚠️ הדפדפן חסום מול localhost במדיניות ארגונית — לכן ממסר ולא קריאה ישירה. */
+function _aiRelay(payload, onTick){
+  if(!_isProd()) return Promise.reject(new Error('ניתוח AI פועל רק באתר החי (הגנת-סביבה)'));
+  const id='r_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
+  return _put('aiRelay/'+id, { ts:Date.now(), status:'pending', req:payload }).then(()=>
+    new Promise((resolve,reject)=>{
+      let tries=0; const max=60;                       // 60 × 1.5 שניות = 90 שניות
+      const iv=setInterval(()=>{
+        tries++;
+        if(onTick) onTick(tries);
+        _get('aiRelay/'+id+'/result').then(res=>{
+          if(res!=null){
+            clearInterval(iv); _put('aiRelay/'+id, null).catch(()=>{});
+            if(res && res.error) reject(new Error('API '+res.error)); else resolve(res);
+          } else if(tries>=max){
+            clearInterval(iv); _put('aiRelay/'+id, null).catch(()=>{});
+            reject(new Error('שרת הניתוח לא הגיב (ודא ש-start.bat פועל במחשב הדפוס)'));
+          }
+        }).catch(()=>{});
+      }, 1500);
+    }));
+}
+const _b64 = f => new Promise((res,rej)=>{ const r=new FileReader();
+  r.onload=()=>res(String(r.result).split(',')[1]); r.onerror=rej; r.readAsDataURL(f); });
+
+// ניתוח הזמנה עם ה-AI — שולחים את הקובץ עצמו (PDF/תמונה), לא טקסט מחולץ
+async function _impAI(f){
+  const nm=(f.name||'').toLowerCase();
+  const isPdf=/\.pdf$/.test(nm), isImg=/\.(png|jpe?g|webp|gif)$/.test(nm);
+  if(!isPdf && !isImg) throw new Error('ניתוח AI תומך ב-PDF ובתמונות. לאקסל/וורד השתמשו בקריאה הרגילה.');
+  const b64=await _b64(f);
+  const payload=SolanOrderAI.buildPayload(isPdf?{pdfB64:b64}
+    :{imgB64:b64, mime:(f.type||'image/jpeg')});
+  const data=await _aiRelay(payload, t=>{
+    const el=$('impMsg'); if(el) el.innerHTML='<span class="muted">🤖 מנתח בענן… '+Math.round(t*1.5)+' שניות</span>';
+  });
+  const ex=SolanOrderAI.parseOrderTags(SolanOrderAI.replyText(data));
+  return { ex, rows:SolanOrderAI.toRows(ex) };
+}
+
 async function _impRead(f){
   if(!f) return;
   _openImport('קורא '+f.name+'…', true);
   try{
+    // PDF/תמונה → אותו מנוע AI של מסך ההזמנות. אקסל/וורד/CSV → קריאה לפי עמודות.
+    if(/\.(pdf|png|jpe?g|webp|gif)$/i.test(f.name||'')){
+      $('impMsg').innerHTML='<span class="muted">🤖 מנתח את '+esc(f.name)+' בענן…</span>';
+      try{
+        const {ex,rows}=await _impAI(f);
+        _impRows=rows; _impName=f.name;
+        if(ex.customer) _impPickCustomer(ex.customer);
+        if(ex.date) $('impDue').value=/^\d{4}-\d{2}-\d{2}$/.test(ex.date)?ex.date:'';
+        if(ex.notes||ex.address) $('impNote').value=[ex.notes,ex.address].filter(Boolean).join(' · ');
+        $('impMsg').innerHTML='<span class="ok">✓ נותח '+esc(f.name)+' — '+rows.length+' שורות'
+          +(ex.customer?(' · לקוח: '+esc(ex.customer)):'')+'</span>';
+        _impRender(); return;
+      }catch(e){
+        $('impMsg').innerHTML='<span class="bad">ניתוח AI נכשל: '+esc(e.message||e)+'</span><br>'
+          +'<span class="muted">ממשיך בקריאת טקסט רגילה…</span>';
+      }
+    }
     const res=await FWFile.read(f);
     const ps=FW.parseSheetRows(res.rows||[]);
     let lines=ps.lines;
@@ -859,6 +919,15 @@ async function _impRead(f){
   }catch(e){ $('impMsg').innerHTML='<span class="bad">קריאה נכשלה: '+esc(e.message||e)+'</span>'; _impRows=[]; _impRender(); }
 }
 
+// בוחר את הלקוח שה-AI זיהה; אם אינו קיים — ממלא אותו כלקוח חדש
+function _impPickCustomer(name){
+  const sel=$('impCust'); if(!sel) return;
+  const ag=FW.findAgreementForCustomer(_all, name);
+  if(ag){ sel.value=ag.agreementId; }
+  else { sel.value='NEW'; $('impNewCust').value=name; }
+  sel.dispatchEvent(new Event('change'));
+}
+
 function _openImport(msg,busy){
   let m=$('impModal');
   if(!m){ m=document.createElement('div'); m.id='impModal'; m.className='modal'; document.body.appendChild(m);
@@ -868,7 +937,7 @@ function _openImport(msg,busy){
         אפשר לגרור קובץ, לבחור קובץ, או פשוט לרשום שורות ידנית. הכל <b>ניתן לעריכה</b> לפני האישור.</div>
       <div id="impDrop" style="border:2px dashed var(--line);border-radius:10px;padding:12px;text-align:center;
         margin-bottom:10px;cursor:pointer;background:#faf8f2">
-        <b>📎 גררו קובץ לכאן</b> <span class="muted">או לחצו לבחירת קובץ · PDF · Excel · Word · CSV</span></div>
+        <b>📎 גררו קובץ לכאן</b> <span class="muted">או לחצו לבחירה · PDF ותמונות מנותחים ב-🤖 AI · Excel/Word/CSV לפי עמודות</span></div>
       <input type="file" id="impFile2" accept=".pdf,.xlsx,.xls,.docx,.csv,.txt" style="display:none">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
         <span>לקוח:</span><select id="impCust" style="min-width:210px"></select>
@@ -901,7 +970,7 @@ function _openImport(msg,busy){
   }
   const sel=$('impCust');
   if(sel && !sel.options.length){
-    sel.innerHTML=_all.map(a=>`<option value="${a.agreementId}"${a.agreementId===_sel?' selected':''}>${esc(a.customer)}${a.kind==='orders'?'':' (הסכם מסגרת)'}</option>`).join('')
+    sel.innerHTML=_all.map(a=>`<option value="${a.agreementId}"${a.agreementId===_sel?' selected':''}>${esc(a.customer)} — ${FW.kindLabel(a.kind).slice(2)}</option>`).join('')
       +'<option value="NEW">➕ לקוח חדש…</option>';
   }
   if(msg) $('impMsg').innerHTML=busy?('<span class="muted">'+esc(msg)+'</span>'):esc(msg);
