@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785157795';
+window.APP_VERSION = '1785157978';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -11100,7 +11100,9 @@ function _lcfLoadBackups(){
 // מיזוג המקורות לרשומה אחת לכל מזהה, לפי עדיפות: שרת > ארכיון > גיבוי; שוויון → _upd עדכני
 function _lcfMerge(){
   var rank = { server:0, archive:1, backup:2 }, byId = {};
-  (window._lcfSources||[]).forEach(function(e){
+  // ⚠️ עבודות "גרפיק" נמחקות במכוון (פנימיות, נמחקות אוטומטית אחרי 24 שעות) —
+  //    המאתר לא אמור להחיות אותן מהארכיון/הגיבוי.
+  (window._lcfSources||[]).filter(function(e){ return !_isGraphicCard(e && e.c); }).forEach(function(e){
     var id = String(e.c.id), cur = byId[id];
     if (!cur) { byId[id] = e; return; }
     if (rank[e.src] < rank[cur.src]) { byId[id] = e; return; }
@@ -11628,6 +11630,8 @@ function _purgeGraphicCards(){
   if (!toPurge.length) return;
   toPurge.forEach(function(id){ if (typeof _markDeleted === 'function') _markDeleted('cards', id); });
   cards = (cards||[]).filter(function(c){ return toPurge.indexOf(c.id) < 0; });
+  // גם מהארכיון — אחרת "מצא כרטיס אבוד" היה ממשיך להציג אותן
+  if (window._fbPut) toPurge.forEach(function(id){ try { window._fbPut('cardsArchive/' + id, null); } catch(e){} });
   persist();   // שקט — בלי _logActivity
   if (typeof renderCards === 'function') renderCards();
 }
