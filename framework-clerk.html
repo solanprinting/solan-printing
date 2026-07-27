@@ -77,7 +77,16 @@
   #dropZone.busy{border-style:solid;border-color:var(--gold);cursor:progress}
   @keyframes dzSlide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
   .modal{position:fixed;inset:0;z-index:320;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;padding:14px}
-  .modalIn{background:#fff;border-radius:14px;max-width:940px;width:97vw;max-height:92vh;overflow:auto;padding:16px 18px}
+  .modalIn{background:#fff;border-radius:14px;max-width:940px;width:97vw;max-height:92vh;overflow-y:auto;overflow-x:hidden;padding:16px 18px}
+  /* ⚠️ שדות בתוך חלון חייבים להתכווץ — אחרת נוצרת גלילה לצדדים ולא רואים הכל */
+  .modalIn input,.modalIn select{max-width:100%;min-width:0}
+  /* עורך שורות: בלוק לכל שורה, נשבר לשתי עמודות במסך צר — בלי גלילה אופקית */
+  .lnRow{display:grid;grid-template-columns:1.6fr 1.2fr .7fr .8fr 1fr auto;gap:6px;align-items:end;
+    border:1px solid var(--line);border-radius:9px;padding:8px;margin-bottom:7px;background:#fcfcff}
+  .lnRow label{display:block;font-size:.72rem;color:var(--muted);font-weight:700}
+  .lnRow input{width:100%}
+  .lnRow .del{align-self:center}
+  @media(max-width:640px){ .lnRow{grid-template-columns:1fr 1fr} .lnRow .del{grid-column:1/-1;justify-self:end} }
   /* ── תעודת משלוח להדפסה ── */
   #dnPrint{display:none}
   @media print{
@@ -855,7 +864,7 @@ function openJob(id){
 function _jbRender(c,ov){
   let m=$('jobModal');
   if(!m){ m=document.createElement('div'); m.id='jobModal'; m.className='modal'; document.body.appendChild(m); }
-  m.innerHTML=`<div class="modalIn" style="max-width:520px">
+  m.innerHTML=`<div class="modalIn" style="max-width:680px">
     <h3 style="margin:0 0 2px">🖨 ${esc(c.name||'עבודה')}</h3>
     <div class="muted" style="margin-bottom:10px">
       ${c.customer?esc(c.customer)+' · ':''}${c.copies?Number(c.copies).toLocaleString()+' עותקים':''}${c.pages?' · '+c.pages+' עמ׳':''}
@@ -871,20 +880,19 @@ function _jbRender(c,ov){
           <b style="color:var(--press)">מה יצא בפועל</b>
           <button id="jbAdd" style="padding:3px 10px;font-size:.8rem">➕ הוסף פריט</button></div>
         <div class="muted" style="font-size:.78rem;margin-bottom:4px">בהדפסה משותפת (למשל פלייסמנטים לשיבא + עידית + ליבר) — שורה לכל פריט ולקוח.<br>מילוי <b>אריזות</b> + <b>יח׳ באריזה</b> מחשב את הסה״כ אוטומטית (10 × 1,000 = 10,000).</div>
-        <div style="overflow-x:auto"><table>
-          <thead><tr><th>פריט</th><th>לקוח</th><th>אריזות</th><th>יח׳ באריזה</th><th>סה״כ יח׳</th><th></th></tr></thead>
-          <tbody>${_jbLines.map((l,i)=>`<tr>
-            <td><input class="jbName" data-i="${i}" value="${esc(l.name)}" style="width:140px"></td>
-            <td><input class="jbCust" data-i="${i}" value="${esc(l.customer)}" list="jbCustList" style="width:110px"></td>
-            <td><input type="number" class="jbP" data-i="${i}" value="${l.packs||0}" min="0" style="width:70px"></td>
-            <td><input type="number" class="jbPS" data-i="${i}" value="${l.packSize||0}" min="0" style="width:80px" placeholder="1000"></td>
-            <td><input type="number" class="jbQ" data-i="${i}" value="${l.qty||0}" min="0" style="width:95px">
-              ${(l.packs>0&&l.packSize>0)?`<div class="muted" style="font-size:.72rem">${l.packs} × ${l.packSize.toLocaleString()}</div>`:''}</td>
-            <td><button class="jbDel danger" data-i="${i}">🗑</button></td></tr>`).join('')}</tbody>
-          <tfoot><tr><th>סה״כ</th><th></th>
-            <th>${_jbLines.reduce((a,l)=>a+(parseInt(l.packs,10)||0),0).toLocaleString()}</th><th></th>
-            <th>${_jbLines.reduce((a,l)=>a+(parseInt(l.qty,10)||0),0).toLocaleString()}</th><th></th></tr></tfoot>
-        </table></div>
+        ${_jbLines.map((l,i)=>`<div class="lnRow">
+          <div><label>פריט</label><input class="jbName" data-i="${i}" value="${esc(l.name)}"></div>
+          <div><label>לקוח</label><input class="jbCust" data-i="${i}" value="${esc(l.customer)}" list="jbCustList"></div>
+          <div><label>אריזות</label><input type="number" class="jbP" data-i="${i}" value="${l.packs||0}" min="0"></div>
+          <div><label>יח׳ באריזה</label><input type="number" class="jbPS" data-i="${i}" value="${l.packSize||0}" min="0" placeholder="1000"></div>
+          <div><label>סה״כ יח׳</label><input type="number" class="jbQ" data-i="${i}" value="${l.qty||0}" min="0">
+            ${(l.packs>0&&l.packSize>0)?`<div class="muted" style="font-size:.7rem">${l.packs} × ${l.packSize.toLocaleString()}</div>`:''}</div>
+          <button class="jbDel danger del" data-i="${i}" title="מחק שורה">🗑</button>
+        </div>`).join('')}
+        <div style="display:flex;gap:14px;justify-content:flex-end;font-weight:800;color:var(--press);padding:2px 8px">
+          <span>סה״כ אריזות: ${_jbLines.reduce((a,l)=>a+(parseInt(l.packs,10)||0),0).toLocaleString()}</span>
+          <span>סה״כ יח׳: ${_jbLines.reduce((a,l)=>a+(parseInt(l.qty,10)||0),0).toLocaleString()}</span>
+        </div>
         <datalist id="jbCustList">${_custNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
       </div>
       <label style="display:flex;align-items:center;gap:7px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:7px 10px">
