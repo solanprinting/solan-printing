@@ -800,7 +800,10 @@
       // עבודה אחת יכולה להכיל כמה פריטים — ולכל אחד לקוח וכמות משלו
       if (ov.lines && ov.lines.length) {
         c.doneLines = ov.lines.map(function (l) {
-          return { name: _s(l.name), customer: _s(l.customer), qty: _int(l.qty), packs: _int(l.packs) || 0 };
+          var packs = _int(l.packs) || 0, packSize = _int(l.packSize) || 0;
+          var qty = _int(l.qty);
+          if (!qty && packs > 0 && packSize > 0) qty = packs * packSize;   // 10 אריזות × 1000 = 10,000 יח׳
+          return { name: _s(l.name), customer: _s(l.customer), qty: qty, packs: packs, packSize: packSize };
         }).filter(function (l) { return l.name || l.qty; });
         c.doneQty = c.doneLines.reduce(function (a, l) { return a + l.qty; }, 0);
         c.donePacks = c.doneLines.reduce(function (a, l) { return a + l.packs; }, 0);
@@ -820,8 +823,10 @@
     if (!card) return [];
     if (card.doneLines && card.doneLines.length) {
       return card.doneLines.map(function (l) {
-        return { name: _s(l.name) || _s(card.name), customer: _s(l.customer) || _s(card.customer),
-                 qty: _int(l.qty), packs: _int(l.packs) || 0 };
+        var packs = _int(l.packs) || 0, packSize = _int(l.packSize) || 0, qty = _int(l.qty);
+      if (!qty && packs > 0 && packSize > 0) qty = packs * packSize;
+      return { name: _s(l.name) || _s(card.name), customer: _s(l.customer) || _s(card.customer),
+               qty: qty, packs: packs, packSize: packSize };
       });
     }
     return [{ name: _s(card.name), customer: _s(card.customer),
