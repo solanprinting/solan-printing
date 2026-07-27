@@ -509,8 +509,8 @@ function workerScreen(){
    + '<div id="tplPane" style="display:none"></div>'
    + '<div id="sendPane">'
    + '<div class="steps">'+['העלאת פרופר','בחירת טמפלט','יצירת חוברת','בדיקה פנימית','שליחה ללקוח'].map((s,i)=>'<div class="step" id="wstep'+i+'">'+(i+1)+'. '+s+'</div>').join('')+'</div>'
-   + '<div class="card"><b>1–2.</b> פרופר: <input type="file" id="proof" accept="application/pdf"> · טמפלט (לכל קונטרס): '
-   + '<select id="tpl"><option value="">— בחר —</option></select> '
+   + '<div class="card"><b>1–2.</b> פרופר: <input type="file" id="proof" accept="application/pdf"> '
+   + '<span id="tplPick">· טמפלט: <select id="tpl"><option value="">— בחר —</option></select></span> '
    + '<button id="foldBtn" disabled>▶ צור חוברת</button>'
    + '<div id="singleAuto" style="margin-top:6px">עמודים: <select id="singlePages"><option value="0">— בחר —</option><option>4</option><option>8</option><option>16</option><option>32</option></select> <span class="muted" id="sizeSingle"></span> <span class="ok" id="autoNote" style="font-size:.85rem"></span></div>'
    + '<div style="margin-top:8px"><label class="chk"><input type="checkbox" id="multiRun"> <span>עיתון מרובה-קונטרסים (מעל 32 עמ׳ — כמה ריצות R-1, R-2…)</span></label></div>'
@@ -773,7 +773,9 @@ function workerScreen(){
   $('proof').onchange=async e=>{ const f=e.target.files[0]; if(!f)return; _srcU8=new Uint8Array(await f.arrayBuffer()); _srcName=f.name; $('wstatus').textContent='📄 '+f.name; setStep(0); await _autoDetectSingle(); updFold(); };
   $('singlePages').onchange=_autoDetectSingle;
   $('tpl').onchange=()=>{ $('autoNote').textContent=''; updFold(); };
-  $('multiRun').onchange=()=>{ const m=_multi(); $('multiBox').style.display=m?'':'none'; $('singleAuto').style.display=m?'none':''; $('proof').disabled=m; updFold(); };
+  $('multiRun').onchange=()=>{ const m=_multi(); $('multiBox').style.display=m?'':'none'; $('singleAuto').style.display=m?'none':'';
+    if($('tplPick')) $('tplPick').style.display=m?'none':'';   // מרובה → הטמפלט נבחר פר-ריצה בטבלה
+    $('proof').disabled=m; updFold(); };
   $('totPages').onchange=renderMultiTable;
   $('proofMulti').onchange=async e=>{
     const files=Array.from(e.target.files||[]).sort((a,b)=>_natSort(a.name,b.name));   // R-1 לפני R-2…
@@ -785,7 +787,9 @@ function workerScreen(){
     setStep(0); renderMultiTable();
   };
   async function doFold(bleedMm){
-    const tid=$('tpl').value; if(!ADP.customerFoldTemplateAllowed(tid)){ alert('טמפלט לא-נתמך'); return; }
+    const tid=$('tpl').value;
+    // מרובה-קונטרסים: הטמפלט נבחר *לכל ריצה בנפרד* בטבלה — הבורר העליון לא רלוונטי ולא נדרש.
+    if(!_multi() && !ADP.customerFoldTemplateAllowed(tid)){ alert('טמפלט לא-נתמך'); return; }
     $('foldBtn').disabled=true; if($('bleedSel'))$('bleedSel').disabled=true; $('wstatus').textContent='⏳ יוצר חוברת…'; setStep(2);
     try{
       if(_multi()){
