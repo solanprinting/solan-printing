@@ -79,14 +79,32 @@ function _auth(){
 }
 const _P='frameworkAgreements';
 function _get(p){ return _auth().then(t=>fetch(_FBURL+'/'+p+'.json?auth='+t).then(r=>r.ok?r.json():null)); }
-function _put(p,o){ return _auth().then(t=>fetch(_FBURL+'/'+p+'.json?auth='+t,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)})); }
+// ⚠️ חובה לבדוק r.ok — בלי זה כישלון-כתיבה (הרשאה/רשת) נראה כהצלחה והפריט "נעלם".
+function _put(p,o){ return _auth().then(t=>fetch(_FBURL+'/'+p+'.json?auth='+t,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)})
+  .then(r=>{ if(!r.ok) return r.text().then(x=>{ throw new Error('כתיבה נכשלה ('+r.status+') '+String(x||'').slice(0,120)); }); return r; })); }
 
 let _all = [], _sel = null, _busy = false;
+
+// ⚠️ נרמול-רשומה מ-Firebase RTDB — שני מלכודות ידועות:
+//   1) מערך *ריק* לא נשמר כלל → הסכם חדש חוזר בלי items/movements → items.push קורס.
+//   2) מערך עם "חורים" חוזר כ*אובייקט* ({0:…,2:…}) → Array.isArray נכשל.
+// בלי הנרמול הזה "הוספת פריט" פשוט לא עבדה.
+function _arr(v){
+  if (Array.isArray(v)) return v.filter(x=>x!=null);
+  if (v && typeof v==='object') return Object.keys(v).sort((a,b)=>(+a)-(+b)).map(k=>v[k]).filter(x=>x!=null);
+  return [];
+}
+function _normAg(a){
+  if(!a || typeof a!=='object') return a;
+  a.items = _arr(a.items);
+  a.movements = _arr(a.movements);
+  return a;
+}
 
 async function load(){
   try{
     const obj = await _get(_P);
-    _all = obj && typeof obj==='object' ? Object.values(obj).filter(a=>a&&a.agreementId) : [];
+    _all = obj && typeof obj==='object' ? Object.values(obj).filter(a=>a&&a.agreementId).map(_normAg) : [];
     _all.sort((a,b)=> String(a.customer||'').localeCompare(String(b.customer||''),'he'));
   }catch(e){ _all=[]; }
   if(_sel && !_all.some(a=>a.agreementId===_sel)) _sel=null;
@@ -96,7 +114,8 @@ async function load(){
 function cur(){ return _all.find(a=>a.agreementId===_sel)||null; }
 async function save(ag){
   if(!_isProd()){ alert('שמירה פועלת רק באתר החי (הגנת-סביבה).'); return false; }
-  if(_busy) return false; _busy=true;
+  if(_busy){ alert("פעולה קודמת עדיין נשמרת — נסו שוב בעוד רגע"); return false; } _busy=true;
+  _normAg(ag);
   try{ await _put(_P+'/'+ag.agreementId, ag);
     const i=_all.findIndex(a=>a.agreementId===ag.agreementId);
     if(i>=0) _all[i]=ag; else _all.push(ag);
@@ -140,17 +159,18 @@ function detail(a){
       <td>${r.sku?`<code>${esc(r.sku)}</code>`:'<span class="muted">—</span>'}</td>
       <td><b>${esc(r.name)}</b></td>
       <td>${r.agreedQty.toLocaleString()} <span class="muted">${esc(r.unit)}</span></td>
+      <td>${r.packSize?(r.packSize.toLocaleString()+' <span class="muted">/'+esc(r.packName)+'</span>'):'<span class="muted">—</span>'}</td>
       <td>${(r.drawnQty-r.returnedQty).toLocaleString()}</td>
-      <td class="${r.over?'bad':''}"><b>${r.remainingQty.toLocaleString()}</b></td>
+      <td class="${r.over?'bad':''}"><b>${r.remainingQty.toLocaleString()}</b>${r.remainingPacks!=null?`<div class="muted" style="font-size:.75rem">≈ ${r.remainingPacks.toLocaleString()} ${esc(r.packName)}</div>`:''}</td>
       <td style="min-width:110px"><div class="bar ${cls}"><i style="width:${pct}%"></i></div><span class="muted" style="font-size:.75rem">${pct}%</span></td>
-      <td>${r.unitPrice?('₪'+_n(r.unitPrice)):'—'}</td>
+      <td>${r.price1000?('₪'+_n(r.price1000)+'<div class="muted" style="font-size:.72rem">ל-1000</div>'):'—'}</td>
       <td>${r.agreedValue?('₪'+_n(r.remainingValue)):'—'}</td>
       <td style="white-space:nowrap">
         <button class="drawBtn" data-i="${r.itemId}">➖ משיכה</button>
         <button class="retBtn" data-i="${r.itemId}">➕ החזרה</button>
         <button class="delItem danger" data-i="${r.itemId}" title="מחק פריט">🗑</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="9" class="muted" style="text-align:center;padding:14px">אין פריטים — הוסיפו פריט להסכם</td></tr>';
+  }).join('') || '<tr><td colspan="10" class="muted" style="text-align:center;padding:14px">אין פריטים — הוסיפו פריט להסכם</td></tr>';
 
   const moves = (a.movements||[]).slice().reverse().slice(0,25).map(m=>{
     const it=(a.items||[]).find(x=>x.itemId===m.itemId);
@@ -186,7 +206,7 @@ function detail(a){
       <div><button id="addItem">➕ הוסף פריט</button> <button id="quickDraw">⚡ משיכה מהירה</button> <button id="impStock">📥 ייבוא מלאי (PDF/אקסל)</button> <button id="impOrder" class="primary">🧾 קליטת הזמנה</button></div>
     </div>
     <div style="overflow-x:auto"><table>
-      <thead><tr><th>מק״ט</th><th>פריט</th><th>מוסכם</th><th>נמשך</th><th>יתרה</th><th>ניצול</th><th>מחיר יח׳</th><th>ערך יתרה</th><th></th></tr></thead>
+      <thead><tr><th>מק״ט</th><th>פריט</th><th>מוסכם</th><th>יח׳ בקרטון</th><th>נמשך</th><th>יתרה</th><th>ניצול</th><th>מחיר ל-1000</th><th>ערך יתרה</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
   </div>
   <div class="card"><h3>🧾 תנועות אחרונות</h3>
@@ -202,10 +222,11 @@ function wire(a){
     const name=prompt('שם הפריט:'); if(!name) return;
     const sku=prompt('מק״ט (אפשר להשאיר ריק):','')||'';
     const qty=parseInt(prompt('כמות מוסכמת:','0'),10)||0;
-    const price=parseFloat(prompt('מחיר ליחידה (₪) — 0 אם לא רלוונטי:','0'))||0;
-    const b=FW.buildItem({name,sku,qty,unitPrice:price});
+    const price=parseFloat(prompt('מחיר ל-1000 יח׳ (₪) — 0 אם לא רלוונטי:','0'))||0;
+    const packSize=parseInt(prompt('כמה יח׳ בקרטון/חבילה? (0 = לא רלוונטי):','0'),10)||0;
+    const b=FW.buildItem({name,sku,qty,price1000:price,packSize});
     if(!b.ok){ alert('פריט לא תקין: '+b.errors.join(', ')); return; }
-    const ag=JSON.parse(JSON.stringify(a)); ag.items.push(b.item);
+    const ag=_normAg(JSON.parse(JSON.stringify(a))); ag.items.push(b.item);
     if(await save(ag)) render();
   };
   document.querySelectorAll('.drawBtn').forEach(btn=>btn.onclick=()=>_move(a,btn.dataset.i,'draw'));
@@ -213,12 +234,12 @@ function wire(a){
   document.querySelectorAll('.delItem').forEach(btn=>btn.onclick=async()=>{
     const it=(a.items||[]).find(x=>x.itemId===btn.dataset.i); if(!it) return;
     if(!confirm('למחוק את "'+it.name+'"?\n(תנועות שנרשמו עליו יישמרו בהיסטוריה)')) return;
-    const ag=JSON.parse(JSON.stringify(a)); ag.items=ag.items.filter(x=>x.itemId!==btn.dataset.i);
+    const ag=_normAg(JSON.parse(JSON.stringify(a))); ag.items=ag.items.filter(x=>x.itemId!==btn.dataset.i);
     if(await save(ag)) render();
   });
   document.querySelectorAll('.delMove').forEach(btn=>btn.onclick=async()=>{
     if(!confirm('לבטל את התנועה? היתרה תחזור אוטומטית.')) return;
-    const ag=JSON.parse(JSON.stringify(a)); ag.movements=(ag.movements||[]).filter(m=>m.moveId!==btn.dataset.m);
+    const ag=_normAg(JSON.parse(JSON.stringify(a))); ag.movements=(ag.movements||[]).filter(m=>m.moveId!==btn.dataset.m);
     if(await save(ag)) render();
   });
   $('impStock').onclick = ()=>_impOpen('stock');
@@ -230,7 +251,7 @@ function wire(a){
     _move(a,it.itemId,'draw');
   };
   $('editAg').onclick = async ()=>{
-    const ag=JSON.parse(JSON.stringify(a));
+    const ag=_normAg(JSON.parse(JSON.stringify(a)));
     const t=prompt('כותרת ההסכם:',ag.title||''); if(t===null) return; ag.title=t.trim()||ag.title;
     const an=prompt('מספר הסכם:',ag.agreementNo||''); if(an!==null) ag.agreementNo=an.trim()||null;
     const po=prompt('מספר הזמנת רכש (PO):',ag.poNumber||''); if(po!==null) ag.poNumber=po.trim()||null;
@@ -361,26 +382,29 @@ function _impParse(){
     const m=FW.matchOrder(a,lines);
     _impRows=m.rows;
     $('impMsg').innerHTML=srcNote+`זוהו <b>${m.rows.length}</b> שורות · ${m.summary.unmatched?('<span class="bad">'+m.summary.unmatched+' לא שויכו</span>'):'<span class="ok">כולן שויכו</span>'}${m.summary.exceeding?(' · <span class="bad">'+m.summary.exceeding+' חורגות</span>'):''}`;
-    $('impPrev').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>שורה מהקובץ</th><th>פריט בהסכם</th><th>במלאי לפני</th><th>יורד</th><th>נשאר אחרי</th></tr></thead><tbody>'
+    $('impPrev').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>שורה מהקובץ</th><th>פריט בהסכם</th><th>קרטונים</th><th>יח׳ סה״כ</th><th>במלאי לפני</th><th>נשאר אחרי</th><th>לחיוב</th></tr></thead><tbody>'
       + _impRows.map((r,i)=>{
           const opts=(a.items||[]).map(it=>`<option value="${it.itemId}"${r.itemId===it.itemId?' selected':''}>${esc(it.name)}${it.sku?' ('+esc(it.sku)+')':''}</option>`).join('');
           return `<tr${r.exceeds?' style="background:#fff7ed"':''}>
             <td class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.raw)}">${esc(r.raw)}</td>
             <td><select class="impIt" data-i="${i}"><option value="">— דלג —</option>${opts}</select></td>
+            <td>${r.packSize?`<input type="number" class="impPacks" data-i="${i}" value="${r.packs||0}" min="0" style="width:72px"><div class="muted" style="font-size:.72rem">×${r.packSize.toLocaleString()}</div>`:'<span class="muted">—</span>'}</td>
+            <td><input type="number" class="impQty" data-i="${i}" value="${r.qty}" min="0" style="width:100px"></td>
             <td>${r.matched?r.before.toLocaleString():'—'}</td>
-            <td><input type="number" class="impQty" data-i="${i}" value="${r.qty}" min="0" style="width:90px"></td>
-            <td class="${r.exceeds?'bad':''}"><b>${r.matched?r.after.toLocaleString():'—'}</b>${r.exceeds?' ⚠':''}</td></tr>`;
+            <td class="${r.exceeds?'bad':''}"><b>${r.matched?r.after.toLocaleString():'—'}</b>${r.exceeds?' ⚠':''}</td>
+            <td>${r.matched&&r.price1000?`₪${_n(r.value)}<div class="muted" style="font-size:.72rem">${_n(r.thousands)}×₪${_n(r.price1000)}</div>`:'<span class="muted">—</span>'}</td></tr>`;
         }).join('') + '</tbody></table></div>';
     _impBind();
   } else {
-    _impRows=lines.map(l=>({ raw:l.raw, sku:l.sku||'', name:l.name||l.sku||'', qty:l.qty, unitPrice:l.unitPrice||0 }));
+    _impRows=lines.map(l=>({ raw:l.raw, sku:l.sku||'', name:l.name||l.sku||'', qty:l.qty, unitPrice:l.unitPrice||0, packSize:0 }));
     $('impMsg').innerHTML=srcNote+`זוהו <b>${_impRows.length}</b> פריטים — ערכו לפי הצורך`;
-    $('impPrev').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>שורה מהקובץ</th><th>מק״ט</th><th>שם פריט</th><th>כמות</th><th>מחיר יח׳</th></tr></thead><tbody>'
+    $('impPrev').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>שורה מהקובץ</th><th>מק״ט</th><th>שם פריט</th><th>כמות (יח׳)</th><th>יח׳ בקרטון</th><th>מחיר ל-1000</th></tr></thead><tbody>'
       + _impRows.map((r,i)=>`<tr>
           <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.raw)}">${esc(r.raw)}</td>
           <td><input class="impSku" data-i="${i}" value="${esc(r.sku)}" style="width:100px" placeholder="ריק=ללא"></td>
           <td><input class="impName" data-i="${i}" value="${esc(r.name)}" style="width:190px"></td>
           <td><input type="number" class="impQty" data-i="${i}" value="${r.qty}" min="0" style="width:100px"></td>
+          <td><input type="number" class="impPack" data-i="${i}" value="${r.packSize||0}" min="0" style="width:90px"></td>
           <td><input type="number" class="impPrice" data-i="${i}" value="${r.unitPrice||0}" min="0" step="0.01" style="width:90px"></td></tr>`).join('')
       + '</tbody></table></div>';
     _impBind();
@@ -391,12 +415,16 @@ function _impParse(){
 function _impBind(){
   const a=cur();
   document.querySelectorAll('.impQty').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i;
-    _impRows[i].qty=parseInt(e.target.value,10)||0; if(_impMode==='order') _impRecalc(); });
+    _impRows[i].qty=parseInt(e.target.value,10)||0; _impRows[i].packs=0;   // עריכת יח׳ ידנית גוברת על קרטונים
+    if(_impMode==='order') _impRecalc(); });
+  document.querySelectorAll('.impPacks').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i;
+    _impRows[i].packs=parseInt(e.target.value,10)||0; _impRecalc(); });   // קרטונים → יח׳ אוטומטית
   document.querySelectorAll('.impIt').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i, id=e.target.value;
     _impRows[i].itemId=id||null; _impRows[i].matched=!!id; _impRecalc(); });
   document.querySelectorAll('.impSku').forEach(el=>el.onchange=e=>{ _impRows[+e.target.dataset.i].sku=e.target.value.trim(); });
   document.querySelectorAll('.impName').forEach(el=>el.onchange=e=>{ _impRows[+e.target.dataset.i].name=e.target.value.trim(); });
   document.querySelectorAll('.impPrice').forEach(el=>el.onchange=e=>{ _impRows[+e.target.dataset.i].unitPrice=parseFloat(e.target.value)||0; });
+  document.querySelectorAll('.impPack').forEach(el=>el.onchange=e=>{ _impRows[+e.target.dataset.i].packSize=parseInt(e.target.value,10)||0; });
 }
 // חישוב-מחדש של לפני/יורד/אחרי אחרי עריכה ידנית (כולל הצטברות של כמה שורות לאותו פריט)
 function _impRecalc(){
@@ -404,18 +432,28 @@ function _impRecalc(){
   const b=FW.computeBalances(a), byId={}; b.items.forEach(r=>byId[r.itemId]=r);
   const used={};
   _impRows.forEach(r=>{
-    if(!r.matched||!r.itemId||!byId[r.itemId]){ r.before=null; r.after=null; r.exceeds=false; return; }
+    const it = r.itemId ? byId[r.itemId] : null;
+    if(!r.matched||!it){ r.before=null; r.after=null; r.exceeds=false; r.value=0; return; }
+    r.packSize = it.packSize||0; r.packName = it.packName||'קרטון'; r.price1000 = it.price1000||0;
+    if(r.packSize>0 && r.packs>0) r.qty = r.packs * r.packSize;      // קרטונים → יחידות
     const prior=used[r.itemId]||0;
-    r.before=byId[r.itemId].remainingQty-prior; used[r.itemId]=prior+(r.qty||0);
+    r.before=it.remainingQty-prior; used[r.itemId]=prior+(r.qty||0);
     r.after=r.before-(r.qty||0); r.exceeds=r.after<0;
+    r.thousands=(r.qty||0)/1000; r.value=r.thousands*r.price1000;    // חיוב לפי מחיר-ל-1000
   });
   const rows=document.querySelectorAll('#impPrev tbody tr');
   _impRows.forEach((r,i)=>{ const tr=rows[i]; if(!tr) return;
     tr.style.background=r.exceeds?'#fff7ed':'';
-    tr.children[2].textContent = r.matched?Number(r.before).toLocaleString():'—';
-    const c4=tr.children[4]; c4.className=r.exceeds?'bad':'';
-    c4.innerHTML = '<b>'+(r.matched?Number(r.after).toLocaleString():'—')+'</b>'+(r.exceeds?' ⚠':'');
+    const qIn=tr.querySelector('.impQty'); if(qIn && String(qIn.value)!==String(r.qty)) qIn.value=r.qty;   // סנכרון יח׳
+    tr.children[4].textContent = r.matched?Number(r.before).toLocaleString():'—';
+    const c5=tr.children[5]; c5.className=r.exceeds?'bad':'';
+    c5.innerHTML = '<b>'+(r.matched?Number(r.after).toLocaleString():'—')+'</b>'+(r.exceeds?' ⚠':'');
+    const c6=tr.children[6];
+    if(c6) c6.innerHTML = (r.matched&&r.price1000) ? ('₪'+_n(r.value)+'<div class="muted" style="font-size:.72rem">'+_n(r.thousands)+'×₪'+_n(r.price1000)+'</div>') : '<span class="muted">—</span>';
   });
+  // סיכום-חיוב כולל להזמנה
+  const tot=_impRows.filter(r=>r.matched).reduce((s,r)=>s+(r.value||0),0);
+  const el=$('impMsg'); if(el && tot>0 && !/סה״כ לחיוב/.test(el.innerHTML)) el.innerHTML += ' · <b>סה״כ לחיוב: ₪'+_n(tot)+'</b>';
 }
 
 async function _impApply(){
@@ -430,14 +468,14 @@ async function _impApply(){
     if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
     if(await save(res.agreement)){ $('impModal').remove(); render(); }
   } else {
-    const ag=JSON.parse(JSON.stringify(a));
+    const ag=_normAg(JSON.parse(JSON.stringify(a)));
     let added=0, merged=0;
     _impRows.forEach(r=>{
       if(!r.name || !(r.qty>0)) return;
       // פריט קיים (לפי מק״ט/שם) → מוסיפים לכמות; אחרת פריט חדש
       const ex=FW.findItem(ag, r.sku||r.name);
-      if(ex){ ex.qty=(parseInt(ex.qty,10)||0)+r.qty; if(r.unitPrice>0) ex.unitPrice=r.unitPrice; merged++; }
-      else { const b=FW.buildItem({name:r.name,sku:r.sku,qty:r.qty,unitPrice:r.unitPrice}); if(b.ok){ ag.items.push(b.item); added++; } }
+      if(ex){ ex.qty=(parseInt(ex.qty,10)||0)+r.qty; if(r.unitPrice>0){ ex.price1000=r.unitPrice; ex.unitPrice=r.unitPrice; } if(r.packSize>0) ex.packSize=r.packSize; merged++; }
+      else { const b=FW.buildItem({name:r.name,sku:r.sku,qty:r.qty,price1000:r.unitPrice,packSize:r.packSize||0}); if(b.ok){ ag.items.push(b.item); added++; } }
     });
     if(!added && !merged){ alert('לא נוספו פריטים (חסר שם או כמות)'); return; }
     if(await save(ag)){ $('impModal').remove(); render(); alert('✓ נוספו '+added+' פריטים חדשים · עודכנו '+merged+' קיימים'); }

@@ -44,8 +44,13 @@
         sku: _s(input.sku) || null,              // מק"ט — אופציונלי
         name: name,
         unit: _s(input.unit) || 'יח׳',
-        qty: qty,                                 // כמות מוסכמת בהסכם
-        unitPrice: _num(input.unitPrice),         // ₪ ליחידה (0 = לא תומחר)
+        qty: qty,                                 // כמות מוסכמת בהסכם (ביחידות)
+        // ⚠️ תמחור בענף: המחיר הוא ל-**1000 יח׳** ולא ליחידה.
+        //    20 קרטונים × 2000 = 40,000 יח׳ ⇒ לחיוב: 40 × המחיר-ל-1000.
+        price1000: _num(input.price1000 != null ? input.price1000 : input.unitPrice),
+        unitPrice: _num(input.price1000 != null ? input.price1000 : input.unitPrice),   // תאימות-לאחור (אותו ערך)
+        packSize: _int(input.packSize) > 0 ? _int(input.packSize) : 0,   // יח' בקרטון/חבילה (0 = לא רלוונטי)
+        packName: _s(input.packName) || 'קרטון',                        // קרטון / חבילה / אריזה
         notes: _s(input.notes) || null
       }
     };
@@ -99,8 +104,12 @@
         moveId: _s(input.moveId) || makeId('mv', input.rng),
         itemId: itemId,
         type: type,
-        qty: qty,
-        unitPrice: input.unitPrice != null ? _num(input.unitPrice) : null,   // null → מחיר-הפריט בהסכם
+        qty: qty,                                  // תמיד ביחידות (מקור-אמת יחיד)
+        packs: input.packs != null ? _int(input.packs) : null,   // כמה קרטונים הוזמנו (לתיעוד)
+        packSize: input.packSize != null ? _int(input.packSize) : null,
+        // עקיפת-מחיר לתנועה (מבצע/הנחה) — ל-1000 יח׳, כמו בפריט. null → מחיר-הפריט בהסכם.
+        price1000: input.price1000 != null ? _num(input.price1000) : (input.unitPrice != null ? _num(input.unitPrice) : null),
+        unitPrice: input.price1000 != null ? _num(input.price1000) : (input.unitPrice != null ? _num(input.unitPrice) : null),
         orderRef: _s(input.orderRef) || null,     // מס' הזמנה/כרטיס-עבודה
         date: _s(input.date) || null,
         by: _s(input.by) || null,
@@ -121,9 +130,14 @@
     items.forEach(function (it) {
       byId[it.itemId] = {
         itemId: it.itemId, sku: it.sku || null, name: it.name, unit: it.unit || 'יח׳',
-        agreedQty: _int(it.qty), unitPrice: _num(it.unitPrice),
+        agreedQty: _int(it.qty),
+        // מחיר ל-1000 יח׳ (מקור-אמת לתמחור). unitPrice נשמר לתאימות בלבד.
+        price1000: _num(it.price1000 != null ? it.price1000 : it.unitPrice),
+        unitPrice: _num(it.price1000 != null ? it.price1000 : it.unitPrice),
+        packSize: _int(it.packSize), packName: it.packName || 'קרטון',
         drawnQty: 0, returnedQty: 0, remainingQty: 0,
-        agreedValue: _int(it.qty) * _num(it.unitPrice), drawnValue: 0, remainingValue: 0,
+        agreedValue: (_int(it.qty) / 1000) * _num(it.price1000 != null ? it.price1000 : it.unitPrice),
+        drawnValue: 0, remainingValue: 0,
         over: false
       };
     });
@@ -131,15 +145,20 @@
     moves.forEach(function (m) {
       var row = byId[m.itemId];
       if (!row) { orphanMoves.push(m.moveId || null); return; }   // תנועה לפריט שנמחק
-      var q = _int(m.qty), price = (m.unitPrice != null ? _num(m.unitPrice) : row.unitPrice);
-      if (m.type === 'draw') { row.drawnQty += q; row.drawnValue += q * price; }
-      else { row.returnedQty += q; row.drawnValue -= q * price; }
+      var q = _int(m.qty);
+      var p1000 = (m.price1000 != null ? _num(m.price1000) : (m.unitPrice != null ? _num(m.unitPrice) : row.price1000));
+      var val = (q / 1000) * p1000;                                 // ⚠️ מחיר ל-1000 יח׳
+      if (m.type === 'draw') { row.drawnQty += q; row.drawnValue += val; }
+      else { row.returnedQty += q; row.drawnValue -= val; }
     });
     var list = items.map(function (it) {
       var r = byId[it.itemId];
       r.remainingQty = r.agreedQty - r.drawnQty + r.returnedQty;
       r.remainingValue = r.agreedValue - r.drawnValue;
       r.over = r.remainingQty < 0;                                 // חריגה מהכמות המוסכמת
+      // המרה לחבילות (כשהוגדר גודל-חבילה) — לתצוגה בלבד; מקור-האמת הוא היחידות
+      r.remainingPacks = r.packSize > 0 ? Math.floor(r.remainingQty / r.packSize) : null;
+      r.agreedPacks    = r.packSize > 0 ? Math.floor(r.agreedQty / r.packSize) : null;
       return r;
     });
     var totals = list.reduce(function (a, r) {
@@ -170,7 +189,7 @@
     return {
       ok: true, remainingBefore: row.remainingQty, remainingAfter: after,
       exceeds: after < 0, shortBy: after < 0 ? -after : 0,
-      valueAfter: row.remainingValue - q * row.unitPrice
+      valueAfter: row.remainingValue - (q / 1000) * row.price1000   // מחיר ל-1000 יח׳
     };
   }
 
@@ -258,7 +277,8 @@
       sku:   /^(מק["׳']?ט|מקט|קטלוג|sku|code|item\s*code|barcode|ברקוד)/i,
       name:  /^(שם|תיאור|פריט|מוצר|name|item|desc|product)/i,
       qty:   /^(כמות|יחידות|qty|quantity|amount|units)/i,
-      price: /^(מחיר|price|unit\s*price|מחיר\s*יח)/i
+      price: /^(מחיר|price|unit\s*price|מחיר\s*יח)/i,
+      packs: /^(קרטונ|חבילות|חבילה|אריזות|אריזה|packs?|cartons?|boxes?)/i   // הזמנה בקרטונים
     };
     var map = null, headerRow = -1;
     for (var i = 0; i < Math.min(rows.length, 8); i++) {          // כותרת בדרך-כלל ב-8 השורות הראשונות
@@ -269,17 +289,18 @@
           if (cand[k] === undefined && RX[k].test(c)) { cand[k] = ci; hits++; }
         });
       });
-      if (cand.qty !== undefined && (cand.name !== undefined || cand.sku !== undefined)) { map = cand; headerRow = i; break; }
+      if ((cand.qty !== undefined || cand.packs !== undefined) && (cand.name !== undefined || cand.sku !== undefined)) { map = cand; headerRow = i; break; }
     }
 
     var out = [];
     if (map) {
       rows.slice(headerRow + 1).forEach(function (r) {
-        var qty = _int(String(r[map.qty] || '').replace(/[,\s]/g, ''));
+        var qty = map.qty !== undefined ? _int(String(r[map.qty] || '').replace(/[,\s]/g, '')) : 0;
+        var packs = map.packs !== undefined ? _int(String(r[map.packs] || '').replace(/[,\s]/g, '')) : 0;
         var name = map.name !== undefined ? r[map.name] : '';
         var sku = map.sku !== undefined ? r[map.sku] : '';
-        if (!qty || (!name && !sku)) return;
-        out.push({ raw: r.join(' | '), sku: sku || null, name: name || null, qty: qty,
+        if ((!qty && !packs) || (!name && !sku)) return;   // צריך כמות *או* קרטונים
+        out.push({ raw: r.join(' | '), sku: sku || null, name: name || null, qty: qty, packs: packs || 0,
                    unitPrice: map.price !== undefined ? _num(String(r[map.price] || '').replace(/[^\d.\-]/g, '')) : 0 });
       });
       return { lines: out, header: map };
@@ -313,14 +334,20 @@
       var r = byId[it.itemId];
       var prior = used[it.itemId] || 0;
       var before = r.remainingQty - prior;                          // מתחשב בשורות קודמות באותה הזמנה
-      var q = _int(ln.qty);
+      // הזמנה בקרטונים → המרה ליחידות לפי גודל-החבילה של הפריט (60 קרטון × 3000 = 180,000 יח')
+      var packs = _int(ln.packs), q = _int(ln.qty);
+      if (!q && packs > 0 && r.packSize > 0) q = packs * r.packSize;
+      else if (!packs && q > 0 && r.packSize > 0) packs = Math.floor(q / r.packSize);
       used[it.itemId] = prior + q;
       var after = before - q;
       return {
         raw: ln.raw, matched: true, itemId: it.itemId, sku: it.sku || null, name: it.name,
         unit: r.unit, qty: q, before: before, after: after,
+        packs: packs || 0, packSize: r.packSize || 0, packName: r.packName || 'קרטון',
         exceeds: after < 0, shortBy: after < 0 ? -after : 0,
-        unitPrice: r.unitPrice, value: q * r.unitPrice
+        price1000: r.price1000, unitPrice: r.price1000,
+        thousands: q / 1000,                       // כמה "אלפים" לחיוב (40,000 יח׳ = 40)
+        value: (q / 1000) * r.price1000            // ⚠️ חיוב = (יח׳/1000) × מחיר-ל-1000
       };
     });
     var sum = rows.reduce(function (a, r) {
@@ -337,7 +364,7 @@
     var added = [], errors = [];
     (matchedRows || []).forEach(function (r, i) {
       if (!r.matched || !r.itemId) return;
-      var mb = buildMovement({ itemId: r.itemId, type: 'draw', qty: r.qty,
+      var mb = buildMovement({ itemId: r.itemId, type: 'draw', qty: r.qty, packs: r.packs || null, packSize: r.packSize || null,
         orderRef: _s(meta.orderRef) || null, date: _s(meta.date) || null, by: _s(meta.by) || null,
         notes: _s(meta.notes) || null });
       if (!mb.ok) { errors.push('ROW_' + i + ':' + mb.errors.join(',')); return; }
