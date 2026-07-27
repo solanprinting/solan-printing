@@ -264,37 +264,48 @@ async function _move(a, itemId, type){
 /* ═══════════ ייבוא מקובץ: PDF / אקסל / CSV / הדבקה ═══════════
    שני מצבים: 'stock' = הוספת פריטים+כמויות להסכם · 'order' = משיכה על-חשבון ההסכם.
    בשניהם: ניתוח → טבלה *הניתנת לעריכה* → אישור. אף פעם לא מחילים בלי שהמשתמש ראה. */
-let _impMode='order', _impRows=[];
+let _impMode='order', _impRows=[], _impSheet=null;   // _impSheet = שורות-גיליון (אקסל/CSV)
 
-async function _textFromFile(f){
+// קריאת קובץ → { text, rows }.  rows = שורות-גיליון מובנות (אקסל/CSV) לניתוח לפי עמודות.
+// ⚠️ אקסל נקרא לפי *עמודות* (parseSheetRows) ולא ע"י המרה-לטקסט — המרה איבדה מידע ונכשלה.
+async function _readFile(f){
   const nm=(f.name||'').toLowerCase();
-  if(/\.(xlsx|xls)$/.test(nm)){
-    if(!window.XLSX) throw new Error('ספריית האקסל לא נטענה');
-    const wb=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'});
-    let out=[];
-    wb.SheetNames.forEach(n=>{ XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,blankrows:false})
-      .forEach(row=>{ const line=row.map(c=>String(c==null?'':c).trim()).filter(Boolean).join(', '); if(line) out.push(line); }); });
-    return out.join('\n');
+  if(/\.(xlsx|xls|xlsm)$/.test(nm)){
+    if(!window.XLSX) throw new Error('ספריית האקסל לא נטענה — בדקו חיבור לאינטרנט ורעננו');
+    let wb;
+    try{ wb=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'}); }
+    catch(e){ throw new Error('קובץ האקסל לא נקרא (ייתכן שהוא פגום או מוגן בסיסמה)'); }
+    if(!wb || !wb.SheetNames || !wb.SheetNames.length) throw new Error('הקובץ ריק — אין גיליונות');
+    const rows=[];
+    wb.SheetNames.forEach(function(sn){
+      const arr=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,blankrows:false,defval:''});
+      arr.forEach(function(r){ rows.push((r||[]).map(function(c){ return String(c==null?'':c).trim(); })); });
+    });
+    if(!rows.length) throw new Error('לא נמצאו שורות בגיליון');
+    return { rows: rows, text: rows.map(function(r){ return r.filter(Boolean).join(', '); }).join('\n') };
   }
   if(/\.pdf$/.test(nm)){
     if(!window.pdfjsLib) throw new Error('ספריית ה-PDF לא נטענה');
     const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;
-    let out=[];
+    const out=[];
     for(let i=1;i<=pdf.numPages;i++){
       const tc=await (await pdf.getPage(i)).getTextContent();
-      // קיבוץ לפי שורה (לפי קואורדינטת-Y) — כדי לשמר "פריט … כמות" באותה שורה
       const byY={};
-      tc.items.forEach(it=>{ const y=Math.round((it.transform&&it.transform[5])||0);
-        (byY[y]=byY[y]||[]).push({x:(it.transform&&it.transform[4])||0, s:it.str}); });
-      Object.keys(byY).sort((a,b)=>b-a).forEach(y=>{
-        const line=byY[y].sort((p,q)=>q.x-p.x).map(p=>p.s).join(' ').replace(/\s+/g,' ').trim();
+      tc.items.forEach(function(it){
+        const y=Math.round((it.transform&&it.transform[5])||0);
+        (byY[y]=byY[y]||[]).push({x:(it.transform&&it.transform[4])||0, s:it.str});
+      });
+      Object.keys(byY).sort(function(a,b){ return b-a; }).forEach(function(y){
+        const line=byY[y].sort(function(p,q){ return q.x-p.x; }).map(function(p){ return p.s; }).join(' ').replace(/\s+/g,' ').trim();
         if(line) out.push(line);
       });
     }
     try{ pdf.destroy(); }catch(e){}
-    return out.join('\n');
+    if(!out.length) throw new Error('לא נמצא טקסט ב-PDF (ייתכן שהוא סרוק כתמונה) — הדביקו את השורות ידנית');
+    return { rows: out.map(function(l){ return l.split(/\s{2,}|\t/).map(function(x){ return x.trim(); }).filter(Boolean); }), text: out.join('\n') };
   }
-  return await f.text();   // CSV / TXT
+  const txt=await f.text();                                  // CSV / TXT
+  return { rows: txt.split(/\r?\n/).map(function(l){ return l.split(/[,\t;|]/).map(function(x){ return x.trim(); }); }), text: txt };
 }
 
 function _impOpen(mode){
@@ -324,21 +335,32 @@ function _impOpen(mode){
   $('impFile').onchange=async e=>{
     const f=e.target.files[0]; if(!f) return;
     $('impMsg').textContent='קורא '+f.name+'…';
-    try{ $('impText').value=await _textFromFile(f); $('impMsg').innerHTML='<span class="ok">✓ נקרא — לחצו "נתח"</span>'; _impParse(); }
-    catch(err){ $('impMsg').innerHTML='<span class="bad">קריאה נכשלה: '+esc(err.message||err)+'</span>'; }
+    try{
+      const res=await _readFile(f);
+      _impSheet = res.rows || null;                 // שורות-גיליון → ניתוח לפי עמודות
+      $('impText').value = res.text || '';
+      $('impMsg').innerHTML='<span class="ok">✓ נקרא '+esc(f.name)+' — מנתח…</span>';
+      _impParse();
+    }
+    catch(err){ _impSheet=null; $('impMsg').innerHTML='<span class="bad">קריאה נכשלה: '+esc(err.message||err)+'</span>'; }
   };
+  $('impText').oninput=()=>{ _impSheet=null; };   // הקלדה ידנית → ניתוח טקסט
   $('impParse').onclick=_impParse;
   $('impApply').onclick=_impApply;
 }
 
 function _impParse(){
   const a=cur(); if(!a) return;
-  const lines=FW.parseOrderText($('impText').value||'');
+  // גיליון (אקסל/CSV) → ניתוח לפי עמודות (אמין); אחרת → ניתוח-טקסט
+  let lines, srcNote='';
+  if(_impSheet && _impSheet.length){ const ps=FW.parseSheetRows(_impSheet); lines=ps.lines;
+    srcNote = ps.header ? ' <span class="muted">(זוהו עמודות: מק״ט/שם/כמות)</span>' : ' <span class="muted">(ללא כותרת — זוהה אוטומטית)</span>'; }
+  else lines=FW.parseOrderText($('impText').value||'');
   if(!lines.length){ $('impMsg').innerHTML='<span class="bad">לא זוהו שורות עם כמות. אפשר להקליד ידנית בפורמט: שם, כמות</span>'; $('impPrev').innerHTML=''; return; }
   if(_impMode==='order'){
     const m=FW.matchOrder(a,lines);
     _impRows=m.rows;
-    $('impMsg').innerHTML=`זוהו <b>${m.rows.length}</b> שורות · ${m.summary.unmatched?('<span class="bad">'+m.summary.unmatched+' לא שויכו</span>'):'<span class="ok">כולן שויכו</span>'}${m.summary.exceeding?(' · <span class="bad">'+m.summary.exceeding+' חורגות</span>'):''}`;
+    $('impMsg').innerHTML=srcNote+`זוהו <b>${m.rows.length}</b> שורות · ${m.summary.unmatched?('<span class="bad">'+m.summary.unmatched+' לא שויכו</span>'):'<span class="ok">כולן שויכו</span>'}${m.summary.exceeding?(' · <span class="bad">'+m.summary.exceeding+' חורגות</span>'):''}`;
     $('impPrev').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>שורה מהקובץ</th><th>פריט בהסכם</th><th>במלאי לפני</th><th>יורד</th><th>נשאר אחרי</th></tr></thead><tbody>'
       + _impRows.map((r,i)=>{
           const opts=(a.items||[]).map(it=>`<option value="${it.itemId}"${r.itemId===it.itemId?' selected':''}>${esc(it.name)}${it.sku?' ('+esc(it.sku)+')':''}</option>`).join('');
@@ -351,15 +373,15 @@ function _impParse(){
         }).join('') + '</tbody></table></div>';
     _impBind();
   } else {
-    _impRows=lines.map(l=>({ raw:l.raw, sku:l.sku||'', name:l.name||l.sku||'', qty:l.qty, unitPrice:0 }));
-    $('impMsg').innerHTML=`זוהו <b>${_impRows.length}</b> פריטים — ערכו לפי הצורך`;
+    _impRows=lines.map(l=>({ raw:l.raw, sku:l.sku||'', name:l.name||l.sku||'', qty:l.qty, unitPrice:l.unitPrice||0 }));
+    $('impMsg').innerHTML=srcNote+`זוהו <b>${_impRows.length}</b> פריטים — ערכו לפי הצורך`;
     $('impPrev').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>שורה מהקובץ</th><th>מק״ט</th><th>שם פריט</th><th>כמות</th><th>מחיר יח׳</th></tr></thead><tbody>'
       + _impRows.map((r,i)=>`<tr>
           <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.raw)}">${esc(r.raw)}</td>
           <td><input class="impSku" data-i="${i}" value="${esc(r.sku)}" style="width:100px" placeholder="ריק=ללא"></td>
           <td><input class="impName" data-i="${i}" value="${esc(r.name)}" style="width:190px"></td>
           <td><input type="number" class="impQty" data-i="${i}" value="${r.qty}" min="0" style="width:100px"></td>
-          <td><input type="number" class="impPrice" data-i="${i}" value="0" min="0" step="0.01" style="width:90px"></td></tr>`).join('')
+          <td><input type="number" class="impPrice" data-i="${i}" value="${r.unitPrice||0}" min="0" step="0.01" style="width:90px"></td></tr>`).join('')
       + '</tbody></table></div>';
     _impBind();
   }

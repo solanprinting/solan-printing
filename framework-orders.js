@@ -245,6 +245,63 @@
     return out;
   }
 
+  // ── קריאת גיליון (אקסל/CSV) לפי *עמודות* — אמין בהרבה מהמרה-לטקסט ─────────
+  //    rows = מערך-שורות (כל שורה מערך-תאים), כמו sheet_to_json(header:1).
+  //    מזהה שורת-כותרת בעברית/אנגלית וממפה מק"ט/שם/כמות/מחיר. בלי כותרת —
+  //    היוריסטיקה: עמודה מספרית = כמות, הטקסטואלית הארוכה ביותר = שם.
+  function parseSheetRows(rows) {
+    rows = (rows || []).map(function (r) { return (r || []).map(function (c) { return _s(c); }); })
+                       .filter(function (r) { return r.some(function (c) { return c !== ''; }); });
+    if (!rows.length) return { lines: [], header: null };
+
+    var RX = {
+      sku:   /^(מק["׳']?ט|מקט|קטלוג|sku|code|item\s*code|barcode|ברקוד)/i,
+      name:  /^(שם|תיאור|פריט|מוצר|name|item|desc|product)/i,
+      qty:   /^(כמות|יחידות|qty|quantity|amount|units)/i,
+      price: /^(מחיר|price|unit\s*price|מחיר\s*יח)/i
+    };
+    var map = null, headerRow = -1;
+    for (var i = 0; i < Math.min(rows.length, 8); i++) {          // כותרת בדרך-כלל ב-8 השורות הראשונות
+      var cand = {}, hits = 0;
+      rows[i].forEach(function (c, ci) {
+        if (map) return;
+        Object.keys(RX).forEach(function (k) {
+          if (cand[k] === undefined && RX[k].test(c)) { cand[k] = ci; hits++; }
+        });
+      });
+      if (cand.qty !== undefined && (cand.name !== undefined || cand.sku !== undefined)) { map = cand; headerRow = i; break; }
+    }
+
+    var out = [];
+    if (map) {
+      rows.slice(headerRow + 1).forEach(function (r) {
+        var qty = _int(String(r[map.qty] || '').replace(/[,\s]/g, ''));
+        var name = map.name !== undefined ? r[map.name] : '';
+        var sku = map.sku !== undefined ? r[map.sku] : '';
+        if (!qty || (!name && !sku)) return;
+        out.push({ raw: r.join(' | '), sku: sku || null, name: name || null, qty: qty,
+                   unitPrice: map.price !== undefined ? _num(String(r[map.price] || '').replace(/[^\d.\-]/g, '')) : 0 });
+      });
+      return { lines: out, header: map };
+    }
+
+    // בלי כותרת: הכמות = התא המספרי האחרון בשורה; השם = התא הטקסטואלי הארוך ביותר
+    rows.forEach(function (r) {
+      var numIdx = -1;
+      for (var j = r.length - 1; j >= 0; j--) { if (/^\d[\d,\s]*$/.test(r[j])) { numIdx = j; break; } }
+      if (numIdx < 0) return;
+      var qty = _int(r[numIdx].replace(/[,\s]/g, ''));
+      if (!qty) return;
+      var texts = r.filter(function (c, k) { return k !== numIdx && c && !/^\d[\d,.\s]*$/.test(c); });
+      if (!texts.length) return;
+      // מזהה שנראה כמק"ט (אותיות+ספרות בלי רווח) → sku; הארוך ביותר → שם
+      var sku = texts.find(function (t) { return /^[A-Za-z0-9][A-Za-z0-9\-_.\/]+$/.test(t) && /\d/.test(t); }) || null;
+      var name = texts.filter(function (t) { return t !== sku; }).sort(function (x, y) { return y.length - x.length; })[0] || sku;
+      out.push({ raw: r.join(' | '), sku: sku, name: name, qty: qty, unitPrice: 0 });
+    });
+    return { lines: out, header: null };
+  }
+
   // ── שיוך שורות-ההזמנה לפריטי-ההסכם + חישוב לפני/יורד/אחרי ─────────────────
   function matchOrder(agreement, lines) {
     var b = computeBalances(agreement);
@@ -308,7 +365,7 @@
     STATUSES: STATUSES, MOVE_TYPES: MOVE_TYPES,
     makeId: makeId, buildItem: buildItem, buildAgreement: buildAgreement, buildMovement: buildMovement,
     computeBalances: computeBalances, checkDraw: checkDraw, applyMovement: applyMovement,
-    parseOrderText: parseOrderText, matchOrder: matchOrder, applyOrder: applyOrder,
+    parseOrderText: parseOrderText, parseSheetRows: parseSheetRows, matchOrder: matchOrder, applyOrder: applyOrder,
     alerts: alerts, findItem: findItem, validate: validate
   };
 });
