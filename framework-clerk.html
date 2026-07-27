@@ -46,6 +46,16 @@
   .tab.on{background:var(--press);color:#fff;border-color:var(--press)}
   .tab .n{background:var(--warn);color:#fff;border-radius:9px;padding:0 7px;font-size:.72rem;margin-inline-start:5px}
   .ready{border-inline-start:5px solid var(--ok);background:#f0fdf4}
+  /* ── לוח זרימת עבודות ── */
+  .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}
+  .fCol{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+  .fHead{color:#fff;font-weight:800;padding:9px 12px;font-size:.9rem;display:flex;justify-content:space-between;align-items:center}
+  .fN{background:rgba(255,255,255,.28);border-radius:10px;padding:0 9px;font-size:.8rem}
+  .fHint{padding:6px 12px;background:#faf8f2;color:var(--muted);font-size:.76rem;border-bottom:1px solid var(--line)}
+  .fBody{padding:9px;display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 250px);overflow-y:auto}
+  .fCard{border:1px solid var(--line);border-inline-start:5px solid var(--line);border-radius:9px;padding:8px 10px;background:#fff}
+  .fCard:hover{border-color:var(--gold)}
+  @media(max-width:900px){.flow{grid-template-columns:1fr}.fBody{max-height:none}}
   /* ── תעודת משלוח להדפסה ── */
   #dnPrint{display:none}
   @media print{
@@ -100,7 +110,7 @@ function _get(p){ return _auth().then(t=>fetch(_FBURL+'/'+p+'.json?auth='+t).the
 function _put(p,o){ return _auth().then(t=>fetch(_FBURL+'/'+p+'.json?auth='+t,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)})
   .then(r=>{ if(!r.ok) return r.text().then(x=>{ throw new Error('כתיבה נכשלה ('+r.status+') '+String(x||'').slice(0,120)); }); return r; })); }
 
-let _all=[], _sel=null, _tab='orders', _busy=false, _newLines=[];
+let _all=[], _sel='ALL', _tab='flow', _busy=false, _newLines=[];
 
 // ⚠️ Firebase RTDB לא שומר מערך ריק, ומערך "עם חורים" חוזר כאובייקט — חובה לנרמל.
 function _arr(v){
@@ -123,8 +133,7 @@ async function load(){
     _all = obj && typeof obj==='object' ? Object.values(obj).filter(a=>a&&a.agreementId).map(_normAg) : [];
     _all.sort((a,b)=>String(a.customer||'').localeCompare(String(b.customer||''),'he'));
   }catch(e){ _all=[]; }
-  if(_sel && !_all.some(a=>a.agreementId===_sel)) _sel=null;
-  if(!_sel && _all.length) _sel=_all[0].agreementId;
+  if(_sel!=='ALL' && !_all.some(a=>a.agreementId===_sel)) _sel='ALL';
   render();
 }
 function cur(){ return _all.find(a=>a.agreementId===_sel)||null; }
@@ -151,13 +160,32 @@ function render(){
       ${ready?`<span class="b" title="הזמנות מוכנות לאספקה">${ready} מוכן</span>`:''}</div>`;
   }).join('') : '<div style="padding:14px" class="muted">אין לקוחות עם הסכם מסגרת</div>';
 
+  const readyAll=_all.reduce((s,a)=>s+(a.orders||[]).filter(o=>o&&o.status==='ready').length,0);
+  const allItem=`<div class="cItem${_sel==='ALL'?' on':''}" data-a="ALL" style="border-bottom:2px solid var(--line)">
+    <span>🔄 כל הלקוחות</span>${readyAll?`<span class="b">${readyAll} מוכן</span>`:''}</div>`;
+
   const a=cur();
   $('app').innerHTML=`<div class="wrap">
-    <aside class="side"><div class="sideT">לקוחות (${_all.length})</div>${side}</aside>
-    <section class="main">${a?detail(a):'<div class="card muted">בחרו לקוח מהרשימה.</div>'}</section>
+    <aside class="side"><div class="sideT">לקוחות (${_all.length})</div>${allItem}${side}</aside>
+    <section class="main">${_sel==='ALL'?detailAll():(a?detail(a):'<div class="card muted">בחרו לקוח מהרשימה.</div>')}</section>
   </div>`;
-  document.querySelectorAll('[data-a]').forEach(el=>el.onclick=()=>{ _sel=el.dataset.a; _newLines=[]; render(); });
-  if(a) wire(a);
+  document.querySelectorAll('[data-a]').forEach(el=>el.onclick=()=>{ _sel=el.dataset.a; _newLines=[];
+    if(_sel==='ALL' && _tab!=='flow') _tab='flow'; render(); });
+  wire(a);
+}
+
+// מבט-על: זרימת כל העבודות בבית-הדפוס, בלי להיכנס ללקוח מסוים
+function detailAll(){
+  const groups=_all.map(a=>({ag:a, orders:(a.orders||[]).slice().reverse()}));
+  const cnt=s=>groups.reduce((n,g)=>n+g.orders.filter(o=>o.status===s).length,0);
+  return `<div class="card" style="padding:10px 14px">
+      <span class="stat">ממתינות לייצור<b style="color:#b45309">${cnt('pending')}</b></span>
+      <span class="stat">מוכנות לאספקה<b style="color:#15803d">${cnt('ready')}</b></span>
+      <span class="stat">סופקו<b>${cnt('supplied')}</b></span>
+      <span class="stat">לקוחות<b>${_all.length}</b></span>
+    </div>
+    <div class="muted" style="margin:0 2px 10px">כל העבודות של כל הלקוחות. לרישום הזמנה או להוצאת תעודה — בחרו לקוח מהרשימה בצד.</div>
+    ${flowBoard(groups)}`;
 }
 
 function detail(a){
@@ -181,23 +209,62 @@ function detail(a){
     <div class="muted" style="margin-top:6px;font-size:.8rem">אפשר להתחייב ללקוח רק על העמודה <b>פנוי</b> — היתר כבר משוריין להזמנות קודמות.</div>
   </div>`;
 
+  // המסך הראשי = זרימת העבודות. המלאי עבר ללשונית נפרדת (ובטופס ההזמנה עצמו).
   let body='';
-  if(_tab==='orders') body = stock + newOrderCard(a,b) + ordersCard(orders,a);
+  if(_tab==='flow')       body = flowBoard([{ag:a, orders:orders}]);
+  else if(_tab==='new')   body = newOrderCard(a,b);
   else if(_tab==='ready') body = readyCard(ready,a);
-  else body = notesCard(notes,a);
+  else if(_tab==='notes') body = notesCard(notes,a);
+  else                    body = stock;
 
+  const open=orders.filter(o=>o.status==='pending'||o.status==='ready').length;
   return `<div class="tabs">
-      <div class="tab${_tab==='orders'?' on':''}" data-t="orders">🧾 הזמנות</div>
+      <div class="tab${_tab==='flow'?' on':''}" data-t="flow">🔄 זרימת עבודות${open?`<span class="n">${open}</span>`:''}</div>
+      <div class="tab${_tab==='new'?' on':''}" data-t="new">➕ הזמנה חדשה</div>
       <div class="tab${_tab==='ready'?' on':''}" data-t="ready">✅ מוכן לאספקה${ready.length?`<span class="n">${ready.length}</span>`:''}</div>
       <div class="tab${_tab==='notes'?' on':''}" data-t="notes">📄 תעודות משלוח${notes.length?`<span class="n">${notes.length}</span>`:''}</div>
-    </div>
-    <div class="card" style="padding:10px 14px">
-      <span class="stat">יתרה במלאי<b>${t.remainingQty.toLocaleString()}</b></span>
-      <span class="stat">משוריין<b style="color:#b45309">${t.pendingQty.toLocaleString()}</b></span>
-      <span class="stat">פנוי<b class="${t.shortItems?'bad':''}">${t.availableQty.toLocaleString()}</b></span>
-      <span class="stat">ממתינות<b>${t.pendingOrders}</b></span>
-      <span class="stat">מוכנות<b style="color:#15803d">${t.readyOrders}</b></span>
+      <div class="tab${_tab==='stock'?' on':''}" data-t="stock">📦 מלאי</div>
     </div>${body}`;
+}
+
+/* ═══════════ לוח זרימת עבודות ═══════════
+   שלושה שלבים לפי סטטוס ההזמנה. זה המסך הראשי של הפקיד — לא טבלת מלאי. */
+const _STAGES=[
+  { k:'pending',  t:'📝 נרשמה — ממתינה לייצור', c:'#f59e0b', hint:'הוזמן ע״י הלקוח · הכמות משוריינת' },
+  { k:'ready',    t:'✅ מוכנה לאספקה',           c:'#16a34a', hint:'הדפוס סיים — אפשר להוציא תעודת משלוח' },
+  { k:'supplied', t:'🚚 סופקה',                  c:'#2d3561', hint:'יצאה ללקוח · המלאי ירד' }
+];
+function _orderCard(o,a,stage){
+  const note=(a.deliveryNotes||[]).find(d=>(d.orders||[]).some(x=>x.orderId===o.orderId));
+  const lines=FW.effectiveLines(o).map(l=>{
+    const it=(a.items||[]).find(x=>x.itemId===l.itemId);
+    return `<div>• ${esc((it&&it.name)||l.name||'')} — ${l.packs?`<b>${l.packs.toLocaleString()} ${esc(_plu(l.packName||(it&&it.packName)))}</b>`:`${l.qty.toLocaleString()} יח׳`}</div>`;
+  }).join('');
+  const late = stage==='pending' && o.dueDate && o.dueDate < _today();
+  const short = stage!=='pending' && FW.effectiveLines(o).some(l=>l.orderedQty && l.qty<l.orderedQty);
+  return `<div class="fCard" style="border-inline-start-color:${_STAGES.find(s=>s.k===stage).c}">
+    <div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">
+      <b>${esc(o.orderRef||o.orderId)}</b><span class="muted" style="font-size:.75rem">${esc(o.date||'')}</span></div>
+    ${_sel==='ALL'?`<div class="muted" style="font-size:.78rem">🏢 ${esc(a.customer)}</div>`:''}
+    <div style="font-size:.82rem;margin-top:4px">${lines}</div>
+    ${o.dueDate?`<div class="${late?'bad':'muted'}" style="font-size:.76rem;margin-top:3px">${late?'⚠ עבר מועד: ':'לאספקה עד: '}${esc(o.dueDate)}</div>`:''}
+    ${short?'<div class="bad" style="font-size:.76rem">יצא פחות מההזמנה</div>':''}
+    ${o.ready&&o.ready.notes?`<div class="muted" style="font-size:.76rem">📌 ${esc(o.ready.notes)}</div>`:''}
+    ${note?`<div style="margin-top:5px"><button class="dnView" data-d="${note.noteId}" data-ag="${a.agreementId}" style="padding:3px 9px;font-size:.78rem">📄 תעודה ${note.number}</button></div>`:''}
+    ${stage==='ready'?`<div style="margin-top:5px"><button class="goReady" data-ag="${a.agreementId}" class="primary" style="padding:3px 9px;font-size:.78rem">📄 הפק תעודה</button></div>`:''}
+  </div>`;
+}
+function flowBoard(groups){
+  const cols=_STAGES.map(s=>{
+    const cards=[];
+    groups.forEach(g=>{ (g.orders||[]).filter(o=>o.status===s.k).forEach(o=>cards.push(_orderCard(o,g.ag,s.k))); });
+    return `<div class="fCol">
+      <div class="fHead" style="background:${s.c}">${s.t}<span class="fN">${cards.length}</span></div>
+      <div class="fHint">${s.hint}</div>
+      <div class="fBody">${cards.join('')||'<div class="muted" style="padding:10px;text-align:center">אין עבודות בשלב זה</div>'}</div>
+    </div>`;
+  }).join('');
+  return `<div class="flow">${cols}</div>`;
 }
 
 /* ── הזמנה חדשה ── */
@@ -245,27 +312,6 @@ function _oLines(o,a){
     return `${esc((it&&it.name)||l.name||'')} — ${l.packs?`<b>${l.packs.toLocaleString()} ${esc(_plu(l.packName||(it&&it.packName)))}</b> (${l.qty.toLocaleString()} יח׳)`:`${l.qty.toLocaleString()} יח׳`}`;
   }).join('<br>');
 }
-function _statusPill(o){
-  return o.status==='ready' ? '<span class="pill" style="background:#16a34a">מוכן לאספקה</span>'
-    : o.status==='supplied' ? '<span class="pill" style="background:#2d3561">סופק</span>'
-    : o.status==='cancelled' ? '<span class="pill" style="background:#6b7280">בוטל</span>'
-    : '<span class="pill" style="background:#f59e0b">ממתין לייצור</span>';
-}
-function ordersCard(orders,a){
-  return `<div class="card"><h3>🧾 כל ההזמנות של הלקוח</h3>
-    <div style="overflow-x:auto"><table>
-      <thead><tr><th>תאריך</th><th>הזמנה</th><th>פריטים</th><th>סטטוס</th><th>תעודה</th></tr></thead>
-      <tbody>${orders.map(o=>{
-        const note=(a.deliveryNotes||[]).find(d=>(d.orders||[]).some(x=>x.orderId===o.orderId));
-        return `<tr${o.status==='ready'?' class="ready"':''}>
-          <td>${esc(o.date||'')}</td><td><b>${esc(o.orderRef||o.orderId)}</b>${o.dueDate?`<div class="muted" style="font-size:.75rem">לאספקה: ${esc(o.dueDate)}</div>`:''}</td>
-          <td style="font-size:.85rem">${_oLines(o,a)}</td>
-          <td>${_statusPill(o)}${o.ready&&o.ready.notes?`<div class="muted" style="font-size:.75rem">${esc(o.ready.notes)}</div>`:''}</td>
-          <td>${note?`<button class="dnView" data-d="${note.noteId}">📄 ${note.number}</button>`:'<span class="muted">—</span>'}</td></tr>`;
-      }).join('')||'<tr><td colspan="5" class="muted" style="text-align:center;padding:12px">אין הזמנות עדיין</td></tr>'}</tbody></table></div>
-  </div>`;
-}
-
 /* ── מוכן לאספקה → תעודת משלוח ── */
 function readyCard(ready,a){
   if(!ready.length) return `<div class="card"><h3>✅ מוכן לאספקה</h3>
@@ -310,6 +356,14 @@ function notesCard(notes,a){
 /* ═══════════ אירועים ═══════════ */
 function wire(a){
   document.querySelectorAll('[data-t]').forEach(el=>el.onclick=()=>{ _tab=el.dataset.t; render(); });
+  // מלוח-הזרימה אפשר לקפוץ ישר ללקוח וללשונית הרלוונטית
+  document.querySelectorAll('.goReady').forEach(el=>el.onclick=e=>{
+    e.stopPropagation(); _sel=el.dataset.ag; _tab='ready'; render(); });
+  document.querySelectorAll('.dnView').forEach(el=>el.onclick=()=>{
+    const ag=_all.find(x=>x.agreementId===el.dataset.ag)||a; if(!ag) return;
+    const d=(ag.deliveryNotes||[]).find(x=>x.noteId===el.dataset.d); if(d) showNote(d,ag);
+  });
+  if(!a) return;                                   // מבט "כל הלקוחות" — אין טפסים לחווט
 
   const b=FW.computeBalances(a);
   const add=$('nlAdd');
@@ -356,9 +410,6 @@ function wire(a){
     if(await save(_normAg(res.agreement))){ _tab='notes'; render(); showNote(res.note,a); }
   };
 
-  document.querySelectorAll('.dnView').forEach(el=>el.onclick=()=>{
-    const d=(a.deliveryNotes||[]).find(x=>x.noteId===el.dataset.d); if(d) showNote(d,a);
-  });
 }
 
 /* ── תעודת משלוח: תצוגה + הדפסה A4 ── */
