@@ -110,7 +110,7 @@ function render(){
     const b=FW.computeBalances(a), on=(a.agreementId===_sel);
     const al=FW.alerts(a,{todayIso:_today()}).length;
     return `<div class="cItem${on?' on':''}" data-a="${a.agreementId}">
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📄 ${esc(a.customer)}</span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📄 ${esc(a.customer)}${a.agreementNo?` <span style="opacity:.7;font-weight:500;font-size:.8rem">#${esc(a.agreementNo)}</span>`:''}</span>
       <span class="b" title="ניצול">${b.totals.pctUsed}%${al?' ⚠':''}</span></div>`;
   }).join('') : '<div style="padding:14px" class="muted">אין הסכמים עדיין</div>';
 
@@ -164,7 +164,11 @@ function detail(a){
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <div><h3 style="margin:0">📄 ${esc(a.title||a.customer)}</h3>
-        <div class="muted">${esc(a.customer)}${a.startDate?' · מ-'+esc(a.startDate):''}${a.endDate?' · עד '+esc(a.endDate):''} · ${esc(a.status)}</div></div>
+        <div class="muted">${esc(a.customer)}${a.startDate?' · מ-'+esc(a.startDate):''}${a.endDate?' · עד '+esc(a.endDate):''} · ${esc(a.status)}</div>
+        <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">
+          ${a.agreementNo?`<span class="stat" style="padding:3px 10px;margin:0">מס׳ הסכם<b style="font-size:.95rem">${esc(a.agreementNo)}</b></span>`:''}
+          ${a.poNumber?`<span class="stat" style="padding:3px 10px;margin:0">הזמנת רכש<b style="font-size:.95rem">${esc(a.poNumber)}</b></span>`:''}
+        </div></div>
       <div><button id="editAg">✎ ערוך הסכם</button> <button id="delAg" class="danger">🗑 מחק</button></div>
     </div>
     <div style="margin-top:10px">
@@ -228,6 +232,8 @@ function wire(a){
   $('editAg').onclick = async ()=>{
     const ag=JSON.parse(JSON.stringify(a));
     const t=prompt('כותרת ההסכם:',ag.title||''); if(t===null) return; ag.title=t.trim()||ag.title;
+    const an=prompt('מספר הסכם:',ag.agreementNo||''); if(an!==null) ag.agreementNo=an.trim()||null;
+    const po=prompt('מספר הזמנת רכש (PO):',ag.poNumber||''); if(po!==null) ag.poNumber=po.trim()||null;
     const e=prompt('תאריך סיום (YYYY-MM-DD, ריק=ללא):',ag.endDate||''); if(e!==null) ag.endDate=e.trim()||null;
     const bd=prompt('תקרה כספית ₪ (0=ללא):',String(ag.budget||0)); if(bd!==null) ag.budget=parseFloat(bd)||0;
     if(await save(ag)) render();
@@ -418,7 +424,9 @@ async function _impApply(){
 
 $('newAg').onclick = async ()=>{
   const customer=prompt('שם הלקוח:'); if(!customer) return;
-  const b=FW.buildAgreement({ customer, createdAt:_nowIso(), createdBy:'מנהל' });
+  const agreementNo=(prompt('מספר הסכם (אפשר ריק):','')||'').trim();
+  const poNumber=(prompt('מספר הזמנת רכש — PO (אפשר ריק):','')||'').trim();
+  const b=FW.buildAgreement({ customer, agreementNo, poNumber, createdAt:_nowIso(), createdBy:'מנהל' });
   if(!b.ok){ alert('נכשל: '+b.errors.join(', ')); return; }
   if(await save(b.agreement)){ _sel=b.agreement.agreementId; render(); }
 };

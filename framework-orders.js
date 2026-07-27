@@ -70,6 +70,8 @@
         agreementId: _s(input.agreementId) || makeId('fw', input.rng),
         customer: customer,
         title: _s(input.title) || ('הסכם מסגרת — ' + customer),
+        agreementNo: _s(input.agreementNo) || null,   // מספר הסכם (פנימי/מול הלקוח)
+        poNumber: _s(input.poNumber) || null,         // מספר הזמנת-רכש (PO) של הלקוח
         status: STATUSES.indexOf(input.status) >= 0 ? input.status : 'active',
         startDate: _s(input.startDate) || null,
         endDate: _s(input.endDate) || null,        // תוקף — לתזכורת פקיעה
