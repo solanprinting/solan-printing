@@ -130,6 +130,8 @@ function _put(p,o){ return _auth().then(t=>fetch(_FBURL+'/'+p+'.json?auth='+t,{m
 let _all=[], _sel='ALL', _tab='flow', _busy=false, _newLines=[];
 // עבודות הדפוס (cards) — נקראות בלבד · ותעודות משלוח שהופקו עליהן
 let _cards=[], _jobNotes=[];
+// עבודות שסומנו כסופקו *בלי* תעודת משלוח — { cardId: {at,by} }
+let _delivered={};
 
 // ⚠️ Firebase RTDB לא שומר מערך ריק, ומערך "עם חורים" חוזר כאובייקט — חובה לנרמל.
 function _arr(v){
@@ -162,10 +164,11 @@ async function load(){
 async function loadJobs(){
   const cap=(p)=>Promise.race([p, new Promise(r=>setTimeout(()=>r(null), 20000))]);
   try{
-    const [cs,ns]=await Promise.all([cap(_get('cards')), cap(_get('clerkDeliveryNotes'))]);
+    const [cs,ns,dv]=await Promise.all([cap(_get('cards')), cap(_get('clerkDeliveryNotes')), cap(_get('clerkDelivered'))]);
     if(cs) _cards=_arr(cs).filter(c=>c && c.id!=null && !c._deleted && FW.isClerkJob(c));
     _jobNotes=(ns && typeof ns==='object') ? Object.values(ns).filter(Boolean) : [];
-    if(_cards.length || _jobNotes.length) render();
+    _delivered=(dv && typeof dv==='object') ? dv : {};
+    if(_cards.length || _jobNotes.length || Object.keys(_delivered).length) render();
   }catch(e){ /* אין הרשאה/רשת — הלוח עדיין מציג את ההזמנות */ }
 }
 function cur(){ return _all.find(a=>a.agreementId===_sel)||null; }
@@ -312,7 +315,9 @@ function _orderCard(o,a,stage){
     ${short?'<div class="bad" style="font-size:.76rem">יצא פחות מההזמנה</div>':''}
     ${o.ready&&o.ready.notes?`<div class="muted" style="font-size:.76rem">📌 ${esc(o.ready.notes)}</div>`:''}
     ${note?`<div style="margin-top:5px"><button class="dnView" data-d="${note.noteId}" data-ag="${a.agreementId}" style="padding:3px 9px;font-size:.78rem">📄 תעודה ${note.number}</button></div>`:''}
-    ${stage==='ready'?`<div style="margin-top:5px"><button class="goReady" data-ag="${a.agreementId}" class="primary" style="padding:3px 9px;font-size:.78rem">📄 הפק תעודה</button></div>`:''}
+    ${stage==='ready'?`<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">
+      <button class="goReady primary" data-ag="${a.agreementId}" style="padding:3px 9px;font-size:.78rem">📄 הפק תעודה</button>
+      <button class="odDone" data-ag="${a.agreementId}" data-o="${o.orderId}" style="padding:3px 9px;font-size:.78rem" title="נמסר ללקוח בלי תעודת משלוח">✓ סמן כסופק</button></div>`:''}
   </div>`;
 }
 /* כרטיס-עבודה של הדפוס (מ-cards) — נקרא בלבד; המשרד לא עורך עבודות. */
@@ -327,7 +332,12 @@ function _jobCard(c,stage){
       ${c.paper?`<div class="muted">${esc(c.paper)}</div>`:''}</div>
     ${c.deliveryDate?`<div class="${late?'bad':'muted'}" style="font-size:.76rem;margin-top:3px">${late?'⚠ עבר מועד: ':'לאספקה: '}${esc(c.deliveryDate)}</div>`:''}
     ${note?`<div style="margin-top:5px"><button class="jnView" data-n="${note.noteId}" style="padding:3px 9px;font-size:.78rem">📄 תעודה ${note.number}</button></div>`
-      :stage==='ready'?`<div style="margin-top:5px"><button class="jnMake primary" data-c="${c.id}" style="padding:3px 9px;font-size:.78rem">📄 הפק תעודה</button></div>`:''}
+      : _delivered[c.id]?`<div style="margin-top:5px"><span class="ok" style="font-size:.78rem">✓ סופק ללא תעודה</span>
+          <span class="muted" style="font-size:.72rem">${esc(_delivered[c.id].at||'')} ${esc(_delivered[c.id].by||'')}</span>
+          <button class="jnUndo" data-c="${c.id}" style="padding:2px 7px;font-size:.72rem" title="בטל סימון">↩</button></div>`
+      : stage==='ready'?`<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">
+          <button class="jnMake primary" data-c="${c.id}" style="padding:3px 9px;font-size:.78rem">📄 הפק תעודה</button>
+          <button class="jnDone" data-c="${c.id}" style="padding:3px 9px;font-size:.78rem" title="נמסר ללקוח בלי תעודת משלוח">✓ סמן כסופק</button></div>`:''}
   </div>`;
 }
 function flowBoard(groups,withJobs){
@@ -335,8 +345,8 @@ function flowBoard(groups,withJobs){
     const cards=[];
     groups.forEach(g=>{ (g.orders||[]).forEach(o=>{ if(FW.orderStage(o)===s.k) cards.push(_orderCard(o,g.ag,s.k)); }); });
     if(withJobs) _cards.forEach(c=>{
-      const note=_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0);
-      if(FW.jobStage(c,note)===s.k) cards.push(_jobCard(c,s.k));
+      const done=_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0) || !!_delivered[c.id];
+      if(FW.jobStage(c,done)===s.k) cards.push(_jobCard(c,s.k));
     });
     return `<div class="fCol">
       <div class="fHead" style="background:${s.c}">${s.t}<span class="fN">${cards.length}</span></div>
@@ -398,7 +408,7 @@ function readyCard(ready,a){
     <div class="muted">אין כרגע הזמנות שסומנו כמוכנות. ברגע שהדפוס יסמן הזמנה כמוכנה — היא תופיע כאן עם הכמות שיצאה בפועל.</div></div>`;
   return `<div class="card"><h3>✅ מוכן לאספקה — סמנו מה יוצא ללקוח</h3>
     <div style="overflow-x:auto"><table>
-      <thead><tr><th style="width:34px"></th><th>הזמנה</th><th>מה יצא בפועל</th><th>הוזמן</th><th>סומן</th><th>לחיוב</th></tr></thead>
+      <thead><tr><th style="width:34px"></th><th>הזמנה</th><th>מה יצא בפועל</th><th>הוזמן</th><th>סומן</th><th>לחיוב</th><th></th></tr></thead>
       <tbody>${ready.map(o=>{
         const short=FW.effectiveLines(o).some(l=>l.orderedQty && l.qty<l.orderedQty);
         return `<tr class="ready">
@@ -407,7 +417,8 @@ function readyCard(ready,a){
           <td style="font-size:.85rem">${_oLines(o,a)}</td>
           <td class="muted" style="font-size:.8rem">${(o.lines||[]).map(l=>l.qty.toLocaleString()+' יח׳').join('<br>')}${short?'<div class="bad">יצא פחות מההזמנה</div>':''}</td>
           <td class="muted" style="font-size:.8rem">${esc((o.ready&&o.ready.at)||'')}<br>${esc((o.ready&&o.ready.by)||'')}</td>
-          <td>₪${_n((o.ready&&o.ready.value)||o.value)}</td></tr>`;
+          <td>₪${_n((o.ready&&o.ready.value)||o.value)}</td>
+          <td><button class="odDone" data-ag="${a.agreementId}" data-o="${o.orderId}" style="padding:3px 9px;font-size:.78rem" title="נמסר ללקוח בלי תעודת משלוח">✓ סופק ללא תעודה</button></td></tr>`;
       }).join('')}</tbody></table></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">
       <span>אסמכתא / הזמנת רכש:</span><input id="dnRef" style="width:170px">
@@ -458,6 +469,34 @@ function wire(a){
   });
   document.querySelectorAll('.jnView').forEach(el=>el.onclick=()=>{
     const n=_jobNotes.find(x=>x.noteId===el.dataset.n); if(n) showNote(n,null);
+  });
+  // ✓ סימון "סופק" בלי תעודת משלוח (נמסר ביד/נאסף) — נשמר בנפרד, בלי לגעת בכרטיס העבודה
+  document.querySelectorAll('.jnDone').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation();
+    const c=_cards.find(x=>String(x.id)===String(el.dataset.c)); if(!c) return;
+    if(!confirm('לסמן ש-"'+(c.name||'')+'" סופקה ללקוח?\n(בלי הפקת תעודת משלוח)')) return;
+    if(!_isProd()){ alert('סימון פועל רק באתר החי (הגנת-סביבה).'); return; }
+    const rec={at:_today(),by:_me()};
+    try{ await _put('clerkDelivered/'+c.id, rec); }
+    catch(err){ alert('שמירה נכשלה: '+(err.message||err)); return; }
+    _delivered[c.id]=rec; render();
+  });
+  document.querySelectorAll('.jnUndo').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation();
+    if(!confirm('לבטל את סימון האספקה?')) return;
+    if(!_isProd()){ alert('פעולה זו פועלת רק באתר החי.'); return; }
+    try{ await _put('clerkDelivered/'+el.dataset.c, null); }
+    catch(err){ alert('שמירה נכשלה: '+(err.message||err)); return; }
+    delete _delivered[el.dataset.c]; render();
+  });
+  // הזמנת-מסגרת: סימון אספקה בלי תעודה (המלאי יורד — זו עדיין אספקה בפועל)
+  document.querySelectorAll('.odDone').forEach(el=>el.onclick=async()=>{
+    const ag=_all.find(x=>x.agreementId===el.dataset.ag)||a; if(!ag) return;
+    const o=FW.findOrder(ag,el.dataset.o); if(!o) return;
+    if(!confirm('לסמן שההזמנה '+(o.orderRef||o.orderId)+' סופקה — בלי תעודת משלוח?\n\nהמלאי ירד לפי מה שיצא בפועל.')) return;
+    const res=FW.supplyOrder(ag,o.orderId,{date:_today(),by:_me()});
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))) render();
   });
   document.querySelectorAll('.goOrder').forEach(el=>el.onclick=e=>{
     e.stopPropagation(); _sel=el.dataset.ag; _tab='new'; _newLines=[]; render(); });
