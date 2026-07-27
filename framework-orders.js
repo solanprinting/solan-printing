@@ -82,7 +82,8 @@
         endDate: _s(input.endDate) || null,        // תוקף — לתזכורת פקיעה
         budget: _num(input.budget),                // תקרה כספית כוללת (0 = ללא תקרה)
         items: items,
-        movements: [],                             // תנועות — מקור-האמת ליתרה
+        movements: [],                             // תנועות — מקור-האמת ליתרה (נוצרות רק באישור אספקה)
+        orders: [],                                // הזמנות לקוח: 'pending' משריינות, 'supplied' כבר ירדו
         notes: _s(input.notes) || null,
         createdAt: _s(input.createdAt) || null,
         createdBy: _s(input.createdBy) || null
@@ -136,6 +137,7 @@
         unitPrice: _num(it.price1000 != null ? it.price1000 : it.unitPrice),
         packSize: _int(it.packSize), packName: it.packName || 'קרטון',
         drawnQty: 0, returnedQty: 0, remainingQty: 0,
+        pendingQty: 0, pendingValue: 0,            // משוריין בהזמנות ממתינות — עדיין לא ירד מהמלאי
         agreedValue: (_int(it.qty) / 1000) * _num(it.price1000 != null ? it.price1000 : it.unitPrice),
         drawnValue: 0, remainingValue: 0,
         over: false
@@ -151,23 +153,43 @@
       if (m.type === 'draw') { row.drawnQty += q; row.drawnValue += val; }
       else { row.returnedQty += q; row.drawnValue -= val; }
     });
+    // ⚠️ הזמנות 'pending' משריינות בלבד — המלאי יורד רק כשהאספקה מאושרת (supplyOrder → תנועה)
+    (ag.orders || []).forEach(function (o) {
+      if (!o || o.status !== 'pending') return;
+      (o.lines || []).forEach(function (ln) {
+        var row = byId[ln.itemId]; if (!row) return;
+        var q = _int(ln.qty);
+        row.pendingQty += q;
+        row.pendingValue += (q / 1000) * (ln.price1000 != null ? _num(ln.price1000) : row.price1000);
+      });
+    });
+
     var list = items.map(function (it) {
       var r = byId[it.itemId];
       r.remainingQty = r.agreedQty - r.drawnQty + r.returnedQty;
+      // "פנוי" = היתרה בפועל פחות מה שכבר הובטח בהזמנות ממתינות
+      r.availableQty = r.remainingQty - r.pendingQty;
+      r.shortForPending = r.availableQty < 0;
       r.remainingValue = r.agreedValue - r.drawnValue;
       r.over = r.remainingQty < 0;                                 // חריגה מהכמות המוסכמת
       // המרה לחבילות (כשהוגדר גודל-חבילה) — לתצוגה בלבד; מקור-האמת הוא היחידות
       r.remainingPacks = r.packSize > 0 ? Math.floor(r.remainingQty / r.packSize) : null;
       r.agreedPacks    = r.packSize > 0 ? Math.floor(r.agreedQty / r.packSize) : null;
+      r.availablePacks = r.packSize > 0 ? Math.floor(r.availableQty / r.packSize) : null;
+      r.pendingPacks   = r.packSize > 0 ? Math.floor(r.pendingQty / r.packSize) : null;
       return r;
     });
     var totals = list.reduce(function (a, r) {
       a.agreedQty += r.agreedQty; a.drawnQty += (r.drawnQty - r.returnedQty);
       a.remainingQty += r.remainingQty;
+      a.pendingQty += r.pendingQty; a.pendingValue += r.pendingValue; a.availableQty += r.availableQty;
       a.agreedValue += r.agreedValue; a.drawnValue += r.drawnValue; a.remainingValue += r.remainingValue;
       if (r.over) a.overItems++;
+      if (r.shortForPending) a.shortItems++;
       return a;
-    }, { agreedQty: 0, drawnQty: 0, remainingQty: 0, agreedValue: 0, drawnValue: 0, remainingValue: 0, overItems: 0 });
+    }, { agreedQty: 0, drawnQty: 0, remainingQty: 0, pendingQty: 0, pendingValue: 0, availableQty: 0,
+         agreedValue: 0, drawnValue: 0, remainingValue: 0, overItems: 0, shortItems: 0 });
+    totals.pendingOrders = (ag.orders || []).filter(function (o) { return o && o.status === 'pending'; }).length;
 
     // תקרה כספית (אם הוגדרה) — נמדדת מול הערך שנמשך בפועל
     var budget = _num(ag.budget);
@@ -211,6 +233,8 @@
     var b = computeBalances(agreement), out = [];
     b.items.forEach(function (r) {
       if (r.agreedQty <= 0) return;
+      // המלאי הפנוי לא מכסה את ההזמנות הממתינות — אי-אפשר לספק הכל
+      if (r.shortForPending) out.push({ level: 'short', itemId: r.itemId, name: r.name, sku: r.sku, remaining: r.remainingQty, pending: r.pendingQty, shortBy: -r.availableQty });
       if (r.remainingQty <= 0) out.push({ level: 'out', itemId: r.itemId, name: r.name, sku: r.sku, remaining: r.remainingQty });
       else if ((r.remainingQty / r.agreedQty) * 100 <= lowPct) out.push({ level: 'low', itemId: r.itemId, name: r.name, sku: r.sku, remaining: r.remainingQty });
     });
@@ -333,7 +357,8 @@
       if (!it) return { raw: ln.raw, sku: ln.sku, name: ln.name, qty: _int(ln.qty), matched: false, itemId: null };
       var r = byId[it.itemId];
       var prior = used[it.itemId] || 0;
-      var before = r.remainingQty - prior;                          // מתחשב בשורות קודמות באותה הזמנה
+      // "לפני" = המלאי ה*פנוי*: היתרה פחות שריון של הזמנות ממתינות, פחות שורות קודמות באותה הזמנה
+      var before = r.availableQty - prior;
       // הזמנה בקרטונים → המרה ליחידות לפי גודל-החבילה של הפריט (60 קרטון × 3000 = 180,000 יח')
       var packs = _int(ln.packs), q = _int(ln.qty);
       if (!q && packs > 0 && r.packSize > 0) q = packs * r.packSize;
@@ -343,6 +368,7 @@
       return {
         raw: ln.raw, matched: true, itemId: it.itemId, sku: it.sku || null, name: it.name,
         unit: r.unit, qty: q, before: before, after: after,
+        stockQty: r.remainingQty, pendingQty: r.pendingQty,   // יתרה בפועל · כמה כבר משוריין
         packs: packs || 0, packSize: r.packSize || 0, packName: r.packName || 'קרטון',
         exceeds: after < 0, shortBy: after < 0 ? -after : 0,
         price1000: r.price1000, unitPrice: r.price1000,
@@ -375,6 +401,139 @@
     return { ok: true, agreement: ag, added: added.length, errors: errors };
   }
 
+  /* ═══════════ הזמנת לקוח: שריון → אספקה ═══════════
+     ⚠️ חוק: קליטת הזמנה *אינה* מורידה מהמלאי. היא נרשמת כהזמנה 'pending' שמשריינת
+     את הכמות (המלאי הפנוי קטן, היתרה בפועל לא). המלאי יורד רק ב-supplyOrder —
+     כלומר כשהאספקה ללקוח אושרה — ואז ורק אז נוצרות תנועות 'draw'. */
+
+  // קליטת הזמנה כ"ממתינה" (שריון בלבד)
+  function placeOrder(agreement, matchedRows, meta) {
+    meta = meta || {};
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    var lines = [];
+    (matchedRows || []).forEach(function (r) {
+      if (!r || !r.matched || !r.itemId) return;
+      var q = _int(r.qty); if (q <= 0) return;
+      if (!(ag.items || []).some(function (it) { return it.itemId === r.itemId; })) return;
+      lines.push({
+        itemId: r.itemId, sku: r.sku || null, name: r.name || null, qty: q,
+        packs: _int(r.packs) || null, packSize: _int(r.packSize) || null,
+        price1000: r.price1000 != null ? _num(r.price1000) : null,
+        value: (q / 1000) * _num(r.price1000)
+      });
+    });
+    if (!lines.length) return { ok: false, errors: ['NO_ROWS'] };
+    var order = {
+      orderId: _s(meta.orderId) || makeId('or', meta.rng),
+      orderRef: _s(meta.orderRef) || null,
+      poNumber: _s(meta.poNumber) || null,
+      status: 'pending',                       // ← לא ירד מהמלאי
+      date: _s(meta.date) || null,
+      dueDate: _s(meta.dueDate) || null,
+      by: _s(meta.by) || null,
+      notes: _s(meta.notes) || null,
+      suppliedAt: null, suppliedBy: null,
+      lines: lines,
+      qty: lines.reduce(function (a, l) { return a + l.qty; }, 0),
+      value: lines.reduce(function (a, l) { return a + l.value; }, 0)
+    };
+    ag.orders = (ag.orders || []).concat([order]);
+    return { ok: true, agreement: ag, order: order, lines: lines.length };
+  }
+
+  function findOrder(agreement, orderId) {
+    return ((agreement && agreement.orders) || []).find(function (o) { return o && o.orderId === orderId; }) || null;
+  }
+
+  // אישור אספקה → כאן ורק כאן המלאי יורד (הזמנה → תנועות 'draw')
+  function supplyOrder(agreement, orderId, meta) {
+    meta = meta || {};
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    var o = (ag.orders || []).find(function (x) { return x && x.orderId === orderId; });
+    if (!o) return { ok: false, errors: ['ORDER_NOT_FOUND'] };
+    if (o.status === 'supplied') return { ok: false, errors: ['ALREADY_SUPPLIED'] };
+    if (o.status === 'cancelled') return { ok: false, errors: ['ORDER_CANCELLED'] };
+    var added = [];
+    (o.lines || []).forEach(function (ln) {
+      var mb = buildMovement({
+        itemId: ln.itemId, type: 'draw', qty: ln.qty, packs: ln.packs, packSize: ln.packSize,
+        price1000: ln.price1000, orderRef: o.orderRef || o.poNumber || null,
+        date: _s(meta.date) || o.date || null, by: _s(meta.by) || null,
+        notes: 'אספקה להזמנה ' + (o.orderRef || o.orderId)
+      });
+      if (mb.ok) { mb.movement.orderId = o.orderId; added.push(mb.movement); }
+    });
+    if (!added.length) return { ok: false, errors: ['NO_LINES'] };
+    o.status = 'supplied';
+    o.suppliedAt = _s(meta.date) || null;
+    o.suppliedBy = _s(meta.by) || null;
+    ag.movements = (ag.movements || []).concat(added);
+    return { ok: true, agreement: ag, order: o, added: added.length };
+  }
+
+  // ביטול הזמנה ממתינה — משחרר את השריון (ללא השפעה על המלאי, כי מעולם לא ירד)
+  function cancelOrder(agreement, orderId, meta) {
+    meta = meta || {};
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    var o = (ag.orders || []).find(function (x) { return x && x.orderId === orderId; });
+    if (!o) return { ok: false, errors: ['ORDER_NOT_FOUND'] };
+    if (o.status === 'supplied') return { ok: false, errors: ['ALREADY_SUPPLIED'] };  // כבר ירד — צריך זיכוי, לא ביטול
+    o.status = 'cancelled';
+    o.notes = _s(meta.notes) || o.notes;
+    return { ok: true, agreement: ag, order: o };
+  }
+
+  /* ═══════════ הוספה למלאי (הזמנת רכש / הסכם חדש של אותו לקוח) ═══════════
+     פריט שכבר קיים אצל הלקוח (לפי מק״ט, ואם אין — לפי שם) *מצטבר* לכמות הקיימת
+     ולא נפתח פריט כפול. כל הוספה נרשמת ב-topups עם מס' ההסכם/הזמנת-הרכש. */
+  function applyStock(agreement, rows, meta) {
+    meta = meta || {};
+    var ag = JSON.parse(JSON.stringify(agreement || {}));
+    ag.items = ag.items || []; ag.topups = ag.topups || [];
+    var added = 0, merged = 0, log = [], errors = [];
+    (rows || []).forEach(function (r, i) {
+      var qty = _int(r && r.qty);
+      var name = _s(r && r.name) || _s(r && r.sku);
+      if (!name || qty <= 0) return;
+      var p1000 = _num(r.price1000 != null ? r.price1000 : r.unitPrice);
+      var packSize = _int(r.packSize);
+      var ex = (_s(r.sku) && findItem(ag, r.sku)) || findItem(ag, name);
+      var before, after, itemId;
+      if (ex) {
+        before = _int(ex.qty); after = before + qty;
+        ex.qty = after;
+        if (p1000 > 0) { ex.price1000 = p1000; ex.unitPrice = p1000; }   // מחיר מעודכן גובר
+        if (packSize > 0) ex.packSize = packSize;
+        if (!ex.sku && _s(r.sku)) ex.sku = _s(r.sku);
+        itemId = ex.itemId; merged++;
+      } else {
+        var b = buildItem({ name: name, sku: r.sku, qty: qty, price1000: p1000, packSize: packSize, packName: r.packName, unit: r.unit });
+        if (!b.ok) { errors.push('ROW_' + i + ':' + b.errors.join(',')); return; }
+        ag.items.push(b.item);
+        before = 0; after = qty; itemId = b.item.itemId; added++;
+      }
+      log.push({ itemId: itemId, sku: _s(r.sku) || null, name: name, qty: qty, before: before, after: after, isNew: !ex });
+    });
+    if (!added && !merged) return { ok: false, errors: errors.length ? errors : ['NO_ROWS'] };
+    ag.topups = ag.topups.concat([{
+      topupId: makeId('tp', meta.rng),
+      source: _s(meta.source) || 'import',            // 'po' = הזמנת רכש · 'agreement' = הסכם חדש
+      agreementNo: _s(meta.agreementNo) || null,
+      poNumber: _s(meta.poNumber) || null,
+      date: _s(meta.date) || null, by: _s(meta.by) || null, notes: _s(meta.notes) || null,
+      lines: log, addedItems: added, mergedItems: merged,
+      qty: log.reduce(function (a, l) { return a + l.qty; }, 0)
+    }]);
+    return { ok: true, agreement: ag, added: added, merged: merged, lines: log, errors: errors };
+  }
+
+  // הסכם פעיל קיים של אותו לקוח — כדי לצבור לתוכו במקום לפתוח כפילות
+  function findAgreementForCustomer(agreements, customer) {
+    var c = _s(customer).toLowerCase(); if (!c) return null;
+    var list = (agreements || []).filter(function (a) { return a && _s(a.customer).toLowerCase() === c; });
+    return list.find(function (a) { return a.status === 'active'; }) || list[0] || null;
+  }
+
   function validate(agreement) {
     var errors = [];
     if (!agreement) return { valid: false, errors: ['NULL'] };
@@ -388,11 +547,87 @@
     return { valid: errors.length === 0, errors: errors };
   }
 
+  /* ═══════════ ניתוח וורד (DOCX) ═══════════
+     מקבל את ה-XML הגולמי של word/document.xml (פתיחת ה-ZIP נעשית בדפדפן ע"י JSZip)
+     ומחזיר { rows, text } באותו מבנה שמחזירה קריאת אקסל — כדי ש-parseSheetRows
+     יזהה עמודות (מק״ט/שם/כמות/קרטונים) בדיוק כמו בגיליון.
+       · טבלת-וורד → שורה לכל <w:tr>, תא לכל <w:tc>   ← המקרה הנפוץ בהזמנות רכש
+       · פסקה חופשית → שורה אחת, מפוצלת בטאבים / רווחים מרובים
+     טבלה מקוננת בתוך תא תיקרא כשורות נוספות — לא מפיל, והמשתמש עורך לפני אישור. */
+
+  function _xmlDecode(s) {
+    return String(s == null ? '' : s)
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/&#(\d+);/g, function (m, d) { return String.fromCharCode(+d); })
+      .replace(/&#x([0-9a-fA-F]+);/g, function (m, h) { return String.fromCharCode(parseInt(h, 16)); })
+      .replace(/&amp;/g, '&');          // אחרון — אחרת "&amp;lt;" ייפתח פעמיים
+  }
+
+  // טקסט של קטע-וורד: <w:t> לפי הסדר, <w:tab/> → tabAs, <w:br/> → רווח.
+  function _wText(frag, tabAs) {
+    var out = '', re = /<(?:\w+:)?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?t>|<(?:\w+:)?tab\s*\/?>|<(?:\w+:)?(?:br|cr)\s*\/?>/g, m;
+    while ((m = re.exec(frag))) {
+      if (m[1] != null) out += _xmlDecode(m[1]);
+      else if (m[0].indexOf('tab') !== -1) out += tabAs;
+      else out += ' ';
+    }
+    return out.replace(/[  ]+/g, ' ').trim();
+  }
+
+  // סוף <w:tbl> התואם, עם ספירת-עומק (טבלאות מקוננות)
+  function _tblEnd(s, from) {
+    var re = /<(\/?)(?:\w+:)?tbl(?:\s[^>]*)?>/g, depth = 0, m;
+    re.lastIndex = from;
+    while ((m = re.exec(s))) {
+      if (m[1]) { depth--; if (depth <= 0) return re.lastIndex; }
+      else depth++;
+    }
+    return s.length;
+  }
+
+  function _docxTable(frag, rows) {
+    var tr = /<(?:\w+:)?tr(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?tr>/g, m;
+    while ((m = tr.exec(frag))) {
+      var cells = [], tc = /<(?:\w+:)?tc(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?tc>/g, c;
+      while ((c = tc.exec(m[1]))) cells.push(_wText(c[1], ' '));
+      if (cells.join('')) rows.push(cells);
+    }
+  }
+
+  function _docxParas(frag, rows) {
+    var p = /<(?:\w+:)?p(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?p>/g, m;
+    while ((m = p.exec(frag))) {
+      var t = _wText(m[1], '\t');
+      if (!t) continue;
+      var cells = t.split(/\t+|\s{3,}/).map(function (x) { return x.trim(); }).filter(function (x) { return x; });
+      rows.push(cells.length > 1 ? cells : [t]);
+    }
+  }
+
+  function parseDocxXml(xml) {
+    var s = String(xml || ''), rows = [], i = 0;
+    var open = /<(?:\w+:)?tbl(?:\s[^>]*)?>/g;
+    for (;;) {
+      open.lastIndex = i;
+      var mo = open.exec(s);
+      _docxParas(s.slice(i, mo ? mo.index : s.length), rows);   // פסקאות שמחוץ לטבלה
+      if (!mo) break;
+      var end = _tblEnd(s, mo.index);
+      _docxTable(s.slice(mo.index, end), rows);
+      i = end;
+    }
+    return { rows: rows, text: rows.map(function (r) { return r.filter(Boolean).join(', '); }).join('\n') };
+  }
+
   return {
     STATUSES: STATUSES, MOVE_TYPES: MOVE_TYPES,
+    parseDocxXml: parseDocxXml,
     makeId: makeId, buildItem: buildItem, buildAgreement: buildAgreement, buildMovement: buildMovement,
     computeBalances: computeBalances, checkDraw: checkDraw, applyMovement: applyMovement,
     parseOrderText: parseOrderText, parseSheetRows: parseSheetRows, matchOrder: matchOrder, applyOrder: applyOrder,
+    placeOrder: placeOrder, supplyOrder: supplyOrder, cancelOrder: cancelOrder, findOrder: findOrder,
+    applyStock: applyStock, findAgreementForCustomer: findAgreementForCustomer,
     alerts: alerts, findItem: findItem, validate: validate
   };
 });

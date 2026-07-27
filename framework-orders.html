@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; }catch(e){}</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="framework-orders.js"></script>
 <style>
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -98,6 +99,8 @@ function _normAg(a){
   if(!a || typeof a!=='object') return a;
   a.items = _arr(a.items);
   a.movements = _arr(a.movements);
+  a.orders = _arr(a.orders).map(o=>{ if(o) o.lines=_arr(o.lines); return o; });
+  a.topups = _arr(a.topups).map(t=>{ if(t) t.lines=_arr(t.lines); return t; });
   return a;
 }
 
@@ -147,7 +150,8 @@ function detail(a){
   const al = FW.alerts(a,{todayIso:_today()});
   const alHtml = al.length ? `<div class="card" style="border-color:#f59e0b;background:#fffbeb">
     <b style="color:#b45309">⚠️ התראות</b><ul style="margin:6px 0 0;padding-inline-start:18px">
-    ${al.map(x=> x.level==='out' ? `<li><b>${esc(x.name)}</b>${x.sku?' ('+esc(x.sku)+')':''} — אזל (יתרה ${x.remaining})</li>`
+    ${al.map(x=> x.level==='short' ? `<li><b>${esc(x.name)}</b>${x.sku?' ('+esc(x.sku)+')':''} — <b>המלאי לא מספיק להזמנות הממתינות</b>: יתרה ${x.remaining.toLocaleString()} מול ${x.pending.toLocaleString()} משוריין (חסר ${x.shortBy.toLocaleString()})</li>`
+      : x.level==='out' ? `<li><b>${esc(x.name)}</b>${x.sku?' ('+esc(x.sku)+')':''} — אזל (יתרה ${x.remaining})</li>`
       : x.level==='low' ? `<li><b>${esc(x.name)}</b>${x.sku?' ('+esc(x.sku)+')':''} — יתרה נמוכה (${x.remaining})</li>`
       : x.level==='budget' ? `<li>חריגה מהתקרה הכספית ב-<b>₪${_n(x.over)}</b></li>`
       : `<li>ההסכם פג ב-${esc(x.endDate)}</li>`).join('')}</ul></div>` : '';
@@ -162,6 +166,8 @@ function detail(a){
       <td>${r.packSize?(r.packSize.toLocaleString()+' <span class="muted">/'+esc(r.packName)+'</span>'):'<span class="muted">—</span>'}</td>
       <td>${(r.drawnQty-r.returnedQty).toLocaleString()}</td>
       <td class="${r.over?'bad':''}"><b>${r.remainingQty.toLocaleString()}</b>${r.remainingPacks!=null?`<div class="muted" style="font-size:.75rem">≈ ${r.remainingPacks.toLocaleString()} ${esc(r.packName)}</div>`:''}</td>
+      <td>${r.pendingQty?`<span style="color:#b45309;font-weight:700">${r.pendingQty.toLocaleString()}</span>`:'<span class="muted">—</span>'}</td>
+      <td class="${r.shortForPending?'bad':''}"><b>${r.availableQty.toLocaleString()}</b>${r.shortForPending?' ⚠':''}</td>
       <td style="min-width:110px"><div class="bar ${cls}"><i style="width:${pct}%"></i></div><span class="muted" style="font-size:.75rem">${pct}%</span></td>
       <td>${r.price1000?('₪'+_n(r.price1000)+'<div class="muted" style="font-size:.72rem">ל-1000</div>'):'—'}</td>
       <td>${r.agreedValue?('₪'+_n(r.remainingValue)):'—'}</td>
@@ -170,7 +176,30 @@ function detail(a){
         <button class="retBtn" data-i="${r.itemId}">➕ החזרה</button>
         <button class="delItem danger" data-i="${r.itemId}" title="מחק פריט">🗑</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="10" class="muted" style="text-align:center;padding:14px">אין פריטים — הוסיפו פריט להסכם</td></tr>';
+  }).join('') || '<tr><td colspan="12" class="muted" style="text-align:center;padding:14px">אין פריטים — הוסיפו פריט להסכם</td></tr>';
+
+  // הזמנות ממתינות — משוריינות, לא ירדו מהמלאי עד אישור האספקה
+  const pend = (a.orders||[]).filter(o=>o&&o.status==='pending');
+  const hist = (a.orders||[]).filter(o=>o&&o.status!=='pending').slice().reverse().slice(0,10);
+  const oRow = (o,isPend)=>{
+    const names=(o.lines||[]).map(l=>{ const it=(a.items||[]).find(x=>x.itemId===l.itemId);
+      return `${esc((it&&it.name)||l.name||'')} — ${l.qty.toLocaleString()}${l.packs?` <span class="muted">(${l.packs} ${esc(l.packName||'קרטון')})</span>`:''}`; }).join('<br>');
+    return `<tr><td>${esc(o.date||'')}</td><td><b>${esc(o.orderRef||o.poNumber||o.orderId)}</b></td>
+      <td style="font-size:.84rem">${names}</td><td>${(o.qty||0).toLocaleString()}</td><td>₪${_n(o.value)}</td>
+      <td>${isPend?'<span class="pill" style="background:#f59e0b">ממתין לאספקה</span>'
+          : o.status==='supplied'?`<span class="pill" style="background:#16a34a">סופק ${esc(o.suppliedAt||'')}</span>`
+          : '<span class="pill" style="background:#6b7280">בוטל</span>'}</td>
+      <td style="white-space:nowrap">${isPend?`<button class="supBtn primary" data-o="${o.orderId}">✓ אשר אספקה</button>
+        <button class="canBtn danger" data-o="${o.orderId}">✗ בטל</button>`:''}</td></tr>`;
+  };
+  const ordersCard = `<div class="card" style="${pend.length?'border-color:#f59e0b':''}">
+    <h3 style="margin:0 0 8px">🚚 הזמנות לקוח ${pend.length?`<span class="pill" style="background:#f59e0b">${pend.length} ממתינות</span>`:''}</h3>
+    <div class="muted" style="margin-bottom:8px">הזמנה שנקלטה <b>משריינת</b> את הכמות בלבד — המלאי יורד רק בלחיצה על <b>✓ אשר אספקה</b>.</div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>תאריך</th><th>הזמנה</th><th>פריטים</th><th>יח׳</th><th>לחיוב</th><th>סטטוס</th><th></th></tr></thead>
+      <tbody>${(pend.map(o=>oRow(o,true)).join('') + hist.map(o=>oRow(o,false)).join(''))
+        || '<tr><td colspan="7" class="muted" style="text-align:center;padding:10px">אין הזמנות עדיין</td></tr>'}</tbody></table></div>
+  </div>`;
 
   const moves = (a.movements||[]).slice().reverse().slice(0,25).map(m=>{
     const it=(a.items||[]).find(x=>x.itemId===m.itemId);
@@ -195,6 +224,8 @@ function detail(a){
       <span class="stat">כמות מוסכמת<b>${t.agreedQty.toLocaleString()}</b></span>
       <span class="stat">נמשך<b>${t.drawnQty.toLocaleString()}</b></span>
       <span class="stat">יתרה<b class="${t.remainingQty<0?'bad':''}">${t.remainingQty.toLocaleString()}</b></span>
+      ${t.pendingQty?`<span class="stat" style="border-color:#f59e0b">משוריין<b style="color:#b45309">${t.pendingQty.toLocaleString()}</b></span>
+      <span class="stat">פנוי<b class="${t.shortItems?'bad':''}">${t.availableQty.toLocaleString()}</b></span>`:''}
       <span class="stat">ערך יתרה<b>₪${_n(t.remainingValue)}</b></span>
       ${t.budget>0?`<span class="stat">תקרה<b class="${t.budgetOver?'bad':''}">₪${_n(t.budgetRemaining)}</b></span>`:''}
       <span class="stat">ניצול<b>${t.pctUsed}%</b></span>
@@ -206,9 +237,11 @@ function detail(a){
       <div><button id="addItem">➕ הוסף פריט</button> <button id="quickDraw">⚡ משיכה מהירה</button> <button id="impStock">📥 ייבוא מלאי (PDF/אקסל)</button> <button id="impOrder" class="primary">🧾 קליטת הזמנה</button></div>
     </div>
     <div style="overflow-x:auto"><table>
-      <thead><tr><th>מק״ט</th><th>פריט</th><th>מוסכם</th><th>יח׳ בקרטון</th><th>נמשך</th><th>יתרה</th><th>ניצול</th><th>מחיר ל-1000</th><th>ערך יתרה</th><th></th></tr></thead>
+      <thead><tr><th>מק״ט</th><th>פריט</th><th>מוסכם</th><th>יח׳ בקרטון</th><th>נמשך</th><th>יתרה</th><th>משוריין</th><th>פנוי</th><th>ניצול</th><th>מחיר ל-1000</th><th>ערך יתרה</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
+    <div class="muted" style="margin-top:6px;font-size:.8rem"><b>יתרה</b> = מה שבפועל במלאי · <b>משוריין</b> = הובטח בהזמנות שטרם סופקו · <b>פנוי</b> = מה שאפשר להתחייב עליו ללקוח חדש.</div>
   </div>
+  ${ordersCard}
   <div class="card"><h3>🧾 תנועות אחרונות</h3>
     <div style="overflow-x:auto"><table>
       <thead><tr><th>תאריך</th><th>פריט</th><th>סוג</th><th>כמות</th><th>הזמנה/כרטיס</th><th>הערה</th><th></th></tr></thead>
@@ -241,6 +274,21 @@ function wire(a){
     if(!confirm('לבטל את התנועה? היתרה תחזור אוטומטית.')) return;
     const ag=_normAg(JSON.parse(JSON.stringify(a))); ag.movements=(ag.movements||[]).filter(m=>m.moveId!==btn.dataset.m);
     if(await save(ag)) render();
+  });
+  // ✓ אישור אספקה — הנקודה היחידה שבה המלאי באמת יורד
+  document.querySelectorAll('.supBtn').forEach(btn=>btn.onclick=async()=>{
+    const o=FW.findOrder(a,btn.dataset.o); if(!o) return;
+    if(!confirm('לאשר שההזמנה '+(o.orderRef||o.orderId)+' סופקה ללקוח?\n\n'+(o.qty||0).toLocaleString()+' יח׳ ירדו עכשיו מהמלאי.')) return;
+    const res=FW.supplyOrder(a,o.orderId,{date:_today(),by:'מנהל'});
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))) render();
+  });
+  document.querySelectorAll('.canBtn').forEach(btn=>btn.onclick=async()=>{
+    const o=FW.findOrder(a,btn.dataset.o); if(!o) return;
+    if(!confirm('לבטל את ההזמנה '+(o.orderRef||o.orderId)+'?\nהשריון ישוחרר (המלאי ממילא לא ירד).')) return;
+    const res=FW.cancelOrder(a,o.orderId,{});
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))) render();
   });
   $('impStock').onclick = ()=>_impOpen('stock');
   $('impOrder').onclick = ()=>_impOpen('order');
@@ -305,6 +353,20 @@ async function _readFile(f){
     if(!rows.length) throw new Error('לא נמצאו שורות בגיליון');
     return { rows: rows, text: rows.map(function(r){ return r.filter(Boolean).join(', '); }).join('\n') };
   }
+  // וורד: DOCX = ZIP שבתוכו word/document.xml. הטבלה שבמסמך נקראת כשורות-גיליון,
+  // כך שזיהוי-העמודות (parseSheetRows) זהה לחלוטין לזה של אקסל.
+  if(/\.docx$/.test(nm)){
+    if(!window.JSZip) throw new Error('ספריית קריאת וורד לא נטענה — בדקו חיבור לאינטרנט ורעננו');
+    let zip;
+    try{ zip=await JSZip.loadAsync(await f.arrayBuffer()); }
+    catch(e){ throw new Error('קובץ הוורד לא נקרא (ייתכן שהוא פגום או מוגן בסיסמה)'); }
+    const ent=zip.file('word/document.xml');
+    if(!ent) throw new Error('לא נמצא תוכן מסמך בקובץ');
+    const parsed=FW.parseDocxXml(await ent.async('string'));
+    if(!parsed.rows.length) throw new Error('המסמך ריק — לא נמצא טקסט');
+    return parsed;
+  }
+  if(/\.docx?$/.test(nm)) throw new Error('קובץ .doc ישן אינו נתמך — פתחו בוורד ושמרו כ-DOCX');
   if(/\.pdf$/.test(nm)){
     if(!window.pdfjsLib) throw new Error('ספריית ה-PDF לא נטענה');
     const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;
@@ -336,10 +398,10 @@ function _impOpen(mode){
   if(!m){ m=document.createElement('div'); m.id='impModal'; document.body.appendChild(m); }
   m.style.cssText='position:fixed;inset:0;z-index:200;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;padding:14px';
   m.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:900px;width:97vw;max-height:92vh;overflow:auto;padding:16px 18px">
-    <h3 style="margin:0 0 4px">${isOrder?'🧾 קליטת הזמנה — משיכה מההסכם':'📥 ייבוא מלאי — הוספת כמויות'}</h3>
-    <div class="muted" style="margin-bottom:10px">העלו PDF / אקסל / CSV, או הדביקו שורות. הכלי ינתח — ותוכלו <b>לערוך כל שורה</b> לפני האישור.</div>
+    <h3 style="margin:0 0 4px">${isOrder?'🧾 קליטת הזמנה — בדיקה מול המלאי (ללא הורדה)':'📥 הוספה למלאי — הזמנת רכש / הסכם חדש'}</h3>
+    <div class="muted" style="margin-bottom:10px">העלו PDF / אקסל / וורד / CSV, או הדביקו שורות. הכלי ינתח — ותוכלו <b>לערוך כל שורה</b> לפני האישור.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
-      <input type="file" id="impFile" accept=".pdf,.xlsx,.xls,.csv,.txt">
+      <input type="file" id="impFile" accept=".pdf,.xlsx,.xls,.docx,.csv,.txt">
       <span class="muted">או הדביקו:</span>
     </div>
     <textarea id="impText" placeholder="מק״ט, שם פריט, כמות&#10;AL-100, עלון שבועי, 5000" style="width:100%;height:90px"></textarea>
@@ -350,7 +412,7 @@ function _impOpen(mode){
     <div id="impPrev"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;justify-content:flex-end">
       <button id="impCancel">ביטול</button>
-      <button id="impApply" class="primary" disabled>${isOrder?'✓ אשר וקלוט הזמנה':'✓ אשר והוסף למלאי'}</button>
+      <button id="impApply" class="primary" disabled>${isOrder?'✓ קלוט הזמנה (שריון)':'✓ אשר והוסף למלאי'}</button>
     </div></div>`;
   $('impCancel').onclick=()=>m.remove();
   $('impFile').onchange=async e=>{
@@ -382,7 +444,7 @@ function _impParse(){
     const m=FW.matchOrder(a,lines);
     _impRows=m.rows;
     $('impMsg').innerHTML=srcNote+`זוהו <b>${m.rows.length}</b> שורות · ${m.summary.unmatched?('<span class="bad">'+m.summary.unmatched+' לא שויכו</span>'):'<span class="ok">כולן שויכו</span>'}${m.summary.exceeding?(' · <span class="bad">'+m.summary.exceeding+' חורגות</span>'):''}`;
-    $('impPrev').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>שורה מהקובץ</th><th>פריט בהסכם</th><th>קרטונים</th><th>יח׳ סה״כ</th><th>במלאי לפני</th><th>נשאר אחרי</th><th>לחיוב</th></tr></thead><tbody>'
+    $('impPrev').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>שורה מהקובץ</th><th>פריט בהסכם</th><th>קרטונים</th><th>יח׳ סה״כ</th><th>פנוי לפני</th><th>פנוי אחרי</th><th>לחיוב</th></tr></thead><tbody>'
       + _impRows.map((r,i)=>{
           const opts=(a.items||[]).map(it=>`<option value="${it.itemId}"${r.itemId===it.itemId?' selected':''}>${esc(it.name)}${it.sku?' ('+esc(it.sku)+')':''}</option>`).join('');
           return `<tr${r.exceeds?' style="background:#fff7ed"':''}>
@@ -437,7 +499,7 @@ function _impRecalc(){
     r.packSize = it.packSize||0; r.packName = it.packName||'קרטון'; r.price1000 = it.price1000||0;
     if(r.packSize>0 && r.packs>0) r.qty = r.packs * r.packSize;      // קרטונים → יחידות
     const prior=used[r.itemId]||0;
-    r.before=it.remainingQty-prior; used[r.itemId]=prior+(r.qty||0);
+    r.before=it.availableQty-prior; used[r.itemId]=prior+(r.qty||0);   // מול המלאי הפנוי (אחרי שריון)
     r.after=r.before-(r.qty||0); r.exceeds=r.after<0;
     r.thousands=(r.qty||0)/1000; r.value=r.thousands*r.price1000;    // חיוב לפי מחיר-ל-1000
   });
@@ -462,28 +524,32 @@ async function _impApply(){
     const use=_impRows.filter(r=>r.matched&&r.itemId&&r.qty>0);
     if(!use.length){ alert('אין שורות לקליטה'); return; }
     const over=use.filter(r=>r.exceeds);
-    if(over.length && !confirm('⚠️ '+over.length+' שורות חורגות מהיתרה.\nלהמשיך בכל זאת?')) return;
-    const ref=prompt('מס׳ הזמנה / אסמכתא:','')||'';
-    const res=FW.applyOrder(a,use,{orderRef:ref,date:_today(),by:'מנהל'});
+    if(over.length && !confirm('⚠️ '+over.length+' שורות חורגות מהמלאי הפנוי.\nלקלוט בכל זאת?')) return;
+    const ref=prompt('מס׳ הזמנה / הזמנת רכש של הלקוח:','')||'';
+    // ⚠️ קליטה = שריון בלבד. המלאי יורד רק ב"✓ אשר אספקה".
+    const res=FW.placeOrder(a,use,{orderRef:ref,date:_today(),by:'מנהל'});
     if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
-    if(await save(res.agreement)){ $('impModal').remove(); render(); }
+    if(await save(_normAg(res.agreement))){ $('impModal').remove(); render();
+      alert('✓ ההזמנה נקלטה ומשוריינת.\nהמלאי טרם ירד — לחצו "✓ אשר אספקה" אחרי שהסחורה סופקה ללקוח.'); }
   } else {
-    const ag=_normAg(JSON.parse(JSON.stringify(a)));
-    let added=0, merged=0;
-    _impRows.forEach(r=>{
-      if(!r.name || !(r.qty>0)) return;
-      // פריט קיים (לפי מק״ט/שם) → מוסיפים לכמות; אחרת פריט חדש
-      const ex=FW.findItem(ag, r.sku||r.name);
-      if(ex){ ex.qty=(parseInt(ex.qty,10)||0)+r.qty; if(r.unitPrice>0){ ex.price1000=r.unitPrice; ex.unitPrice=r.unitPrice; } if(r.packSize>0) ex.packSize=r.packSize; merged++; }
-      else { const b=FW.buildItem({name:r.name,sku:r.sku,qty:r.qty,price1000:r.unitPrice,packSize:r.packSize||0}); if(b.ok){ ag.items.push(b.item); added++; } }
-    });
-    if(!added && !merged){ alert('לא נוספו פריטים (חסר שם או כמות)'); return; }
-    if(await save(ag)){ $('impModal').remove(); render(); alert('✓ נוספו '+added+' פריטים חדשים · עודכנו '+merged+' קיימים'); }
+    // פריט שכבר קיים אצל הלקוח מצטבר לכמות הקיימת (לא נפתחת כפילות)
+    const src=prompt('מקור ההוספה — מס׳ הזמנת רכש / מס׳ הסכם (אפשר להשאיר ריק):','')||'';
+    const res=FW.applyStock(a,_impRows,{source:'po',poNumber:src,date:_today(),by:'מנהל'});
+    if(!res.ok){ alert('לא נוספו פריטים: '+res.errors.join(', ')); return; }
+    if(await save(_normAg(res.agreement))){ $('impModal').remove(); render();
+      alert('✓ נוספו '+res.added+' פריטים חדשים · '+res.merged+' פריטים קיימים עודכנו וצברו כמות'); }
   }
 }
 
 $('newAg').onclick = async ()=>{
   const customer=prompt('שם הלקוח:'); if(!customer) return;
+  // הסכם/הזמנת-רכש חדשים לאותו לקוח → עדיף לצבור למלאי הקיים ולא לפתוח כפילות
+  const exist=FW.findAgreementForCustomer(_all, customer);
+  if(exist && confirm('ל-"'+exist.customer+'" כבר קיים הסכם עם '+(exist.items||[]).length+' פריטים.\n\n'
+      +'אישור = הוספה למלאי הקיים (הפריטים יצטברו לאותם פריטים).\n'
+      +'ביטול = פתיחת הסכם נפרד חדש.')){
+    _sel=exist.agreementId; render(); _impOpen('stock'); return;
+  }
   const agreementNo=(prompt('מספר הסכם (אפשר ריק):','')||'').trim();
   const poNumber=(prompt('מספר הזמנת רכש — PO (אפשר ריק):','')||'').trim();
   const b=FW.buildAgreement({ customer, agreementNo, poNumber, createdAt:_nowIso(), createdBy:'מנהל' });
