@@ -534,26 +534,29 @@ function deliveredView(agId){
     (a.orders||[]).filter(o=>o&&o.status==='supplied').forEach(o=>{
       const note=(a.deliveryNotes||[]).find(d=>(d.orders||[]).some(x=>x.orderId===o.orderId));
       out.push({ cust:a.customer, title:FW.orderTitle(o), date:o.suppliedAt||o.date||'',
-        detail:_oLines(o,a), note:note?`<button class="dnView" data-d="${note.noteId}" data-ag="${a.agreementId}">📄 ${note.number}</button>`:'<span class="muted">ללא תעודה</span>' });
+        detail:_oLines(o,a), note:note?`<button class="dnView" data-d="${note.noteId}" data-ag="${a.agreementId}">📄 ${note.number}</button>`:'<span class="muted">ללא תעודה</span>',
+        undo:`<button class="odUndo" data-ag="${a.agreementId}" data-o="${o.orderId}" title="הסחורה תחזור למלאי הלקוח">↩ בטל אספקה</button>` });
     });
   });
   if(!agId) _cards.forEach(c=>{
     const note=_jobNotes.find(n=>(n.cardIds||[]).indexOf(String(c.id))>=0);
     if(!note && !_delivered[c.id]) return;
-    out.push({ cust:c.customer||'', title:'🖨 '+(c.name||'עבודה'),
+    const jl=FW.jobLines(c);
+    out.push({ cust:FW.jobCustomers(c).join(' · ')||c.customer||'', title:'🖨 '+(c.name||'עבודה'),
       date:(note&&note.date)||(_delivered[c.id]&&_delivered[c.id].at)||'',
-      detail:c.copies?Number(c.copies).toLocaleString()+' עותקים':'',
-      note:note?`<button class="jnView" data-n="${note.noteId}">📄 ${note.number}</button>`
-        :`<span class="ok">✓ ללא תעודה</span> <button class="jnUndo" data-c="${c.id}" style="padding:2px 7px;font-size:.72rem">↩</button>` });
+      detail: jl.length>1 ? jl.map(l=>'• '+esc(l.customer||'')+' — '+l.qty.toLocaleString()).join('<br>')
+        : ((c.doneQty!=null?c.doneQty:(parseInt(c.copies,10)||0)).toLocaleString()+' יח׳'),
+      note:note?`<button class="jnView" data-n="${note.noteId}">📄 ${note.number}</button>`:'<span class="ok">✓ ללא תעודה</span>',
+      undo:`<button class="jbUndoDel" data-c="${c.id}" ${note?`data-n="${note.noteId}"`:''} title="הסחורה תחזור למלאי הלקוח">↩ בטל אספקה</button>` });
   });
   out.sort((x,y)=>String(y.date).localeCompare(String(x.date)));
   return `<div class="card"><h3>🚚 סופקו</h3>
     <div class="muted" style="margin-bottom:8px">כל מה שיצא ללקוחות — לא מוצג בלוח הזרימה כדי לא להעמיס עליו.</div>
     <div style="overflow-x:auto"><table>
-      <thead><tr><th>תאריך</th><th>לקוח</th><th>עבודה / הזמנה</th><th>פירוט</th><th>תעודה</th></tr></thead>
+      <thead><tr><th>תאריך</th><th>לקוח</th><th>עבודה / הזמנה</th><th>פירוט</th><th>תעודה</th><th></th></tr></thead>
       <tbody>${out.map(r=>`<tr><td>${esc(r.date)}</td><td>${esc(r.cust)}</td>
-        <td><b>${esc(r.title)}</b></td><td style="font-size:.85rem">${r.detail}</td><td>${r.note}</td></tr>`).join('')
-        ||'<tr><td colspan="5" class="muted" style="text-align:center;padding:12px">עדיין לא סופק דבר</td></tr>'}</tbody></table></div>
+        <td><b>${esc(r.title)}</b></td><td style="font-size:.85rem">${r.detail}</td><td>${r.note}</td><td>${r.undo||''}</td></tr>`).join('')
+        ||'<tr><td colspan="6" class="muted" style="text-align:center;padding:12px">עדיין לא סופק דבר</td></tr>'}</tbody></table></div>
   </div>`;
 }
 
@@ -604,7 +607,11 @@ function wire(a){
     if(!_isProd()){ alert('הפקה פועלת רק באתר החי (הגנת-סביבה).'); return; }
     try{ await _put('clerkDeliveryNotes/'+jn.note.noteId, jn.note); }
     catch(err){ alert('שמירה נכשלה: '+(err.message||err)); return; }
-    _jobNotes.push(jn.note); render(); showNote(jn.note,null);
+    _jobNotes.push(jn.note);
+    const outLines=_jobLinesFor(c, custs.length>1?cust:null);
+    if(outLines.length && confirm('להוריד את הכמות שנמסרה ממלאי הלקוחות?'))
+      await _syncCustomerStock(outLines, c, -1, 'מסירה ללקוח');
+    render(); showNote(jn.note,null);
   });
   document.querySelectorAll('.jnView').forEach(el=>el.onclick=()=>{
     const n=_jobNotes.find(x=>x.noteId===el.dataset.n); if(n) showNote(n,null);
@@ -618,8 +625,43 @@ function wire(a){
     const rec={at:_today(),by:_me()};
     try{ await _put('clerkDelivered/'+c.id, rec); }
     catch(err){ alert('שמירה נכשלה: '+(err.message||err)); return; }
-    _delivered[c.id]=rec; render();
+    _delivered[c.id]=rec;
+    const outLines=_jobLinesFor(c);
+    if(outLines.length && confirm('להוריד את הכמות שנמסרה ממלאי הלקוחות?'))
+      await _syncCustomerStock(outLines, c, -1, 'מסירה ללקוח');
+    render();
   });
+  /* ↩ ביטול אספקה של הזמנת-מסגרת — הכמות חוזרת למלאי הלקוח (התנועות מבוטלות) */
+  document.querySelectorAll('.odUndo').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation();
+    const ag=_all.find(x=>x.agreementId===el.dataset.ag); if(!ag) return;
+    const o=FW.findOrder(ag,el.dataset.o); if(!o) return;
+    if(!confirm('לבטל את האספקה של "'+FW.orderTitle(o)+'"?\n\nהכמות תחזור למלאי של '+ag.customer+'.')) return;
+    const res=FW.revertSupply(ag,o.orderId);
+    if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
+    // תעודת המשלוח שהופקה עליה כבר לא רלוונטית
+    res.agreement.deliveryNotes=(res.agreement.deliveryNotes||[]).filter(d=>!(d.orders||[]).some(x=>x.orderId===o.orderId));
+    if(await save(_normAg(res.agreement))){ render(); alert('✓ האספקה בוטלה — הכמות חזרה למלאי'); }
+  });
+
+  /* ↩ ביטול אספקה של עבודה — מבטל את התעודה/הסימון ומחזיר למלאי הלקוחות */
+  document.querySelectorAll('.jbUndoDel').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation();
+    const c=_cards.find(x=>String(x.id)===String(el.dataset.c)); if(!c) return;
+    if(!confirm('לבטל את האספקה של "'+(c.name||'')+'"?\n\nהעבודה תחזור ל"מוכנה לאספקה".')) return;
+    if(!_isProd()){ alert('פעולה זו פועלת רק באתר החי (הגנת-סביבה).'); return; }
+    const lines=_jobLinesFor(c);
+    if(lines.length && confirm('להחזיר את הכמויות למלאי הלקוחות?'))
+      await _syncCustomerStock(lines, c, +1, 'ביטול אספקה');
+    try{
+      if(el.dataset.n) await _put('clerkDeliveryNotes/'+el.dataset.n, null);
+      if(_delivered[c.id]) await _put('clerkDelivered/'+c.id, null);
+    }catch(err){ alert('שמירה נכשלה: '+(err.message||err)); return; }
+    if(el.dataset.n) _jobNotes=_jobNotes.filter(x=>x.noteId!==el.dataset.n);
+    delete _delivered[c.id];
+    render(); alert('✓ האספקה בוטלה');
+  });
+
   document.querySelectorAll('.jnUndo').forEach(el=>el.onclick=async e=>{
     e.stopPropagation();
     if(!confirm('לבטל את סימון האספקה?')) return;
@@ -848,7 +890,7 @@ function _jbRender(c,ov){
       const withCust=lines.filter(l=>l.customer);
       if(!withCust.length) alert('לא עודכן מלאי לקוחות — אין שורה עם שם לקוח.');
       else{
-        const okSync=await _syncCustomerStock(withCust, c);
+        const okSync=await _syncCustomerStock(withCust, c, +1, 'ייצור');
         if(okSync) rec.stockSynced=true;
       }
     }
@@ -875,23 +917,31 @@ function _custNames(){
 /* 📦 עדכון "מלאי לקוחות" באפליקציה מתוך העבודה שהושלמה.
    ⚠️ כותבים לכל לקוח בנפרד (customerStock/<id>) ולא את כל הצומת —
       כדי לא לדרוס עריכות שנעשו במקביל באפליקציה. */
-async function _syncCustomerStock(lines, card){
+/* sign=+1 מוסיף למלאי הלקוח (ייצור), sign=-1 מוריד (מסירה ללקוח).
+   ביטול אספקה מחזיר במדויק את מה שירד — ולכן משתמש באותה פונקציה עם הסימן ההפוך. */
+async function _syncCustomerStock(lines, card, sign, label){
+  sign = sign===-1 ? -1 : 1;
   if(!_isProd()){ alert('עדכון מלאי לקוחות פועל רק באתר החי (הגנת-סביבה).'); return false; }
   let root=_custStock;
   try{ const live=await _get('customerStock'); if(live && typeof live==='object') root=live; }
   catch(e){ alert('קריאת מלאי הלקוחות נכשלה — המלאי לא עודכן'); return false; }
   const res=FW.applyToCustomerStock(root,
-    lines.map(l=>({customer:l.customer, item:l.name, qty:l.qty, cardId:card&&card.id})),
-    { by:_me(), ts:Date.now(), note:'ממסך המשרד — '+((card&&card.name)||'עבודה') });
+    lines.map(l=>({customer:l.customer, item:l.name, qty:sign*Math.abs(parseInt(l.qty,10)||0), cardId:card&&card.id})),
+    { by:_me(), ts:Date.now(), note:(label||'ממסך המשרד')+' — '+((card&&card.name)||'עבודה') });
   if(!res.ok){ alert('לא עודכן מלאי לקוחות (חסר לקוח או כמות)'); return false; }
   const summary=res.applied.map(a=>'• '+a.customer+' / '+a.item+': '+a.before.toLocaleString()+' → '+a.after.toLocaleString()).join('\n');
-  if(!confirm('לעדכן את מלאי הלקוחות?\n\n'+summary)) return false;
+  if(!confirm((sign<0?'להוריד ממלאי הלקוחות?':'לעדכן את מלאי הלקוחות?')+'\n\n'+summary)) return false;
   try{
     for(const a of res.applied) await _put('customerStock/'+a.custId, res.stock[a.custId]);
   }catch(e){ alert('עדכון המלאי נכשל: '+(e.message||e)); return false; }
   _custStock=res.stock;
   alert('✓ מלאי הלקוחות עודכן\n\n'+summary);
   return true;
+}
+
+// שורות העבודה של לקוח מסוים (או כולן) — לעדכוני מלאי בעת מסירה/ביטול
+function _jobLinesFor(card, customer){
+  return FW.jobLines(card).filter(l=>l.customer && (!customer || l.customer===customer) && l.qty>0);
 }
 
 async function _saveJobOv(id, rec, m){
