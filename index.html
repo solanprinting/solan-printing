@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785157528';
+window.APP_VERSION = '1785157795';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21439,6 +21439,7 @@ function _opSetName(){
   if (n === null) return;
   _machineViewOpName = (n || '').trim() || 'מפעיל';
   try { localStorage.setItem('solanOperatorName', _machineViewOpName); } catch(e){}
+  try { _opLoadLockedTone(); } catch(e){}   // גוון-הצבע שננעל לפרופרים הבאים
   _renderOperatorScreen();
 }
 var _opPollN = 0;
@@ -22147,6 +22148,154 @@ function _opProofBar(label, onPdf) {
 }
 // ── צופה פרופר מבוסס-תמונות: התאמה למסך, זום, ניווט, וכפולה ──────────────
 var _OP_ZOOMS = [1, 1.5, 2, 3, 4];
+/* ═══════════ גווני צבע בפרופר (מסך הדפס) ═══════════
+   הדפס מעלה/מוריד אחוזים לכל צבע פרוצס בנפרד ורואה מיד את התוצאה על הפרופר.
+   ⚠️ זו *תצוגה* בלבד — לא נוגעים בקובץ. דיו נוסף = ספיגה של הערוץ המשלים:
+     ציאן↓אדום · מגנטה↓ירוק · צהוב↓כחול · שחור↓הכל.
+   אפשר לשמור לעבודה (card.inkTone) או לנעול לכל הפרופרים הבאים (opInkTone). */
+var INK_CHANNELS = [
+  { k: 'c', label: 'ציאן (כחול)', color: '#00aeef' },
+  { k: 'm', label: 'מגנטה (אדום)', color: '#ec008c' },
+  { k: 'y', label: 'צהוב', color: '#fff200' },
+  { k: 'k', label: 'שחור', color: '#231f20' }
+];
+function _inkToneNorm(t){
+  t = t || {};
+  var o = {};
+  INK_CHANNELS.forEach(function (ch) {
+    var v = parseFloat(t[ch.k]); if (!isFinite(v)) v = 0;
+    o[ch.k] = Math.max(-50, Math.min(50, Math.round(v)));    // ±50% — טווח שפוי
+  });
+  return o;
+}
+function _inkToneIsZero(t){ t = _inkToneNorm(t); return !t.c && !t.m && !t.y && !t.k; }
+// מטריצת-צבע לתצוגה: כל ערוץ מוכפל לפי הדיו שנוסף/הופחת
+function _inkMatrix(t){
+  t = _inkToneNorm(t);
+  var kk = 1 - t.k / 100;
+  var r = (1 - t.c / 100) * kk, g = (1 - t.m / 100) * kk, b = (1 - t.y / 100) * kk;
+  return [r,0,0,0,0, 0,g,0,0,0, 0,0,b,0,0, 0,0,0,1,0].join(' ');
+}
+// מזריק/מעדכן פילטר SVG ומחזיר את שם ה-CSS filter לשימוש על התמונה
+function _inkFilterCss(t){
+  if (_inkToneIsZero(t)) return '';
+  var id = 'op-ink-filter';
+  var svg = document.getElementById(id + '-svg');
+  if (!svg){
+    svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.id = id + '-svg';
+    svg.setAttribute('style','position:absolute;width:0;height:0');
+    svg.innerHTML = '<filter id="' + id + '" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values=""/></filter>';
+    document.body.appendChild(svg);
+  }
+  svg.querySelector('feColorMatrix').setAttribute('values', _inkMatrix(t));
+  return 'url(#' + id + ')';
+}
+function _inkToneLabel(t){
+  t = _inkToneNorm(t);
+  var parts = INK_CHANNELS.filter(function (ch) { return t[ch.k]; })
+    .map(function (ch) { return ch.label.split(' ')[0] + ' ' + (t[ch.k] > 0 ? '+' : '') + t[ch.k] + '%'; });
+  return parts.length ? parts.join(' · ') : 'צבע סטנדרטי';
+}
+
+// הגוון שיוצג: מה שנשמר לעבודה, אחרת הגוון שננעל לפרופרים הבאים, אחרת סטנדרטי
+function _opToneFor(cardId){
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  if (c && c.inkTone) return _inkToneNorm(c.inkTone);
+  if (window._opInkToneDefault) return _inkToneNorm(window._opInkToneDefault);
+  try { var s = localStorage.getItem('solanInkTone'); if (s) return _inkToneNorm(JSON.parse(s)); } catch(e){}
+  return _inkToneNorm({});
+}
+// טעינת הגוון הנעול מהענן (כך שכל מסכי-הדפס מקבלים אותו)
+function _opLoadLockedTone(){
+  if (!window._fbGet) return;
+  window._fbGet('opInkTone').then(function(t){
+    if (t && typeof t === 'object'){
+      window._opInkToneDefault = _inkToneNorm(t);
+      try { localStorage.setItem('solanInkTone', JSON.stringify(window._opInkToneDefault)); } catch(e){}
+    }
+  }).catch(function(){});
+}
+
+function _opInkTonePanel(){
+  var pv = window._opPV; if (!pv) return;
+  var t = _inkToneNorm(pv.tone);
+  var old = document.getElementById('op-tone-modal'); if (old) old.remove();
+  var html = '<div id="op-tone-modal" style="position:fixed;inset:0;z-index:100000;background:rgba(15,23,42,.75);'
+    + 'display:flex;align-items:flex-end;justify-content:center" onclick="if(event.target===this)this.remove()">'
+    + '<div style="background:#fff;border-radius:16px 16px 0 0;max-width:520px;width:100%;max-height:80vh;overflow:auto;padding:16px 18px">'
+    + '<div style="font-size:1.05rem;font-weight:900;color:#1a1a4e">🎚 גווני צבע</div>'
+    + '<div style="font-size:.8rem;color:#666;margin-bottom:12px">שינוי אחוזים לכל צבע — התצוגה מתעדכנת מיד. הקובץ עצמו לא משתנה.</div>'
+    + INK_CHANNELS.map(function(ch){
+        return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+          + '<span style="width:16px;height:16px;border-radius:4px;border:1px solid #cbd5e1;background:'+ch.color+';flex-shrink:0"></span>'
+          + '<span style="flex:1;font-weight:700;font-size:.9rem">'+ch.label+'</span>'
+          + '<button onclick="_opToneStep(\''+ch.k+'\',-1)" style="width:38px;height:38px;border-radius:8px;border:1.5px solid #cbd5e1;background:#fff;font-size:1.2rem;font-weight:900;cursor:pointer">−</button>'
+          + '<input id="op-tone-'+ch.k+'" type="number" value="'+t[ch.k]+'" min="-50" max="50" step="1" '
+          + 'oninput="_opToneSet(\''+ch.k+'\',this.value)" style="width:74px;height:38px;text-align:center;border:1.5px solid #cbd5e1;border-radius:8px;font-family:Heebo,sans-serif;font-size:1rem;font-weight:800">'
+          + '<span style="font-weight:800;color:#64748b">%</span>'
+          + '<button onclick="_opToneStep(\''+ch.k+'\',1)" style="width:38px;height:38px;border-radius:8px;border:1.5px solid #cbd5e1;background:#fff;font-size:1.2rem;font-weight:900;cursor:pointer">+</button>'
+          + '</div>';
+      }).join('')
+    + '<div id="op-tone-sum" style="font-size:.85rem;font-weight:800;color:#1a1a4e;margin:10px 0 12px">' + escHtml(_inkToneLabel(t)) + '</div>'
+    + '<div style="display:grid;gap:7px">'
+    + '<button onclick="_opToneSave(\'card\')" style="padding:12px;border-radius:10px;border:none;background:#16a34a;color:#fff;font-weight:900;font-family:Heebo,sans-serif;font-size:.95rem;cursor:pointer">✓ שמור לעבודה הזו</button>'
+    + '<button onclick="_opToneSave(\'lock\')" style="padding:12px;border-radius:10px;border:none;background:#1a1a4e;color:#fff;font-weight:900;font-family:Heebo,sans-serif;font-size:.95rem;cursor:pointer">🔒 נעל לפרופרים הבאים</button>'
+    + '<button onclick="_opToneReset()" style="padding:11px;border-radius:10px;border:1.5px solid #fbbf24;background:#fffbeb;color:#92400e;font-weight:800;font-family:Heebo,sans-serif;cursor:pointer">↩ חזרה לצבע סטנדרטי</button>'
+    + '<button onclick="document.getElementById(\'op-tone-modal\').remove()" style="padding:11px;border-radius:10px;border:1.5px solid #cbd5e1;background:#fff;font-weight:700;font-family:Heebo,sans-serif;cursor:pointer">סגור</button>'
+    + '</div></div></div>';
+  var d = document.createElement('div'); d.innerHTML = html; document.body.appendChild(d.firstChild);
+}
+function _opToneSet(k, v){
+  var pv = window._opPV; if (!pv) return;
+  pv.tone = _inkToneNorm(Object.assign({}, pv.tone, (function(o){ o[k] = v; return o; })({})));
+  var sum = document.getElementById('op-tone-sum'); if (sum) sum.textContent = _inkToneLabel(pv.tone);
+  _opPVApplyTone();
+}
+function _opToneStep(k, dir){
+  var pv = window._opPV; if (!pv) return;
+  var t = _inkToneNorm(pv.tone);
+  var inp = document.getElementById('op-tone-' + k);
+  var nv = t[k] + dir;
+  if (inp) inp.value = nv;
+  _opToneSet(k, nv);
+}
+// מחיל את הגוון על התמונות שכבר מוצגות — בלי לרנדר מחדש (מהיר וחלק)
+function _opPVApplyTone(){
+  var pv = window._opPV; if (!pv) return;
+  var css = _inkFilterCss(pv.tone);
+  Array.prototype.forEach.call(document.querySelectorAll('.op-pv-img'), function(img){ img.style.filter = css; });
+  var b = document.getElementById('op-pv-tone');
+  if (b) b.style.background = _inkToneIsZero(pv.tone) ? '#334155' : '#7c3aed';
+}
+function _opToneReset(){
+  var pv = window._opPV; if (!pv) return;
+  pv.tone = _inkToneNorm({});
+  INK_CHANNELS.forEach(function(ch){ var i = document.getElementById('op-tone-' + ch.k); if (i) i.value = 0; });
+  var sum = document.getElementById('op-tone-sum'); if (sum) sum.textContent = _inkToneLabel(pv.tone);
+  _opPVApplyTone();
+}
+function _opToneSave(mode){
+  var pv = window._opPV; if (!pv) return;
+  var t = _inkToneNorm(pv.tone);
+  if (mode === 'lock'){
+    // נעילה לפרופרים הבאים — ברירת-מחדל גלובלית לכל הדפסים
+    try { localStorage.setItem('solanInkTone', JSON.stringify(t)); } catch(e){}
+    if (window._fbPut) window._fbPut('opInkTone', t);
+    window._opInkToneDefault = t;
+    showToast(_inkToneIsZero(t) ? '🔓 הגוון הסטנדרטי הוחזר לפרופרים הבאים' : ('🔒 ננעל לפרופרים הבאים: ' + _inkToneLabel(t)));
+  } else {
+    var c = (cards||[]).find(function(x){ return String(x.id) === String(pv.cardId); });
+    if (!c){ showToast('⚠️ לא נמצא הכרטיס לשמירה'); return; }
+    c.inkTone = _inkToneIsZero(t) ? null : t;
+    c.lastUpdatedBy = currentUser ? currentUser.id : 'operator';
+    try { localStorage.setItem('solanCards', JSON.stringify(cards)); } catch(e){}
+    _opPushCardsMerged(c.id);
+    showToast('✓ הגוון נשמר לעבודה: ' + _inkToneLabel(t));
+  }
+  var m = document.getElementById('op-tone-modal'); if (m) m.remove();
+}
+
 function _opPVbtn(txt, title){ return '<button title="'+title+'" style="background:#1e3a5f;color:#fff;border:none;border-radius:8px;min-width:40px;height:38px;padding:0 12px;font-size:1rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">'+txt+'</button>'; }
 function _opProofImagesOverlay(pagesUrl, pdfUrl, type, label) {
   _opSpinStyle();
@@ -22158,7 +22307,7 @@ function _opProofImagesOverlay(pagesUrl, pdfUrl, type, label) {
     var l = document.getElementById('op-proof-loading'); if (l) l.remove();
     if (!Array.isArray(imgs) || !imgs.length) { if (pdfUrl){ _opCloseProof(); _opRenderPdfToImages(pdfUrl, type||'application/pdf', label); } return; }
     window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: pdfUrl, type: type, label: label,
-      brown: !!window._opProofBrown };
+      brown: !!window._opProofBrown, cardId: window._opProofCardId || null, tone: _opToneFor(window._opProofCardId) };
     _opInk.previewSrc = null; _opInk._hiResIdx = undefined;   // איפוס תצוגת ברזי-צבע ברזולוציה גבוהה לפרופר חדש
     _opPVBuild(ov);
   }).catch(function(){
@@ -22186,7 +22335,7 @@ function _opRenderPdfToImages(url, type, label){
           var l = document.getElementById('op-proof-loading'); if (l) l.remove();
           if (!imgs.length){ _opCloseProof(); _opProofOverlay(url, type, label, false); return; }
           window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label,
-            brown: !!window._opProofBrown };
+            brown: !!window._opProofBrown, cardId: window._opProofCardId || null, tone: _opToneFor(window._opProofCardId) };
           _opInk.previewSrc = null; _opInk._hiResIdx = undefined;
           _opPVBuild(ov);
           return;
@@ -22228,6 +22377,7 @@ function _opPVBuild(ov){
     + _opPVbtn('🔍➕','הגדל').replace('<button','<button id="op-pv-zin"')
     + (multi ? _opPVbtn('⊞ כפולה','הצג שני עמודים').replace('<button','<button id="op-pv-spread"') : '')
     + (pv.pdfUrl ? _opPVbtn('📄 PDF','פתח PDF מלא').replace('<button','<button id="op-pv-pdf"') : '')
+    + _opPVbtn('🎚 גווני צבע','העלאה/הורדה של אחוזי צבע לכל דיו').replace('<button','<button id="op-pv-tone"').replace('#1e3a5f', _inkToneIsZero(pv.tone)?'#334155':'#7c3aed')
     + _opPVbtn('🟤 נייר חום','הצג את הפרופר על נייר חום / חזרה לנייר רגיל').replace('<button','<button id="op-pv-brown"').replace('#1e3a5f', pv.brown?'#8a6d3b':'#334155')
     + _opPVbtn('🎨 ברזי צבע','מחשבון ברזי צבע').replace('<button','<button id="op-pv-ink"').replace('#1e3a5f','#7c5a00')
     + _opPVbtn('⛶','מסך מלא').replace('<button','<button id="op-pv-fs"')
@@ -22240,6 +22390,7 @@ function _opPVBuild(ov){
   // wiring
   var on = function(id,fn){ var b=document.getElementById(id); if(b) b.onclick=fn; };
   on('op-pv-ink', _opInkToggle);
+  on('op-pv-tone', _opInkTonePanel);
   on('op-pv-brown', function(){ var p=window._opPV; if(!p) return;
     p.brown=!p.brown;
     var b=document.getElementById('op-pv-brown'); if(b) b.style.background=p.brown?'#8a6d3b':'#334155';
@@ -22270,6 +22421,7 @@ function _opPVRender(){
   vp.innerHTML = '<div class="op-pv-stage" style="position:relative;width:'+(z*100)+'%;height:'+(z*100)+'%;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;padding:10px;margin:auto'+(pv.brown?';background:#c4b088;border-radius:4px':'')+'">'
     + pages.map(function(src){ return '<img class="op-pv-img" src="'+src+'" style="max-width:'+(inSpread?'49%':'100%')+';max-height:100%;object-fit:contain;background:'+(pv.brown?'#c4b088':'#fff')+';box-shadow:0 3px 16px rgba(0,0,0,.55)'+(pv.brown?';mix-blend-mode:multiply':'')+'">'; }).join('')
     + '</div>';
+  _opPVApplyTone();                       // גוון-הצבע שנבחר/נשמר
   vp.scrollTop = (vp.scrollHeight - vp.clientHeight)/2;
   vp.scrollLeft = (vp.scrollWidth - vp.clientWidth)/2;
   // עדכון בורר/תווית עמוד
@@ -22525,6 +22677,7 @@ function _opViewProof(cardId, runKey) {
     var _r0 = (c0 && c0.runs || []).find(function(r){ return r && runKey && ('R'+(r.num||'')) === runKey; });
     window._opProofBrown = !!((_r0 && _r0.proofOnBrown) || (c0 && c0.proofOnBrown));
   } catch(e){ window._opProofBrown = false; }
+  window._opProofCardId = c0 ? c0.id : cardId;
   // חסינות לכפילויות: אם לכרטיס עצמו אין פרופר — לוקחים מכרטיס אחר עם אותו שם שיש לו
   var c = _opProofCardFor(c0) || c0;
   cardId = c ? c.id : cardId;
