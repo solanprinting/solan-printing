@@ -115,6 +115,18 @@ async function _notifyShop(icon, text, user){
 }
 
 // ── קיפול/פירוק לפי טמפלט (3 מסלולים מאושרים) → outputPdfBytes + NormalizedFoldResult ──
+// ⚠️ חוצה-מסגרות: קובץ שחוזר מה-iframe של מנוע-הקיפול נכשל ב-`instanceof Uint8Array`
+//    של הדף. מזהים לפי toString ומעתיקים למרחב-הדף — אחרת pdf-lib כאן דוחה אותו.
+function _u8(v){
+  if(!v) return null;
+  if(v instanceof Uint8Array) return v;
+  if(v instanceof ArrayBuffer) return new Uint8Array(v);
+  var tag=Object.prototype.toString.call(v);
+  if(tag==='[object Uint8Array]' || tag==='[object ArrayBuffer]') return new Uint8Array(v);
+  if(ArrayBuffer.isView(v)) return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+  if(typeof v.length==='number' && v.length>0){ try{ return Uint8Array.from(v); }catch(e){} }
+  return null;
+}
 let _bridge=null;
 // שחזור-תצוגה של גיאומטריית מנוע-האפליקציה (foldSignature): מרכזי-תאים COLCX/ROWCY + מרכוז-מדיה
 // + תיקון-דש לפי TrimBox/CropBox — לבניית plan-תצוגה לתצוגה-המהירה, זהה 1:1 לפלט-הגשר.
@@ -204,7 +216,9 @@ async function foldByTemplate(tid, srcU8, bleedMm){
     if(!_bridge) _bridge=LB.createLegacyBridge({ iframeUrl:'imposition-tool.html' });
     await _bridge.ready();
     const out=await _bridge.runFold({ arrayBuffer:srcU8.slice(0), type:legacyType, firstSide:0, mirror:false, bleedMm:bleedMm, requestId:Date.now() });
-    const bytes = bleedMm>0 ? await _trimSpineBleed(out.bytes, bleedMm) : out.bytes;   // שדרה בקו-0
+    const _rawS=_u8(out&&out.bytes);
+    if(!_rawS || !_rawS.length) throw new Error('הקיפול לא החזיר קובץ תקין (טמפלט '+legacyType+')');
+    const bytes = bleedMm>0 ? await _trimSpineBleed(_rawS, bleedMm) : _rawS;   // שדרה בקו-0
     const outHash=await sha256(new Uint8Array(bytes));
     const r=ADP.legacyReportToResult({ report:out.report, bytes:bytes, sourceFile:{fileId:'src'}, templateId:tid, engineVersion:(_bridge.diagnostics().version||''), bridgeMode:'same-origin-iframe', outputHash:outHash });
     let plan=null;
@@ -230,7 +244,6 @@ async function foldMultiRun(runDescs, bleedMm){
   if(!_bridge) _bridge=LB.createLegacyBridge({ iframeUrl:'imposition-tool.html' });
   await _bridge.ready();
   const runs=[];   // { outBytes, srcBytes, plan, pages }
-  const _u8=(v)=>{ if(v instanceof Uint8Array) return v; if(v instanceof ArrayBuffer) return new Uint8Array(v); return null; };
   for(let i=0;i<runDescs.length;i++){
     const d=runDescs[i], tag='R-'+(i+1)+(d.name?(' ('+d.name+')'):'');
     // אימות-קלט: קובץ פגום/חסר לריצה → שגיאה שמזהה בדיוק איזו ריצה (במקום שגיאת-pdf עמומה)
