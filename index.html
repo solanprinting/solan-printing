@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785156846';
+window.APP_VERSION = '1785157195';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3782,7 +3782,7 @@ const DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','שי
 
 const AC_SEEDS = {
   'f-type':  ['עיתון','עלון','כרטיס ביקור','פוסטר','קטלוג','חוברת','ספר','מדבקה'],
-  'f-paper': ['כרומו מט 80 גר','כרומו גלוס 90 גר','כרומו מט 115 גר','אופסט 70 גר',
+  'f-paper': ['נייר חום','נייר חום 90 גר','כרומו מט 80 גר','כרומו גלוס 90 גר','כרומו מט 115 גר','אופסט 70 גר',
                'אופסט 80 גר','גלוס 135 גר','גלוס 170 גר','מט 250 גר','מט 300 גר'],
   'f-name':  [],
 };
@@ -21580,6 +21580,79 @@ function _opSetPrinting(machine, qid) {
 }
 // דחיפת cards בטוחה ממסך הדפסים: ממזגת עם השרת לפי id, ורק הכרטיס שהמפעיל שינה
 // נלקח מהמקומי. כך כרטיסים חדשים שנוצרו במקום אחר (בין רענון ל-20ש') לא נמחקים.
+/* ═══════════ בחירת סוג נייר במסך הדפס ═══════════
+   הנייר שנקבע בכרטיס הוא ה**סטנדרט** ותמיד מוצג כברירת-מחדל.
+   הדפס יכול לעבור לסוג אחר (כולל נייר חום) — הבחירה נשמרת על הריצה/הכרטיס
+   כ-paperUsed, בלי לשנות את הנייר שהוזמן, וכך רואים במשרד מה באמת הודפס. */
+var OP_PAPER_EXTRA = ['נייר חום', 'נייר חום 90 גר', 'נייר לבן'];
+
+// גוון לתצוגה — כדי שהדפס יזהה את הנייר בלי לקרוא (חום = קראפט בהיר)
+function _paperSwatch(name) {
+  var n = String(name || '');
+  if (/חום|קראפט|kraft/i.test(n)) return '#c4b088';
+  if (/עיתון|newsprint/i.test(n)) return '#efe9dc';
+  if (/קרטון/.test(n)) return '#d9c9a8';
+  return '#ffffff';
+}
+function _opPaperOptions(standard) {
+  var out = [], seen = {};
+  function add(p) { p = String(p || '').trim(); if (!p || seen[p]) return; seen[p] = 1; out.push(p); }
+  add(standard);                                             // הסטנדרט תמיד ראשון
+  OP_PAPER_EXTRA.forEach(add);
+  try { (AC_SEEDS['f-paper'] || []).forEach(add); } catch (e) {}
+  try { ((historyDB && historyDB['f-paper']) || []).forEach(add); } catch (e) {}
+  try { (newspapers || []).forEach(function (n) { add(n.paper); }); } catch (e) {}
+  return out;
+}
+// הנייר שבפועל: מה שהדפס בחר, ואם לא בחר — הסטנדרט מהכרטיס/הריצה
+function _opPaperNow(c, run) {
+  var std = (run && run.paper) || (c && c.paper) || '';
+  var used = (run && run.paperUsed) || (c && c.paperUsed) || '';
+  return { std: std, used: used, now: used || std, changed: !!(used && used !== std) };
+}
+function _opPickPaper(cardId, runIdx) {
+  var c = (cards || []).find(function (x) { return String(x.id) === String(cardId); });
+  if (!c) return;
+  var run = (runIdx >= 0 && c.runs && c.runs[runIdx]) ? c.runs[runIdx] : null;
+  var p = _opPaperNow(c, run);
+  var opts = _opPaperOptions(p.std);
+  var html = '<div id="op-paper-modal" style="position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.75);'
+    + 'display:flex;align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)this.remove()">'
+    + '<div style="background:#fff;border-radius:16px;max-width:440px;width:100%;max-height:86vh;overflow:auto;padding:16px 18px">'
+    + '<div style="font-size:1.05rem;font-weight:900;color:#1a1a4e;margin-bottom:3px">בחירת סוג נייר</div>'
+    + '<div style="font-size:.82rem;color:#666;margin-bottom:12px">הסטנדרט לעבודה הזו: <b>' + escHtml(p.std || '—') + '</b></div>'
+    + opts.map(function (o) {
+        var isStd = (o === p.std), isNow = (o === p.now);
+        return '<button onclick="_opSetPaper(' + cardId + ',' + runIdx + ',\'' + String(o).replace(/'/g, "\\'") + '\')" '
+          + 'style="display:flex;align-items:center;gap:10px;width:100%;margin-bottom:7px;padding:11px 12px;border-radius:10px;'
+          + 'border:2px solid ' + (isNow ? '#16a34a' : '#e2e8f0') + ';background:' + (isNow ? '#f0fdf4' : '#fff') + ';cursor:pointer;'
+          + 'font-family:Heebo,sans-serif;font-size:.95rem;font-weight:700;text-align:right">'
+          + '<span style="width:30px;height:30px;border-radius:7px;border:1px solid #cbd5e1;flex-shrink:0;background:' + _paperSwatch(o) + '"></span>'
+          + '<span style="flex:1">' + escHtml(o) + '</span>'
+          + (isStd ? '<span style="font-size:.7rem;background:#1a1a4e;color:#fff;border-radius:9px;padding:2px 8px">סטנדרט</span>' : '')
+          + (isNow ? '<span style="color:#16a34a;font-size:1.1rem">✓</span>' : '')
+          + '</button>';
+      }).join('')
+    + (p.changed ? '<button onclick="_opSetPaper(' + cardId + ',' + runIdx + ',\'\')" style="width:100%;margin-top:6px;padding:11px;border-radius:10px;border:1.5px solid #fbbf24;background:#fffbeb;color:#92400e;font-weight:800;font-family:Heebo,sans-serif;cursor:pointer">↩ חזרה לנייר הסטנדרטי</button>' : '')
+    + '<button onclick="document.getElementById(\'op-paper-modal\').remove()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #cbd5e1;background:#fff;font-weight:700;font-family:Heebo,sans-serif;cursor:pointer">סגור</button>'
+    + '</div></div>';
+  var d = document.createElement('div'); d.innerHTML = html; document.body.appendChild(d.firstChild);
+}
+function _opSetPaper(cardId, runIdx, paper) {
+  var c = (cards || []).find(function (x) { return String(x.id) === String(cardId); });
+  if (!c) return;
+  var run = (runIdx >= 0 && c.runs && c.runs[runIdx]) ? c.runs[runIdx] : null;
+  var std = (run && run.paper) || c.paper || '';
+  var val = (!paper || paper === std) ? '' : paper;      // בחירת הסטנדרט = ביטול העקיפה
+  if (run) run.paperUsed = val || null; else c.paperUsed = val || null;
+  c.lastUpdatedBy = currentUser ? currentUser.id : 'operator';
+  try { localStorage.setItem('solanCards', JSON.stringify(cards)); } catch (e) {}
+  _opPushCardsMerged(c.id);
+  var m = document.getElementById('op-paper-modal'); if (m) m.remove();
+  try { showToast(val ? ('📄 הנייר שונה ל-' + val) : '↩ חזרה לנייר הסטנדרטי'); } catch (e) {}
+  try { _renderOperatorScreen(); } catch (e) {}
+}
+
 function _opPushCardsMerged(changedId) {
   var loc = (cards||[]).find(function(c){ return c && String(c.id) === String(changedId); });
   if (loc) loc._upd = Date.now();   // הכרטיס ששונה — חותמת טרייה כדי שהמיזוג יעדיף אותו
@@ -21736,7 +21809,18 @@ function _renderOperatorScreen() {
           + '<div style="font-size:1.5rem;font-weight:900;color:#1e293b;line-height:1.2">' + escHtml(pi.name) + '</div>'
           + (pi.runLabel ? '<div style="color:#2563eb;font-size:.88rem;font-weight:700;margin-top:4px">' + escHtml(pi.runLabel) + '</div>' : '')
           + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px">'
-          + '<div style="background:#1a1a4e;border-radius:10px;padding:14px 16px"><div style="font-size:.7rem;color:rgba(255,255,255,.55);font-weight:600;letter-spacing:.04em">סוג נייר</div><div style="font-size:1.1rem;font-weight:700;color:white;margin-top:4px;line-height:1.2">' + escHtml(pi.paper||'—') + _paperTagBadge(pi.paper) + '</div></div>'
+          // סוג נייר — תמיד מציג את הסטנדרט, ובלחיצה אפשר לעבור לסוג אחר (כולל נייר חום)
+          + (function(){
+              var pp = _opPaperNow(pi.c, pi.run);
+              return '<div onclick="_opPickPaper(' + pi.c.id + ',' + (printingEntry.runIdx != null ? printingEntry.runIdx : -1) + ')" '
+                + 'style="background:#1a1a4e;border-radius:10px;padding:14px 16px;cursor:pointer;position:relative">'
+                + '<div style="font-size:.7rem;color:rgba(255,255,255,.55);font-weight:600;letter-spacing:.04em">סוג נייר <span style="opacity:.8">▾ החלף</span></div>'
+                + '<div style="display:flex;align-items:center;gap:8px;margin-top:4px">'
+                + '<span style="width:20px;height:20px;border-radius:5px;border:1px solid rgba(255,255,255,.5);flex-shrink:0;background:' + _paperSwatch(pp.now) + '"></span>'
+                + '<span style="font-size:1.1rem;font-weight:700;color:white;line-height:1.2">' + escHtml(pp.now || '—') + _paperTagBadge(pp.now) + '</span></div>'
+                + (pp.changed ? '<div style="font-size:.68rem;color:#fbbf24;font-weight:700;margin-top:3px">≠ סטנדרט: ' + escHtml(pp.std) + '</div>' : '')
+                + '</div>';
+            })()
           + '<div style="background:#1a1a4e;border-radius:10px;padding:14px 16px"><div style="font-size:.7rem;color:rgba(255,255,255,.55);font-weight:600;letter-spacing:.04em">כמות גיליונות</div><div style="font-size:1.1rem;font-weight:700;color:white;margin-top:4px">' + (pi.copies ? parseInt(pi.copies).toLocaleString() : '—') + '</div></div>'
           + '</div>'
           + (pi.tumble ? '<div style="margin-top:10px;font-size:.82rem;color:#1d4ed8;font-weight:700">🔄 גיליון מתהפך</div>' : '')
@@ -21782,7 +21866,7 @@ function _renderOperatorScreen() {
           + '<span style="font-size:.8rem;font-weight:700;color:#94a3b8;min-width:18px">' + (idx+1) + '</span>'
           + '<div style="flex:1;min-width:0">'
           + '<div style="font-size:.9rem;font-weight:800;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer" onclick="_operatorShowDetail(' + qSq + ')">' + escHtml(ji.name) + (ji.runLabel ? ' <span style="font-size:.72rem;color:#94a3b8">· '+escHtml(ji.runLabel)+'</span>' : '') + '</div>'
-          + '<div style="font-size:.72rem;color:#94a3b8;margin-top:2px">' + escHtml(ji.paper||'') + _paperTagBadge(ji.paper) + (ji.copies ? ' · ' + parseInt(ji.copies).toLocaleString() + ' גיל\'' : '') + '</div>'
+          + '<div style="font-size:.72rem;color:#94a3b8;margin-top:2px">' + escHtml(_opPaperNow(ji.c,ji.run).now||'') + _paperTagBadge(_opPaperNow(ji.c,ji.run).now) + (ji.copies ? ' · ' + parseInt(ji.copies).toLocaleString() + ' גיל\'' : '') + '</div>'
           + '</div></div>'
           + qProofBtn
           + startBtn
