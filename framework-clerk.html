@@ -41,6 +41,9 @@
   .cItem{display:flex;justify-content:space-between;gap:8px;padding:11px 12px;cursor:pointer;border-bottom:1px solid #eee;
     font-weight:700;color:var(--press);font-size:.9rem}
   .cItem:hover{background:#faf8f2} .cItem.on{background:var(--press);color:#fff}
+  .cItem.grp{background:#faf8f2;font-size:.88rem}
+  .cItem.sub{padding-inline-start:26px;font-weight:600;font-size:.86rem}
+  .cItem.sub::before{content:"🏢 ";opacity:.6}
   .cItem .b{background:var(--warn);color:#fff;border-radius:10px;padding:1px 8px;font-size:.72rem;font-weight:800}
   .main{flex:1;min-width:0}
   .pill{font-size:.72rem;font-weight:800;padding:2px 8px;border-radius:10px;white-space:nowrap;color:#fff}
@@ -132,6 +135,8 @@ let _all=[], _sel='ALL', _tab='flow', _busy=false, _newLines=[];
 let _cards=[], _jobNotes=[];
 // עבודות שסומנו כסופקו *בלי* תעודת משלוח — { cardId: {at,by} }
 let _delivered={};
+// אילו קטגוריות בתפריט פתוחות (ברירת-מחדל: הכל פתוח)
+let _open={};
 
 // ⚠️ Firebase RTDB לא שומר מערך ריק, ומערך "עם חורים" חוזר כאובייקט — חובה לנרמל.
 function _arr(v){
@@ -155,7 +160,7 @@ async function load(){
     _all=_all.filter(a=>!FW.isHiddenName(a.customer));      // ⚠️ עבודות גרפיק מוסתרות מהמשרד
     _all.sort((a,b)=>String(a.customer||'').localeCompare(String(b.customer||''),'he'));
   }catch(e){ _all=[]; }
-  if(_sel!=='ALL' && _sel!=='AGR' && !_all.some(a=>a.agreementId===_sel)) _sel='ALL';
+  if(_sel!=='ALL' && !/^GRP:/.test(_sel) && !_all.some(a=>a.agreementId===_sel)) _sel='ALL';
   render();
   loadJobs();          // ⚠️ ברקע! קריאת כרטיסי-העבודה כבדה — אסור שתעכב את הצגת המסך
 }
@@ -172,8 +177,6 @@ async function loadJobs(){
   }catch(e){ /* אין הרשאה/רשת — הלוח עדיין מציג את ההזמנות */ }
 }
 function cur(){ return _all.find(a=>a.agreementId===_sel)||null; }
-// לקוחות עם הסכם מסגרת ומלאי (להבדיל מלקוחות שרק נרשמות להם הזמנות)
-function _frame(){ return _all.filter(a=>a.kind!=='orders' && (a.items||[]).length); }
 function allNotes(){ return _all.reduce((s,a)=>s.concat(a.deliveryNotes||[]),[]).concat(_jobNotes); }
 async function save(ag){
   if(!_isProd()){ alert('שמירה פועלת רק באתר החי (הגנת-סביבה).'); return false; }
@@ -190,28 +193,60 @@ async function save(ag){
 /* ═══════════ תצוגה ═══════════ */
 function render(){
   $('whoami').textContent='שלום, '+_me();
-  const side = _all.length ? _all.map(a=>{
-    const ready=(a.orders||[]).filter(o=>o&&o.status==='ready').length;
-    return `<div class="cItem${a.agreementId===_sel?' on':''}" data-a="${a.agreementId}">
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🏢 ${esc(a.customer)}</span>
-      ${ready?`<span class="b" title="הזמנות מוכנות לאספקה">${ready} מוכן</span>`:''}</div>`;
-  }).join('') : '<div style="padding:14px" class="muted">אין לקוחות עם הסכם מסגרת</div>';
-
-  const readyAll=_all.reduce((s,a)=>s+(a.orders||[]).filter(o=>o&&o.status==='ready').length,0);
-  const allItem=`<div class="cItem${_sel==='ALL'?' on':''}" data-a="ALL">
-    <span>🔄 כל העבודות</span>${readyAll?`<span class="b">${readyAll} מוכן</span>`:''}</div>
-    <div class="cItem${_sel==='AGR'?' on':''}" data-a="AGR" style="border-bottom:2px solid var(--line)">
-    <span>📋 הסכמי מסגרת</span><span class="b" style="background:var(--press)">${_frame().length}</span></div>`;
+  // תפריט: קטגוריה לכל סוג לקוח, ובתוכה תתי-סעיפים ללקוחות עצמם
+  const readyOf=a=>(a.orders||[]).filter(o=>o&&o.status==='ready').length;
+  const readyAll=_all.reduce((s,a)=>s+readyOf(a),0);
+  const menu=FW.KINDS.map(k=>{
+    const list=_byKind(k), open=_open[k]!==false, sel=('GRP:'+k)===_sel;
+    const kids=list.map(a=>{
+      const r=readyOf(a);
+      return `<div class="cItem sub${a.agreementId===_sel?' on':''}" data-a="${a.agreementId}">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.customer)}</span>
+        ${r?`<span class="b" title="מוכנות לאספקה">${r}</span>`:''}</div>`;
+    }).join('') || '<div class="muted" style="padding:8px 22px;font-size:.82rem">— אין לקוחות בקטגוריה —</div>';
+    return `<div class="cItem grp${sel?' on':''}" data-a="GRP:${k}">
+        <span>${open?'▾':'▸'} ${FW.kindLabel(k)}</span>
+        <span class="b" style="background:var(--press)">${list.length}</span></div>
+      <div data-grp="${k}" style="display:${open?'block':'none'}">${kids}</div>`;
+  }).join('');
 
   const a=cur();
   $('app').innerHTML=`<div class="wrap">
-    <aside class="side"><div class="sideT">לקוחות (${_all.length})</div>${allItem}${side}</aside>
-    <section class="main">${_sel==='ALL'?detailAll():_sel==='AGR'?detailAgreements()
-      :(a?detail(a):'<div class="card muted">בחרו לקוח מהרשימה.</div>')}</section>
+    <aside class="side"><div class="sideT">תפריט</div>
+      <div class="cItem${_sel==='ALL'?' on':''}" data-a="ALL" style="border-bottom:2px solid var(--line)">
+        <span>🔄 כל העבודות</span>${readyAll?`<span class="b">${readyAll} מוכן</span>`:''}</div>
+      ${menu}</aside>
+    <section class="main">${_sel==='ALL'?detailAll()
+      :/^GRP:/.test(_sel)?detailGroup(_sel.slice(4))
+      :(a?detail(a):'<div class="card muted">בחרו לקוח מהתפריט.</div>')}</section>
   </div>`;
-  document.querySelectorAll('[data-a]').forEach(el=>el.onclick=()=>{ _sel=el.dataset.a; _newLines=[];
-    if((_sel==='ALL'||_sel==='AGR') && _tab!=='flow') _tab='flow'; render(); });
+  document.querySelectorAll('[data-a]').forEach(el=>el.onclick=()=>{
+    const v=el.dataset.a;
+    if(/^GRP:/.test(v)){ const k=v.slice(4); if(_sel===v) _open[k]=(_open[k]===false); else _open[k]=true; }
+    _sel=v; _newLines=[];
+    if((v==='ALL'||/^GRP:/.test(v)) && _tab!=='flow') _tab='flow';
+    render();
+  });
   wire(a);
+}
+function _byKind(k){ return _all.filter(a=>FW.kindOf(a.kind)===k); }
+
+/* קטגוריה שלמה: הזרימה של כל לקוחותיה — ולהסכמי מסגרת גם המלאי של כל אחד */
+function detailGroup(k){
+  const list=_byKind(k);
+  const groups=list.map(a=>({ag:a, orders:(a.orders||[]).slice().reverse()}));
+  const cnt=s=>groups.reduce((n,g)=>n+g.orders.filter(o=>FW.orderStage(o)===s).length,0);
+  if(!list.length) return `<div class="card"><h3>${FW.kindLabel(k)}</h3>
+    <div class="muted">אין עדיין לקוחות בקטגוריה הזו. אפשר להוסיף דרך "➕ הזמנה חדשה" ולבחור לקוח חדש.</div></div>`;
+  return `<div class="card" style="padding:10px 14px">
+      <b style="color:var(--press)">${FW.kindLabel(k)}</b>
+      <span class="stat" style="margin-inline-start:10px">לקוחות<b>${list.length}</b></span>
+      <span class="stat">התקבלו<b style="color:#b45309">${cnt('new')}</b></span>
+      <span class="stat">מוכנות<b style="color:#15803d">${cnt('ready')}</b></span>
+      <span class="stat">סופקו<b>${cnt('delivered')}</b></span>
+    </div>
+    ${flowBoard(groups,false)}
+    ${k==='framework'?('<div style="margin-top:14px">'+list.map(stockCard).join('')+'</div>'):''}`;
 }
 
 // מבט-על: זרימת כל העבודות בבית-הדפוס, בלי להיכנס ללקוח מסוים
@@ -281,14 +316,7 @@ function stockCard(a){
     <div style="margin-top:8px"><button class="goOrder" data-ag="${a.agreementId}">➕ הזמנה חדשה ללקוח זה</button></div>
   </div>`;
 }
-function detailAgreements(){
-  return `<div class="card" style="padding:10px 14px">
-      <b style="color:var(--press)">📋 הסכמי מסגרת</b>
-      <div class="muted" style="margin-top:3px">הלקוחות שיש להם הסכם מסגרת והמלאי שנשאר לכל אחד.
-        אפשר להתחייב ללקוח רק על העמודה <b>פנוי</b> — היתר כבר משוריין להזמנות שטרם סופקו.</div>
-    </div>
-    ${_frame().map(stockCard).join('')||'<div class="card muted">אין הסכמי מסגרת עדיין.</div>'}`;
-}
+
 
 /* ═══════════ לוח זרימת עבודות ═══════════
    שלושה שלבים לפי סטטוס ההזמנה. זה המסך הראשי של הפקיד — לא טבלת מלאי. */
@@ -636,7 +664,8 @@ function _openImport(msg,busy){
       <div class="muted" style="margin-bottom:10px">הכלי מנתח את הקובץ — ואפשר <b>לערוך כל שורה</b> לפני האישור.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
         <span>לקוח:</span><select id="impCust" style="min-width:210px"></select>
-        <input id="impNewCust" placeholder="שם הלקוח החדש" style="display:none;width:190px">
+        <input id="impNewCust" placeholder="שם הלקוח החדש" style="display:none;width:170px">
+        <select id="impNewKind" style="display:none">${FW.KINDS.map(k=>`<option value="${k}"${k==='placemats'?' selected':''}>${FW.kindLabel(k)}</option>`).join('')}</select>
         <span>מס׳ הזמנה:</span><input id="impRef" style="width:150px">
         <span>לאספקה עד:</span><input id="impDue" type="date">
       </div>
@@ -650,7 +679,8 @@ function _openImport(msg,busy){
     $('impCancel').onclick=()=>{ m.remove(); _impRows=[]; };
     $('impAddRow').onclick=()=>{ _impRows.push({sku:'',name:'',qty:0,packs:0}); _impRender(); };
     $('impSave').onclick=_impSave;
-    $('impCust').onchange=()=>{ $('impNewCust').style.display = $('impCust').value==='NEW'?'':'none'; _impRender(); };
+    $('impCust').onchange=()=>{ const nw=$('impCust').value==='NEW';
+      $('impNewCust').style.display=nw?'':'none'; $('impNewKind').style.display=nw?'':'none'; _impRender(); };
   }
   const sel=$('impCust');
   if(sel && !sel.options.length){
@@ -707,7 +737,7 @@ async function _impSave(){
     const exist=FW.findAgreementForCustomer(_all,nm);
     if(exist) ag=exist;                                   // לקוח קיים — נרשם לתוכו ולא נפתחת כפילות
     else{
-      const b=FW.buildAgreement({customer:nm,kind:'orders',createdAt:new Date().toISOString(),createdBy:_me()});
+      const b=FW.buildAgreement({customer:nm,kind:$('impNewKind').value,createdAt:new Date().toISOString(),createdBy:_me()});
       if(!b.ok){ alert('לקוח לא תקין: '+b.errors.join(', ')); return; }
       ag=_normAg(b.agreement);
     }

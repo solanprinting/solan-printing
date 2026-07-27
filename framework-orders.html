@@ -143,8 +143,8 @@ function render(){
     const b=FW.computeBalances(a), on=(a.agreementId===_sel);
     const al=FW.alerts(a,{todayIso:_today()}).length;
     return `<div class="cItem${on?' on':''}" data-a="${a.agreementId}">
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.kind==='orders'?'🧾':'📄'} ${esc(a.customer)}${a.agreementNo?` <span style="opacity:.7;font-weight:500;font-size:.8rem">#${esc(a.agreementNo)}</span>`:''}</span>
-      <span class="b" title="${a.kind==='orders'?'לקוח הזמנות (ללא הסכם מסגרת)':'ניצול ההסכם'}">${a.kind==='orders'
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${FW.kindLabel(a.kind).slice(0,2)} ${esc(a.customer)}${a.agreementNo?` <span style="opacity:.7;font-weight:500;font-size:.8rem">#${esc(a.agreementNo)}</span>`:''}</span>
+      <span class="b" title="${FW.kindLabel(a.kind)}">${a.kind!=='framework'
         ? ((a.orders||[]).filter(o=>o&&(o.status==='pending'||o.status==='ready')).length+' פתוחות')
         : (b.totals.pctUsed+'%'+(al?' ⚠':''))}</span></div>`;
   }).join('') : '<div style="padding:14px" class="muted">אין הסכמים עדיין</div>';
@@ -347,6 +347,7 @@ function wire(a){
   $('editAg').onclick = async ()=>{
     const ag=_normAg(JSON.parse(JSON.stringify(a)));
     const t=prompt('כותרת ההסכם:',ag.title||''); if(t===null) return; ag.title=t.trim()||ag.title;
+    const k=_askKind(ag.kind); if(k) ag.kind=k;
     const an=prompt('מספר הסכם:',ag.agreementNo||''); if(an!==null) ag.agreementNo=an.trim()||null;
     const po=prompt('מספר הזמנת רכש (PO):',ag.poNumber||''); if(po!==null) ag.poNumber=po.trim()||null;
     const e=prompt('תאריך סיום (YYYY-MM-DD, ריק=ללא):',ag.endDate||''); if(e!==null) ag.endDate=e.trim()||null;
@@ -359,6 +360,16 @@ function wire(a){
     try{ await _put(_P+'/'+a.agreementId, null); _all=_all.filter(x=>x.agreementId!==a.agreementId); _sel=null; await load(); }
     catch(e){ alert('מחיקה נכשלה: '+(e.message||e)); }
   };
+}
+
+// קטגוריית הלקוח — קובעת איפה הוא יופיע בתפריט המשרד
+function _askKind(cur){
+  const opts=FW.KINDS.map((k,i)=>(i+1)+') '+FW.kindLabel(k)).join('\n');
+  const def=String(FW.KINDS.indexOf(FW.kindOf(cur))+1);
+  const ans=prompt('קטגוריית הלקוח:\n'+opts, def);
+  if(ans===null) return null;
+  const i=parseInt(ans,10)-1;
+  return FW.KINDS[i]||FW.kindOf(cur);
 }
 
 async function _move(a, itemId, type){
@@ -558,9 +569,11 @@ $('newAg').onclick = async ()=>{
       +'ביטול = פתיחת הסכם נפרד חדש.')){
     _sel=exist.agreementId; render(); _impOpen('stock'); return;
   }
+  const kind=_askKind('framework');
+  if(!kind) return;
   const agreementNo=(prompt('מספר הסכם (אפשר ריק):','')||'').trim();
   const poNumber=(prompt('מספר הזמנת רכש — PO (אפשר ריק):','')||'').trim();
-  const b=FW.buildAgreement({ customer, agreementNo, poNumber, createdAt:_nowIso(), createdBy:'מנהל' });
+  const b=FW.buildAgreement({ customer, kind, agreementNo, poNumber, createdAt:_nowIso(), createdBy:'מנהל' });
   if(!b.ok){ alert('נכשל: '+b.errors.join(', ')); return; }
   if(await save(b.agreement)){ _sel=b.agreement.agreementId; render(); }
 };

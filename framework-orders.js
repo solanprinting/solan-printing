@@ -19,6 +19,16 @@
   var STATUSES = ['active', 'closed', 'suspended'];
   var MOVE_TYPES = ['draw', 'return', 'adjust'];   // משיכה · זיכוי/החזרה · תיקון-ידני
 
+  /* קטגוריות לקוח — הן שקובעות את מבנה התפריט במסך המשרד:
+       framework = הסכם מסגרת עם מלאי (אל על וכד')
+       placemats = הזמנות פלייסמנטים (עידית, שיבא וכד')
+       orders    = לקוח רגיל שרק נרשמות לו הזמנות                                */
+  var KINDS = ['framework', 'placemats', 'orders'];
+  var KIND_TITLE = { framework: 'הסכם מסגרת', placemats: 'פלייסמנטים', orders: 'הזמנות' };
+  var KIND_LABEL = { framework: '📋 הסכמי מסגרת', placemats: '🍽 הזמנות פלייסמנטים', orders: '🧾 הזמנות לקוחות' };
+  function kindOf(k) { return KINDS.indexOf(_s(k)) >= 0 ? _s(k) : 'framework'; }
+  function kindLabel(k) { return KIND_LABEL[kindOf(k)]; }
+
   function _num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
   function _int(v) { var n = parseInt(v, 10); return isFinite(n) ? n : 0; }
   function _s(v) { return String(v == null ? '' : v).trim(); }
@@ -74,9 +84,9 @@
       agreement: {
         agreementId: _s(input.agreementId) || makeId('fw', input.rng),
         customer: customer,
-        // 'framework' = הסכם מסגרת עם מלאי · 'orders' = לקוח רגיל שרק נרשמות לו הזמנות
-        kind: input.kind === 'orders' ? 'orders' : 'framework',
-        title: _s(input.title) || ((input.kind === 'orders' ? 'הזמנות — ' : 'הסכם מסגרת — ') + customer),
+        // קטגוריית הלקוח — קובעת את מיקומו בתפריט המשרד
+        kind: kindOf(input.kind),
+        title: _s(input.title) || (KIND_TITLE[kindOf(input.kind)] + ' — ' + customer),
         agreementNo: _s(input.agreementNo) || null,   // מספר הסכם (פנימי/מול הלקוח)
         poNumber: _s(input.poNumber) || null,         // מספר הזמנת-רכש (PO) של הלקוח
         status: STATUSES.indexOf(input.status) >= 0 ? input.status : 'active',
@@ -843,7 +853,7 @@
   }
 
   return {
-    STATUSES: STATUSES, MOVE_TYPES: MOVE_TYPES,
+    STATUSES: STATUSES, MOVE_TYPES: MOVE_TYPES, KINDS: KINDS, kindOf: kindOf, kindLabel: kindLabel,
     parseDocxXml: parseDocxXml,
     makeId: makeId, buildItem: buildItem, buildAgreement: buildAgreement, buildMovement: buildMovement,
     computeBalances: computeBalances, checkDraw: checkDraw, applyMovement: applyMovement,
