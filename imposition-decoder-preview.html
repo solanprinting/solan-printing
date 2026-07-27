@@ -80,6 +80,7 @@
     <div><label>טמפלט (2 עמ׳ · מספרי-עמוד)</label><br><input type="file" id="tplFile" accept="application/pdf"></div>
     <div><label>עמוד סופי מ״מ</label><br>רוחב <input type="number" id="finW" value="210" step="1"> גובה <input type="number" id="finH" value="297" step="1"></div>
     <div><label>פער ראש-לראש מ״מ</label><br><input type="number" id="gapMm" value="10" step="0.5"></div>
+    <div><label>סיבוב הטמפלט</label><br><select id="tplRotSel" title="אם קובץ-הטמפלט שמור מסובב והמיפוי יוצא הפוך — בחר 180° ידנית"><option value="auto">אוטומטי (לפי הקובץ)</option><option value="0">0° — ללא סיבוב</option><option value="180">180° — הפוך</option></select></div>
     <div><label>מזהה טמפלט</label><br><input type="text" id="tplId" value="88x63-16p-perfector" style="width:180px;background:#0b1220;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:5px 6px;font-family:inherit"></div>
     <div><button id="tplRead">🔍 קרא אוטומטית</button> <button class="sec" id="tplSave" disabled>💾 שמור טמפלט</button></div>
   </div>
@@ -177,7 +178,11 @@ async function readTemplate(bytes){
     // שמורים Rotate 0 — לכן טמפלט השמור עם Rotate 180 דורש סיבוב-מפה חזרה למרחב-הפיזי.
     let cellMap = d.cellMap, rotNote = '';
     let tplRot = 0; try { tplRot = ((p0.getRotation().angle % 360) + 360) % 360; } catch(e){}
-    if (tplRot === 180){ cellMap = DEC.rotateCellMap180(d.cellMap, d.layout.rows, d.layout.cols); rotNote = ' · 🔄 הקובץ שמור Rotate 180 — המפה נורמלה למרחב-הפרופר'; }
+    // עקיפה ידנית: לפעמים הקובץ מסובב בלי דגל /Rotate תקין → המפה יוצאת הפוכה.
+    var _sel = ($('tplRotSel') && $('tplRotSel').value) || 'auto';
+    if (_sel !== 'auto') { tplRot = parseInt(_sel, 10) || 0; rotNote = ' · ✋ סיבוב ידני: ' + tplRot + '°'; }
+    if (tplRot === 180){ cellMap = DEC.rotateCellMap180(d.cellMap, d.layout.rows, d.layout.cols);
+      rotNote = (_sel !== 'auto') ? rotNote + ' — המפה סובבה' : ' · 🔄 הקובץ שמור Rotate 180 — המפה נורמלה למרחב-הפרופר'; }
     _derived = { cellMap: cellMap, layout: Object.assign({ id: $('tplId').value || 'template' }, d.layout) };
     const warn = d.warnings.length ? ' · ⚠️ '+d.warnings.join(' · ') : '';
     $('tplStatus').innerHTML = '✓ זוהו '+d.pagesPerSignature+' עמ׳ · '+d.layout.cols+'×'+d.layout.rows
@@ -290,7 +295,10 @@ async function setBytes(bytes, name){
 }
 
 $('proofFile').onchange = async e => { const f=e.target.files[0]; if(!f) return; setBytes(new Uint8Array(await f.arrayBuffer()), f.name); };
-$('tplFile').onchange = async e => { const f=e.target.files[0]; if(!f) return; await readTemplate(new Uint8Array(await f.arrayBuffer())); };
+var _tplBytes = null;
+$('tplFile').onchange = async e => { const f=e.target.files[0]; if(!f) return; _tplBytes = new Uint8Array(await f.arrayBuffer()); await readTemplate(_tplBytes); };
+// שינוי-סיבוב → קריאה-מחדש של אותו טמפלט (בלי לבחור קובץ שוב)
+if ($('tplRotSel')) $('tplRotSel').onchange = async () => { if (_tplBytes) await readTemplate(_tplBytes); };
 $('tplRead').onclick = () => $('tplFile').click();
 $('tplSave').onclick = () => {
   if(!_derived){ alert('קרא טמפלט קודם'); return; }

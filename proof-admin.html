@@ -331,6 +331,7 @@ function render(rows) {
           <a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>
           <button data-link="${clientLink}">📤 קישור ללקוח</button>
           <button data-link="${viewerLink}">📤 שלח לעובדים</button>
+          <button data-donejob="${p.id}" data-on="${p.completedAt?1:0}" title="${p.completedAt?'החזר לעבודות פעילות':'סמן כהושלם — יעבור ל"עיתונים שהושלמו"'}">${p.completedAt?'↩ החזר':'✅ הושלם'}</button>
           <button class="del" data-deljob="${p.id}" title="מחק עבודה וכל הריצות">🗑</button>
         </div></td></tr>`;
       const partRows = parts.map(pt => `<tr>
@@ -405,12 +406,16 @@ function render(rows) {
   if (!_selCust || !byCustomer.has(_selCust)) _selCust = custNames[0] || null;
   const sideList = custNames.map(c => {
     const items = byCustomer.get(c), on = (c === _selCust);
+    const act = items.filter(function(p){ return !p.completedAt; }).length;
     return `<div class="custItem${on?' on':''}" data-cust="${escapeHtml(c)}">
-      <span class="cName">📁 ${escapeHtml(c)}</span><span class="cCount">${items.length}</span></div>`;
+      <span class="cName">📁 ${escapeHtml(c)}</span><span class="cCount" title="פעילות מתוך סה״כ">${act}${act!==items.length?('/'+items.length):''}</span></div>`;
   }).join('') || '<div style="padding:12px;color:#9ca3af;font-size:.85rem">אין לקוחות</div>';
 
-  const sel = _selCust ? byCustomer.get(_selCust) : null;
-  const detail = sel ? `
+  const selAll = _selCust ? byCustomer.get(_selCust) : null;
+  // פיצול לפעילות / הושלמו — "עיתונים שהושלמו" נשמרים בקטגוריה נפרדת לכל לקוח
+  const sel  = selAll ? selAll.filter(p => !p.completedAt) : null;
+  const done = selAll ? selAll.filter(p =>  p.completedAt).sort((a,b)=>(b.completedAt||0)-(a.completedAt||0)) : [];
+  const detail = selAll ? `
       <div class="custHead">
         <div style="font-size:1.05rem;font-weight:900;color:#2d3561">📁 ${escapeHtml(_selCust)} <span class="count">(${sel.length})</span></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
@@ -424,8 +429,16 @@ function render(rows) {
         <span style="font-size:.82rem;color:#555">${sel.length} עבודות</span>
         <button id="jobsCollapseAll" style="font-size:.8rem">➖ כווץ הכל</button>
         <button id="jobsExpandAll" style="font-size:.8rem">➕ פתח הכל</button></div>` : ''}
-      <table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
+      ${sel.length ? `<table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
       <tbody>${sel.map(rowHtml).join('')}</tbody></table>`
+      : '<div style="padding:18px;text-align:center;color:#9ca3af">אין עבודות פעילות ללקוח זה</div>'}
+      ${done.length ? `<div style="margin-top:10px;border-top:2px solid var(--line)">
+        <div id="doneHdr" style="padding:9px 14px;background:#f0fdf4;cursor:pointer;font-weight:800;color:#166534;display:flex;gap:8px;align-items:center">
+          <span>${_doneOpen?'▼':'▶'}</span> ✅ עיתונים שהושלמו <span class="count">(${done.length})</span>
+        </div>
+        ${_doneOpen ? `<table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
+          <tbody>${done.map(rowHtml).join('')}</tbody></table>` : ''}
+      </div>` : ''}`
     : '<div style="padding:26px;text-align:center;color:#9ca3af">בחרו לקוח מהרשימה בצד</div>';
 
   $('tableWrap').innerHTML = `<div class="mdWrap">
@@ -438,6 +451,19 @@ function render(rows) {
   document.querySelectorAll('[data-link]').forEach(b => b.onclick = () => shareLink(b.dataset.link));
   document.querySelectorAll('[data-portal]').forEach(b => b.onclick = () => portalLink(b.dataset.portal));
   document.querySelectorAll('[data-editcust]').forEach(b => b.onclick = () => renameCustomer(b.dataset.editcust));
+  // סימון "הושלם" → העבודה עוברת לקטגוריית "עיתונים שהושלמו" של אותו לקוח (הפיך)
+  document.querySelectorAll('[data-donejob]').forEach(b => b.onclick = async () => {
+    const on = b.dataset.on === '1';
+    b.disabled = true; b.textContent = on ? 'מחזיר…' : 'מסמן…';
+    try{
+      await fetch(await _au(`${_FBURL}/customerProofs/${b.dataset.donejob}.json`), { method:'PATCH',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ completedAt: on ? null : Date.now() }) });
+      if(!on) _doneOpen = true;      // אחרי סימון — פותח את הקטגוריה כדי שיראו לאן זה עבר
+      await loadProofs();
+    }catch(e){ alert('העדכון נכשל: '+(e.message||e)); b.disabled=false; b.textContent = on ? '↩ החזר' : '✅ הושלם'; }
+  });
+  var _dh = document.getElementById('doneHdr');
+  if (_dh) _dh.onclick = function(){ _doneOpen = !_doneOpen; render(rows); };
   // כיווץ/פתיחת עבודות הלקוח (שורות-הריצות שמתחת לכל עבודה)
   (function(){
     var setAll = function(collapsed){
@@ -473,6 +499,7 @@ function render(rows) {
 let _genReg = {};
 let _selCust = null;   // הלקוח שנבחר ברשימת-הצד (master-detail)
 let _jobCollapsed = {};   // jobId → מכווץ? (כיווץ ריצות של עבודה)
+let _doneOpen = false;    // האם קטגוריית "עיתונים שהושלמו" פתוחה
 
 // הורדת הקובץ למחשב (לשליחה ידנית בוואטסאפ וכו')
 async function downloadFile(url, name, btn) {
