@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785238005';
+window.APP_VERSION = '1785241389';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1502,6 +1502,8 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
 <script src="idit-sites.js"></script>
 <script src="bleed-engine.js"></script>
 <script src="fold-view.js"></script>
+<script src="sheet-template.js"></script>
+<script src="card-marker.js"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 </script>
@@ -3059,6 +3061,7 @@ window._fbSnapshot = {};
         <button class="btn" id="print-modal-proof-btn" onclick="_viewProof(window._printModalCardId)" style="background:#7c3aed;color:white;border-color:#7c3aed;display:none">📄 פרופר / פריסה</button>
         <button class="btn" id="print-modal-proof-attach-btn" onclick="document.getElementById('pm-proof-input').click()" style="background:#ede9fe;color:#5b21b6;border-color:#ddd6fe;display:none">📎 צרף/החלף פרופר</button>
         <button class="btn btn-primary" id="print-modal-save-btn" onclick="saveFromPreview()" style="display:none">💾 שמור כרטיס</button>
+        <button class="btn" id="print-modal-mark-btn" onclick="_mkToggleMode()" title="סמן חלקים בכרטיס במרקר צהוב — יודפס כמו מרקר אמיתי" style="background:#fde047;color:#713f12;border-color:#facc15">🖍 מרקר</button>
         <button class="btn" id="print-modal-edit-btn" onclick="_editCardFromModal(window._printModalCardId)" style="background:#4338ca;color:white;border-color:#4338ca;display:none">✏️ ערוך כרטיס</button>
         <button class="btn" id="print-modal-dup-btn" onclick="duplicateCard(window._printModalCardId)" style="background:#0f766e;color:white;border-color:#0f766e;display:none">📑 שכפל כרטיס</button>
         <button class="btn admin-only" onclick="_dnFromCard(window._printModalCardId)" style="background:#b45309;color:white;border-color:#b45309">🧾 תעודת משלוח</button>
@@ -10150,6 +10153,10 @@ function showPrintModal(card) {
   if (_pab) _pab.style.display = _isReal ? 'inline-block' : 'none';
   window._printModalCardId = card.id;
   document.getElementById('print-modal').classList.add('open');
+  window._mkMode = false; window._previewCard = card;
+  var _mkRoot = document.getElementById('print-card-content');
+  if (_mkRoot) _mkRoot.classList.remove('mk-mode');
+  _mkEnsureCss(); _mkApply();
   // card שמגיע לכאן הוא כרטיס שכבר שמור (id אמיתי) — יש לשמור את הרפרנס אליו
   // כדי שלחיצה על "הדפס" תוך כדי הצפייה תרשום printedAt/היסטוריית הדפסה כראוי
   // (לפני התיקון השדה אופס ל-null וגרם להדפסה "שקטה" שלא נרשמה בשום מקום)
@@ -10164,6 +10171,98 @@ function showPrintModal(card) {
   }
 }
 
+/* ═══════════ מרקר צהוב על הכרטיס ═══════════
+   לחיצה על "🖍 מרקר" נכנסת למצב סימון; כל לחיצה על שדה/שורה בכרטיס
+   מסמנת או מבטלת. הסימון נשמר על הכרטיס (card.markers) ומודפס. */
+function _mkEnsureCss(){
+  if (document.getElementById('mk-css') || !window.CardMarker) return;
+  var s = document.createElement('style'); s.id = 'mk-css';
+  s.textContent = CardMarker.css('mk-hl')
+    + '#print-card-content.mk-mode *{cursor:crosshair}'
+    + '#print-card-content.mk-mode *:hover{outline:1.5px dashed #eab308;outline-offset:1px}';
+  document.head.appendChild(s);
+}
+function _mkCard(){
+  var id = window._printModalCardId;
+  return (id && id !== 'preview') ? (cards||[]).find(function(c){ return String(c.id) === String(id); }) : window._previewCard;
+}
+function _mkPath(el, root){
+  var p = [];
+  while (el && el !== root){
+    var par = el.parentNode; if (!par) return null;
+    p.unshift(Array.prototype.indexOf.call(par.children, el));
+    el = par;
+  }
+  return (el === root) ? p.join('.') : null;
+}
+function _mkAt(root, path){
+  var el = root, parts = String(path).split('.');
+  for (var i = 0; i < parts.length; i++){
+    if (!el || !el.children) return null;
+    el = el.children[parseInt(parts[i], 10)];
+  }
+  return el || null;
+}
+/* כל האלמנטים שאפשר לסמן, עם המיקום והטקסט שלהם */
+function _mkNodes(root){
+  var out = [];
+  Array.prototype.forEach.call(root.querySelectorAll('*'), function(el){
+    if (!el.textContent || !el.textContent.trim()) return;
+    var p = _mkPath(el, root); if (p == null) return;
+    out.push({ path: p, text: el.textContent });
+  });
+  return out;
+}
+/* מצייר את הסימונים השמורים, ומעגן מחדש סימונים שזזו */
+function _mkApply(){
+  var root = document.getElementById('print-card-content'); if (!root || !window.CardMarker) return;
+  Array.prototype.forEach.call(root.querySelectorAll('.mk-hl'), function(e){ e.classList.remove('mk-hl'); });
+  var card = _mkCard(); if (!card) return;
+  var marks = card.markers || [];
+  if (!marks.length){ _mkBtn(0); return; }
+  var nodes = _mkNodes(root);
+  var r = CardMarker.resolve(marks, nodes);
+  r.paths.forEach(function(p){ var el = _mkAt(root, p); if (el) el.classList.add('mk-hl'); });
+  if (r.moved.length || r.stale.length){   // הכרטיס השתנה — מעדכנים את העוגנים
+    card.markers = CardMarker.reanchor(marks, nodes);
+    if (card.id && card.id !== 'preview'){ card._upd = Date.now(); persist(); }
+  }
+  _mkBtn(r.paths.length);
+}
+function _mkBtn(n){
+  var b = document.getElementById('print-modal-mark-btn'); if (!b) return;
+  var on = !!window._mkMode;
+  b.textContent = on ? ('🖍 סיים סימון' + (n ? ' (' + n + ')' : '')) : ('🖍 מרקר' + (n ? ' (' + n + ')' : ''));
+  b.style.background = on ? '#facc15' : '#fde047';
+  b.style.boxShadow = on ? 'inset 0 0 0 2px #a16207' : 'none';
+}
+function _mkToggleMode(){
+  var root = document.getElementById('print-card-content'); if (!root){ return; }
+  if (!window.CardMarker){ showToast('כלי המרקר לא נטען'); return; }
+  _mkEnsureCss();
+  window._mkMode = !window._mkMode;
+  root.classList.toggle('mk-mode', !!window._mkMode);
+  if (window._mkMode){
+    root.addEventListener('click', _mkClick, true);
+    showToast('🖍 לחץ על מה שרוצים לסמן · לחיצה נוספת מבטלת');
+  } else {
+    root.removeEventListener('click', _mkClick, true);
+  }
+  _mkApply();
+}
+function _mkClick(e){
+  var root = document.getElementById('print-card-content');
+  var el = e.target;
+  if (!root || el === root) return;
+  e.preventDefault(); e.stopPropagation();
+  var card = _mkCard(); if (!card){ showToast('הכרטיס לא נמצא'); return; }
+  // אם לחצו על אלמנט-על גדול מדי, מסמנים אותו בכל זאת רק אם אין בו ילדים עם טקסט
+  var p = _mkPath(el, root); if (p == null) return;
+  var mark = CardMarker.make(p, el.textContent);
+  card.markers = CardMarker.toggle(card.markers || [], mark);
+  if (card.id && card.id !== 'preview'){ card._upd = Date.now(); persist(); }
+  _mkApply();
+}
 function saveFromPreview() {
   // שמור מתצוגה מקדימה של הטופס
   const name = document.getElementById('f-name').value.trim();
@@ -10314,6 +10413,7 @@ function _doPrintNow() {
       html,body{margin:0;padding:0;height:100%;}
       #_wrap{min-height:calc(297mm - 20mm);padding:0;}
     }
+    ${window.CardMarker ? CardMarker.css('mk-hl') : ''}
   </style></head><body>
   <div id="_wrap">${content}</div>
   <script>
@@ -14124,11 +14224,13 @@ function _autoQueueAssignedRuns(card) {
     });
     changed = true;
   }
+  var anyRun = false;
   if (card.runs && card.runs.length) {
-    card.runs.forEach(function(r, i){ if (r && r.machine) addIfNeeded(i, r.machine); });
-  } else if (card.machine) {
-    addIfNeeded(-1, card.machine);
+    card.runs.forEach(function(r, i){ if (r && r.machine){ anyRun = true; addIfNeeded(i, r.machine); } });
   }
+  // באג: כרטיס עם ריצות מחושבות שבו נבחרה מכונה *ברמת הכרטיס* בלבד לא נכנס לשום תור
+  // ונשאר תקוע ב"עבודות זמינות". הנפילה-לאחור מכניסה את העבודה כולה לתור המכונה.
+  if (!anyRun && card.machine) addIfNeeded(-1, card.machine);
   return changed;
 }
 
@@ -23692,14 +23794,31 @@ async function togglePushNotifications() {
       applicationServerKey: _urlBase64ToUint8Array(_VAPID_PUBLIC_KEY)
     });
     var subs2 = (await window._fbGet('push_subscriptions')) || {};
-    subs2[_pushDeviceId()] = {
+    var myId = _pushDeviceId(), myOrigin = location.origin;
+    // מנויים מכתובת-אתר אחרת (למשל האתר הישן) — התראות מהם נפתחות לכתובת מתה. מוסרים.
+    var foreign = Object.keys(subs2).filter(function(k){
+      var e = subs2[k] || {}; return e.origin && e.origin !== myOrigin; });
+    foreign.forEach(function(k){ delete subs2[k]; });
+    subs2[myId] = {
       subscription: JSON.parse(JSON.stringify(sub)),
       user: currentUser ? (currentUser.name || currentUser.id) : null,
+      origin: myOrigin,
+      appUrl: location.origin + location.pathname,
       createdAt: new Date().toISOString()
     };
     await window._fbPut('push_subscriptions', subs2);
     _updatePushBtnUI(true);
-    showToast('🔔 התראות פוש הופעלו — תקבל הודעה כשנוצר כרטיס עבודה חדש');
+    showToast('🔔 התראות פוש הופעלו — תקבל הודעה כשנוצר כרטיס עבודה חדש'
+      + (foreign.length ? ' · הוסרו ' + foreign.length + ' מנויים מכתובת ישנה' : ''));
+    // מנויים ישנים שנרשמו לפני שהתחלנו לתעד כתובת — יכולים להיות מהאתר הישן
+    var legacy = Object.keys(subs2).filter(function(k){ return k !== myId && !(subs2[k]||{}).origin; });
+    if (legacy.length && confirm('נמצאו ' + legacy.length + ' מנויי התראות ישנים שלא ידוע מאיזו כתובת נרשמו.\n'
+        + 'הם עלולים להיות אלה שפותחים לך דף 404 של הכתובת הישנה.\n\nלמחוק אותם?\n'
+        + '(מכשירים אחרים שלך יצטרכו להפעיל התראות מחדש)')){
+      legacy.forEach(function(k){ delete subs2[k]; });
+      await window._fbPut('push_subscriptions', subs2);
+      showToast('🧹 נמחקו ' + legacy.length + ' מנויים ישנים');
+    }
   } catch(e) {
     console.warn('push subscribe failed', e);
     showToast('⚠️ ההרשמה להתראות פוש נכשלה');
@@ -26886,7 +27005,8 @@ function pi_fileStudio(fid){
     +   '<button onclick="pi_studioFoldToggle()" id="pist-t-fold" title="צפייה בקובץ כעלון/חוברת מקופלת" style="padding:7px 12px;border:1px solid #475569;border-radius:8px;background:transparent;color:#e2e8f0;font-weight:700;cursor:pointer;font-family:inherit">📖 חוברת</button>'
     +   '<button onclick="pi_studioZoomFit()" style="padding:7px 12px;border:1px solid #475569;border-radius:8px;background:transparent;color:#e2e8f0;font-weight:700;cursor:pointer;font-family:inherit">⤢ התאם</button>'
     +   '<button onclick="pi_studioRotate()" title="סובב 90°" style="padding:7px 12px;border:1px solid #475569;border-radius:8px;background:transparent;color:#e2e8f0;font-weight:700;cursor:pointer;font-family:inherit">⟳ 90°</button>'
-    +   '<button onclick="pi_studioApply()" style="padding:8px 16px;border:none;border-radius:8px;background:#c9a84c;color:#1a1a2e;font-weight:900;cursor:pointer;font-family:inherit">✓ שמור והחלף</button>'
+    +   '<button onclick="pi_studioApply(true)" title="מחיל את הטרים, הגלישות וניקוי הצלבים על הקובץ עצמו — והעריכה נמשכת על התוצאה" style="padding:8px 16px;border:none;border-radius:8px;background:#16a34a;color:#fff;font-weight:900;cursor:pointer;font-family:inherit">✅ החל שינויים</button>'
+    +   '<button onclick="pi_studioApply()" style="padding:8px 16px;border:none;border-radius:8px;background:#c9a84c;color:#1a1a2e;font-weight:900;cursor:pointer;font-family:inherit">✓ שמור וסגור</button>'
     +   '<button onclick="pi_studioClose()" style="padding:8px 12px;border:1px solid #475569;border-radius:8px;background:transparent;color:#e2e8f0;font-weight:700;cursor:pointer;font-family:inherit">✕</button>'
     + '</div>'
     + '<div style="flex:1;display:flex;min-height:0">'
@@ -27517,8 +27637,32 @@ function pi_studioPreflight(){
   if (typeof pi_preflightFile === 'function') { try { pi_preflightFile(st.fid); } catch(e){} }   // הבדיקה המלאה של הכלי
 }
 function pi_studioClose(){ var o = document.getElementById('pi-studio'); if (o) o.remove(); window._piStudio = null; }
+/* אחרי "החל שינויים": התוצאה (טרים+גלישה+ניקוי) הופכת לקובץ שממשיכים לערוך.
+   קו החיתוך החדש = פנימה ברוחב הגלישה, וניקוי הצלבים מתאפס (כבר בוצע). */
+function pi_studioReload(pages, bleedMm){
+  var st = window._piStudio; if (!st) return;
+  var imgs = {}, left = pages.length;
+  pages.forEach(function(p, i){
+    var im = new Image();
+    im.onload = function(){
+      imgs[i + 1] = im;
+      if (--left) return;
+      st.pageImgs = imgs; st.pages = pages.length; st.page = 1;
+      st.img = imgs[1]; st.markMm = 0; st.undo = [];
+      var b = BleedEngine.mmToPx(bleedMm, st.dpi);
+      st.trim = (b > 0 && st.img.width > 2 * b && st.img.height > 2 * b)
+        ? { x: b, y: b, w: st.img.width - 2 * b, h: st.img.height - 2 * b }
+        : { x: 0, y: 0, w: st.img.width, h: st.img.height };
+      var mk = document.getElementById('pist-mark'); if (mk) mk.value = 0;
+      pi_studioLiveEnd(); pi_studioSides(); pi_studioUndoBtn(); pi_studioZoomFit();
+      var el = document.getElementById('pist-pages');
+      if (el) el.innerHTML = '✅ השינויים הוחלו על ' + pages.length + ' עמוד' + (pages.length > 1 ? 'ים' : '');
+    };
+    im.src = p.canvas.toDataURL('image/png');
+  });
+}
 // שמירה: הפלט הוא TrimBox + גלישה — בדיוק מה שנשלח לדפוס
-function pi_studioApply(){
+function pi_studioApply(keepOpen){
   var st = window._piStudio;
   if (!st || !st.img || !st.plan){ showToast('אין מה לשמור'); return; }
   var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === st.fid; });
@@ -27553,9 +27697,12 @@ function pi_studioApply(){
       window._pi.previews = window._pi.previews || {};
       window._pi.previews[f.id] = out.toDataURL('image/png');
       cur._edited = true; window._pi.dirty = true;
-      pi_studioClose(); pi_render();
-      showToast('✓ הקובץ עודכן — נטו ' + Math.round(trimMmW) + '×' + Math.round(trimMmH) + ' מ״מ + גלישה ' + st.bleedMm + ' מ״מ'
-        + (pages.length > 1 ? ' · ' + pages.length + ' עמודים' : ''));
+      var msg = '✓ הקובץ עודכן — נטו ' + Math.round(trimMmW) + '×' + Math.round(trimMmH) + ' מ״מ + גלישה ' + st.bleedMm + ' מ״מ'
+        + (pages.length > 1 ? ' · ' + pages.length + ' עמודים' : '');
+      if (keepOpen) pi_studioReload(pages, st.bleedMm);   // ממשיכים לערוך את התוצאה
+      else pi_studioClose();
+      pi_render();
+      showToast(msg + (keepOpen ? ' — ממשיך בעריכה' : ''));
     }).catch(function(e){ showToast('❌ שמירה נכשלה: ' + (e.message||e)); });
   };
   if (pages.length > 1){
@@ -27855,7 +28002,9 @@ function pi_manualRenderItems(cur){
   var files = {}; (cur.files||[]).forEach(function(f){ files[f.id] = f; });
   return (cur.items||[]).map(function(it){
     var f = files[it.fileId];
-    return Object.assign({}, it, { key: String(it.id), label: (f ? f.name : (it.gangName || (it.empty ? 'ריק' : 'קובץ?'))), pageNumber: null });
+    // קופסת-טמפלט (מטקסט) נושאת שם משלה — "A3 קיפול" — ולא "ריק"
+    return Object.assign({}, it, { key: String(it.id),
+      label: (f ? f.name : (it.gangName || it.label || (it.empty ? 'ריק' : 'קובץ?'))), pageNumber: null });
   });
 }
 // ── Phase 7 — Auto Arrange (בוחר בין אריזת-רשת אופטימלית לפריטים זהים לבין shelf-packing לגדלים מעורבים) ──
@@ -28256,6 +28405,9 @@ function pi_drawSheetSvg(g, scale, items, selKey, warnKeys, svgId){
       ((it.pageNumber != null) ? _piHeadRectSvg(it.rotation, iw, ih) : '') +   // סימון ראש-העמוד (מסלול כרטיס — עמודים)
       (prev ? '' : '<text x="' + (iw/2) + '" y="' + (ih/2 + 4) + '" text-anchor="middle" font-size="10" font-weight="800" fill="#4c1d95" font-family="Heebo" transform="rotate(' + (it.rotation===90?-90:(it.rotation===270?90:0)) + ',' + (iw/2) + ',' + (ih/2) + ')" style="pointer-events:none">' + escHtml(lbl) + '</text>') +
       ((it.rotation===90||it.rotation===270) ? '<text x="3" y="11" font-size="8" fill="#64748b" style="pointer-events:none">⟳</text>' : '') +
+      (it.fold ? (iw >= ih                                       // קו קיפול — במרכז הצלע הארוכה
+          ? '<line x1="' + (iw/2) + '" y1="0" x2="' + (iw/2) + '" y2="' + ih + '" stroke="#0d9488" stroke-width="1.1" stroke-dasharray="6 4" pointer-events="none"/>'
+          : '<line x1="0" y1="' + (ih/2) + '" x2="' + iw + '" y2="' + (ih/2) + '" stroke="#0d9488" stroke-width="1.1" stroke-dasharray="6 4" pointer-events="none"/>') : '') +
       ((key === _singleSel) ? _resizeHandles(key, iw, ih) : '') +
     '</g>';
   });
@@ -28299,6 +28451,81 @@ function pi_drawSheetSvg(g, scale, items, selKey, warnKeys, svgId){
   });
   s += '</svg>';
   return s;
+}
+/* ═══════════ טמפלט מטקסט — "3 פעמים A3 קיפול" → קופסאות על הגיליון ═══════════ */
+function pi_tplText(){
+  var cur = window._pi.cur; if (!cur || !window.SheetTemplate){ showToast('הכלי לא נטען'); return; }
+  var old = document.getElementById('pi-tpl-modal'); if (old) old.remove();
+  var g = pi_curGeom();
+  var d = document.createElement('div'); d.id = 'pi-tpl-modal';
+  d.style.cssText = 'position:fixed;inset:0;z-index:100040;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;direction:rtl;font-family:Heebo,sans-serif';
+  d.innerHTML =
+      '<div style="background:#fff;border-radius:14px;width:min(620px,94vw);max-height:92vh;overflow:auto;padding:16px 18px">'
+    +   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+    +     '<b style="flex:1;font-size:1rem;color:#9d174d">📝 טמפלט מטקסט</b>'
+    +     '<button onclick="document.getElementById(\'pi-tpl-modal\').remove()" style="border:1px solid #ddd;background:#fff;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:inherit;font-weight:700">✕</button>'
+    +   '</div>'
+    +   '<div style="font-size:.79rem;color:#6b7280;line-height:1.6;margin-bottom:7px">כתוב שורה לכל סוג. אפשר <b>A3/A4/A5</b>, מידה מפורשת <b>297x420</b> או <b>32x45 ס״מ</b>, להוסיף <b>קיפול</b>, ולציין <b>לרוחב</b>/<b>לאורך</b>.</div>'
+    +   '<textarea id="pi-tpl-ta" oninput="pi_tplPreview()" spellcheck="false" rows="6" style="width:100%;padding:10px;border:1.5px solid #fbcfe8;border-radius:10px;font-family:inherit;font-size:.95rem;line-height:1.7;resize:vertical">'
+    +     escHtml(cur.templateText || SheetTemplate.example()) + '</textarea>'
+    +   '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:9px">'
+    +     '<label style="font-size:.74rem;color:#6b7280">מרווח מ״מ<input type="number" id="pi-tpl-gap" min="0" step="0.5" value="' + (g.minGapMm || 3) + '" oninput="pi_tplPreview()" style="display:block;width:78px;padding:6px;border:1px solid #ddd;border-radius:7px;font-family:inherit;text-align:center;font-weight:800"></label>'
+    +     '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.78rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:7px 10px;cursor:pointer"><input type="checkbox" id="pi-tpl-rot" checked onchange="pi_tplPreview()"> ⟳ מותר לסובב</label>'
+    +     '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.78rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:7px 10px;cursor:pointer"><input type="checkbox" id="pi-tpl-clear" checked> 🗑 החלף את מה שעל הגיליון</label>'
+    +   '</div>'
+    +   '<div id="pi-tpl-prev" style="margin-top:10px;font-size:.8rem;line-height:1.6"></div>'
+    +   '<div style="display:flex;gap:8px;margin-top:12px">'
+    +     '<button onclick="pi_tplApply()" style="flex:1;padding:10px;border:none;border-radius:9px;background:#9d174d;color:#fff;font-weight:900;cursor:pointer;font-family:inherit">▦ החל על הגיליון</button>'
+    +     '<button onclick="document.getElementById(\'pi-tpl-modal\').remove()" style="padding:10px 14px;border:1px solid #ddd;border-radius:9px;background:#fff;font-weight:800;cursor:pointer;font-family:inherit">ביטול</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(d);
+  pi_tplPreview();
+}
+function pi_tplPlan(){
+  var g = pi_curGeom();
+  var txt = (document.getElementById('pi-tpl-ta')||{}).value || '';
+  var gap = parseFloat((document.getElementById('pi-tpl-gap')||{}).value);
+  var rot = !!(document.getElementById('pi-tpl-rot')||{}).checked;
+  var p = SheetTemplate.parse(txt);
+  var L = SheetTemplate.layout({ items: p.items, widthMm: g.printableWidthMm, heightMm: g.printableHeightMm,
+    gapMm: isFinite(gap) ? gap : (g.minGapMm || 3), allowRotate: rot });
+  return { parsed: p, layout: L, g: g };
+}
+function pi_tplPreview(){
+  var el = document.getElementById('pi-tpl-prev'); if (!el) return;
+  var r = pi_tplPlan(), p = r.parsed, L = r.layout;
+  var rows = [];
+  if (p.errors.length) rows.push('<div style="color:#b91c1c">⚠️ ' + p.errors.map(function(e){
+    return 'שורה ' + e.line + ': ' + escHtml(e.why); }).join('<br>') + '</div>');
+  if (!p.items.length){ el.innerHTML = rows.join('') || '<span style="color:#6b7280">כתוב מה יהיה על הגיליון…</span>'; return; }
+  rows.push('<div style="color:#374151">' + escHtml(SheetTemplate.describe(p)) + '</div>');
+  rows.push('<div style="color:#166534;font-weight:800">✓ ' + L.boxes.length + ' פריטים נכנסים על הגיליון · ניצול ' + L.usedPct + '% · ' + L.rows + ' שורות</div>');
+  if (L.unplaced.length) rows.push('<div style="color:#b45309;font-weight:700">⚠️ ' + L.unplaced.length
+    + ' לא נכנסים לשטח ההדפסה (' + Math.round(r.g.printableWidthMm) + '×' + Math.round(r.g.printableHeightMm)
+    + ' מ״מ): ' + escHtml(L.unplaced.map(function(u){ return u.label; }).join(', ')) + '</div>');
+  el.innerHTML = rows.join('');
+}
+function pi_tplApply(){
+  var cur = window._pi.cur; if (!cur) return;
+  var r = pi_tplPlan(), L = r.layout, g = r.g;
+  if (!L.boxes.length){ showToast('אין מה להציב — בדוק את הטקסט'); return; }
+  if ((document.getElementById('pi-tpl-clear')||{}).checked) cur.items = [];
+  cur.items = cur.items || [];
+  var stamp = Date.now();
+  L.boxes.forEach(function(b, i){
+    cur.items.push({ id: 'tpl' + stamp + '_' + i, fileId: null, empty: true, template: true,
+      label: b.label, fold: !!b.fold,
+      xMm: Math.round((g.printX + b.xMm) * 10) / 10, yMm: Math.round((g.printY + b.yMm) * 10) / 10,
+      widthMm: Math.round(b.widthMm * 10) / 10, heightMm: Math.round(b.heightMm * 10) / 10,
+      rotation: b.rotated ? 90 : 0, bleedMm: g.defaultBleedMm, copies: 1, sourceType: 'template' });
+  });
+  cur.templateText = (document.getElementById('pi-tpl-ta')||{}).value || '';
+  cur._edited = true; window._pi.dirty = true; pi_selSet([]);
+  var m = document.getElementById('pi-tpl-modal'); if (m) m.remove();
+  pi_render();
+  showToast('▦ הטמפלט הונח — ' + L.boxes.length + ' פריטים'
+    + (L.unplaced.length ? ' · ' + L.unplaced.length + ' לא נכנסו' : ''));
 }
 function pi_manualSave(){
   var cur = window._pi.cur; if (!cur) return;
@@ -29003,6 +29230,7 @@ function pi_renderManualWS(){
       '<b style="font-size:.95rem;flex:1;min-width:0">🧩 <span onclick="pi_renameManual()" title="לחץ לשינוי שם העבודה" style="cursor:pointer;border-bottom:1px dashed #99f6e4">' + escHtml(cur.name||'') + ' ✏️</span> <span style="font-size:.68rem;background:#ccfbf1;color:#0f766e;border-radius:6px;padding:2px 7px;font-weight:800">ידני</span></b>' +
       pi_savedLabel() +
       (simple ? '' : '<button onclick="pi_showFeatures()" title="רשימת התכונות — קיים ומתוכנן" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6d28d9;font-weight:800;cursor:pointer;font-family:Heebo">📋 תכונות</button>') +
+      '<button onclick="pi_tplText()" title="כתוב במילים מה יהיה על הגיליון — למשל: 3 פעמים A3 קיפול" style="padding:8px 12px;border:1px solid #fbcfe8;border-radius:8px;background:#fdf2f8;color:#9d174d;font-weight:800;cursor:pointer;font-family:Heebo">📝 טמפלט מטקסט</button>' +
       '<button onclick="pi_sheetFullView()" title="ראה את הגיליון עם הקבצים במסך מלא (תצוגה נקייה)" style="padding:8px 12px;border:1px solid #c7d2fe;border-radius:8px;background:#eef2ff;color:#3730a3;font-weight:800;cursor:pointer;font-family:Heebo">🖼️ גיליון מלא</button>' +
       '<button onclick="pi_manualFullscreen()" title="עורך במסך מלא" style="padding:8px 12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;color:#0f766e;font-weight:800;cursor:pointer;font-family:Heebo">' + (fs ? '🡼 צא ממסך מלא' : '⛶ עורך מלא') + '</button>' +
       '<button onclick="pi_shortcutsHelp()" title="קיצורי מקלדת" style="padding:8px 11px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#6b7280;font-weight:800;cursor:pointer;font-family:Heebo">⌨️</button>' +
