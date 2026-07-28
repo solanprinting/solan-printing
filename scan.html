@@ -427,10 +427,20 @@ function showMenu(card){
 if (!cid) { sub.textContent = ''; body.innerHTML = '<div class="err">חסר מזהה כרטיס בקישור.</div>'; }
 else _tok().then(function(t){
   TOKEN = t;
-  return Promise.all([ fbGet('cards'), fbGet('customerProofs').catch(function(){ return {}; }), fbGet('scanStages/' + encodeURIComponent(String(cid))).catch(function(){ return null; }) ]);
+  // ⚠️ כרטיס שהושלם מועבר לארכיון ונעלם מ-cards — אבל ה-QR המודפס ממשיך לחיות על
+  //    הכרטיס בדפוס. לכן מחפשים גם בארכיון (וגם בגיבוי הכרטיס הבודד) לפני שמוותרים.
+  return Promise.all([
+    fbGet('cards'),
+    fbGet('customerProofs').catch(function(){ return {}; }),
+    fbGet('scanStages/' + encodeURIComponent(String(cid))).catch(function(){ return null; }),
+    fbGet('cardsArchive/' + encodeURIComponent(String(cid))).catch(function(){ return null; })
+  ]);
 }).then(function(res){
-  var card = findCard(res[0]);
-  if (!card) { sub.textContent = ''; body.innerHTML = '<div class="err">הכרטיס לא נמצא — ייתכן שהעבודה הושלמה ועברה לארכיון.</div>'; return; }
+  var card = findCard(res[0]) || res[3] || null;
+  if (card && !findCard(res[0])) {
+    sub.textContent = 'מהארכיון';               // שקוף למשתמש — הכרטיס נמצא, רק לא ברשימה הפעילה
+  }
+  if (!card) { sub.textContent = ''; body.innerHTML = '<div class="err">הכרטיס לא נמצא — ייתכן שהעבודה נמחקה לצמיתות.</div>'; return; }
   window._scanCard = card; window._scanProofs = res[1] || {};
   if (res[2] && typeof res[2] === 'object') _scanStages = res[2];
   sub.textContent = card.name || '';
