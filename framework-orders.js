@@ -803,7 +803,8 @@
           var packs = _int(l.packs) || 0, packSize = _int(l.packSize) || 0;
           var qty = _int(l.qty);
           if (!qty && packs > 0 && packSize > 0) qty = packs * packSize;   // 10 אריזות × 1000 = 10,000 יח׳
-          return { name: _s(l.name), customer: _s(l.customer), qty: qty, packs: packs, packSize: packSize };
+          return { name: _s(l.name), customer: _s(l.customer), qty: qty, packs: packs, packSize: packSize,
+                   done: !!l.done };
         }).filter(function (l) { return l.name || l.qty; });
         c.doneQty = c.doneLines.reduce(function (a, l) { return a + l.qty; }, 0);
         c.donePacks = c.doneLines.reduce(function (a, l) { return a + l.packs; }, 0);
@@ -826,7 +827,7 @@
         var packs = _int(l.packs) || 0, packSize = _int(l.packSize) || 0, qty = _int(l.qty);
       if (!qty && packs > 0 && packSize > 0) qty = packs * packSize;
       return { name: _s(l.name) || _s(card.name), customer: _s(l.customer) || _s(card.customer),
-               qty: qty, packs: packs, packSize: packSize };
+               qty: qty, packs: packs, packSize: packSize, done: !!l.done };
       });
     }
     return [{ name: _s(card.name), customer: _s(card.customer),
@@ -852,6 +853,21 @@
       return { name: p, customer: _s(card.customer) && i === 0 ? _s(card.customer) : '',
                qty: 0, packs: 0, packSize: 0 };
     });
+  }
+
+  // הפריטים שסומנו כהושלמו, ואלה שעדיין בייצור. בעבודה בלי סימון פרטני —
+  // 'הושלם' של הכרטיס כולו קובע (status==='done').
+  function jobDoneLines(card) {
+    var ls = jobLines(card);
+    var any = ls.some(function (l) { return l.done; });
+    if (any) return ls.filter(function (l) { return l.done; });
+    return _s(card && card.status) === 'done' ? ls : [];
+  }
+  function jobPendingLines(card) {
+    var ls = jobLines(card);
+    var any = ls.some(function (l) { return l.done; });
+    if (any) return ls.filter(function (l) { return !l.done; });
+    return _s(card && card.status) === 'done' ? [] : ls;
   }
 
   // הלקוחות שמופיעים בעבודה (לתעודת משלוח נפרדת לכל אחד)
@@ -919,6 +935,8 @@
     if (st === 'trash') return null;
     if (!isClerkJob(card)) return null;
     if (hasNote) return 'delivered';
+    // עבודה משותפת: מספיק שפריט אחד סומן כהושלם כדי שתופיע ב"מוכן לאספקה"
+    if (jobDoneLines(card).length) return 'ready';
     if (st === 'done') return 'ready';                       // הודפס והושלם — ממתין למסירה
     if (st === 'inprogress' || st === 'finishing' || st === 'printing') return 'production';
     return 'new';
@@ -1070,7 +1088,8 @@
     buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,
     buildJobNote: buildJobNote, jobStage: jobStage, orderStage: orderStage,
     isClerkJob: isClerkJob, isHiddenName: isHiddenName, applyJobOverlay: applyJobOverlay,
-    jobLines: jobLines, jobCustomers: jobCustomers, splitJobItems: splitJobItems, applyToCustomerStock: applyToCustomerStock,
+    jobLines: jobLines, jobCustomers: jobCustomers, splitJobItems: splitJobItems,
+    jobDoneLines: jobDoneLines, jobPendingLines: jobPendingLines, applyToCustomerStock: applyToCustomerStock,
     applyStock: applyStock, findAgreementForCustomer: findAgreementForCustomer,
     alerts: alerts, findItem: findItem, validate: validate
   };

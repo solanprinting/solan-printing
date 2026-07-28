@@ -139,6 +139,20 @@
     if (2 * sx >= mw || 2 * sy >= mh) return { ok: false, errors: ['MARGIN_TOO_BIG'] };
     return { ok: true, trim: { x: sx, y: sy, w: mw - 2 * sx, h: mh - 2 * sy } };
   }
+  /* הקטנת ה-TrimBox פנימה — הדרך הנקייה ליצור גלישה *אמיתית*: מה שמחוץ לקו
+     החדש הוא גרפיקה קיימת של הקובץ, ולא פיקסלים מסונתזים. */
+  function shrinkTrim(opts) {
+    opts = opts || {};
+    var t = opts.trim || {};
+    var x = _int(t.x), y = _int(t.y), w = _int(t.w), h = _int(t.h), by = _int(opts.byPx);
+    if (w <= 0 || h <= 0) return { ok: false, errors: ['BAD_TRIM'] };
+    if (by === 0) return { ok: true, trim: { x: x, y: y, w: w, h: h }, gained: 0 };
+    var max = Math.floor(Math.min(w, h) / 2) - 1;          // תמיד נשאר טרים חוקי
+    var d = Math.max(-Math.min(x, y), Math.min(by, max));
+    return { ok: true, clamped: d !== by, gained: d,
+      trim: { x: x + d, y: y + d, w: w - 2 * d, h: h - 2 * d } };
+  }
+
   // השוליים הנוכחיים של הטרים בתוך המדיה (לתצוגה ולבדיקת סימטריה)
   function trimMargins(mediaWidth, mediaHeight, trim) {
     var t = trim || {};
@@ -192,5 +206,6 @@
   return { METHODS: METHODS, methods: methods, isAvailable: isAvailable,
            mmToPx: mmToPx, planBleed: planBleed, planMarkClean: planMarkClean,
            planTrimBleed: planTrimBleed, zoomAt: zoomAt, zoomToRect: zoomToRect,
-           centeredTrim: centeredTrim, symmetricTrim: symmetricTrim, trimMargins: trimMargins };
+           centeredTrim: centeredTrim, symmetricTrim: symmetricTrim, trimMargins: trimMargins,
+           shrinkTrim: shrinkTrim };
 });

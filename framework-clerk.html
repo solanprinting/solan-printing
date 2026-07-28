@@ -82,7 +82,7 @@
   /* ⚠️ שדות בתוך חלון חייבים להתכווץ — אחרת נוצרת גלילה לצדדים ולא רואים הכל */
   .modalIn input,.modalIn select{max-width:100%;min-width:0}
   /* עורך שורות: בלוק לכל שורה, נשבר לשתי עמודות במסך צר — בלי גלילה אופקית */
-  .lnRow{display:grid;grid-template-columns:1.6fr 1.2fr .7fr .8fr 1fr auto;gap:6px;align-items:end;
+  .lnRow{display:grid;grid-template-columns:1.5fr 1.1fr .6fr .7fr .5fr .9fr auto;gap:6px;align-items:end;
     border:1px solid var(--line);border-radius:9px;padding:8px;margin-bottom:7px;background:#fcfcff}
   .lnRow label{display:block;font-size:.72rem;color:var(--muted);font-weight:700}
   .lnRow input{width:100%}
@@ -462,7 +462,7 @@ function _jobCard(c,stage){
       <b>🖨 ${esc(c.name||'עבודה')}</b><span class="muted" style="font-size:.75rem">${esc(c.orderDate||'')}</span></div>
     <div style="font-size:.82rem;margin-top:4px">
       ${c.copies?`• ${Number(c.copies).toLocaleString()} עותקים`:''}${c.pages?` · ${c.pages} עמ׳`:''}
-      ${c.doneLines&&c.doneLines.length>1?('<div class="ok" style="font-size:.78rem">'+c.doneLines.map(l=>'• '+esc(l.customer||'')+' — '+l.qty.toLocaleString()+(l.packs?(' ('+l.packs+' אריזות)'):'')).join('<br>')+'</div>')
+      ${c.doneLines&&c.doneLines.length>1?('<div style="font-size:.78rem">'+c.doneLines.map(l=>'<div class="'+(l.done?'ok':'muted')+'">'+(l.done?'✓ ':'⏳ ')+esc(l.name||l.customer||'')+' — '+l.qty.toLocaleString()+(l.packs?(' ('+l.packs+' אריזות)'):'')+'</div>').join('')+'</div>')
         : (c.doneQty!=null?`<div class="ok" style="font-size:.78rem">יצא בפועל: ${c.doneQty.toLocaleString()}${c.donePacks?` (${c.donePacks} אריזות)`:''}</div>`:'')}
       ${c.clerkNote?`<div class="muted" style="font-size:.76rem">📌 ${esc(c.clerkNote)}</div>`:''}
       ${c.paper?`<div class="muted">${esc(c.paper)}</div>`:''}</div>
@@ -558,13 +558,20 @@ function _readyRows(agId){
   if(!agId) _cards.forEach(c=>{
     const done=_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0)||!!_delivered[c.id];
     if(FW.jobStage(c,done)!=='ready') return;
-    const jl=FW.jobLines(c);
-    out.push({ kind:'job', key:'j:'+c.id, id:String(c.id),
-      customer:FW.jobCustomers(c).join(' · ')||c.customer||'',
-      title:'🖨 '+(c.name||'עבודה'), date:c.orderDate||'',
-      detail: jl.length>1 ? jl.map(l=>'• '+esc(l.customer||'')+' — '+l.qty.toLocaleString()+(l.packs?(' ('+l.packs+' אריזות)'):'')).join('<br>')
-        : ((c.doneQty!=null?c.doneQty:(parseInt(c.copies,10)||0)).toLocaleString()+' יח׳'+(c.paper?' · '+esc(c.paper):'')),
-      ordered:'', short:false, by:'', value:0 });
+    // שורה נפרדת לכל פריט שהושלם — כך רואים בדיוק מה מוכן ולא את שם העבודה המלא
+    const dl=FW.jobDoneLines(c);
+    if(dl.length>1 || (dl.length===1 && FW.jobLines(c).length>1)){
+      dl.forEach((l,ix)=>out.push({ kind:'job', key:'j:'+c.id+':'+ix, id:String(c.id), lineIdx:ix,
+        customer:l.customer||c.customer||'', title:'🖨 '+(l.name||c.name||'עבודה'), date:c.orderDate||'',
+        detail:l.qty.toLocaleString()+' יח׳'+(l.packs?(' · '+l.packs+' אריזות'):''),
+        ordered:'', short:false, by:'', value:0 }));
+    } else {
+      out.push({ kind:'job', key:'j:'+c.id, id:String(c.id),
+        customer:FW.jobCustomers(c).join(' · ')||c.customer||'',
+        title:'🖨 '+(c.name||'עבודה'), date:c.orderDate||'',
+        detail:((c.doneQty!=null?c.doneQty:(parseInt(c.copies,10)||0)).toLocaleString()+' יח׳'+(c.paper?' · '+esc(c.paper):'')),
+        ordered:'', short:false, by:'', value:0 });
+    }
   });
   return out;
 }
@@ -916,7 +923,7 @@ function openJob(id){
   // הדפסה אחת יכולה להכיל כמה פריטים ולכמה לקוחות — מתחילים ממה שכבר נשמר
   _jbState={ status:(c.status==='done'?'done':'finishing'), note:ov.note||'', toStock:!ov.stockSynced };
   const _split=FW.splitJobItems(c);
-  _jbLines=(ov.lines&&ov.lines.length)?ov.lines.map(l=>({name:l.name||'',customer:l.customer||'',qty:l.qty||0,packs:l.packs||0,packSize:l.packSize||0}))
+  _jbLines=(ov.lines&&ov.lines.length)?ov.lines.map(l=>({name:l.name||'',customer:l.customer||'',qty:l.qty||0,packs:l.packs||0,packSize:l.packSize||0,done:!!l.done}))
     : _split.length ? _split.map(l=>({name:l.name,customer:l.customer,qty:l.qty||0,packs:0,packSize:0}))
     :[{name:c.name||'',customer:c.customer||'',qty:(ov.qty!=null?ov.qty:(parseInt(c.copies,10)||0)),packs:ov.packs||0,packSize:0}];
   _jbRender(c,ov);
@@ -945,6 +952,7 @@ function _jbRender(c,ov){
           <div><label>לקוח</label><input class="jbCust" data-i="${i}" value="${esc(l.customer)}" list="jbCustList"></div>
           <div><label>אריזות</label><input type="number" class="jbP" data-i="${i}" value="${l.packs||0}" min="0"></div>
           <div><label>יח׳ באריזה</label><input type="number" class="jbPS" data-i="${i}" value="${l.packSize||0}" min="0" placeholder="1000"></div>
+          <div><label>הושלם</label><input type="checkbox" class="jbD" data-i="${i}" ${l.done?'checked':''} title="הפריט הזה מוכן לאספקה" style="width:22px;height:22px;margin-top:4px"></div>
           <div><label>סה״כ יח׳</label><input type="number" class="jbQ" data-i="${i}" value="${l.qty||0}" min="0">
             ${(l.packs>0&&l.packSize>0)?`<div class="muted" style="font-size:.7rem">${l.packs} × ${l.packSize.toLocaleString()}</div>`:''}</div>
           <button class="jbDel danger del" data-i="${i}" title="מחק שורה">🗑</button>
@@ -990,11 +998,13 @@ function _jbRender(c,ov){
     _jbLines[i].packSize=parseInt(e.target.value,10)||0; recalc(i); _jbRender(c,ov); });
   document.querySelectorAll('.jbQ').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i;
     _jbLines[i].qty=parseInt(e.target.value,10)||0; _jbRender(c,ov); });
+  document.querySelectorAll('.jbD').forEach(el=>el.onchange=e=>{ const i=+e.target.dataset.i;
+    _jbLines[i].done=e.target.checked; _jbRender(c,ov); });
 
   $('jbSave').onclick=async()=>{
     const lines=_jbLines.filter(l=>(l.name||'').trim() && (parseInt(l.qty,10)||0)>0)
       .map(l=>({name:l.name.trim(),customer:(l.customer||'').trim(),qty:parseInt(l.qty,10)||0,
-        packs:parseInt(l.packs,10)||0,packSize:parseInt(l.packSize,10)||0}));
+        packs:parseInt(l.packs,10)||0,packSize:parseInt(l.packSize,10)||0,done:!!l.done}));
     if(!lines.length){ alert('הזינו לפחות פריט אחד עם כמות'); return; }
     const rec={ status:$('jbStatus').value, lines:lines,
       qty:lines.reduce((a,l)=>a+l.qty,0), packs:lines.reduce((a,l)=>a+l.packs,0),

@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785235717';
+window.APP_VERSION = '1785236749';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -26904,6 +26904,15 @@ function pi_fileStudio(fid){
     +       '<button onclick="pi_studioTrimReset(\'full\')" style="flex:1;padding:6px;border:1.5px solid #d0c8b8;border-radius:7px;background:#fff;font-family:inherit;font-weight:700;font-size:.76rem;cursor:pointer">טרים = כל הקובץ</button>'
     +       '<button onclick="pi_studioTrimReset(\'inset\')" title="מכניס את קו החיתוך פנימה ברוחב הגלישה" style="flex:1;padding:6px;border:1.5px solid #d0c8b8;border-radius:7px;background:#fff;font-family:inherit;font-weight:700;font-size:.76rem;cursor:pointer">כנוס ברוחב גלישה</button>'
     +     '</div>'
+    +     '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:9px;padding:8px 10px;margin-top:6px">'
+    +       '<div style="font-size:.78rem;font-weight:800;color:#166534">הקטנת הטרים ליצירת גלישה אמיתית</div>'
+    +       '<div style="font-size:.72rem;color:#4b5563;margin:2px 0 6px">מכניס את קו החיתוך פנימה — מה שנשאר בחוץ הוא גרפיקה אמיתית של הקובץ, בלי סינתזה.</div>'
+    +       '<div style="display:flex;gap:5px">'
+    +         '<input type="number" id="pist-shrink" min="0" max="20" step="0.5" value="2" style="flex:1;padding:6px;border:1.5px solid #86efac;border-radius:7px;font-family:inherit;text-align:center;font-weight:800">'
+    +         '<button onclick="pi_studioShrink(1)" style="flex:none;padding:6px 10px;border:none;border-radius:7px;background:#16a34a;color:#fff;font-family:inherit;font-weight:800;cursor:pointer">הקטן</button>'
+    +         '<button onclick="pi_studioShrink(-1)" title="החזרה החוצה" style="flex:none;padding:6px 10px;border:1.5px solid #86efac;border-radius:7px;background:#fff;font-family:inherit;font-weight:800;cursor:pointer">הגדל</button>'
+    +       '</div>'
+    +     '</div>'
     +     '<div style="font-weight:800;color:#2d3561;margin-top:10px">התאמת קו החיתוך</div>'
     +     '<div style="display:flex;gap:5px;align-items:flex-end;margin-top:5px">'
     +       '<label style="flex:1"><span style="font-size:.72rem;color:#6b7280">רוחב (מ״מ)</span><input type="number" id="pist-tw" step="0.5" min="1" style="width:100%;padding:6px;border:1.5px solid #d0c8b8;border-radius:7px;font-family:inherit;text-align:center;font-weight:800"></label>'
@@ -27008,6 +27017,17 @@ function pi_studioSet(k, v){
 /* הפס המרבי שמותר לנקות: עד גבול הטרים+גלישה, כדי שהניקוי לעולם לא יאכל גרפיקה.
    מחזיר פיקסלים; 0 = אין בכלל מקום לנקות (הטרים צמוד לקצה הקובץ). */
 /* מידה מבוקשת לקובץ — ממורכזת, שוליים שווים משני הצדדים */
+/* הקטנת/הגדלת ה-TrimBox במ"מ — כך יוצרים מסגרת גלישה אמיתית מתוך הקובץ */
+function pi_studioShrink(dir){
+  var st = window._piStudio; if (!st || !st.img || !st.trim) return;
+  var mm2 = parseFloat((document.getElementById('pist-shrink')||{}).value);
+  if (!(mm2 > 0)){ showToast('הזן כמה מ"מ להכניס'); return; }
+  var r = BleedEngine.shrinkTrim({ trim: st.trim, byPx: (dir < 0 ? -1 : 1) * BleedEngine.mmToPx(mm2, st.dpi) });
+  if (!r.ok){ showToast('לא ניתן להקטין עוד'); return; }
+  pi_studioPush(); st.trim = r.trim; pi_studioDraw();
+  showToast((dir < 0 ? '↔ הטרים הוגדל ב-' : '✓ הטרים הוקטן ב-') + mm2 + ' מ"מ' + (r.clamped ? ' (הוגבל)' : ''));
+}
+
 function pi_studioApplySize(){
   var st = window._piStudio; if (!st || !st.img) return;
   var wmm = parseFloat((document.getElementById('pist-tw')||{}).value), hmm = parseFloat((document.getElementById('pist-th')||{}).value);
