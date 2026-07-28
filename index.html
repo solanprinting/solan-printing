@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785232609';
+window.APP_VERSION = '1785234607';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -26860,48 +26860,84 @@ function pi_manualBindDrop(){
   });
 }
 // מסך מלא לעורך האימפוזיציה הידנית
-/* ═══════════ עורך קובץ במסך מלא — גלישות וניקוי צלבים ═══════════
-   פותח את הקובץ (תמונה או עמוד PDF) על קנבס, מאפשר להוסיף גלישה באחת
-   מהשיטות (bleed-engine.js) ולנקות סימוני חיתוך, ולשמור כקובץ חדש שמחליף
-   את המקור בגיליון. ⚠️ העריכה על עותק — הקובץ המקורי ב-Storage לא נמחק. */
+/* ═══════════ עורך קובץ במסך מלא — MediaBox / TrimBox / גלישות / זום ═══════════
+   MediaBox = הקובץ כולו · TrimBox = קו החיתוך (ניתן להזזה ולשינוי גודל).
+   הגלישה נבנית *מחוץ* ל-TrimBox: אם יש תוכן אמיתי בקובץ מעבר לקו — הוא מנוצל,
+   ורק מה שחסר מסונתז (שכפול/מתיחה/שיקוף).  ⚠️ העריכה על עותק; המקור נשמר. */
 function pi_fileStudio(fid){
   var cur = window._pi.cur; if (!cur) return;
   var f = (cur.files||[]).find(function(x){ return x.id === fid; });
   if (!f || !f.sourceFileUrl){ showToast('אין קובץ מקור לעריכה'); return; }
-  window._piStudio = { fid: fid, bleedMm: f.bleedMm || 3, method: 'mirror', markMm: 0, img: null, dpi: 300 };
+  window._piStudio = { fid: fid, bleedMm: f.bleedMm || 3, method: 'mirror', markMm: 0,
+    img: null, dpi: 300, tool: 'trim', view: { zoom: 1, panX: 0, panY: 0 }, trim: null, rot: 0 };
   var ov = document.getElementById('pi-studio'); if (ov) ov.remove();
   ov = document.createElement('div'); ov.id = 'pi-studio';
   ov.style.cssText = 'position:fixed;inset:0;z-index:100030;background:#111827;display:flex;flex-direction:column;direction:rtl;font-family:Heebo,sans-serif';
   ov.innerHTML =
-      '<div style="display:flex;align-items:center;gap:10px;padding:10px 16px;background:#0f172a;color:#fff;flex-wrap:wrap">'
-    + '<b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🖼️ ' + escHtml(f.name||'קובץ') + '</b>'
-    + '<span id="pist-size" style="font-size:.78rem;color:#94a3b8"></span>'
-    + '<button onclick="pi_studioApply()" style="padding:8px 16px;border:none;border-radius:8px;background:#c9a84c;color:#1a1a2e;font-weight:900;cursor:pointer;font-family:inherit">✓ שמור והחלף</button>'
-    + '<button onclick="pi_studioClose()" style="padding:8px 14px;border:1px solid #475569;border-radius:8px;background:transparent;color:#e2e8f0;font-weight:700;cursor:pointer;font-family:inherit">✕ סגור</button>'
+      '<div style="display:flex;align-items:center;gap:8px;padding:9px 14px;background:#0f172a;color:#fff;flex-wrap:wrap">'
+    +   '<b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🖼️ ' + escHtml(f.name||'קובץ') + '</b>'
+    +   '<span id="pist-info" style="font-size:.76rem;color:#94a3b8"></span>'
+    +   '<button onclick="pi_studioTool(\'trim\')" id="pist-t-trim" title="הזזה/שינוי של קו החיתוך" style="padding:7px 12px;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:800">✥ טרים</button>'
+    +   '<button onclick="pi_studioTool(\'zoom\')" id="pist-t-zoom" title="זכוכית מגדלת — קליק שמאלי מתקרב, ימני מתרחק, גרירה מסמנת אזור" style="padding:7px 12px;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:800">🔍 זום</button>'
+    +   '<button onclick="pi_studioZoomFit()" style="padding:7px 12px;border:1px solid #475569;border-radius:8px;background:transparent;color:#e2e8f0;font-weight:700;cursor:pointer;font-family:inherit">⤢ התאם</button>'
+    +   '<button onclick="pi_studioRotate()" title="סובב 90°" style="padding:7px 12px;border:1px solid #475569;border-radius:8px;background:transparent;color:#e2e8f0;font-weight:700;cursor:pointer;font-family:inherit">⟳ 90°</button>'
+    +   '<button onclick="pi_studioApply()" style="padding:8px 16px;border:none;border-radius:8px;background:#c9a84c;color:#1a1a2e;font-weight:900;cursor:pointer;font-family:inherit">✓ שמור והחלף</button>'
+    +   '<button onclick="pi_studioClose()" style="padding:8px 12px;border:1px solid #475569;border-radius:8px;background:transparent;color:#e2e8f0;font-weight:700;cursor:pointer;font-family:inherit">✕</button>'
     + '</div>'
     + '<div style="flex:1;display:flex;min-height:0">'
-    +   '<div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:center;overflow:auto;padding:14px;background:repeating-conic-gradient(#1f2937 0 25%,#111827 0 50%) 0 0/22px 22px">'
-    +     '<canvas id="pist-canvas" style="max-width:100%;max-height:100%;box-shadow:0 6px 30px rgba(0,0,0,.6);background:#fff"></canvas>'
+    +   '<div id="pist-stage" style="flex:1;min-width:0;position:relative;overflow:hidden;background:repeating-conic-gradient(#1f2937 0 25%,#111827 0 50%) 0 0/22px 22px">'
+    +     '<canvas id="pist-view" style="position:absolute;inset:0"></canvas>'
+    +     '<div id="pist-marq" style="position:absolute;border:1.5px dashed #c9a84c;background:rgba(201,168,76,.15);display:none;pointer-events:none"></div>'
+    +     '<div id="pist-hint" style="position:absolute;bottom:10px;left:10px;background:rgba(15,23,42,.85);color:#e2e8f0;font-size:.74rem;padding:5px 10px;border-radius:7px;pointer-events:none"></div>'
     +   '</div>'
-    +   '<div style="flex:0 0 300px;max-width:300px;background:#fff;overflow:auto;padding:14px 16px">'
-    +     '<div style="font-weight:900;color:#2d3561;margin-bottom:2px">גלישות (Bleed)</div>'
-    +     '<div style="font-size:.76rem;color:#6b7280;margin-bottom:10px">הרחבת הגרפיקה מעבר לקו החיתוך, כדי שלא ייווצר פס לבן.</div>'
-    +     '<label style="display:block;font-size:.82rem;font-weight:700;margin-bottom:3px">רוחב הגלישה (מ״מ)</label>'
-    +     '<input type="number" id="pist-bleed" min="0" max="20" step="0.5" value="3" oninput="pi_studioSet(\'bleedMm\',this.value)" '
-    +       'style="width:100%;padding:9px;border:1.5px solid #d0c8b8;border-radius:8px;font-family:inherit;font-size:1rem;font-weight:800;text-align:center">'
-    +     '<div style="font-weight:800;color:#2d3561;margin:14px 0 6px">סוגי יצירת גלישה</div>'
+    +   '<div style="flex:0 0 310px;max-width:310px;background:#fff;overflow:auto;padding:13px 15px">'
+    +     '<div style="font-weight:900;color:#2d3561">קופסאות הקובץ</div>'
+    +     '<div style="font-size:.75rem;color:#6b7280;margin-bottom:8px">'
+    +       '<span style="color:#0ea5e9;font-weight:800">▬ MediaBox</span> = הקובץ כולו · '
+    +       '<span style="color:#16a34a;font-weight:800">▬ TrimBox</span> = קו החיתוך · '
+    +       '<span style="color:#c9a84c;font-weight:800">▬ Bleed</span> = הגלישה</div>'
+    +     '<div id="pist-boxes" style="display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>'
+    +     '<div style="display:flex;gap:6px;margin:8px 0 4px">'
+    +       '<button onclick="pi_studioTrimReset(\'full\')" style="flex:1;padding:6px;border:1.5px solid #d0c8b8;border-radius:7px;background:#fff;font-family:inherit;font-weight:700;font-size:.76rem;cursor:pointer">טרים = כל הקובץ</button>'
+    +       '<button onclick="pi_studioTrimReset(\'inset\')" title="מכניס את קו החיתוך פנימה ברוחב הגלישה" style="flex:1;padding:6px;border:1.5px solid #d0c8b8;border-radius:7px;background:#fff;font-family:inherit;font-weight:700;font-size:.76rem;cursor:pointer">כנוס ברוחב גלישה</button>'
+    +     '</div>'
+    +     '<div style="font-weight:900;color:#2d3561;margin-top:14px">גלישות (Bleed)</div>'
+    +     '<div style="font-size:.75rem;color:#6b7280;margin-bottom:6px">נבנית מחוץ ל-TrimBox. תוכן אמיתי שקיים בקובץ מנוצל כמו שהוא.</div>'
+    +     '<label style="display:block;font-size:.8rem;font-weight:700;margin-bottom:3px">רוחב הגלישה (מ״מ)</label>'
+    +     '<input type="number" id="pist-bleed" min="0" max="20" step="0.5" value="3" oninput="pi_studioSet(\'bleedMm\',this.value)" style="width:100%;padding:8px;border:1.5px solid #d0c8b8;border-radius:8px;font-family:inherit;font-size:1rem;font-weight:800;text-align:center">'
+    +     '<div id="pist-realnote" style="font-size:.73rem;color:#065f46;margin-top:5px"></div>'
+    +     '<div style="font-weight:800;color:#2d3561;margin:12px 0 6px">סוגי יצירת גלישה</div>'
     +     '<div id="pist-methods"></div>'
-    +     '<div style="font-weight:900;color:#2d3561;margin:16px 0 2px">ניקוי סימוני חיתוך</div>'
-    +     '<div style="font-size:.76rem;color:#6b7280;margin-bottom:8px">מנקה צלבים/סרגלים בשוליים החיצוניים. 0 = בלי ניקוי.</div>'
-    +     '<label style="display:block;font-size:.82rem;font-weight:700;margin-bottom:3px">רוחב הפס לניקוי (מ״מ)</label>'
-    +     '<input type="number" id="pist-mark" min="0" max="40" step="1" value="0" oninput="pi_studioSet(\'markMm\',this.value)" '
-    +       'style="width:100%;padding:9px;border:1.5px solid #d0c8b8;border-radius:8px;font-family:inherit;font-size:1rem;font-weight:800;text-align:center">'
-    +     '<div id="pist-note" style="margin-top:14px;font-size:.76rem;color:#6b7280;line-height:1.6"></div>'
+    +     '<div style="font-weight:900;color:#2d3561;margin-top:14px">ניקוי סימוני חיתוך</div>'
+    +     '<div style="font-size:.75rem;color:#6b7280;margin-bottom:6px">מוחק צלבים/סרגלים בשוליים. 0 = בלי ניקוי.</div>'
+    +     '<input type="number" id="pist-mark" min="0" max="40" step="1" value="0" oninput="pi_studioSet(\'markMm\',this.value)" style="width:100%;padding:8px;border:1.5px solid #d0c8b8;border-radius:8px;font-family:inherit;font-size:1rem;font-weight:800;text-align:center">'
+    +     '<div style="font-weight:900;color:#2d3561;margin-top:14px">בדיקות קובץ</div>'
+    +     '<button onclick="pi_studioPreflight()" style="width:100%;margin-top:6px;padding:9px;border:1.5px solid #7c3aed;border-radius:8px;background:#faf5ff;color:#6d28d9;font-weight:800;cursor:pointer;font-family:inherit">🔎 Preflight מלא</button>'
+    +     '<div id="pist-pf" style="font-size:.76rem;color:#374151;line-height:1.7;margin-top:7px"></div>'
+    +     '<div id="pist-note" style="margin-top:12px;font-size:.75rem;color:#6b7280;line-height:1.6"></div>'
     +   '</div>'
     + '</div>';
   document.body.appendChild(ov);
+  pi_studioTool('trim');
   pi_studioMethods();
   pi_studioLoad(f);
+  pi_studioBindStage();
+}
+function pi_studioTool(t){
+  var st = window._piStudio; if (!st) return;
+  st.tool = t;
+  ['trim','zoom'].forEach(function(k){
+    var b = document.getElementById('pist-t-' + k); if (!b) return;
+    var on = (k === t);
+    b.style.background = on ? '#c9a84c' : 'transparent';
+    b.style.color = on ? '#1a1a2e' : '#e2e8f0';
+    b.style.border = on ? 'none' : '1px solid #475569';
+  });
+  var h = document.getElementById('pist-hint');
+  if (h) h.textContent = (t === 'zoom')
+    ? 'זכוכית מגדלת: קליק שמאלי = התקרבות · קליק ימני = התרחקות · גרירה = הגדלת האזור המסומן'
+    : 'טרים: גרור את המסגרת הירוקה להזזה · גרור פינה לשינוי גודל';
+  pi_studioDraw();
 }
 function pi_studioMethods(){
   var box = document.getElementById('pist-methods'); if (!box || !window.BleedEngine) return;
@@ -26909,11 +26945,11 @@ function pi_studioMethods(){
   box.innerHTML = BleedEngine.methods().map(function(m){
     var on = (st.method === m.id), dis = !m.available;
     return '<div onclick="' + (dis ? '' : 'pi_studioSet(\'method\',\'' + m.id + '\')') + '" '
-      + 'style="border:2px solid ' + (on ? '#c9a84c' : '#e5e7eb') + ';border-radius:10px;padding:9px 11px;margin-bottom:7px;'
+      + 'style="border:2px solid ' + (on ? '#c9a84c' : '#e5e7eb') + ';border-radius:10px;padding:8px 10px;margin-bottom:6px;'
       + 'background:' + (on ? '#fffdf5' : '#fff') + ';cursor:' + (dis ? 'not-allowed' : 'pointer') + ';opacity:' + (dis ? '.55' : '1') + '">'
-      + '<div style="font-weight:800;color:#2d3561;font-size:.88rem">' + (on ? '✓ ' : '') + escHtml(m.label) + (dis ? ' <span style="font-size:.7rem;color:#b45309">לא זמין</span>' : '') + '</div>'
-      + '<div style="font-size:.74rem;color:#6b7280;line-height:1.5;margin-top:2px">' + escHtml(m.desc) + '</div>'
-      + (dis && m.why ? '<div style="font-size:.7rem;color:#b45309;margin-top:3px">' + escHtml(m.why) + '</div>' : '')
+      + '<div style="font-weight:800;color:#2d3561;font-size:.86rem">' + (on ? '✓ ' : '') + escHtml(m.label) + (dis ? ' <span style="font-size:.68rem;color:#b45309">לא זמין</span>' : '') + '</div>'
+      + '<div style="font-size:.73rem;color:#6b7280;line-height:1.45;margin-top:2px">' + escHtml(m.desc) + '</div>'
+      + (dis && m.why ? '<div style="font-size:.69rem;color:#b45309;margin-top:2px">' + escHtml(m.why) + '</div>' : '')
       + '</div>';
   }).join('');
 }
@@ -26923,28 +26959,51 @@ function pi_studioSet(k, v){
   if (k === 'method') pi_studioMethods();
   pi_studioDraw();
 }
-// טוען את הקובץ לתמונה — PDF מרונדר לעמוד ראשון, תמונה נטענת ישירות
+function pi_studioTrimReset(mode){
+  var st = window._piStudio; if (!st || !st.img) return;
+  var b = BleedEngine.mmToPx(st.bleedMm, st.dpi);
+  if (mode === 'inset' && st.img.width > 2 * b && st.img.height > 2 * b)
+    st.trim = { x: b, y: b, w: st.img.width - 2 * b, h: st.img.height - 2 * b };
+  else st.trim = { x: 0, y: 0, w: st.img.width, h: st.img.height };
+  pi_studioDraw();
+}
+function pi_studioRotate(){
+  var st = window._piStudio; if (!st || !st.img) return;
+  var c = document.createElement('canvas');
+  c.width = st.img.height; c.height = st.img.width;
+  var x = c.getContext('2d');
+  x.translate(c.width / 2, c.height / 2); x.rotate(Math.PI / 2);
+  x.drawImage(st.img, -st.img.width / 2, -st.img.height / 2);
+  var im = new Image();
+  im.onload = function(){ st.img = im; st.trim = null; pi_studioZoomFit(); };
+  im.src = c.toDataURL('image/png');
+}
 function pi_studioLoad(f){
+  var st = window._piStudio;
   var isPdf = /pdf/i.test(f.type||'') || /\.pdf(\?|#|$)/i.test(f.sourceFileUrl||'');
   var note = document.getElementById('pist-note');
   if (note) note.textContent = 'טוען את הקובץ…';
   var done = function(img){
-    window._piStudio.img = img;
-    var s = document.getElementById('pist-size');
-    if (s) s.textContent = img.width + '×' + img.height + ' px';
-    if (note) note.innerHTML = 'העריכה נשמרת כקובץ <b>חדש</b> שמחליף את הקובץ בגיליון — המקור נשאר.';
-    pi_studioDraw();
+    st.img = img;
+    // TrimBox התחלתי — לפי בליד שזוהה בקובץ, אחרת כל הקובץ
+    var b = (f.srcBleedMm > 0) ? BleedEngine.mmToPx(f.srcBleedMm, st.dpi) : 0;
+    st.trim = (b > 0 && img.width > 2 * b && img.height > 2 * b)
+      ? { x: b, y: b, w: img.width - 2 * b, h: img.height - 2 * b }
+      : { x: 0, y: 0, w: img.width, h: img.height };
+    if (note) note.innerHTML = 'העריכה נשמרת כקובץ <b>חדש</b> שמחליף את הקובץ בגיליון — המקור נשאר ב-Storage.';
+    pi_studioZoomFit();
   };
   if (isPdf && window.pdfjsLib){
-    fetch(f.sourceFileUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){
-      return pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
-    }).then(function(pdf){ return pdf.getPage(1); }).then(function(page){
-      var vp = page.getViewport({ scale: 2 });
-      var c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
-      return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function(){
-        var im = new Image(); im.onload = function(){ done(im); }; im.src = c.toDataURL('image/png');
-      });
-    }).catch(function(e){ if (note) note.textContent = 'טעינת הקובץ נכשלה: ' + (e.message||e); });
+    fetch(f.sourceFileUrl).then(function(r){ return r.arrayBuffer(); })
+      .then(function(buf){ return pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise; })
+      .then(function(pdf){ return pdf.getPage(1); })
+      .then(function(page){
+        var vp = page.getViewport({ scale: 2 });
+        var c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+        return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function(){
+          var im = new Image(); im.onload = function(){ done(im); }; im.src = c.toDataURL('image/png');
+        });
+      }).catch(function(e){ if (note) note.textContent = 'טעינת הקובץ נכשלה: ' + (e.message||e); });
   } else {
     var im = new Image(); im.crossOrigin = 'anonymous';
     im.onload = function(){ done(im); };
@@ -26952,27 +27011,188 @@ function pi_studioLoad(f){
     im.src = f.sourceFileUrl;
   }
 }
-// מצייר תצוגה מקדימה: ניקוי צלבים ← ואז טבעת הגלישה מסביב
+function pi_studioZoomFit(){
+  var st = window._piStudio, stage = document.getElementById('pist-stage');
+  if (!st || !st.img || !stage) return;
+  var vw = stage.clientWidth, vh = stage.clientHeight;
+  var z = Math.min(vw / st.img.width, vh / st.img.height) * 0.9;
+  st.view = { zoom: z, panX: (vw - st.img.width * z) / 2, panY: (vh - st.img.height * z) / 2 };
+  pi_studioDraw();
+}
+// ── ציור התצוגה: הקובץ + MediaBox + טבעת הגלישה + TrimBox עם ידיות ──
 function pi_studioDraw(){
-  var st = window._piStudio, cv = document.getElementById('pist-canvas');
-  if (!st || !st.img || !cv || !window.BleedEngine) return;
-  var img = st.img, w = img.width, h = img.height;
-  // 1) ניקוי סימוני חיתוך על עותק
-  var base = document.createElement('canvas'); base.width = w; base.height = h;
-  var bx = base.getContext('2d');
-  bx.drawImage(img, 0, 0);
+  var st = window._piStudio, cv = document.getElementById('pist-view'), stage = document.getElementById('pist-stage');
+  if (!st || !st.img || !cv || !stage || !window.BleedEngine) return;
+  var vw = stage.clientWidth, vh = stage.clientHeight;
+  cv.width = vw; cv.height = vh;
+  var g = cv.getContext('2d'), v = st.view;
+  g.clearRect(0, 0, vw, vh);
+  g.save(); g.translate(v.panX, v.panY); g.scale(v.zoom, v.zoom);
+  g.drawImage(st.img, 0, 0);
+  var t = st.trim || { x: 0, y: 0, w: st.img.width, h: st.img.height };
+  var b = BleedEngine.mmToPx(st.bleedMm, st.dpi);
+  var markPx = BleedEngine.mmToPx(st.markMm, st.dpi);
+  if (markPx > 0){                                    // תצוגת אזור הניקוי
+    g.fillStyle = 'rgba(255,255,255,.92)';
+    var mc = BleedEngine.planMarkClean({ width: st.img.width, height: st.img.height, marginPx: markPx });
+    if (mc.ok) mc.rects.forEach(function(r){ g.fillRect(r.x, r.y, r.w, r.h); });
+  }
+  var lw = Math.max(1 / v.zoom, 0.6);
+  g.lineWidth = lw * 2; g.strokeStyle = '#0ea5e9';                    // MediaBox
+  g.strokeRect(0, 0, st.img.width, st.img.height);
+  if (b > 0){ g.lineWidth = lw * 2; g.strokeStyle = '#c9a84c'; g.setLineDash([lw * 8, lw * 6]);
+    g.strokeRect(t.x - b, t.y - b, t.w + 2 * b, t.h + 2 * b); g.setLineDash([]); }
+  g.lineWidth = lw * 2.5; g.strokeStyle = '#16a34a';                  // TrimBox
+  g.strokeRect(t.x, t.y, t.w, t.h);
+  g.fillStyle = '#16a34a';                                           // ידיות פינה
+  var hs = 9 / v.zoom;
+  [[t.x,t.y],[t.x+t.w,t.y],[t.x,t.y+t.h],[t.x+t.w,t.y+t.h]].forEach(function(p){
+    g.fillRect(p[0] - hs/2, p[1] - hs/2, hs, hs);
+  });
+  g.restore();
+  // מידע מספרי
+  var mm = function(px){ return (px / st.dpi * 25.4).toFixed(1); };
+  var info = document.getElementById('pist-info');
+  if (info) info.textContent = st.img.width + '×' + st.img.height + ' px · זום ' + Math.round(v.zoom * 100) + '%';
+  var boxes = document.getElementById('pist-boxes');
+  if (boxes) boxes.innerHTML =
+      '<div style="background:#f0f9ff;border:1px solid #7dd3fc;border-radius:8px;padding:6px 8px"><div style="font-size:.7rem;color:#0369a1;font-weight:800">MediaBox</div><div style="font-weight:800;font-size:.84rem">' + mm(st.img.width) + '×' + mm(st.img.height) + ' מ״מ</div></div>'
+    + '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:6px 8px"><div style="font-size:.7rem;color:#166534;font-weight:800">TrimBox</div><div style="font-weight:800;font-size:.84rem">' + mm(t.w) + '×' + mm(t.h) + ' מ״מ</div></div>';
+  var plan = BleedEngine.planTrimBleed({ mediaWidth: st.img.width, mediaHeight: st.img.height,
+    trim: t, bleedPx: b, method: st.method });
+  st.plan = plan.ok ? plan : null;
+  var rn = document.getElementById('pist-realnote');
+  if (rn) rn.innerHTML = !plan.ok ? '<span style="color:#b91c1c">הטרים חורג מגבולות הקובץ</span>'
+    : (b === 0 ? '' : ('גלישה קיימת בקובץ: ' + [['שמאל',plan.real.left],['ימין',plan.real.right],['עליון',plan.real.top],['תחתון',plan.real.bottom]]
+        .map(function(p){ return p[0] + ' ' + mm(p[1]) + 'מ״מ'; }).join(' · ')
+        + (plan.ops.length ? '<div style="color:#b45309">החסר יושלם בשיטה שנבחרה</div>' : '<div>אין צורך בהשלמה — הכל אמיתי</div>')));
+}
+// ── עכבר: כלי טרים (הזזה/שינוי) וכלי זום (קליקים + סימון אזור) ──
+function pi_studioBindStage(){
+  var stage = document.getElementById('pist-stage'); if (!stage) return;
+  var st = window._piStudio, drag = null;
+  var toImg = function(e){ var r = stage.getBoundingClientRect(), v = window._piStudio.view;
+    return { x: (e.clientX - r.left - v.panX) / v.zoom, y: (e.clientY - r.top - v.panY) / v.zoom,
+             vx: e.clientX - r.left, vy: e.clientY - r.top }; };
+  stage.oncontextmenu = function(e){ e.preventDefault();                      // קליק ימני = התרחקות
+    if (window._piStudio.tool !== 'zoom') return false;
+    var p = toImg(e);
+    window._piStudio.view = BleedEngine.zoomAt(window._piStudio.view, { x: p.vx, y: p.vy }, 1/1.6);
+    pi_studioDraw(); return false; };
+  stage.onmousedown = function(e){
+    if (e.button !== 0) return;
+    var s = window._piStudio, p = toImg(e);
+    if (s.tool === 'zoom'){ drag = { mode: 'marq', x0: p.vx, y0: p.vy }; return; }
+    var t = s.trim, hs = 12 / s.view.zoom;
+    var near = function(a, b2){ return Math.abs(a - b2) <= hs; };
+    var cx = near(p.x, t.x) ? 'l' : near(p.x, t.x + t.w) ? 'r' : '';
+    var cy = near(p.y, t.y) ? 't' : near(p.y, t.y + t.h) ? 'b' : '';
+    if (cx || cy) drag = { mode: 'resize', cx: cx, cy: cy, t0: Object.assign({}, t), p0: p };
+    else if (p.x > t.x && p.x < t.x + t.w && p.y > t.y && p.y < t.y + t.h)
+      drag = { mode: 'move', t0: Object.assign({}, t), p0: p };
+    else drag = { mode: 'pan', v0: Object.assign({}, s.view), p0: { x: p.vx, y: p.vy } };
+  };
+  stage.onmousemove = function(e){
+    if (!drag) return;
+    var s = window._piStudio, p = toImg(e);
+    if (drag.mode === 'marq'){
+      var m = document.getElementById('pist-marq');
+      m.style.display = 'block';
+      m.style.left = Math.min(drag.x0, p.vx) + 'px'; m.style.top = Math.min(drag.y0, p.vy) + 'px';
+      m.style.width = Math.abs(p.vx - drag.x0) + 'px'; m.style.height = Math.abs(p.vy - drag.y0) + 'px';
+      return;
+    }
+    if (drag.mode === 'pan'){
+      s.view.panX = drag.v0.panX + (p.vx - drag.p0.x); s.view.panY = drag.v0.panY + (p.vy - drag.p0.y);
+      pi_studioDraw(); return;
+    }
+    var dx = p.x - drag.p0.x, dy = p.y - drag.p0.y, t0 = drag.t0, W = s.img.width, H = s.img.height;
+    if (drag.mode === 'move'){
+      s.trim = { x: Math.max(0, Math.min(W - t0.w, t0.x + dx)), y: Math.max(0, Math.min(H - t0.h, t0.y + dy)), w: t0.w, h: t0.h };
+    } else {
+      var nx = t0.x, ny = t0.y, nw = t0.w, nh = t0.h;
+      if (drag.cx === 'l'){ nx = Math.max(0, Math.min(t0.x + t0.w - 10, t0.x + dx)); nw = t0.x + t0.w - nx; }
+      if (drag.cx === 'r'){ nw = Math.max(10, Math.min(W - t0.x, t0.w + dx)); }
+      if (drag.cy === 't'){ ny = Math.max(0, Math.min(t0.y + t0.h - 10, t0.y + dy)); nh = t0.y + t0.h - ny; }
+      if (drag.cy === 'b'){ nh = Math.max(10, Math.min(H - t0.y, t0.h + dy)); }
+      s.trim = { x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) };
+    }
+    pi_studioDraw();
+  };
+  stage.onmouseup = function(e){
+    if (!drag) return;
+    var s = window._piStudio, stg = document.getElementById('pist-stage');
+    if (drag.mode === 'marq'){
+      var m = document.getElementById('pist-marq'); m.style.display = 'none';
+      var r = stg.getBoundingClientRect(), vx = e.clientX - r.left, vy = e.clientY - r.top;
+      var rect = { x: drag.x0, y: drag.y0, w: vx - drag.x0, h: vy - drag.y0 };
+      var zr = BleedEngine.zoomToRect(rect, { width: stg.clientWidth, height: stg.clientHeight });
+      if (zr){   // מלבן → הגדלת האזור המסומן
+        var v = s.view;
+        var ix = (Math.min(drag.x0, vx) - v.panX) / v.zoom, iy = (Math.min(drag.y0, vy) - v.panY) / v.zoom;
+        var iw = Math.abs(rect.w) / v.zoom, ih = Math.abs(rect.h) / v.zoom;
+        var z2 = Math.min(stg.clientWidth / iw, stg.clientHeight / ih);
+        s.view = { zoom: z2, panX: (stg.clientWidth - iw * z2) / 2 - ix * z2, panY: (stg.clientHeight - ih * z2) / 2 - iy * z2 };
+      } else {   // קליק בודד → התקרבות סביב הנקודה
+        s.view = BleedEngine.zoomAt(s.view, { x: vx, y: vy }, 1.6);
+      }
+      pi_studioDraw();
+    }
+    drag = null;
+  };
+  stage.onmouseleave = function(){ var m = document.getElementById('pist-marq'); if (m) m.style.display = 'none'; drag = null; };
+  stage.onwheel = function(e){ e.preventDefault();
+    var s = window._piStudio, r = stage.getBoundingClientRect();
+    s.view = BleedEngine.zoomAt(s.view, { x: e.clientX - r.left, y: e.clientY - r.top }, e.deltaY < 0 ? 1.15 : 1/1.15);
+    pi_studioDraw(); };
+  window.addEventListener('resize', function(){ if (document.getElementById('pist-view')) pi_studioDraw(); });
+}
+// Preflight מלא — משתמש בבדיקות הקיימות של הכלי + בדיקות התצוגה
+function pi_studioPreflight(){
+  var st = window._piStudio, cur = window._pi.cur;
+  var f = (cur.files||[]).find(function(x){ return x.id === st.fid; });
+  var el = document.getElementById('pist-pf'); if (!el || !f) return;
+  el.innerHTML = 'בודק…';
+  var rows = [];
+  var mm = function(px){ return (px / st.dpi * 25.4).toFixed(1); };
+  var t = st.trim || {}, b = BleedEngine.mmToPx(st.bleedMm, st.dpi);
+  var plan = st.plan;
+  rows.push((st.img ? '✓' : '⛔') + ' טעינת הקובץ');
+  rows.push('📐 MediaBox ' + mm(st.img.width) + '×' + mm(st.img.height) + ' מ״מ · TrimBox ' + mm(t.w) + '×' + mm(t.h) + ' מ״מ');
+  if (plan){
+    var missing = ['left','right','top','bottom'].filter(function(k){ return plan.synth[k] > 0; });
+    rows.push(missing.length ? ('⚠️ חסרה גלישה אמיתית: ' + missing.join(', ') + ' — תושלם בשיטה שנבחרה')
+                             : '✓ גלישה מלאה קיימת בקובץ');
+  }
+  var dpiEff = st.img && t.w ? Math.round(st.img.width / (st.img.width / st.dpi)) : st.dpi;
+  rows.push((st.dpi >= 300 ? '✓' : '⚠️') + ' רזולוציית עבודה ' + st.dpi + ' DPI');
+  if (f.preflight) rows.push('🔎 ציון Preflight קודם: ' + f.preflight.score);
+  if (f.fonts && f.fonts.overall) rows.push('🔤 פונטים: ' + f.fonts.overall);
+  el.innerHTML = rows.map(function(r){ return '<div>' + r + '</div>'; }).join('');
+  if (typeof pi_preflightFile === 'function') { try { pi_preflightFile(st.fid); } catch(e){} }   // הבדיקה המלאה של הכלי
+}
+function pi_studioClose(){ var o = document.getElementById('pi-studio'); if (o) o.remove(); window._piStudio = null; }
+// שמירה: הפלט הוא TrimBox + גלישה — בדיוק מה שנשלח לדפוס
+function pi_studioApply(){
+  var st = window._piStudio;
+  if (!st || !st.img || !st.plan){ showToast('אין מה לשמור'); return; }
+  var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === st.fid; });
+  if (!f){ showToast('הקובץ לא נמצא'); return; }
+  var plan = st.plan;
+  // בסיס: הקובץ אחרי ניקוי צלבים
+  var base = document.createElement('canvas'); base.width = st.img.width; base.height = st.img.height;
+  var bx = base.getContext('2d'); bx.drawImage(st.img, 0, 0);
   var markPx = BleedEngine.mmToPx(st.markMm, st.dpi);
   if (markPx > 0){
-    var mc = BleedEngine.planMarkClean({ width: w, height: h, marginPx: markPx });
+    var mc = BleedEngine.planMarkClean({ width: st.img.width, height: st.img.height, marginPx: markPx });
     if (mc.ok){ bx.fillStyle = mc.color; mc.rects.forEach(function(r){ bx.fillRect(r.x, r.y, r.w, r.h); }); }
   }
-  // 2) גלישה
-  var b = BleedEngine.mmToPx(st.bleedMm, st.dpi);
-  var plan = BleedEngine.planBleed({ width: w, height: h, bleedPx: b, method: st.method });
-  if (!plan.ok){ showToast('לא ניתן ליצור גלישה בשיטה הזו'); return; }
-  cv.width = plan.canvas.width; cv.height = plan.canvas.height;
-  var cx = cv.getContext('2d');
-  cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+  var out = document.createElement('canvas');
+  out.width = plan.canvas.width; out.height = plan.canvas.height;
+  var cx = out.getContext('2d');
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, out.width, out.height);
+  cx.drawImage(base, plan.base.src.x, plan.base.src.y, plan.base.src.w, plan.base.src.h,
+                     plan.base.dst.x, plan.base.dst.y, plan.base.dst.w, plan.base.dst.h);
   plan.ops.forEach(function(o){
     cx.save();
     cx.translate(o.dst.x + (o.flipX ? o.dst.w : 0), o.dst.y + (o.flipY ? o.dst.h : 0));
@@ -26980,37 +27200,26 @@ function pi_studioDraw(){
     cx.drawImage(base, o.src.x, o.src.y, o.src.w, o.src.h, 0, 0, o.dst.w, o.dst.h);
     cx.restore();
   });
-  cx.drawImage(base, plan.image.dst.x, plan.image.dst.y);
-  window._piStudio.plan = plan;
-}
-function pi_studioClose(){ var o = document.getElementById('pi-studio'); if (o) o.remove(); window._piStudio = null; }
-// שמירה: הקנבס נשמר כקובץ חדש ומחליף את מקור הקובץ בגיליון
-function pi_studioApply(){
-  var st = window._piStudio, cv = document.getElementById('pist-canvas');
-  if (!st || !cv || !st.img){ showToast('אין מה לשמור'); return; }
-  var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === st.fid; });
-  if (!f){ showToast('הקובץ לא נמצא'); return; }
-  cv.toBlob(function(blob){
+  out.toBlob(function(blob){
     if (!blob){ showToast('שמירה נכשלה'); return; }
-    var name = String(f.name||'file').replace(/\.[^.]+$/, '') + '_bleed.png';
+    var name = String(f.name||'file').replace(/\.[^.]+$/, '') + '_trim-bleed.png';
     var file = new File([blob], name, { type: 'image/png' });
     var path = 'impositionFiles/' + pi_safeName(cur.name||'manual') + '/' + cur.id + '/' + Date.now() + '_' + name.replace(/[^\w.\-]+/g, '_');
     showToast('⏳ שומר את הקובץ הערוך…');
     _uploadProofToStorage(path, file, null).then(function(url){
-      var ratio = (st.plan && st.img) ? (st.plan.canvas.width / st.img.width) : 1;
-      f.sourceFileUrl = url;
-      f.name = name;
-      f.widthMm  = Math.round((f.widthMm  || 100) * ratio);
-      f.heightMm = Math.round((f.heightMm || 100) * ratio);
+      var trimMmW = plan.trimRect.w / st.dpi * 25.4, trimMmH = plan.trimRect.h / st.dpi * 25.4;
+      f.sourceFileUrl = url; f.name = name;
+      f.widthMm = Math.round(trimMmW); f.heightMm = Math.round(trimMmH);   // מידת הנטו = TrimBox
       f.bleedMm = st.bleedMm; f.hasBleed = st.bleedMm > 0; f.bleedChecked = true; f.srcBleedMm = st.bleedMm;
       window._pi.previews = window._pi.previews || {};
-      window._pi.previews[f.id] = cv.toDataURL('image/png');
+      window._pi.previews[f.id] = out.toDataURL('image/png');
       cur._edited = true; window._pi.dirty = true;
       pi_studioClose(); pi_render();
-      showToast('✓ הקובץ עודכן — גלישה ' + st.bleedMm + ' מ״מ (' + st.method + ')');
+      showToast('✓ הקובץ עודכן — נטו ' + Math.round(trimMmW) + '×' + Math.round(trimMmH) + ' מ״מ + גלישה ' + st.bleedMm + ' מ״מ');
     }).catch(function(e){ showToast('❌ שמירה נכשלה: ' + (e.message||e)); });
   }, 'image/png');
 }
+
 function pi_manualFullscreen(){
   var box = document.querySelector('#piModal .modal-box'); if (!box) return;
   window._piMax = !window._piMax;

@@ -65,6 +65,80 @@
     return out;
   }
 
+  /* ── גלישה סביב ה-TrimBox ──────────────────────────────────────────────────
+     בקובץ אמיתי יש MediaBox (הקובץ כולו) ו-TrimBox (קו החיתוך). הגלישה היא
+     האזור *שמחוץ* ל-TrimBox. לכל צד בנפרד:
+       • אם בקובץ יש תוכן אמיתי מעבר ל-Trim (real) — פשוט לוקחים אותו.
+       • אם אין (או שלא מספיק) — משלימים סינתטית מקצה ה-Trim לפי השיטה.
+     כך לא ממציאים גרפיקה כשיש כבר גלישה בקובץ. */
+  function planTrimBleed(opts) {
+    opts = opts || {};
+    var mw = _int(opts.mediaWidth), mh = _int(opts.mediaHeight), b = _int(opts.bleedPx);
+    var t = opts.trim || {};
+    var tx = _int(t.x), ty = _int(t.y), tw = _int(t.w), th = _int(t.h);
+    var method = opts.method || 'mirror';
+    if (mw <= 0 || mh <= 0) return { ok: false, errors: ['BAD_MEDIA'] };
+    if (tw <= 0 || th <= 0) return { ok: false, errors: ['BAD_TRIM'] };
+    if (tx < 0 || ty < 0 || tx + tw > mw || ty + th > mh) return { ok: false, errors: ['TRIM_OUTSIDE_MEDIA'] };
+    if (b < 0) return { ok: false, errors: ['BAD_BLEED'] };
+    if (!isAvailable(method)) return { ok: false, errors: ['METHOD_UNAVAILABLE:' + method] };
+
+    // כמה תוכן אמיתי יש מעבר ל-Trim בכל צד, עד רוחב הגלישה המבוקש
+    var real = { left: Math.min(b, tx), top: Math.min(b, ty),
+                 right: Math.min(b, mw - (tx + tw)), bottom: Math.min(b, mh - (ty + th)) };
+    var out = { ok: true, method: method, bleedPx: b, real: real,
+      canvas: { width: tw + 2 * b, height: th + 2 * b },
+      // חיתוך המקור: התמונה מוצבת כך שה-Trim יושב במרכז הקנבס
+      base: { src: { x: tx - real.left, y: ty - real.top,
+                     w: tw + real.left + real.right, h: th + real.top + real.bottom },
+              dst: { x: b - real.left, y: b - real.top,
+                     w: tw + real.left + real.right, h: th + real.top + real.bottom } },
+      trimRect: { x: b, y: b, w: tw, h: th },
+      ops: [], synth: { left: b - real.left, top: b - real.top, right: b - real.right, bottom: b - real.bottom } };
+    if (b === 0) return out;
+
+    var mir = (method === 'mirror');
+    var sample = method === 'edge' ? 1 : Math.max(1, Math.min(_int(opts.samplePx) || b, tw, th));
+    // מקור הדגימה נלקח מתוך התוכן הקיים (כולל הגלישה האמיתית) — קואורדינטות ה-base
+    var bs = out.base, sx = bs.dst.x, sy = bs.dst.y, sw = bs.dst.w, sh = bs.dst.h;
+    function op(src, dst, fx, fy) { if (dst.w > 0 && dst.h > 0) out.ops.push({ src: src, dst: dst, flipX: !!fx, flipY: !!fy }); }
+    // רק החלקים שחסרים מושלמים סינתטית
+    if (out.synth.left > 0)   op({ x: bs.src.x,                 y: bs.src.y, w: sample, h: bs.src.h }, { x: 0,          y: sy, w: out.synth.left,  h: sh }, mir, false);
+    if (out.synth.right > 0)  op({ x: bs.src.x + bs.src.w - sample, y: bs.src.y, w: sample, h: bs.src.h }, { x: sx + sw, y: sy, w: out.synth.right, h: sh }, mir, false);
+    if (out.synth.top > 0)    op({ x: bs.src.x, y: bs.src.y,                     w: bs.src.w, h: sample }, { x: sx, y: 0,          w: sw, h: out.synth.top },    false, mir);
+    if (out.synth.bottom > 0) op({ x: bs.src.x, y: bs.src.y + bs.src.h - sample, w: bs.src.w, h: sample }, { x: sx, y: sy + sh,   w: sw, h: out.synth.bottom }, false, mir);
+    // פינות — נדרשות רק כשחסר בשני הצירים
+    if (out.synth.left > 0 && out.synth.top > 0)      op({ x: bs.src.x, y: bs.src.y, w: sample, h: sample }, { x: 0, y: 0, w: out.synth.left, h: out.synth.top }, mir, mir);
+    if (out.synth.right > 0 && out.synth.top > 0)     op({ x: bs.src.x + bs.src.w - sample, y: bs.src.y, w: sample, h: sample }, { x: sx + sw, y: 0, w: out.synth.right, h: out.synth.top }, mir, mir);
+    if (out.synth.left > 0 && out.synth.bottom > 0)   op({ x: bs.src.x, y: bs.src.y + bs.src.h - sample, w: sample, h: sample }, { x: 0, y: sy + sh, w: out.synth.left, h: out.synth.bottom }, mir, mir);
+    if (out.synth.right > 0 && out.synth.bottom > 0)  op({ x: bs.src.x + bs.src.w - sample, y: bs.src.y + bs.src.h - sample, w: sample, h: sample }, { x: sx + sw, y: sy + sh, w: out.synth.right, h: out.synth.bottom }, mir, mir);
+    return out;
+  }
+
+  /* ── זום ── התקרבות/התרחקות סביב נקודה שהעכבר מצביע עליה. */
+  function zoomAt(view, pointPx, factor, limits) {
+    view = view || {}; limits = limits || {};
+    var min = limits.min || 0.1, max = limits.max || 32;
+    var z0 = Number(view.zoom) || 1;
+    var z1 = Math.max(min, Math.min(max, z0 * (Number(factor) || 1)));
+    var px = Number(pointPx && pointPx.x) || 0, py = Number(pointPx && pointPx.y) || 0;
+    // הנקודה שמתחת לסמן נשארת במקומה: pan מתוקן ביחס לשינוי הזום
+    return { zoom: z1,
+      panX: px - (px - (Number(view.panX) || 0)) * (z1 / z0),
+      panY: py - (py - (Number(view.panY) || 0)) * (z1 / z0) };
+  }
+  // סימון מלבן → הגדלה שלו לכל שטח התצוגה
+  function zoomToRect(rect, viewport, limits) {
+    rect = rect || {}; viewport = viewport || {}; limits = limits || {};
+    var rw = Math.abs(Number(rect.w) || 0), rh = Math.abs(Number(rect.h) || 0);
+    var vw = Number(viewport.width) || 0, vh = Number(viewport.height) || 0;
+    if (rw < 2 || rh < 2 || vw <= 0 || vh <= 0) return null;      // סימון זעיר = לחיצה, לא מלבן
+    var rx = Math.min(Number(rect.x) || 0, (Number(rect.x) || 0) + (Number(rect.w) || 0));
+    var ry = Math.min(Number(rect.y) || 0, (Number(rect.y) || 0) + (Number(rect.h) || 0));
+    var z = Math.max(limits.min || 0.1, Math.min(limits.max || 32, Math.min(vw / rw, vh / rh)));
+    return { zoom: z, panX: (vw - rw * z) / 2 - rx * z, panY: (vh - rh * z) / 2 - ry * z };
+  }
+
   /* ניקוי סימוני חיתוך (צלבים/סרגלים) — צביעת מסגרת בשוליים החיצוניים בלבן.
      marginPx = רוחב הפס שמנוקה מכל צד; הגרפיקה עצמה לא נוגעת. */
   function planMarkClean(opts) {
@@ -82,5 +156,6 @@
   }
 
   return { METHODS: METHODS, methods: methods, isAvailable: isAvailable,
-           mmToPx: mmToPx, planBleed: planBleed, planMarkClean: planMarkClean };
+           mmToPx: mmToPx, planBleed: planBleed, planMarkClean: planMarkClean,
+           planTrimBleed: planTrimBleed, zoomAt: zoomAt, zoomToRect: zoomToRect };
 });
