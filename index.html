@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785230001';
+window.APP_VERSION = '1785230291';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -5506,6 +5506,77 @@ function _aiQuoteSys(){
     + 'התעריפון המלא (JSON — מקור-האמת למספרים):\n' + JSON.stringify(pr);
 }
 var _AIQ_GREET = 'שלום! כתוב לי מה העבודה — אפילו רק "חוברת A4" — ואשאל אותך שאלה-אחר-שאלה (עם אפשרויות ללחיצה) עד שיהיה לי כל המידע לתמחור.';
+/* ═══════════ היסטוריית שיחות לכלי ה-AI ═══════════
+   סגירת חלון = סיום שיחה: היא נשמרת בהיסטוריה והפתיחה הבאה מתחילה נקייה.
+   ההיסטוריה נשמרת במכשיר (localStorage), עד 25 שיחות אחרונות לכל כלי. */
+var _AI_TOOLS = {
+  quote: { key:'solanAiQuoteHist', label:'תמחור AI' },
+  card:  { key:'solanAiCardHist',  label:'עוזר ליצירת כרטיס' }
+};
+function _aiHistList(tool){
+  try { var a = JSON.parse(localStorage.getItem(_AI_TOOLS[tool].key) || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+function _aiHistPush(tool, msgs){
+  if (!msgs || !msgs.length) return;                       // שיחה ריקה — אין מה לשמור
+  var first = '';
+  for (var i = 0; i < msgs.length; i++){ if (msgs[i].role === 'user'){ first = String(msgs[i].content||''); break; } }
+  var rec = { at: Date.now(),
+    atText: new Date().toLocaleString('he-IL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }),
+    title: (first || 'שיחה').slice(0, 60), n: msgs.length, msgs: msgs };
+  var list = _aiHistList(tool);
+  // אותה שיחה בדיוק (סגירה/פתיחה בלי לכתוב) לא נשמרת פעמיים
+  if (list.length && list[0].n === rec.n && list[0].title === rec.title) return;
+  list.unshift(rec);
+  try { localStorage.setItem(_AI_TOOLS[tool].key, JSON.stringify(list.slice(0, 25))); } catch(e){}
+}
+// סגירת כלי: מארכבים את השיחה ומנקים — כדי שהפתיחה הבאה תהיה נקייה
+function _aiEndSession(tool, msgs, clearFn){
+  _aiHistPush(tool, msgs);
+  try { clearFn && clearFn(); } catch(e){}
+}
+function _aiHistOpen(tool){
+  var list = _aiHistList(tool), t = _AI_TOOLS[tool];
+  var ov = document.getElementById('ai-hist-modal'); if (ov) ov.remove();
+  ov = document.createElement('div'); ov.id = 'ai-hist-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:100010;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
+  ov.onclick = function(e){ if (e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:84vh;display:flex;flex-direction:column;font-family:Heebo,sans-serif;overflow:hidden">'
+    + '<div style="background:var(--press);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">'
+    + '<b>🕘 היסטוריית שיחות — ' + escHtml(t.label) + '</b>'
+    + '<span onclick="document.getElementById(\'ai-hist-modal\').remove()" style="cursor:pointer;font-size:1.2rem">✕</span></div>'
+    + '<div style="padding:12px 14px;overflow:auto" id="ai-hist-body">'
+    + (list.length ? list.map(function(r, i){
+        return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:#fff">'
+          + '<div style="font-weight:800;color:var(--press)">' + escHtml(r.title) + '</div>'
+          + '<div style="font-size:.78rem;color:#6b7280;margin-top:2px">' + escHtml(r.atText) + ' · ' + r.n + ' הודעות</div>'
+          + '<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">'
+          + '<button onclick="_aiHistView(\'' + tool + '\',' + i + ')" style="padding:5px 12px;border-radius:7px;border:1.5px solid var(--line);background:#fff;font-family:inherit;font-weight:700;cursor:pointer">👁 הצג</button>'
+          + '<button onclick="_aiHistDelete(\'' + tool + '\',' + i + ')" style="padding:5px 12px;border-radius:7px;border:1.5px solid var(--line);background:#fff;color:var(--danger);font-family:inherit;font-weight:700;cursor:pointer">🗑</button>'
+          + '</div></div>';
+      }).join('') : '<div style="color:#6b7280;text-align:center;padding:24px">אין עדיין שיחות שמורות</div>')
+    + '</div></div>';
+  document.body.appendChild(ov);
+}
+function _aiHistView(tool, i){
+  var r = _aiHistList(tool)[i]; if (!r) return;
+  var body = document.getElementById('ai-hist-body'); if (!body) return;
+  body.innerHTML = '<button onclick="_aiHistOpen(\'' + tool + '\')" style="padding:6px 14px;border-radius:8px;border:1.5px solid var(--line);background:#fff;font-family:inherit;font-weight:700;cursor:pointer;margin-bottom:10px">← חזרה לרשימה</button>'
+    + (r.msgs || []).map(function(m){
+        var mine = m.role === 'user';
+        return '<div style="margin-bottom:8px;padding:9px 12px;border-radius:10px;max-width:86%;white-space:pre-wrap;line-height:1.6;'
+          + (mine ? 'background:var(--press);color:#fff;margin-inline-start:auto' : 'background:#f4f1e9;color:#1a1a2e;border:1px solid var(--line)') + '">'
+          + escHtml(String(m.content || '').replace(/\[\[[^\]]*\]\]/g, '').trim()) + '</div>';
+      }).join('');
+}
+function _aiHistDelete(tool, i){
+  var list = _aiHistList(tool);
+  if (!list[i] || !confirm('למחוק את השיחה מההיסטוריה?')) return;
+  list.splice(i, 1);
+  try { localStorage.setItem(_AI_TOOLS[tool].key, JSON.stringify(list)); } catch(e){}
+  _aiHistOpen(tool);
+}
+
 function _aiqSave(){ try { localStorage.setItem('solanAiQuoteChat', JSON.stringify(_aiqMsgs)); } catch(e){} }
 function _aiqLoad(){ try { var s = JSON.parse(localStorage.getItem('solanAiQuoteChat')||'[]'); return Array.isArray(s)?s:[]; } catch(e){ return []; } }
 function _aiqClean(t){ return String(t||'').replace(/\[\[\s*אפשרויות\s*:[^\]]*\]\]/g,'').replace(/\[\[\s*כרטיס\s*:[^\]]*\]\]/g,'').trim(); }
@@ -5551,12 +5622,13 @@ function openAiQuote(){
   setTimeout(function(){ var i = document.getElementById('aiq-input'); if (i) i.focus(); box=document.getElementById('aiq-msgs'); if(box) box.scrollTop=box.scrollHeight; }, 60);
 }
 function _aiQuoteNew(){
-  if (_aiqMsgs.length && !confirm('להתחיל שיחת תמחור חדשה? השיחה הנוכחית תימחק.')) return;
-  _aiqMsgs = []; _aiqSave();
+  if (_aiqMsgs.length && !confirm('להתחיל שיחת תמחור חדשה? הנוכחית תישמר בהיסטוריה.')) return;
+  _aiEndSession('quote', _aiqMsgs, function(){ _aiqMsgs = []; _aiqSave(); });
   var box = document.getElementById('aiq-msgs'); if (box) box.innerHTML = '';
   _aiQuoteAppend('assistant', _AIQ_GREET);
 }
-function closeAiQuote(){ var m = document.getElementById('aiQuoteModal'); if (m) m.style.display = 'none'; try { window._aiStopHealthPolling && window._aiStopHealthPolling(); } catch(e){} }
+function closeAiQuote(){ var m = document.getElementById('aiQuoteModal'); if (m) m.style.display = 'none';
+  _aiEndSession('quote', _aiqMsgs, function(){ _aiqMsgs = []; _aiqSave(); }); try { window._aiStopHealthPolling && window._aiStopHealthPolling(); } catch(e){} }
 // פתיחת המחירון (עורך התעריפון) מתוך חלון תמחור ה-AI — מרים z-index מעל חלון ה-AI.
 // שינויים במחירון נקלטים אוטומטית: כל שאלה/חישוב הבא ב-AI קורא את quotePricing מחדש.
 function _aiOpenPricing(){
@@ -5825,12 +5897,13 @@ function openAiCard(){
   setTimeout(function(){ var i=document.getElementById('aic-input'); if(i) i.focus(); var b=document.getElementById('aic-msgs'); if(b) b.scrollTop=b.scrollHeight; }, 60);
 }
 function _aiCardNew(){
-  if (_aicMsgs.length && !confirm('להתחיל שיחה חדשה? השיחה הנוכחית תימחק.')) return;
-  _aicMsgs = []; _aicSave();
+  if (_aicMsgs.length && !confirm('להתחיל שיחה חדשה? הנוכחית תישמר בהיסטוריה.')) return;
+  _aiEndSession('card', _aicMsgs, function(){ _aicMsgs = []; _aicSave(); });
   var box = document.getElementById('aic-msgs'); if (box) box.innerHTML = '';
   _aicAppend('assistant', _AIC_GREET);
 }
-function closeAiCard(){ var m=document.getElementById('aiCardModal'); if (m) m.style.display='none'; try { window._aiStopHealthPolling && window._aiStopHealthPolling(); } catch(e){} }
+function closeAiCard(){ var m=document.getElementById('aiCardModal'); if (m) m.style.display='none';
+  _aiEndSession('card', _aicMsgs, function(){ _aicMsgs = []; _aicSave(); }); try { window._aiStopHealthPolling && window._aiStopHealthPolling(); } catch(e){} }
 function _aiCardSend(){
   var input = document.getElementById('aic-input');
   var txt = (input && input.value || '').trim();
@@ -23160,6 +23233,7 @@ setInterval(function(){ try { _pollScanStages(); } catch(e){} }, 20000);
     <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:#7c3aed;color:#fff">
       <strong style="font-size:1.05rem">🤖 תמחור AI — עוזר הצעות מחיר</strong>
       <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="_aiHistOpen('quote')" title="שיחות קודמות" style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.82rem;white-space:nowrap;margin-inline-end:6px">🕘 היסטוריה</button>
         <button onclick="_aiQuoteNew()" title="התחל שיחת תמחור חדשה" style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.82rem;white-space:nowrap">🗑 שיחה חדשה</button>
         <button onclick="_aiOpenPricing()" title="פתח את המחירון לעדכון מחירים" style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.82rem;white-space:nowrap">⚙️ הגדרות תמחור</button>
         <button onclick="closeAiQuote()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;line-height:1">✕</button>
@@ -23189,6 +23263,7 @@ setInterval(function(){ try { _pollScanStages(); } catch(e){} }, 20000);
     <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:#6d28d9;color:#fff">
       <strong style="font-size:1.05rem">🤖 עוזר ליצירת כרטיס עבודה</strong>
       <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="_aiHistOpen('card')" title="שיחות קודמות" style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.82rem;white-space:nowrap;margin-inline-end:6px">🕘 היסטוריה</button>
         <button onclick="_aiCardNew()" title="התחל שיחה חדשה" style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.82rem;white-space:nowrap">🗑 שיחה חדשה</button>
         <button onclick="closeAiCard()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;line-height:1">✕</button>
       </div>
