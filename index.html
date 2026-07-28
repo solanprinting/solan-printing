@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785241389';
+window.APP_VERSION = '1785243878';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1504,6 +1504,7 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
 <script src="fold-view.js"></script>
 <script src="sheet-template.js"></script>
 <script src="card-marker.js"></script>
+<script src="run-split.js"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 </script>
@@ -6440,7 +6441,7 @@ function _runRangeText(r){
     return r.abPartRanges.map(function(pr){ return pr.pages + ' עמ\': ' + String(pr.range||'').replace(/עמ' /g,''); }).join(' · ');
   return (r && r.pageRange) || '';
 }
-function buildRuns(totalPages, copies, fullSheet, splitRemainder) {
+function buildRuns(totalPages, copies, fullSheet, splitRemainder, manualParts) {
   const halfSheet    = fullSheet / 2;
   const quarterSheet = fullSheet / 4;
 
@@ -6449,6 +6450,12 @@ function buildRuns(totalPages, copies, fullSheet, splitRemainder) {
   // המחדל היא ריצה 1 (הראשונה/החיצונית ביותר) — אלא אם המשתמש מזיז אותה ידנית
   // (ע"י כפתורי ▲▼) למיקום אחר, ואז _recalcPageRanges() מחשב מחדש לפי המיקום בפועל
   const layers = [];
+  // חלוקה ידנית מפורשת (למשל עטיפה 4 + 4 + 16): גובר על הפיצול האוטומטי.
+  // כל חלק = ריצה נפרדת, בסדר שנכתב (הראשון = החיצוני/העטיפה).
+  if (manualParts && manualParts.length > 1 &&
+      window.RunSplit && RunSplit.parse(RunSplit.format(manualParts), totalPages, fullSheet).ok) {
+    manualParts.forEach(function(p){ layers.push(p); });
+  } else
   // מקרים מיוחדים ל-70×100 (32 עמ' לגיליון): 20 ו-24 מתפצלים לשארית קטנה (ריצה 1) + 16 (ריצה 2)
   //   20 → 4 + 16 ;  24 → 8 + 16
   // (ב-A4/64×90 הפיצול הזה ממילא מתרחש דרך הלוגיקה הרגילה, כי 16 הוא גיליון שלם.)
@@ -6594,7 +6601,7 @@ function calcRuns() {
   }
 
   // preserve machine + tumble + A+B + extras choices
-  const prev = {}, prevTumble = {}, prevAB = {}, prevExtras = {}, prevExtraSize = {}, prevManual = {}, prevUp = {}, prevPaper = {};
+  const prev = {}, prevTumble = {}, prevAB = {}, prevExtras = {}, prevExtraSize = {}, prevManual = {}, prevUp = {}, prevPaper = {}, prevPages = {};
   document.querySelectorAll('.mach-sel').forEach(s=>{ if(s.dataset.run) prev[s.dataset.run]=s.value; });
   currentRuns.forEach(r=>{
     prevTumble[r.num]=r.tumble||false;
@@ -6604,6 +6611,7 @@ function calcRuns() {
     prevManual[r.num] = r.manualExtra||'';
     if (r.upCount) prevUp[r.num] = r.upCount;
     if (r.paper) prevPaper[r.num] = r.paper;
+    prevPages[r.num] = r.pages;
   });
   // אופציית "הכל על גיליון אחד" — מוצגת רק כשהעמודים נכנסים בגיליון מלא
   var _ssRow = document.getElementById('single-sheet-row');
@@ -6611,8 +6619,13 @@ function calcRuns() {
   var _ssFits = pages > 0 && pages <= fs;
   if (_ssRow) _ssRow.style.display = _ssFits ? 'flex' : 'none';
   if (!_ssFits && _ssBox) _ssBox.checked = false;
+  // חלוקה ידנית שכבר לא מסתדרת עם מספר העמודים/הגיליון הנוכחי — מבטלים אותה בשקט
+  if (Array.isArray(window._manualSplit) && window.RunSplit &&
+      !RunSplit.parse(RunSplit.format(window._manualSplit), pages, fs).ok) {
+    window._manualSplit = null;
+  }
   // הדגל משפיע על התצוגה בלבד (גיליון משותף A+B) — הריצות נשארות מפוצלות עם הטווח הנכון
-  currentRuns = buildRuns(pages, copies, fs, !!window._splitRemainder);
+  currentRuns = buildRuns(pages, copies, fs, !!window._splitRemainder, window._manualSplit);
   currentRuns.forEach(r=>{
     if(prev[r.num]) r.machine=prev[r.num];
     if(prevTumble[r.num]) r.tumble=true;
@@ -6623,7 +6636,8 @@ function calcRuns() {
     if (prevPaper[r.num]) r.paper = prevPaper[r.num];
     // שחזור "פעמים בגיליון" + עדכון כמות הגיליונות בהתאם
     // חשוב: לחסום ל-max החוקי של הגיליון הנוכחי (fs/עמודים) כדי שמעבר A5→A4 לא ישמר upCount של 32 עמ' (באג 2000 במקום 4000)
-    if (prevUp[r.num] && r.abEligible) {
+    // וגם: רק אם מבנה הריצה לא השתנה (אותו מספר עמודים) — אחרת מעבר לחלוקה ידנית משמר upCount זר וגורם לכמות שגויה
+    if (prevUp[r.num] && r.abEligible && prevPages[r.num] === r.pages) {
       var _maxUp = Math.max(1, Math.round(fs / r.pages));
       var _up = Math.min(prevUp[r.num], _maxUp);
       r.upCount = _up;
@@ -6870,8 +6884,54 @@ function _renderCurrentRunsOutput() {
       '<span>עותקים: <strong>'+_runsCopies.toLocaleString()+'</strong></span>'+
     '</div>'+
     _remainderToggleHtml()+
+    _manualSplitHtml()+
     '</div>';
 }
+
+// ── חלוקה ידנית לריצות — למשל עטיפה 4 + 4 + 16 בעיתון A5 ──
+// המערכת מפצלת אוטומטית לפי חתימות סטנדרטיות (24 → 8+16), אבל בית-דפוס לעיתים
+// מחלק אחרת (עטיפה בנייר אחר). כאן המשתמש כותב את החלוקה בעצמו והיא גוברת.
+function _manualSplitHtml(){
+  if (!window.RunSplit || !(_runsPages > 0) || !(_runsFs > 0)) return '';
+  var active = Array.isArray(window._manualSplit) && window._manualSplit.length > 1;
+  var cur = active ? RunSplit.format(window._manualSplit) : '';
+  var sug = RunSplit.suggestions(_runsPages, _runsFs)
+    .filter(function(s){ return !active || s.text !== cur; }).slice(0, 4);
+  var chips = sug.map(function(s){
+    return '<button type="button" onclick="_setManualSplit(\'' + s.text + '\')" style="padding:4px 10px;border:1.5px solid #bfdbfe;background:#fff;color:#1d4ed8;border-radius:20px;cursor:pointer;font-family:Heebo,sans-serif;font-weight:800;font-size:.76rem">' + s.text + '</button>';
+  }).join('');
+  return '<div style="margin-top:8px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 11px">'+
+    '<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">'+
+      '<span style="font-size:.78rem;color:#1e40af;font-weight:800">✂️ חלוקה ידנית לריצות</span>'+
+      (active
+        ? '<span style="font-size:.76rem;color:#166534;font-weight:800">✓ פעילה: '+escHtml(cur)+'</span>'
+          +'<button type="button" onclick="_clearManualSplit()" style="padding:4px 10px;border:1px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:7px;cursor:pointer;font-family:Heebo,sans-serif;font-weight:800;font-size:.74rem">↺ אוטומטי</button>'
+        : '<span style="font-size:.74rem;color:#64748b">כתוב איך לחלק (עטיפה תחילה), למשל 4+4+16</span>')+
+    '</div>'+
+    '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:7px;align-items:center">'+
+      '<input type="text" id="f-manual-split" placeholder="4+4+16" value="'+escHtml(cur)+'" style="flex:1;min-width:120px;padding:7px 9px;border:1.5px solid #bfdbfe;border-radius:7px;font-family:Heebo,sans-serif;font-weight:800;text-align:center" onkeydown="if(event.key===\'Enter\'){event.preventDefault();_applyManualSplitField();}">'+
+      '<button type="button" onclick="_applyManualSplitField()" style="padding:7px 14px;border:none;background:#1d4ed8;color:#fff;border-radius:7px;cursor:pointer;font-family:Heebo,sans-serif;font-weight:800;font-size:.8rem">החל</button>'+
+      (chips ? '<span style="font-size:.72rem;color:#64748b">או:</span>'+chips : '')+
+    '</div>'+
+    '<div id="manual-split-msg" style="font-size:.74rem;margin-top:5px;min-height:1em"></div>'+
+  '</div>';
+}
+function _applyManualSplitField(){
+  var el = document.getElementById('f-manual-split'); if (!el) return;
+  _setManualSplit(el.value);
+}
+function _setManualSplit(text){
+  var res = RunSplit.parse(text, _runsPages, _runsFs);
+  var msg = document.getElementById('manual-split-msg');
+  if (!res.ok){
+    if (msg){ msg.style.color = '#b91c1c'; msg.textContent = '⚠️ ' + res.why; }
+    return;
+  }
+  window._manualSplit = res.parts;
+  window._splitRemainder = false;   // חלוקה ידנית גוברת על מתג-השארית
+  calcRuns();
+}
+function _clearManualSplit(){ window._manualSplit = null; calcRuns(); }
 
 // מתג שארית: גיליון A+B משולב (למשל 8+4) ⇄ פיצול לריצות נפרדות (4 ו-8). מוצג רק כשיש שארית לא-חוקית.
 function _remainderToggleHtml(){
@@ -7694,7 +7754,7 @@ function quickCard(newspaperId, pages) {
   else if (/64[\s×x*]?90|a4|240[\s×x*]?330|330[\s×x*]?240/.test(size)) fs=16;
 
   if (fs && copies && pages) {
-    currentRuns = buildRuns(pages, copies, fs, !!window._splitRemainder);
+    currentRuns = buildRuns(pages, copies, fs, !!window._splitRemainder, window._manualSplit);
   } else {
     currentRuns = [];
   }
@@ -7851,7 +7911,7 @@ function _updateRunsCopies(val) {
   // שמור בחירות מכונה ונייר קיימות (ישירות מהמודל, לא מה-DOM)
   const prevMach = {}, prevPaper = {}, prevPaperOpen = {};
   currentRuns.forEach(r => { prevMach[r.num] = r.machine; prevPaper[r.num] = r.paper; prevPaperOpen[r.num] = r._paperOpen; });
-  currentRuns = buildRuns(pages, newCopies, fs, !!window._splitRemainder);
+  currentRuns = buildRuns(pages, newCopies, fs, !!window._splitRemainder, window._manualSplit);
   currentRuns.forEach(r => {
     if (prevMach[r.num]) r.machine = prevMach[r.num];
     if (prevPaper[r.num]) r.paper = prevPaper[r.num];
@@ -8333,6 +8393,7 @@ function editCard(id) {
   setVal('f-sheet-pages',   c.sheetPages ? String(c.sheetPages) : '');   // עמודים-בגיליון ידני (מידות חריגות)
   var _spfEdit = document.getElementById('sheet-pages-field'); if (_spfEdit && (parseInt(c.sheetPages)||0) >= 2) _spfEdit.style.display = '';   // הצג בעריכה אם נשמר ערך ידני
   window._splitRemainder = !!c.splitRemainder;   // העדפת פיצול-שארית (A+B משולב / ריצות נפרדות)
+  window._manualSplit = (Array.isArray(c.manualSplit) && c.manualSplit.length>1) ? c.manualSplit.slice() : null;   // חלוקה ידנית לריצות
   var _ssb=document.getElementById('f-single-sheet'); if(_ssb) _ssb.checked = !!c.singleSheet;
   setVal('f-size',          c.size);
   setTimeout(function(){ _updateA4A5Picker((document.getElementById('f-size')||{}).value||''); }, 0);
@@ -8406,6 +8467,7 @@ function clearForm() {
     .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   var _spfClr=document.getElementById('sheet-pages-field'); if(_spfClr) _spfClr.style.display='none';
   window._splitRemainder = false;   // כרטיס חדש — ברירת מחדל: גיליון A+B משולב
+  window._manualSplit = null;   // כרטיס חדש — בלי חלוקה ידנית
   document.querySelectorAll('input[name="color"]').forEach(r=>r.checked=false);
   ['f-needs-folding','f-needs-binding','f-single-sheet','f-all-paper'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=false; });
   var _apClr = document.getElementById('f-copies'); if (_apClr) { _apClr.disabled = false; _apClr.style.opacity = ''; }
@@ -9394,6 +9456,7 @@ function _saveCardNew() {
     pagesNote:    (document.getElementById('f-pages-note')||{value:''}).value.trim(),
     sheetPages:   parseInt((document.getElementById('f-sheet-pages')||{value:''}).value)||0,   // עמודים-בגיליון ידני (מידות חריגות)
     splitRemainder: !!window._splitRemainder,   // שארית: פיצול לריצות נפרדות (במקום גיליון A+B משולב)
+    manualSplit: (Array.isArray(window._manualSplit) && window._manualSplit.length>1) ? window._manualSplit.slice() : null,   // חלוקה ידנית לריצות (עטיפה+פנים)
     color:        getColor(),
     size:         document.getElementById('f-size').value.trim(),
     paper:        document.getElementById('f-paper').value.trim(),
@@ -9469,6 +9532,7 @@ function buildTempCard() {
     pagesNote:    (document.getElementById('f-pages-note')||{value:''}).value.trim(),
     sheetPages:   parseInt((document.getElementById('f-sheet-pages')||{value:''}).value)||0,   // עמודים-בגיליון ידני (מידות חריגות)
     splitRemainder: !!window._splitRemainder,   // שארית: פיצול לריצות נפרדות (במקום גיליון A+B משולב)
+    manualSplit: (Array.isArray(window._manualSplit) && window._manualSplit.length>1) ? window._manualSplit.slice() : null,   // חלוקה ידנית לריצות (עטיפה+פנים)
     color:        getColor(),
     size:         document.getElementById('f-size').value.trim(),
     paper:        document.getElementById('f-paper').value.trim(),
