@@ -99,20 +99,54 @@
 
     var mir = (method === 'mirror');
     var sample = method === 'edge' ? 1 : Math.max(1, Math.min(_int(opts.samplePx) || b, tw, th));
-    // מקור הדגימה נלקח מתוך התוכן הקיים (כולל הגלישה האמיתית) — קואורדינטות ה-base
+    // הזחה פנימה: הדגימה מתחילה N פיקסלים אחרי קו החיתוך (ברירת מחדל 2 מ"מ)
+    var inset = Math.max(0, Math.min(_int(opts.sampleInsetPx), Math.floor(tw / 4), Math.floor(th / 4)));
+    out.sampleInset = inset;
     var bs = out.base, sx = bs.dst.x, sy = bs.dst.y, sw = bs.dst.w, sh = bs.dst.h;
     function op(src, dst, fx, fy) { if (dst.w > 0 && dst.h > 0) out.ops.push({ src: src, dst: dst, flipX: !!fx, flipY: !!fy }); }
     // רק החלקים שחסרים מושלמים סינתטית
-    if (out.synth.left > 0)   op({ x: bs.src.x,                 y: bs.src.y, w: sample, h: bs.src.h }, { x: 0,          y: sy, w: out.synth.left,  h: sh }, mir, false);
-    if (out.synth.right > 0)  op({ x: bs.src.x + bs.src.w - sample, y: bs.src.y, w: sample, h: bs.src.h }, { x: sx + sw, y: sy, w: out.synth.right, h: sh }, mir, false);
-    if (out.synth.top > 0)    op({ x: bs.src.x, y: bs.src.y,                     w: bs.src.w, h: sample }, { x: sx, y: 0,          w: sw, h: out.synth.top },    false, mir);
-    if (out.synth.bottom > 0) op({ x: bs.src.x, y: bs.src.y + bs.src.h - sample, w: bs.src.w, h: sample }, { x: sx, y: sy + sh,   w: sw, h: out.synth.bottom }, false, mir);
+    if (out.synth.left > 0)   op({ x: bs.src.x + inset,         y: bs.src.y, w: sample, h: bs.src.h }, { x: 0,          y: sy, w: out.synth.left,  h: sh }, mir, false);
+    if (out.synth.right > 0)  op({ x: bs.src.x + bs.src.w - sample - inset, y: bs.src.y, w: sample, h: bs.src.h }, { x: sx + sw, y: sy, w: out.synth.right, h: sh }, mir, false);
+    if (out.synth.top > 0)    op({ x: bs.src.x, y: bs.src.y + inset,             w: bs.src.w, h: sample }, { x: sx, y: 0,          w: sw, h: out.synth.top },    false, mir);
+    if (out.synth.bottom > 0) op({ x: bs.src.x, y: bs.src.y + bs.src.h - sample - inset, w: bs.src.w, h: sample }, { x: sx, y: sy + sh,   w: sw, h: out.synth.bottom }, false, mir);
     // פינות — נדרשות רק כשחסר בשני הצירים
-    if (out.synth.left > 0 && out.synth.top > 0)      op({ x: bs.src.x, y: bs.src.y, w: sample, h: sample }, { x: 0, y: 0, w: out.synth.left, h: out.synth.top }, mir, mir);
-    if (out.synth.right > 0 && out.synth.top > 0)     op({ x: bs.src.x + bs.src.w - sample, y: bs.src.y, w: sample, h: sample }, { x: sx + sw, y: 0, w: out.synth.right, h: out.synth.top }, mir, mir);
-    if (out.synth.left > 0 && out.synth.bottom > 0)   op({ x: bs.src.x, y: bs.src.y + bs.src.h - sample, w: sample, h: sample }, { x: 0, y: sy + sh, w: out.synth.left, h: out.synth.bottom }, mir, mir);
-    if (out.synth.right > 0 && out.synth.bottom > 0)  op({ x: bs.src.x + bs.src.w - sample, y: bs.src.y + bs.src.h - sample, w: sample, h: sample }, { x: sx + sw, y: sy + sh, w: out.synth.right, h: out.synth.bottom }, mir, mir);
+    if (out.synth.left > 0 && out.synth.top > 0)      op({ x: bs.src.x + inset, y: bs.src.y + inset, w: sample, h: sample }, { x: 0, y: 0, w: out.synth.left, h: out.synth.top }, mir, mir);
+    if (out.synth.right > 0 && out.synth.top > 0)     op({ x: bs.src.x + bs.src.w - sample - inset, y: bs.src.y + inset, w: sample, h: sample }, { x: sx + sw, y: 0, w: out.synth.right, h: out.synth.top }, mir, mir);
+    if (out.synth.left > 0 && out.synth.bottom > 0)   op({ x: bs.src.x + inset, y: bs.src.y + bs.src.h - sample - inset, w: sample, h: sample }, { x: 0, y: sy + sh, w: out.synth.left, h: out.synth.bottom }, mir, mir);
+    if (out.synth.right > 0 && out.synth.bottom > 0)  op({ x: bs.src.x + bs.src.w - sample - inset, y: bs.src.y + bs.src.h - sample - inset, w: sample, h: sample }, { x: sx + sw, y: sy + sh, w: out.synth.right, h: out.synth.bottom }, mir, mir);
     return out;
+  }
+
+  /* ── התאמת TrimBox ──
+     centeredTrim  — מידה מבוקשת לקובץ, ממורכזת בתוך המדיה (שוליים שווים).
+     symmetricTrim — שוליים שווים: X מימין ומשמאל, Y מלמעלה ומלמטה.
+     שניהם נחתכים לגבולות המדיה כדי שלא ייווצר טרים לא-חוקי. */
+  function centeredTrim(opts) {
+    opts = opts || {};
+    var mw = _int(opts.mediaWidth), mh = _int(opts.mediaHeight);
+    var tw = _int(opts.trimWidth), th = _int(opts.trimHeight);
+    if (mw <= 0 || mh <= 0) return { ok: false, errors: ['BAD_MEDIA'] };
+    if (tw <= 0 || th <= 0) return { ok: false, errors: ['BAD_TRIM'] };
+    var w = Math.min(tw, mw), h = Math.min(th, mh);
+    return { ok: true, clamped: (w !== tw || h !== th),
+      trim: { x: Math.round((mw - w) / 2), y: Math.round((mh - h) / 2), w: w, h: h } };
+  }
+  function symmetricTrim(opts) {
+    opts = opts || {};
+    var mw = _int(opts.mediaWidth), mh = _int(opts.mediaHeight);
+    var sx = Math.max(0, _int(opts.sideX)), sy = Math.max(0, _int(opts.sideY));
+    if (mw <= 0 || mh <= 0) return { ok: false, errors: ['BAD_MEDIA'] };
+    if (2 * sx >= mw || 2 * sy >= mh) return { ok: false, errors: ['MARGIN_TOO_BIG'] };
+    return { ok: true, trim: { x: sx, y: sy, w: mw - 2 * sx, h: mh - 2 * sy } };
+  }
+  // השוליים הנוכחיים של הטרים בתוך המדיה (לתצוגה ולבדיקת סימטריה)
+  function trimMargins(mediaWidth, mediaHeight, trim) {
+    var t = trim || {};
+    var left = _int(t.x), top = _int(t.y);
+    var right = _int(mediaWidth) - (_int(t.x) + _int(t.w));
+    var bottom = _int(mediaHeight) - (_int(t.y) + _int(t.h));
+    return { left: left, right: right, top: top, bottom: bottom,
+             symmetricX: left === right, symmetricY: top === bottom };
   }
 
   /* ── זום ── התקרבות/התרחקות סביב נקודה שהעכבר מצביע עליה. */
@@ -157,5 +191,6 @@
 
   return { METHODS: METHODS, methods: methods, isAvailable: isAvailable,
            mmToPx: mmToPx, planBleed: planBleed, planMarkClean: planMarkClean,
-           planTrimBleed: planTrimBleed, zoomAt: zoomAt, zoomToRect: zoomToRect };
+           planTrimBleed: planTrimBleed, zoomAt: zoomAt, zoomToRect: zoomToRect,
+           centeredTrim: centeredTrim, symmetricTrim: symmetricTrim, trimMargins: trimMargins };
 });
