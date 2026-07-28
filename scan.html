@@ -28,6 +28,7 @@
   <div class="sub" id="sub">טוען את פרטי העבודה…</div>
   <div id="body"><div class="spin"></div></div>
 </div>
+<script src="scan-complete.js"></script>
 <script>
 // דף סריקת QR מכרטיס עבודה מודפס: ?c=<מזהה כרטיס> [&r=<ריצה>]
 // סדר עדיפויות:
@@ -432,40 +433,82 @@ function _cardTotalQty(card){
   });
   return direct || fromRuns;
 }
+/* טופס השלמה שמשתנה לפי סוג העבודה (פלייסמנט/עיתון/פלאייר/כללי) — הלוגיקה
+   ב-scan-complete.js. סה"כ היחידות מחושב מהשדות, ולעיתון מוצג פער מול ההזמנה. */
+function _fieldInputHtml(f, prevVals){
+  var v = (prevVals && prevVals[f.key] != null) ? prevVals[f.key] : '';
+  return '<label style="display:block;text-align:right;font-size:.85rem;font-weight:700;margin:10px 0 4px">' + esc(f.label)
+    + (f.optional ? ' <span style="opacity:.6;font-weight:400">(אופציונלי)</span>' : '') + '</label>'
+    + '<input id="d-f-' + f.key + '" data-fkey="' + f.key + '" type="number" min="0" value="' + esc(String(v)) + '" placeholder="' + esc(f.placeholder || '') + '" '
+    + 'style="width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:none;font-family:Heebo,sans-serif;font-size:1.1rem;font-weight:800;text-align:center">'
+    + (f.hint ? '<div class="wait" style="font-size:.74rem;margin-top:3px;opacity:.8">' + esc(f.hint) + '</div>' : '');
+}
 function _doneForm(card){
   var by = _whoAmI(); if (!by) return;
-  var qty = _cardTotalQty(card);
+  var ordered = _cardTotalQty(card);
   var prev = (_scanStages.done || {});
+  var SC = window.ScanComplete;
+  var kind = (prev.kind && SC) ? prev.kind : (SC ? SC.detectKind(card) : 'generic');
+  var flds = SC ? SC.fields(kind, ordered) : [{ key:'qty', label:'כמות שהושלמה (יח׳)', placeholder:String(ordered||'') }];
+  var prevVals = prev.vals || {};
+  // כפתורי בחירת-סוג (אפשר לשנות אם זוהה לא נכון)
+  var KINDS = [['placemats','פלייסמנטים'],['newspaper','עיתון/חוברת'],['flyer','פלאיירים'],['generic','כללי']];
+  var kindBtns = KINDS.map(function(k){
+    var on = k[0] === kind;
+    return '<button type="button" data-kind="' + k[0] + '" style="flex:1;min-width:74px;padding:7px 4px;border-radius:8px;border:1.5px solid ' + (on?'#c9a84c':'rgba(255,255,255,.25)') + ';background:' + (on?'#c9a84c':'transparent') + ';color:' + (on?'#1a1a4e':'#fff') + ';font-family:Heebo,sans-serif;font-weight:800;font-size:.78rem;cursor:pointer">' + k[1] + '</button>';
+  }).join('');
   body.innerHTML =
       '<div style="font-weight:900;font-size:1.05rem;margin-bottom:4px">✅ סימון: העבודה הושלמה</div>'
-    + '<div class="wait" style="font-size:.8rem;margin-bottom:12px">מסמן: <b>' + esc(by) + '</b>'
+    + '<div class="wait" style="font-size:.8rem;margin-bottom:10px">מסמן: <b>' + esc(by) + '</b>'
     + ' <span id="d-rename" style="text-decoration:underline;cursor:pointer;opacity:.8">שנה שם</span></div>'
-    + '<label style="display:block;text-align:right;font-size:.85rem;font-weight:700;margin-bottom:4px">כמות שהושלמה (יח׳)</label>'
-    + '<input id="d-qty" type="number" min="0" value="' + (prev.qty != null ? prev.qty : qty) + '" '
-    + 'style="width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:none;font-family:Heebo,sans-serif;font-size:1.1rem;font-weight:800;text-align:center">'
-    + '<div class="wait" style="font-size:.74rem;margin:5px 0 12px;opacity:.8">לפי כרטיס העבודה: ' + qty.toLocaleString() + ' יח׳ · אפשר לשנות</div>'
-    + '<label style="display:block;text-align:right;font-size:.85rem;font-weight:700;margin-bottom:4px">אריזות / חבילות (אופציונלי)</label>'
-    + '<input id="d-packs" type="number" min="0" value="' + (prev.packs || '') + '" '
-    + 'style="width:100%;box-sizing:border-box;padding:11px;border-radius:10px;border:none;font-family:Heebo,sans-serif;font-size:1rem;font-weight:700;text-align:center">'
-    + '<label style="display:block;text-align:right;font-size:.85rem;font-weight:700;margin:12px 0 4px">הערה (אופציונלי)</label>'
+    + '<div style="font-size:.76rem;text-align:right;opacity:.75;margin-bottom:4px">סוג העבודה:</div>'
+    + '<div id="d-kinds" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">' + kindBtns + '</div>'
+    + '<div id="d-fields">' + flds.map(function(f){ return _fieldInputHtml(f, prevVals); }).join('') + '</div>'
+    + '<div id="d-total" class="wait" style="font-size:.9rem;margin:10px 0 2px;font-weight:800"></div>'
+    + '<div id="d-status" class="wait" style="font-size:.82rem;margin-bottom:6px"></div>'
+    + '<label style="display:block;text-align:right;font-size:.85rem;font-weight:700;margin:8px 0 4px">הערה (אופציונלי)</label>'
     + '<input id="d-note" type="text" value="' + esc(prev.note || '') + '" placeholder="לדוגמה: חסרו 150, נשאר בגימורים" '
     + 'style="width:100%;box-sizing:border-box;padding:11px;border-radius:10px;border:none;font-family:Heebo,sans-serif;font-size:.95rem">'
     + '<button class="btn" id="d-save">✓ שמור סימון</button>'
     + '<button class="btn alt" id="d-back">חזרה</button>';
+  function _collect(){
+    var vals = {};
+    body.querySelectorAll('[data-fkey]').forEach(function(inp){ vals[inp.getAttribute('data-fkey')] = parseInt(inp.value, 10) || 0; });
+    return vals;
+  }
+  function _refresh(){
+    if (!SC) return;
+    var res = SC.compute(kind, _collect(), ordered);
+    document.getElementById('d-total').textContent = 'סה״כ: ' + res.total.toLocaleString() + ' יח׳';
+    var st = SC.statusText(res);
+    var se = document.getElementById('d-status');
+    se.textContent = st;
+    se.style.color = res.status === 'short' ? '#fca5a5' : (res.status === 'ok' ? '#86efac' : (res.status === 'over' ? '#fcd34d' : 'rgba(255,255,255,.85)'));
+  }
+  body.querySelectorAll('#d-fields [data-fkey]').forEach(function(inp){ inp.oninput = _refresh; });
+  body.querySelectorAll('#d-kinds [data-kind]').forEach(function(b){
+    b.onclick = function(){ prev.kind = b.getAttribute('data-kind'); prev.vals = _collect(); _scanStages.done = prev; _doneForm(card); };
+  });
   document.getElementById('d-rename').onclick = function(){ if (_whoAmI(true)) _doneForm(card); };
   document.getElementById('d-back').onclick = function(){ showMenu(card); };
+  _refresh();
   document.getElementById('d-save').onclick = function(){
     var t = _stampNow();
+    var vals = _collect();
+    var res = SC ? SC.compute(kind, vals, ordered) : { total: vals.qty||0, packs:0, status:'none', shortfall:0 };
     var payload = { done:true, at:t.at, atText:t.atText, by:by,
-      qty: parseInt(document.getElementById('d-qty').value, 10) || 0,
-      packs: parseInt(document.getElementById('d-packs').value, 10) || 0,
+      kind: kind, vals: vals,
+      qty: res.total, packs: res.packs || 0,
+      shortfall: res.shortfall || 0, statusStr: (SC ? SC.statusText(res) : ''),
       note: (document.getElementById('d-note').value || '').trim() || null,
-      cardQty: qty };
+      cardQty: ordered };
     _scanStages.done = payload;
     fbPut('scanStages/' + encodeURIComponent(String(card.id)) + '/done', payload);
+    var sumLine = SC ? SC.summaryText(res) : (payload.qty.toLocaleString() + ' יח׳');
     body.innerHTML = '<div style="font-weight:900;font-size:1.05rem;color:#86efac">✓ נרשם</div>'
       + '<div class="wait" style="margin-top:8px;line-height:1.9">העבודה סומנה כהושלמה<br>'
-      + payload.qty.toLocaleString() + ' יח׳' + (payload.packs ? (' · ' + payload.packs + ' אריזות') : '') + '<br>'
+      + esc(sumLine) + '<br>'
+      + (payload.statusStr ? (esc(payload.statusStr) + '<br>') : '')
       + esc(by) + ' · ' + t.atText + '</div>'
       + '<button class="btn alt" id="d-back2">חזרה לתפריט</button>';
     document.getElementById('d-back2').onclick = function(){ showMenu(card); };
@@ -495,10 +538,13 @@ function showMenu(card){
   h += '<div style="height:8px"></div>';
   var _dn = _scanStages.done;
   if (_dn && _dn.done){
+    var _dnSum = (window.ScanComplete && _dn.kind && _dn.vals)
+      ? window.ScanComplete.summaryText(window.ScanComplete.compute(_dn.kind, _dn.vals, _dn.cardQty))
+      : ((_dn.qty ? (Number(_dn.qty).toLocaleString() + ' יח׳') : '') + (_dn.packs ? (' · ' + _dn.packs + ' אריזות') : ''));
     h += '<div style="background:rgba(22,163,74,.18);border:1.5px solid #16a34a;border-radius:10px;padding:10px 12px;margin-top:10px;line-height:1.8">'
       + '<b style="color:#86efac">✓ הושלמה</b>'
-      + '<div class="wait" style="font-size:.82rem">' + (_dn.qty ? (Number(_dn.qty).toLocaleString() + ' יח׳') : '')
-      + (_dn.packs ? (' · ' + _dn.packs + ' אריזות') : '') + '</div>'
+      + '<div class="wait" style="font-size:.82rem">' + esc(_dnSum) + '</div>'
+      + (_dn.statusStr ? ('<div class="wait" style="font-size:.8rem;color:' + (_dn.shortfall>0?'#fca5a5':'#86efac') + '">' + esc(_dn.statusStr) + '</div>') : '')
       + '<div class="wait" style="font-size:.76rem;opacity:.85">' + esc(_dn.by || '') + ' · ' + esc(_dn.atText || '') + '</div>'
       + (_dn.note ? ('<div class="wait" style="font-size:.76rem">📌 ' + esc(_dn.note) + '</div>') : '')
       + '</div>'

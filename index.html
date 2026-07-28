@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785246115';
+window.APP_VERSION = '1785246821';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -21963,19 +21963,35 @@ function _opLoadAndRender() {
 }
 
 // עיתונים מאושרים מהלקוחות שראויים לצפייה אצל הדפסים (אושרו ב-48 השעות האחרונות)
+/* קובע אם עבודת-לקוח שהועלתה עדיין צריכה להופיע בדפסים.
+   ⚠️ באג ישן: הצגה נחתכה אחרי 48ש' → קבצים של לקוחות "נעלמו" (הקובץ נשאר
+   ב-Storage, רק ההצגה הוסתרה). כלל חדש: מציגים כל עוד יש קובץ ולא נמחק/הודפס,
+   ומכבדים קישור-לכרטיס — עבודה שהכרטיס שלה עדיין פעיל תוצג ללא הגבלת-זמן. */
+function _opProofStillNeeded(p, when, now){
+  if (!p) return false;
+  if (p.opDone || p.opHidden) return false;         // הדפס סימן שסיים/הסתיר
+  if (p.cardId != null) {
+    var c = (typeof cards !== 'undefined' ? cards : []).find(function(x){ return String(x.id) === String(p.cardId); });
+    if (c) return c.status !== 'done' && c.status !== 'trash';   // כרטיס פעיל → תמיד מציגים
+    // אין כרטיס תואם (אולי בארכיון/נמחק) — נופלים לחלון-זמן רחב
+  }
+  var WINDOW = 30 * 24 * 60 * 60 * 1000;             // 30 יום (במקום 48ש') כשאין קישור-כרטיס פעיל
+  return !when || (now - when) < WINDOW;
+}
 function _opApprovedProofs() {
   var all = window._opCustomerProofs || {};
   var out = [];
-  var DAY2 = 48 * 60 * 60 * 1000, now = Date.now();
+  var now = Date.now();
   Object.keys(all).forEach(function(id) {
     var p = all[id]; if (!p) return;
-    if (p.status === 'approved' && p.fileUrl && p.approvedAt && (now - p.approvedAt) < DAY2) {
-      out.push({ id: id, name: [p.customer, p.title].filter(Boolean).join(' · ') || 'עיתון', when: p.approvedAt, part: null });
-    } else if (p.parts) {
+    if (p.status === 'approved' && p.fileUrl && _opProofStillNeeded(p, p.approvedAt, now)) {
+      out.push({ id: id, name: [p.customer, p.title].filter(Boolean).join(' · ') || 'עיתון', when: p.approvedAt || 0, part: null });
+    }
+    if (p.parts) {
       Object.keys(p.parts).forEach(function(pid) {
         var pt = p.parts[pid];
-        if (pt && pt.fileUrl && pt.approvedAt && (now - pt.approvedAt) < DAY2)
-          out.push({ id: id, name: ([p.customer, p.title].filter(Boolean).join(' · ') || 'עיתון') + ' — ' + (pt.name||'ריצה'), when: pt.approvedAt, part: pid });
+        if (pt && pt.fileUrl && !pt.opDone && !pt.opHidden && _opProofStillNeeded(p, pt.approvedAt, now))
+          out.push({ id: id, name: ([p.customer, p.title].filter(Boolean).join(' · ') || 'עיתון') + ' — ' + (pt.name||'ריצה'), when: pt.approvedAt || 0, part: pid });
       });
     }
   });
