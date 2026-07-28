@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785243878';
+window.APP_VERSION = '1785245200';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -10235,63 +10235,80 @@ function showPrintModal(card) {
   }
 }
 
-/* ═══════════ מרקר צהוב על הכרטיס ═══════════
-   לחיצה על "🖍 מרקר" נכנסת למצב סימון; כל לחיצה על שדה/שורה בכרטיס
-   מסמנת או מבטלת. הסימון נשמר על הכרטיס (card.markers) ומודפס. */
+/* ═══════════ מרקר צהוב על מילים בכרטיס ═══════════
+   מצב סימון: המשתמש בוחר מילים (גרירה או קליק על מילה) והן נצבעות צהוב —
+   סימון ברמת-מילה, לא רקע-תא מלא. נשמר על הכרטיס (card.markers) ומודפס. */
 function _mkEnsureCss(){
   if (document.getElementById('mk-css') || !window.CardMarker) return;
   var s = document.createElement('style'); s.id = 'mk-css';
   s.textContent = CardMarker.css('mk-hl')
-    + '#print-card-content.mk-mode *{cursor:crosshair}'
-    + '#print-card-content.mk-mode *:hover{outline:1.5px dashed #eab308;outline-offset:1px}';
+    + '#print-card-content.mk-mode{cursor:text;user-select:text;-webkit-user-select:text}'
+    + '#print-card-content.mk-mode ::selection{background:#fde68a}';
   document.head.appendChild(s);
 }
 function _mkCard(){
   var id = window._printModalCardId;
   return (id && id !== 'preview') ? (cards||[]).find(function(c){ return String(c.id) === String(id); }) : window._previewCard;
 }
-function _mkPath(el, root){
-  var p = [];
-  while (el && el !== root){
-    var par = el.parentNode; if (!par) return null;
-    p.unshift(Array.prototype.indexOf.call(par.children, el));
-    el = par;
+/* רשימת צמתי-הטקסט בסדר המסמך + הטקסט המלא (שרשור nodeValue) —
+   כך שאינדקס-תו גלובלי ממופה חזרה לצומת+היסט. */
+function _mkTextNodes(root){
+  var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  var nodes = [], full = '', node;
+  while ((node = walker.nextNode())){
+    // דלג על טקסט בתוך סימון קיים — נפרק אותו קודם ב-_mkUnwrap
+    nodes.push({ node: node, start: full.length, len: node.nodeValue.length });
+    full += node.nodeValue;
   }
-  return (el === root) ? p.join('.') : null;
+  return { nodes: nodes, full: full };
 }
-function _mkAt(root, path){
-  var el = root, parts = String(path).split('.');
-  for (var i = 0; i < parts.length; i++){
-    if (!el || !el.children) return null;
-    el = el.children[parseInt(parts[i], 10)];
-  }
-  return el || null;
-}
-/* כל האלמנטים שאפשר לסמן, עם המיקום והטקסט שלהם */
-function _mkNodes(root){
-  var out = [];
-  Array.prototype.forEach.call(root.querySelectorAll('*'), function(el){
-    if (!el.textContent || !el.textContent.trim()) return;
-    var p = _mkPath(el, root); if (p == null) return;
-    out.push({ path: p, text: el.textContent });
+/* מסיר את כל עטיפות ה-mk-hl ומאחד טקסט — לפני חישוב/ציור מחדש */
+function _mkUnwrap(root){
+  Array.prototype.forEach.call(root.querySelectorAll('span.mk-hl'), function(sp){
+    var par = sp.parentNode; if (!par) return;
+    while (sp.firstChild) par.insertBefore(sp.firstChild, sp);
+    par.removeChild(sp);
   });
-  return out;
+  Array.prototype.forEach.call(root.querySelectorAll('*'), function(el){
+    if (el.normalize) el.normalize();
+  });
 }
-/* מצייר את הסימונים השמורים, ומעגן מחדש סימונים שזזו */
+/* עוטף טווח-תו גלובלי [start,end) ב-span.mk-hl — גם אם הוא חוצה כמה צמתים */
+function _mkWrapRange(root, start, end){
+  var tn = _mkTextNodes(root), pieces = [];
+  tn.nodes.forEach(function(n){
+    var ns = n.start, ne = n.start + n.len;
+    var os = Math.max(start, ns), oe = Math.min(end, ne);
+    if (os < oe) pieces.push({ node: n.node, from: os - ns, to: oe - ns });
+  });
+  pieces.forEach(function(p){
+    try {
+      var range = document.createRange();
+      range.setStart(p.node, p.from); range.setEnd(p.node, p.to);
+      var span = document.createElement('span'); span.className = 'mk-hl';
+      range.surroundContents(span);
+    } catch(e){}
+  });
+}
+/* מצייר מחדש את כל הסימונים לפי card.markers */
 function _mkApply(){
   var root = document.getElementById('print-card-content'); if (!root || !window.CardMarker) return;
-  Array.prototype.forEach.call(root.querySelectorAll('.mk-hl'), function(e){ e.classList.remove('mk-hl'); });
-  var card = _mkCard(); if (!card) return;
-  var marks = card.markers || [];
+  _mkUnwrap(root);
+  var card = _mkCard();
+  var marks = (card && card.markers) || [];
   if (!marks.length){ _mkBtn(0); return; }
-  var nodes = _mkNodes(root);
-  var r = CardMarker.resolve(marks, nodes);
-  r.paths.forEach(function(p){ var el = _mkAt(root, p); if (el) el.classList.add('mk-hl'); });
-  if (r.moved.length || r.stale.length){   // הכרטיס השתנה — מעדכנים את העוגנים
-    card.markers = CardMarker.reanchor(marks, nodes);
+  var tn = _mkTextNodes(root);
+  var r = CardMarker.resolve(marks, tn.full);
+  // עוטפים מהסוף להתחלה כדי שהאינדקסים לא יזוזו תוך כדי
+  r.ranges.slice().sort(function(a,b){ return b.start - a.start; })
+    .forEach(function(rg){ _mkWrapRange(root, rg.start, rg.end); });
+  if (r.stale.length && card){        // טקסט שנעלם — מנקים את הסימונים המתים
+    var live = {};
+    r.ranges.forEach(function(rg){ live[rg.text + ' ' + rg.nth] = 1; });
+    card.markers = marks.filter(function(m){ return CardMarker.resolve([m], tn.full).ranges.length; });
     if (card.id && card.id !== 'preview'){ card._upd = Date.now(); persist(); }
   }
-  _mkBtn(r.paths.length);
+  _mkBtn(r.ranges.length);
 }
 function _mkBtn(n){
   var b = document.getElementById('print-modal-mark-btn'); if (!b) return;
@@ -10307,23 +10324,93 @@ function _mkToggleMode(){
   window._mkMode = !window._mkMode;
   root.classList.toggle('mk-mode', !!window._mkMode);
   if (window._mkMode){
-    root.addEventListener('click', _mkClick, true);
-    showToast('🖍 לחץ על מה שרוצים לסמן · לחיצה נוספת מבטלת');
+    root.addEventListener('mouseup', _mkOnSelect);
+    root.addEventListener('click', _mkOnClickWord);
+    showToast('🖍 סמן מילים: גרור סימון על מילים · קליק על מילה מסמן אותה · חזרה מבטלת');
   } else {
-    root.removeEventListener('click', _mkClick, true);
+    root.removeEventListener('mouseup', _mkOnSelect);
+    root.removeEventListener('click', _mkOnClickWord);
+    var sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges();
   }
   _mkApply();
 }
-function _mkClick(e){
+/* היסט-תו גלובלי של (node,offset) בתוך root */
+function _mkGlobalOffset(root, node, offset){
+  var tn = _mkTextNodes(root);
+  for (var i = 0; i < tn.nodes.length; i++){
+    if (tn.nodes[i].node === node) return tn.nodes[i].start + offset;
+  }
+  return -1;
+}
+/* בחירה בגרירה → סימון הטקסט הנבחר */
+function _mkOnSelect(){
   var root = document.getElementById('print-card-content');
-  var el = e.target;
-  if (!root || el === root) return;
+  var sel = window.getSelection && window.getSelection();
+  if (!root || !sel || sel.isCollapsed || !sel.rangeCount) return;   // קליק בודד → מטופל ב-click
+  var rng = sel.getRangeAt(0);
+  if (!root.contains(rng.startContainer) || !root.contains(rng.endContainer)) return;
+  var tn = _mkTextNodes(root);
+  var s = _mkGlobalOffset(root, rng.startContainer, rng.startOffset);
+  var e = _mkGlobalOffset(root, rng.endContainer, rng.endOffset);
+  if (s < 0 || e < 0 || s === e) return;
+  if (s > e){ var t = s; s = e; e = t; }
+  var text = tn.full.slice(s, e).replace(/^\s+|\s+$/g, '');
+  if (!text) return;
+  var s2 = tn.full.indexOf(text, s); if (s2 < 0) s2 = s;
+  window._mkJustSelected = true;         // ה-click שאחרי mouseup לא יסמן שוב
+  _mkAddToggle(tn.full, text, s2);
+  sel.removeAllRanges();
+}
+/* קליק בודד → סימון המילה שנלחצה (או ביטול אם כבר מסומנת) */
+function _mkOnClickWord(e){
+  var root = document.getElementById('print-card-content'); if (!root) return;
+  if (window._mkJustSelected){ window._mkJustSelected = false; return; }   // אחרי גרירה
+  var sel = window.getSelection && window.getSelection();
+  if (sel && !sel.isCollapsed) return;   // הייתה גרירה — כבר טופל ב-mouseup
+  // אם לחצו על מילה שכבר מסומנת — ביטול
+  var hl = e.target && e.target.closest ? e.target.closest('span.mk-hl') : null;
+  var tn = _mkTextNodes(root);
+  if (hl){
+    var htxt = hl.textContent;
+    var hs = _mkGlobalOffsetOfNode(root, hl);
+    e.preventDefault(); e.stopPropagation();
+    _mkAddToggle(tn.full, htxt, hs);
+    return;
+  }
+  var pos = _mkCaretOffset(root, e); if (pos < 0) return;
+  var wa = CardMarker.wordAt(tn.full, pos);
+  if (!wa || !wa.text.trim()) return;
   e.preventDefault(); e.stopPropagation();
+  _mkAddToggle(tn.full, wa.text, wa.start);
+}
+function _mkGlobalOffsetOfNode(root, el){
+  var tn = _mkTextNodes(root), first = el.firstChild;
+  for (var i = 0; i < tn.nodes.length; i++) if (tn.nodes[i].node === first) return tn.nodes[i].start;
+  // fallback: מצא לפי הטקסט
+  return tn.full.indexOf(el.textContent);
+}
+/* היסט-התו במסמך מנקודת העכבר */
+function _mkCaretOffset(root, e){
+  var node, off;
+  if (document.caretRangeFromPoint){
+    var r = document.caretRangeFromPoint(e.clientX, e.clientY);
+    if (r){ node = r.startContainer; off = r.startOffset; }
+  } else if (document.caretPositionFromPoint){
+    var p = document.caretPositionFromPoint(e.clientX, e.clientY);
+    if (p){ node = p.offsetNode; off = p.offset; }
+  }
+  if (!node) return -1;
+  if (node.nodeType !== 3){   // אלמנט — קח את צומת-הטקסט הראשון בו
+    var w = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
+    node = w.nextNode(); off = 0; if (!node) return -1;
+  }
+  return _mkGlobalOffset(root, node, off || 0);
+}
+function _mkAddToggle(full, text, startIndex){
   var card = _mkCard(); if (!card){ showToast('הכרטיס לא נמצא'); return; }
-  // אם לחצו על אלמנט-על גדול מדי, מסמנים אותו בכל זאת רק אם אין בו ילדים עם טקסט
-  var p = _mkPath(el, root); if (p == null) return;
-  var mark = CardMarker.make(p, el.textContent);
-  card.markers = CardMarker.toggle(card.markers || [], mark);
+  var nth = CardMarker.occurrenceAt(full, text, startIndex);
+  if (nth < 0) nth = 0;
+  card.markers = CardMarker.toggle(card.markers || [], CardMarker.make(text, nth));
   if (card.id && card.id !== 'preview'){ card._upd = Date.now(); persist(); }
   _mkApply();
 }
