@@ -389,11 +389,87 @@ function _rawUrl(card){
   var e = collectProofs(card); if (e.length) return e[0].url;
   return null;
 }
+/* ═══════════ זיהוי הממלא + תיעוד שעה ═══════════
+   כל סימון מהסריקה נרשם בשם מי שסימן ובחותמת זמן. השם נזכר במכשיר,
+   כך שדפס/כורך לא מקליד אותו כל פעם מחדש. */
+function _whoAmI(force){
+  var saved = '';
+  try { saved = localStorage.getItem('solanScanBy') || ''; } catch(e){}
+  if (saved && !force) return saved;
+  var nm = prompt('מה השם שלך?\n(נרשם יחד עם השעה על כל סימון)', saved || '');
+  if (nm === null) return null;
+  nm = nm.trim();
+  if (!nm) return null;
+  try { localStorage.setItem('solanScanBy', nm); } catch(e){}
+  return nm;
+}
+function _stampNow(){
+  var d = new Date();
+  return { at: d.getTime(), atText: d.toLocaleString('he-IL', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) };
+}
 function _markStage(card, s){
-  var payload = { done:true, at: Date.now(), by:'סריקה' };
+  var by = _whoAmI(); if (!by) return;
+  var t = _stampNow();
+  var payload = { done:true, at: t.at, atText: t.atText, by: by };
   _scanStages[s] = payload;
   fbPut('scanStages/' + encodeURIComponent(String(card.id)) + '/' + s, payload);
   showMenu(card);   // רענון → מציג ✓
+}
+
+/* ═══════════ סימון "העבודה הושלמה" + פרטים ═══════════
+   ⚠️ הכמות שמוצעת היא הכמות שבכרטיס העבודה (סה"כ יחידות שהוזמנו) — לא מספר
+      הגיליונות שהודפסו. דוגמה: 1,650 גיליונות × 12 בגיליון = 20,000 בכרטיס,
+      ולכן תוצג 20,000 (וניתן לשנות ידנית). */
+function _cardTotalQty(card){
+  if (!card) return 0;
+  var direct = parseInt(card.copies, 10) || 0;
+  var fromRuns = 0;
+  (card.runs || []).forEach(function(r){
+    var sheets = parseInt(r && r.copies, 10) || 0;
+    var up = parseInt(r && r.upCount, 10) || 1;
+    var units = sheets * (up > 0 ? up : 1);
+    if (units > fromRuns) fromRuns = units;      // ריצה מייצרת את כל העותקים — לא סוכמים ריצות
+  });
+  return direct || fromRuns;
+}
+function _doneForm(card){
+  var by = _whoAmI(); if (!by) return;
+  var qty = _cardTotalQty(card);
+  var prev = (_scanStages.done || {});
+  body.innerHTML =
+      '<div style="font-weight:900;font-size:1.05rem;margin-bottom:4px">✅ סימון: העבודה הושלמה</div>'
+    + '<div class="wait" style="font-size:.8rem;margin-bottom:12px">מסמן: <b>' + esc(by) + '</b>'
+    + ' <span id="d-rename" style="text-decoration:underline;cursor:pointer;opacity:.8">שנה שם</span></div>'
+    + '<label style="display:block;text-align:right;font-size:.85rem;font-weight:700;margin-bottom:4px">כמות שהושלמה (יח׳)</label>'
+    + '<input id="d-qty" type="number" min="0" value="' + (prev.qty != null ? prev.qty : qty) + '" '
+    + 'style="width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:none;font-family:Heebo,sans-serif;font-size:1.1rem;font-weight:800;text-align:center">'
+    + '<div class="wait" style="font-size:.74rem;margin:5px 0 12px;opacity:.8">לפי כרטיס העבודה: ' + qty.toLocaleString() + ' יח׳ · אפשר לשנות</div>'
+    + '<label style="display:block;text-align:right;font-size:.85rem;font-weight:700;margin-bottom:4px">אריזות / חבילות (אופציונלי)</label>'
+    + '<input id="d-packs" type="number" min="0" value="' + (prev.packs || '') + '" '
+    + 'style="width:100%;box-sizing:border-box;padding:11px;border-radius:10px;border:none;font-family:Heebo,sans-serif;font-size:1rem;font-weight:700;text-align:center">'
+    + '<label style="display:block;text-align:right;font-size:.85rem;font-weight:700;margin:12px 0 4px">הערה (אופציונלי)</label>'
+    + '<input id="d-note" type="text" value="' + esc(prev.note || '') + '" placeholder="לדוגמה: חסרו 150, נשאר בגימורים" '
+    + 'style="width:100%;box-sizing:border-box;padding:11px;border-radius:10px;border:none;font-family:Heebo,sans-serif;font-size:.95rem">'
+    + '<button class="btn" id="d-save">✓ שמור סימון</button>'
+    + '<button class="btn alt" id="d-back">חזרה</button>';
+  document.getElementById('d-rename').onclick = function(){ if (_whoAmI(true)) _doneForm(card); };
+  document.getElementById('d-back').onclick = function(){ showMenu(card); };
+  document.getElementById('d-save').onclick = function(){
+    var t = _stampNow();
+    var payload = { done:true, at:t.at, atText:t.atText, by:by,
+      qty: parseInt(document.getElementById('d-qty').value, 10) || 0,
+      packs: parseInt(document.getElementById('d-packs').value, 10) || 0,
+      note: (document.getElementById('d-note').value || '').trim() || null,
+      cardQty: qty };
+    _scanStages.done = payload;
+    fbPut('scanStages/' + encodeURIComponent(String(card.id)) + '/done', payload);
+    body.innerHTML = '<div style="font-weight:900;font-size:1.05rem;color:#86efac">✓ נרשם</div>'
+      + '<div class="wait" style="margin-top:8px;line-height:1.9">העבודה סומנה כהושלמה<br>'
+      + payload.qty.toLocaleString() + ' יח׳' + (payload.packs ? (' · ' + payload.packs + ' אריזות') : '') + '<br>'
+      + esc(by) + ' · ' + t.atText + '</div>'
+      + '<button class="btn alt" id="d-back2">חזרה לתפריט</button>';
+    document.getElementById('d-back2').onclick = function(){ showMenu(card); };
+  };
 }
 function showMenu(card){
   var proofsMap = window._scanProofs || {};
@@ -415,13 +491,30 @@ function showMenu(card){
   } else {
     h += '<div class="wait" style="font-size:.8rem;margin-top:10px">🖨️ עבודה ללא גימור — מסתיימת אוטומטית עם סיום ההדפסה.</div>';
   }
-  if (!raw && !cm.length && !stages.length){ waitForFiles(); return; }
+  // ✅ סימון "העבודה הושלמה" + פרטים — זמין לכל עבודה
+  h += '<div style="height:8px"></div>';
+  var _dn = _scanStages.done;
+  if (_dn && _dn.done){
+    h += '<div style="background:rgba(22,163,74,.18);border:1.5px solid #16a34a;border-radius:10px;padding:10px 12px;margin-top:10px;line-height:1.8">'
+      + '<b style="color:#86efac">✓ הושלמה</b>'
+      + '<div class="wait" style="font-size:.82rem">' + (_dn.qty ? (Number(_dn.qty).toLocaleString() + ' יח׳') : '')
+      + (_dn.packs ? (' · ' + _dn.packs + ' אריזות') : '') + '</div>'
+      + '<div class="wait" style="font-size:.76rem;opacity:.85">' + esc(_dn.by || '') + ' · ' + esc(_dn.atText || '') + '</div>'
+      + (_dn.note ? ('<div class="wait" style="font-size:.76rem">📌 ' + esc(_dn.note) + '</div>') : '')
+      + '</div>'
+      + '<button class="btn alt" id="m-done">✎ עדכן את פרטי ההשלמה</button>';
+  } else {
+    h += '<button class="btn" id="m-done">✅ סמן שהעבודה הושלמה</button>';
+  }
+  if (!raw && !cm.length && !stages.length && !h) { waitForFiles(); return; }
   body.innerHTML = h;
   var pb = document.getElementById('m-proof');
   if (pb) pb.onclick = function(){ if (raw) location.href = raw; else resolveAndGo(card, proofsMap); };
   var bb = document.getElementById('m-booklet');
   if (bb) bb.onclick = function(){ resolveAndGo(card, proofsMap); };   // resolveAndGo מקפל חוברת/פותח קובץ לקוח
   body.querySelectorAll('[data-stage]').forEach(function(b){ b.onclick = function(){ _markStage(card, b.dataset.stage); }; });
+  var db2 = document.getElementById('m-done');
+  if (db2) db2.onclick = function(){ _doneForm(card); };
 }
 
 if (!cid) { sub.textContent = ''; body.innerHTML = '<div class="err">חסר מזהה כרטיס בקישור.</div>'; }

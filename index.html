@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785226586';
+window.APP_VERSION = '1785227317';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -8225,6 +8225,7 @@ function editCard(id) {
   try { setTimeout(window._cardFormBaselineNow, 0); } catch(e){}   // S2-3: baseline לערכים שנטענו → נקי עד לעריכה
 }
 function clearForm() {
+  window._previewNewId = null;   // הכרטיס הבא יקבל מזהה משלו
   window._editingCardId = null;
   var _upBtn = document.getElementById('card-uplink-btn'); if (_upBtn) _upBtn.style.display = 'none';
   ['f-name','f-type','f-order-date','f-delivery-date','f-copies','f-copies-mult','f-pages','f-pages-note','f-sheet-pages','f-size','f-paper','f-notes','f-internal-notes','f-machine','f-placement-details']
@@ -9274,10 +9275,14 @@ function _saveCardNew() {
 }
 
 // ========== PREVIEW ==========
+// ⚠️ המזהה שהכרטיס *יקבל* בשמירה נקבע כבר עכשיו (_newId) — כך שה-QR שמודפס
+//    מתצוגה מקדימה מצביע לכרטיס הנכון, וההדפסה לפני השמירה עדיין נסרקת.
 function buildTempCard() {
   const name = document.getElementById('f-name').value.trim();
+  if (!window._previewNewId) window._previewNewId = Date.now();
   return {
     id: 'preview',
+    _newId: window._previewNewId,
     name:         name || '(ללא שם)',
     type:         document.getElementById('f-type').value,
     orderDate:    document.getElementById('f-order-date').value,
@@ -9644,7 +9649,7 @@ function buildPrintCard(c) {
       <div style="font-size:1.85rem;font-weight:900;color:#111">כרטיס עבודה</div>
       <div style="display:flex;align-items:center;gap:14px">
         <div style="font-size:.88rem;color:#555">נוצר: ${c.createdAt} &nbsp;|&nbsp; מס' עבודה: ${c.id}</div>
-        ${_cardQrBox(c.id)}
+        ${_cardQrBox(c.id === 'preview' ? c._newId : c.id)}
       </div>
     </div>
     <!-- שדות עליונים (עד מס' עמודים) -->
@@ -9701,7 +9706,7 @@ function buildPrintCardBlankRuns(c) {
       <div style="font-size:1.35rem;font-weight:900;color:#111">כרטיס עבודה</div>
       <div style="display:flex;align-items:center;gap:12px">
         <div style="font-size:.78rem;color:#555">נוצר: ${c.createdAt} &nbsp;|&nbsp; מס' עבודה: ${c.id}</div>
-        ${_cardQrBox(c.id)}
+        ${_cardQrBox(c.id === 'preview' ? c._newId : c.id)}
       </div>
     </div>
     <div style="padding:4px 28px 16px">${fieldRows}</div>
@@ -9993,7 +9998,9 @@ function saveFromPreview() {
   const name = document.getElementById('f-name').value.trim();
   if (!name) { showToast('⚠️ חסר שם עבודה'); closePrintModal(); return; }
   const card = buildTempCard();
-  card.id = Date.now();
+  card.id = card._newId || Date.now();   // אותו מזהה שה-QR המודפס מצביע אליו
+  delete card._newId;
+  window._previewNewId = null;
   card.status = 'pending';
   addHistory('f-name',  card.name);
   addHistory('f-type',  card.type);
@@ -10086,7 +10093,8 @@ function _autoSaveIfPreview(card) {
   // שומרים אותו עכשיו אוטומטית לרשימת הכרטיסים כדי שיתעדכן בקטגוריות המתאימות
   if (!card || card.id !== 'preview') return card;
   var saved = Object.assign({}, card, {
-    id: Date.now(),
+    id: card._newId || Date.now(),        // אותו מזהה שה-QR המודפס מצביע אליו
+    _newId: undefined,
     status: 'pending',
     createdAt: card.createdAt || new Date().toLocaleDateString('he-IL'),
     createdBy: currentUser ? currentUser.id : 'admin'
@@ -10101,6 +10109,7 @@ function _autoSaveIfPreview(card) {
   renderCards();
   var saveBtn = document.getElementById('print-modal-save-btn');
   if (saveBtn) saveBtn.style.display = 'none';
+  window._previewNewId = null;
   showToast('✅ הכרטיס נשמר אוטומטית עם ההדפסה');
   return saved;
 }
