@@ -833,6 +833,27 @@
               qty: _int(card.doneQty != null ? card.doneQty : card.copies), packs: _int(card.donePacks) || 0 }];
   }
 
+  /* פיצול שם-עבודה לפריטים נפרדים: הדפסה משותפת נרשמת בכרטיס כשם אחד
+     ("פלייסמנט הדודאים + עידית רפאל") — וכאן היא הופכת לשורה לכל פריט/לקוח,
+     כדי שבעדכון הסטטוס אפשר יהיה למלא כמות לכל אחד בנפרד.
+     כרטיס "משולב" (combined) הוא המקור המדויק ומקבל עדיפות. */
+  function splitJobItems(card) {
+    if (!card) return [];
+    var comb = card.combined || [];
+    if (comb.length) {
+      return comb.map(function (r) {
+        return { name: _s(r.desc) || _s(r.customer) || _s(card.name), customer: _s(r.customer),
+                 qty: _int(r.qty), packs: 0, packSize: 0 };
+      }).filter(function (l) { return l.name || l.customer; });
+    }
+    var parts = _s(card.name).split(/\s*[+＋]\s*|\s+ו-(?=\S)/).map(_s).filter(Boolean);
+    if (parts.length < 2) return [];
+    return parts.map(function (p, i) {
+      return { name: p, customer: _s(card.customer) && i === 0 ? _s(card.customer) : '',
+               qty: 0, packs: 0, packSize: 0 };
+    });
+  }
+
   // הלקוחות שמופיעים בעבודה (לתעודת משלוח נפרדת לכל אחד)
   function jobCustomers(card) {
     var seen = {}, out = [];
@@ -1049,7 +1070,7 @@
     buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,
     buildJobNote: buildJobNote, jobStage: jobStage, orderStage: orderStage,
     isClerkJob: isClerkJob, isHiddenName: isHiddenName, applyJobOverlay: applyJobOverlay,
-    jobLines: jobLines, jobCustomers: jobCustomers, applyToCustomerStock: applyToCustomerStock,
+    jobLines: jobLines, jobCustomers: jobCustomers, splitJobItems: splitJobItems, applyToCustomerStock: applyToCustomerStock,
     applyStock: applyStock, findAgreementForCustomer: findAgreementForCustomer,
     alerts: alerts, findItem: findItem, validate: validate
   };

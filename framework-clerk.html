@@ -439,6 +439,7 @@ function _orderCard(o,a,stage){
     <div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">
       <b>${esc(FW.orderTitle(o))}</b><span class="muted" style="font-size:.75rem">${esc(o.date||'')}</span></div>
     ${_sel==='ALL'?`<div class="muted" style="font-size:.78rem">🏢 ${esc(a.customer)}</div>`:''}
+    ${o.poNumber?`<div class="muted" style="font-size:.75rem">🧾 הזמנת רכש ${esc(o.poNumber)}</div>`:''}
     <div style="font-size:.82rem;margin-top:4px">${lines}</div>
     ${o.dueDate?`<div class="${late?'bad':'muted'}" style="font-size:.76rem;margin-top:3px">${late?'⚠ עבר מועד: ':'לאספקה עד: '}${esc(o.dueDate)}</div>`:''}
     ${short?'<div class="bad" style="font-size:.76rem">יצא פחות מההזמנה</div>':''}
@@ -912,7 +913,9 @@ function openJob(id){
   const ov=_jobOv[c.id]||{};
   // הדפסה אחת יכולה להכיל כמה פריטים ולכמה לקוחות — מתחילים ממה שכבר נשמר
   _jbState={ status:(c.status==='done'?'done':'finishing'), note:ov.note||'', toStock:!ov.stockSynced };
+  const _split=FW.splitJobItems(c);
   _jbLines=(ov.lines&&ov.lines.length)?ov.lines.map(l=>({name:l.name||'',customer:l.customer||'',qty:l.qty||0,packs:l.packs||0,packSize:l.packSize||0}))
+    : _split.length ? _split.map(l=>({name:l.name,customer:l.customer,qty:l.qty||0,packs:0,packSize:0}))
     :[{name:c.name||'',customer:c.customer||'',qty:(ov.qty!=null?ov.qty:(parseInt(c.copies,10)||0)),packs:ov.packs||0,packSize:0}];
   _jbRender(c,ov);
 }
@@ -1111,7 +1114,8 @@ function _edRender(ag,o){
       ${o.date?' · נקלטה '+esc(o.date):''}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
       <label>שם ההזמנה <input id="edTitle" style="width:190px" value="${esc(o.title||'')}" placeholder="לדוגמה: פלייסמנטים לפסח"></label>
-      <label>אסמכתא <input id="edRef" style="width:130px" value="${esc(o.orderRef||'')}"></label>
+      <label>מס׳ הזמנת רכש <input id="edPo" style="width:120px" value="${esc(o.poNumber||'')}"></label>
+      <label>אסמכתא <input id="edRef" style="width:110px" value="${esc(o.orderRef||'')}"></label>
       <label>לאספקה עד <input id="edDue" type="date" value="${esc(o.dueDate||'')}"></label>
       <label style="flex:1">הערה <input id="edNote" style="width:100%" value="${esc(o.notes||'')}"></label>
     </div>
@@ -1158,7 +1162,7 @@ function _edRender(ag,o){
     _edLines[i].qty=_edLines[i].packs*(_edLines[i].packSize||0); _edRender(ag,o); });
 
   $('edSave').onclick=async()=>{
-    const res=FW.editOrder(ag,o.orderId,{ title:$('edTitle').value, orderRef:$('edRef').value, dueDate:$('edDue').value,
+    const res=FW.editOrder(ag,o.orderId,{ title:$('edTitle').value, orderRef:$('edRef').value, poNumber:$('edPo').value, dueDate:$('edDue').value,
       notes:$('edNote').value, lines:_edLines });
     if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
     if(await save(_normAg(res.agreement))){ m.remove(); render(); }
@@ -1325,12 +1329,14 @@ async function _impRead(f){
         }
         else if(ex.customer) _impPickCustomer(ex.customer);
         else if(ex.siteNum) $('impRef').value='אתר '+ex.siteNum+' (לא נמצא ברשימת האתרים)';
+        if(ex.poNumber) $('impPo').value=ex.poNumber;      // מס׳ הזמנת רכש מהמסמך (עידית וכד')
         if(ex.date) $('impDue').value=/^\d{4}-\d{2}-\d{2}$/.test(ex.date)?ex.date:'';
         const addr=(site&&(site.address||site.name))||ex.address;
         $('impNote').value=[ex.notes,(site&&site.notes)||'',addr].filter(Boolean).join(' · ');
         _dz('off');
         $('impMsg').innerHTML='<span class="ok">✓ נותח '+esc(f.name)+' — '+rows.length+' שורות'
-          +(site?(' · אתר '+esc(SolanIditSites.siteLabel(site))):(ex.customer?(' · לקוח: '+esc(ex.customer)):''))+'</span>';
+          +(site?(' · אתר '+esc(SolanIditSites.siteLabel(site))):(ex.customer?(' · לקוח: '+esc(ex.customer)):''))
+          +(ex.poNumber?(' · הזמנת רכש '+esc(ex.poNumber)):'')+'</span>';
         _impRender(); return;
       }catch(e){
         _dz('busy','ניתוח AI נכשל','ממשיך בקריאת טקסט רגילה…');
@@ -1377,7 +1383,8 @@ function _openImport(msg,busy){
         <input id="impNewCust" placeholder="שם הלקוח החדש" style="display:none;width:170px">
         <select id="impNewKind" style="display:none">${FW.KINDS.map(k=>`<option value="${k}"${k==='placemats'?' selected':''}>${FW.kindLabel(k)}</option>`).join('')}</select>
         <span>שם ההזמנה:</span><input id="impTitle" style="width:150px" placeholder="לדוגמה: פלייסמנטים לפסח">
-        <span>אסמכתא:</span><input id="impRef" style="width:120px" placeholder="PO / טלפוני / מייל">
+        <span>מס׳ הזמנת רכש:</span><input id="impPo" style="width:120px" placeholder="למשל 4501234">
+        <span>אסמכתא:</span><input id="impRef" style="width:110px" placeholder="טלפוני / מייל / אתר">
         <span>לאספקה עד:</span><input id="impDue" type="date">
         <input id="impNote" placeholder="הערה להזמנה (אופציונלי)" style="width:200px">
       </div>
@@ -1480,7 +1487,8 @@ async function _impSave(){
   const rows=m.rows.map(r=> r.matched ? r : Object.assign({},r,{free:true,name:r.name||r.sku}));
   const over=rows.filter(r=>r.exceeds);
   if(over.length && !confirm('⚠️ אין מספיק מלאי פנוי ל-'+over.length+' שורות.\nלרשום את ההזמנה בכל זאת?')) return;
-  const res=FW.placeOrder(ag,rows,{title:($('impTitle').value||'').trim(),orderRef:($('impRef').value||'').trim(),dueDate:$('impDue').value||null,
+  const res=FW.placeOrder(ag,rows,{title:($('impTitle').value||'').trim(),orderRef:($('impRef').value||'').trim(),
+    poNumber:($('impPo').value||'').trim(),dueDate:$('impDue').value||null,
     date:_today(),by:_me(),
     notes:[($('impNote').value||'').trim(), _impName?('מקור: '+_impName):''].filter(Boolean).join(' · ')||null});
   if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }

@@ -19,6 +19,7 @@
     + 'לקוח: <שם הלקוח או החברה שמזמינים בשבילו>\n'
     + 'פריט: <תיאור המוצר/העבודה> | <כמות במספר>\n'
     + '(אם יש כמה פריטים שונים באותה הזמנה — כתוב שורת "פריט:" נפרדת לכל פריט)\n'
+    + 'מספר הזמנה: <מספר הזמנת הרכש/PO של הלקוח כפי שמופיע במסמך; אחרת ריק>\n'
     + 'תאריך: <YYYY-MM-DD אם מופיע תאריך אספקה או הזמנה>\n'
     + 'כתובת: <כתובת אספקה אם קיימת>\n'
     + 'מספר אתר: <לעידית — מספר האתר/הסניף אם מופיע, מספר בלבד (למשל 61); אחרת ריק>\n'
@@ -29,8 +30,9 @@
   // ── ניתוח התשובה המתויגת → אובייקט הזמנה ──────────────────────────────────
   function parseOrderTags(text) {
     var map = { 'לקוח': 'customer', 'תיאור': 'desc', 'כמות': 'qty', 'תאריך': 'date',
-                'כתובת': 'address', 'מספר אתר': 'siteNum', 'אזור': 'area', 'הערות': 'notes' };
-    var out = { customer: '', desc: '', qty: '', date: '', address: '', siteNum: '', area: '', notes: '', items: [] };
+                'כתובת': 'address', 'מספר אתר': 'siteNum', 'אזור': 'area', 'הערות': 'notes',
+                'מספר הזמנה': 'poNumber', 'הזמנת רכש': 'poNumber', 'מספר הזמנת רכש': 'poNumber' };
+    var out = { customer: '', desc: '', qty: '', date: '', address: '', siteNum: '', area: '', notes: '', poNumber: '', items: [] };
     var found = false, items = [];
     String(text == null ? '' : text).split(/\r?\n/).forEach(function (line) {
       var m = line.match(/^\s*[*\-•\s]*([֐-׿ ]+?)\s*[:：]\s*(.*)$/);
@@ -65,7 +67,7 @@
       var jm = String(text == null ? '' : text).match(/\{[\s\S]*\}/);
       if (jm) { try {
         var j = JSON.parse(jm[0]);
-        ['customer', 'desc', 'qty', 'date', 'address', 'area', 'notes'].forEach(function (k) {
+        ['customer', 'desc', 'qty', 'date', 'address', 'area', 'notes', 'poNumber'].forEach(function (k) {
           if (j[k] != null) out[k] = String(j[k]);
         });
         if (out.desc || out.qty) out.items = [{ desc: out.desc, qty: out.qty }];
