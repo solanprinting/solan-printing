@@ -57,6 +57,7 @@
   .tab.on{background:var(--press);color:#fff;border-color:var(--press)}
   .tab .n{background:var(--warn);color:#fff;border-radius:9px;padding:0 7px;font-size:.72rem;margin-inline-start:5px}
   .ready{border-inline-start:5px solid var(--ok);background:#f0fdf4}
+  @keyframes tSlide{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
   /* ── לוח זרימת עבודות ── */
   .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}
   .fCol{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
@@ -160,6 +161,8 @@ let _delivered={};
 let _open={framework:false,placemats:false,orders:false};
 // שכבת-המשרד על כרטיסי-עבודה: { cardId: {status,qty,packs,note,removed,at,by} }
 let _jobOv={};
+// תצלום-מצב אחרון להשוואה — כדי להקפיץ הודעה על כל שינוי סטטוס
+let _snapPrev=null;
 // מלאי-הלקוחות של האפליקציה (קריאה — לעדכון אוטומטי מעבודות)
 let _custStock={};
 
@@ -176,6 +179,58 @@ function _normAg(a){
   a.topups=_arr(a.topups).map(t=>{ if(t) t.lines=_arr(t.lines); return t; });
   a.deliveryNotes=_arr(a.deliveryNotes).map(d=>{ if(d){ d.lines=_arr(d.lines); d.orders=_arr(d.orders); } return d; });
   return a;
+}
+
+/* ═══════════ הודעות עדכון במסך המשרד ═══════════
+   כל שינוי סטטוס — בין אם נעשה כאן ובין אם ע"י מישהו אחר (נקלט ברענון) —
+   קופץ כהודעה במסך, כדי שהפקיד יראה מיד מה זז ולאן. */
+const _STAGE_TXT = { new:'📝 התקבלה', production:'🖨 בייצור', ready:'✅ מוכנה לאספקה', delivered:'🚚 סופקה' };
+const _STAGE_COLOR = { new:'#f59e0b', production:'#0ea5e9', ready:'#16a34a', delivered:'#2d3561' };
+function _toast(title, sub, color){
+  let box=$('toastBox');
+  if(!box){ box=document.createElement('div'); box.id='toastBox';
+    box.style.cssText='position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:500;'
+      +'display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none';
+    document.body.appendChild(box); }
+  const t=document.createElement('div');
+  t.style.cssText='pointer-events:auto;cursor:pointer;background:#fff;border-inline-start:6px solid '+(color||'#16a34a')+';'
+    +'border-radius:10px;box-shadow:0 6px 24px rgba(15,23,42,.28);padding:10px 16px;min-width:260px;max-width:92vw;'
+    +'font-weight:800;color:var(--press);animation:tSlide .22s ease-out';
+  t.innerHTML='<div>'+esc(title)+'</div>'+(sub?('<div class="muted" style="font-weight:600;margin-top:2px">'+esc(sub)+'</div>'):'');
+  t.onclick=()=>t.remove();
+  box.appendChild(t);
+  setTimeout(()=>{ t.style.transition='opacity .4s'; t.style.opacity='0'; setTimeout(()=>t.remove(),400); }, 7000);
+}
+function _stageToast(name, stage, who){
+  _toast((_STAGE_TXT[stage]||'עודכן')+' — '+name, who||'', _STAGE_COLOR[stage]);
+}
+// תצלום-מצב של כל העבודות וההזמנות, להשוואה בין רענונים
+function _snapshot(){
+  const s={};
+  _all.forEach(a=>(a.orders||[]).forEach(o=>{
+    const st=FW.orderStage(o); if(st) s['o:'+o.orderId]={stage:st, name:FW.orderTitle(o)+' · '+a.customer};
+  }));
+  _cards.forEach(c=>{
+    const done=_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0)||!!_delivered[c.id];
+    const st=FW.jobStage(c,done); if(st) s['j:'+c.id]={stage:st, name:(c.name||'עבודה')};
+  });
+  return s;
+}
+function _diffToasts(){
+  const now=_snapshot();
+  if(!_snapPrev){ _snapPrev=now; return; }        // ריצה ראשונה — בלי הצפה
+  const changes=[];
+  Object.keys(now).forEach(k=>{
+    const a=_snapPrev[k], b=now[k];
+    if(!a){ if(b.stage==='new') changes.push({ name:b.name, stage:'new', from:'נקלטה עכשיו' }); return; }
+    if(a.stage!==b.stage) changes.push({ name:b.name, stage:b.stage,
+      from:'עודכן מ'+(_STAGE_TXT[a.stage]||'').replace(/^\S+\s/,'') });
+  });
+  _snapPrev=now;
+  if(!changes.length) return;
+  // הרבה שינויים בבת-אחת (חזרה אחרי הפסקה) → הודעה מסכמת אחת במקום מטר
+  if(changes.length>6){ _toast('🔄 '+changes.length+' עבודות והזמנות התעדכנו', 'רענון מצב', '#0ea5e9'); return; }
+  changes.forEach(ch=>_stageToast(ch.name, ch.stage, ch.from));
 }
 
 async function load(){
@@ -261,6 +316,7 @@ function render(){
     render();
   });
   wire(a);
+  _diffToasts();      // כל שינוי סטטוס — מקומי או של מישהו אחר — מוצג כהודעה
 }
 function _byKind(k){ return _all.filter(a=>FW.kindOf(a.kind)===k); }
 
@@ -657,7 +713,7 @@ function wire(a){
     res.agreement.deliveryNotes=(res.agreement.deliveryNotes||[]).filter(d=>!(d.orders||[]).some(x=>x.orderId===o.orderId));
     if(await save(_normAg(res.agreement))){
       await _orderStockPrompt(ag,[o],+1,'ביטול אספקה');
-      render(); alert('✓ האספקה בוטלה — הכמות חזרה למלאי'); }
+      render(); }
   });
 
   /* ↩ ביטול אספקה של עבודה — מבטל את התעודה/הסימון ומחזיר למלאי הלקוחות */
@@ -675,7 +731,7 @@ function wire(a){
     }catch(err){ alert('שמירה נכשלה: '+(err.message||err)); return; }
     if(el.dataset.n) _jobNotes=_jobNotes.filter(x=>x.noteId!==el.dataset.n);
     delete _delivered[c.id];
-    render(); alert('✓ האספקה בוטלה');
+    render();
   });
 
   /* ↩ החזרת עבודה מ"מוכנה לאספקה" חזרה לייצור — והכמות יורדת בחזרה ממלאי הלקוח */
@@ -690,7 +746,6 @@ function wire(a){
       if(await _syncCustomerStock(lines, c, -1, 'החזרה לייצור')) ov.stockSynced=false;
     }
     await _saveJobOv(c.id, Object.assign({},ov,{status:'finishing',at:_today(),by:_me()}), null);
-    alert('✓ העבודה חזרה לייצור');
   });
   // ↩ החזרת הזמנת-מסגרת מ"מוכנה" ל"ממתינה לייצור" (השריון נשמר, המלאי לא זז)
   document.querySelectorAll('.odUnready').forEach(el=>el.onclick=async e=>{
