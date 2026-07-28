@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785231921';
+window.APP_VERSION = '1785232609';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1500,6 +1500,7 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 <!-- אתרי עידית — מקור-אמת יחיד, משותף עם מסך המשרד (framework-clerk.html) -->
 <script src="idit-sites.js"></script>
+<script src="bleed-engine.js"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 </script>
@@ -26859,6 +26860,157 @@ function pi_manualBindDrop(){
   });
 }
 // מסך מלא לעורך האימפוזיציה הידנית
+/* ═══════════ עורך קובץ במסך מלא — גלישות וניקוי צלבים ═══════════
+   פותח את הקובץ (תמונה או עמוד PDF) על קנבס, מאפשר להוסיף גלישה באחת
+   מהשיטות (bleed-engine.js) ולנקות סימוני חיתוך, ולשמור כקובץ חדש שמחליף
+   את המקור בגיליון. ⚠️ העריכה על עותק — הקובץ המקורי ב-Storage לא נמחק. */
+function pi_fileStudio(fid){
+  var cur = window._pi.cur; if (!cur) return;
+  var f = (cur.files||[]).find(function(x){ return x.id === fid; });
+  if (!f || !f.sourceFileUrl){ showToast('אין קובץ מקור לעריכה'); return; }
+  window._piStudio = { fid: fid, bleedMm: f.bleedMm || 3, method: 'mirror', markMm: 0, img: null, dpi: 300 };
+  var ov = document.getElementById('pi-studio'); if (ov) ov.remove();
+  ov = document.createElement('div'); ov.id = 'pi-studio';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100030;background:#111827;display:flex;flex-direction:column;direction:rtl;font-family:Heebo,sans-serif';
+  ov.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;padding:10px 16px;background:#0f172a;color:#fff;flex-wrap:wrap">'
+    + '<b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🖼️ ' + escHtml(f.name||'קובץ') + '</b>'
+    + '<span id="pist-size" style="font-size:.78rem;color:#94a3b8"></span>'
+    + '<button onclick="pi_studioApply()" style="padding:8px 16px;border:none;border-radius:8px;background:#c9a84c;color:#1a1a2e;font-weight:900;cursor:pointer;font-family:inherit">✓ שמור והחלף</button>'
+    + '<button onclick="pi_studioClose()" style="padding:8px 14px;border:1px solid #475569;border-radius:8px;background:transparent;color:#e2e8f0;font-weight:700;cursor:pointer;font-family:inherit">✕ סגור</button>'
+    + '</div>'
+    + '<div style="flex:1;display:flex;min-height:0">'
+    +   '<div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:center;overflow:auto;padding:14px;background:repeating-conic-gradient(#1f2937 0 25%,#111827 0 50%) 0 0/22px 22px">'
+    +     '<canvas id="pist-canvas" style="max-width:100%;max-height:100%;box-shadow:0 6px 30px rgba(0,0,0,.6);background:#fff"></canvas>'
+    +   '</div>'
+    +   '<div style="flex:0 0 300px;max-width:300px;background:#fff;overflow:auto;padding:14px 16px">'
+    +     '<div style="font-weight:900;color:#2d3561;margin-bottom:2px">גלישות (Bleed)</div>'
+    +     '<div style="font-size:.76rem;color:#6b7280;margin-bottom:10px">הרחבת הגרפיקה מעבר לקו החיתוך, כדי שלא ייווצר פס לבן.</div>'
+    +     '<label style="display:block;font-size:.82rem;font-weight:700;margin-bottom:3px">רוחב הגלישה (מ״מ)</label>'
+    +     '<input type="number" id="pist-bleed" min="0" max="20" step="0.5" value="3" oninput="pi_studioSet(\'bleedMm\',this.value)" '
+    +       'style="width:100%;padding:9px;border:1.5px solid #d0c8b8;border-radius:8px;font-family:inherit;font-size:1rem;font-weight:800;text-align:center">'
+    +     '<div style="font-weight:800;color:#2d3561;margin:14px 0 6px">סוגי יצירת גלישה</div>'
+    +     '<div id="pist-methods"></div>'
+    +     '<div style="font-weight:900;color:#2d3561;margin:16px 0 2px">ניקוי סימוני חיתוך</div>'
+    +     '<div style="font-size:.76rem;color:#6b7280;margin-bottom:8px">מנקה צלבים/סרגלים בשוליים החיצוניים. 0 = בלי ניקוי.</div>'
+    +     '<label style="display:block;font-size:.82rem;font-weight:700;margin-bottom:3px">רוחב הפס לניקוי (מ״מ)</label>'
+    +     '<input type="number" id="pist-mark" min="0" max="40" step="1" value="0" oninput="pi_studioSet(\'markMm\',this.value)" '
+    +       'style="width:100%;padding:9px;border:1.5px solid #d0c8b8;border-radius:8px;font-family:inherit;font-size:1rem;font-weight:800;text-align:center">'
+    +     '<div id="pist-note" style="margin-top:14px;font-size:.76rem;color:#6b7280;line-height:1.6"></div>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  pi_studioMethods();
+  pi_studioLoad(f);
+}
+function pi_studioMethods(){
+  var box = document.getElementById('pist-methods'); if (!box || !window.BleedEngine) return;
+  var st = window._piStudio;
+  box.innerHTML = BleedEngine.methods().map(function(m){
+    var on = (st.method === m.id), dis = !m.available;
+    return '<div onclick="' + (dis ? '' : 'pi_studioSet(\'method\',\'' + m.id + '\')') + '" '
+      + 'style="border:2px solid ' + (on ? '#c9a84c' : '#e5e7eb') + ';border-radius:10px;padding:9px 11px;margin-bottom:7px;'
+      + 'background:' + (on ? '#fffdf5' : '#fff') + ';cursor:' + (dis ? 'not-allowed' : 'pointer') + ';opacity:' + (dis ? '.55' : '1') + '">'
+      + '<div style="font-weight:800;color:#2d3561;font-size:.88rem">' + (on ? '✓ ' : '') + escHtml(m.label) + (dis ? ' <span style="font-size:.7rem;color:#b45309">לא זמין</span>' : '') + '</div>'
+      + '<div style="font-size:.74rem;color:#6b7280;line-height:1.5;margin-top:2px">' + escHtml(m.desc) + '</div>'
+      + (dis && m.why ? '<div style="font-size:.7rem;color:#b45309;margin-top:3px">' + escHtml(m.why) + '</div>' : '')
+      + '</div>';
+  }).join('');
+}
+function pi_studioSet(k, v){
+  var st = window._piStudio; if (!st) return;
+  st[k] = (k === 'method') ? v : (parseFloat(v) || 0);
+  if (k === 'method') pi_studioMethods();
+  pi_studioDraw();
+}
+// טוען את הקובץ לתמונה — PDF מרונדר לעמוד ראשון, תמונה נטענת ישירות
+function pi_studioLoad(f){
+  var isPdf = /pdf/i.test(f.type||'') || /\.pdf(\?|#|$)/i.test(f.sourceFileUrl||'');
+  var note = document.getElementById('pist-note');
+  if (note) note.textContent = 'טוען את הקובץ…';
+  var done = function(img){
+    window._piStudio.img = img;
+    var s = document.getElementById('pist-size');
+    if (s) s.textContent = img.width + '×' + img.height + ' px';
+    if (note) note.innerHTML = 'העריכה נשמרת כקובץ <b>חדש</b> שמחליף את הקובץ בגיליון — המקור נשאר.';
+    pi_studioDraw();
+  };
+  if (isPdf && window.pdfjsLib){
+    fetch(f.sourceFileUrl).then(function(r){ return r.arrayBuffer(); }).then(function(buf){
+      return pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+    }).then(function(pdf){ return pdf.getPage(1); }).then(function(page){
+      var vp = page.getViewport({ scale: 2 });
+      var c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+      return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function(){
+        var im = new Image(); im.onload = function(){ done(im); }; im.src = c.toDataURL('image/png');
+      });
+    }).catch(function(e){ if (note) note.textContent = 'טעינת הקובץ נכשלה: ' + (e.message||e); });
+  } else {
+    var im = new Image(); im.crossOrigin = 'anonymous';
+    im.onload = function(){ done(im); };
+    im.onerror = function(){ if (note) note.textContent = 'טעינת הקובץ נכשלה'; };
+    im.src = f.sourceFileUrl;
+  }
+}
+// מצייר תצוגה מקדימה: ניקוי צלבים ← ואז טבעת הגלישה מסביב
+function pi_studioDraw(){
+  var st = window._piStudio, cv = document.getElementById('pist-canvas');
+  if (!st || !st.img || !cv || !window.BleedEngine) return;
+  var img = st.img, w = img.width, h = img.height;
+  // 1) ניקוי סימוני חיתוך על עותק
+  var base = document.createElement('canvas'); base.width = w; base.height = h;
+  var bx = base.getContext('2d');
+  bx.drawImage(img, 0, 0);
+  var markPx = BleedEngine.mmToPx(st.markMm, st.dpi);
+  if (markPx > 0){
+    var mc = BleedEngine.planMarkClean({ width: w, height: h, marginPx: markPx });
+    if (mc.ok){ bx.fillStyle = mc.color; mc.rects.forEach(function(r){ bx.fillRect(r.x, r.y, r.w, r.h); }); }
+  }
+  // 2) גלישה
+  var b = BleedEngine.mmToPx(st.bleedMm, st.dpi);
+  var plan = BleedEngine.planBleed({ width: w, height: h, bleedPx: b, method: st.method });
+  if (!plan.ok){ showToast('לא ניתן ליצור גלישה בשיטה הזו'); return; }
+  cv.width = plan.canvas.width; cv.height = plan.canvas.height;
+  var cx = cv.getContext('2d');
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+  plan.ops.forEach(function(o){
+    cx.save();
+    cx.translate(o.dst.x + (o.flipX ? o.dst.w : 0), o.dst.y + (o.flipY ? o.dst.h : 0));
+    cx.scale(o.flipX ? -1 : 1, o.flipY ? -1 : 1);
+    cx.drawImage(base, o.src.x, o.src.y, o.src.w, o.src.h, 0, 0, o.dst.w, o.dst.h);
+    cx.restore();
+  });
+  cx.drawImage(base, plan.image.dst.x, plan.image.dst.y);
+  window._piStudio.plan = plan;
+}
+function pi_studioClose(){ var o = document.getElementById('pi-studio'); if (o) o.remove(); window._piStudio = null; }
+// שמירה: הקנבס נשמר כקובץ חדש ומחליף את מקור הקובץ בגיליון
+function pi_studioApply(){
+  var st = window._piStudio, cv = document.getElementById('pist-canvas');
+  if (!st || !cv || !st.img){ showToast('אין מה לשמור'); return; }
+  var cur = window._pi.cur, f = (cur.files||[]).find(function(x){ return x.id === st.fid; });
+  if (!f){ showToast('הקובץ לא נמצא'); return; }
+  cv.toBlob(function(blob){
+    if (!blob){ showToast('שמירה נכשלה'); return; }
+    var name = String(f.name||'file').replace(/\.[^.]+$/, '') + '_bleed.png';
+    var file = new File([blob], name, { type: 'image/png' });
+    var path = 'impositionFiles/' + pi_safeName(cur.name||'manual') + '/' + cur.id + '/' + Date.now() + '_' + name.replace(/[^\w.\-]+/g, '_');
+    showToast('⏳ שומר את הקובץ הערוך…');
+    _uploadProofToStorage(path, file, null).then(function(url){
+      var ratio = (st.plan && st.img) ? (st.plan.canvas.width / st.img.width) : 1;
+      f.sourceFileUrl = url;
+      f.name = name;
+      f.widthMm  = Math.round((f.widthMm  || 100) * ratio);
+      f.heightMm = Math.round((f.heightMm || 100) * ratio);
+      f.bleedMm = st.bleedMm; f.hasBleed = st.bleedMm > 0; f.bleedChecked = true; f.srcBleedMm = st.bleedMm;
+      window._pi.previews = window._pi.previews || {};
+      window._pi.previews[f.id] = cv.toDataURL('image/png');
+      cur._edited = true; window._pi.dirty = true;
+      pi_studioClose(); pi_render();
+      showToast('✓ הקובץ עודכן — גלישה ' + st.bleedMm + ' מ״מ (' + st.method + ')');
+    }).catch(function(e){ showToast('❌ שמירה נכשלה: ' + (e.message||e)); });
+  }, 'image/png');
+}
 function pi_manualFullscreen(){
   var box = document.querySelector('#piModal .modal-box'); if (!box) return;
   window._piMax = !window._piMax;
@@ -28386,6 +28538,7 @@ function pi_renderManualWS(){
           '<span data-file-drag="' + f.id + '" title="גרור לגיליון" style="cursor:grab;color:#94a3b8;font-size:1rem;user-select:none;touch-action:none">⠿</span>' +
           (prev ? '<img src="' + prev + '" style="width:26px;height:26px;object-fit:contain;border:1px solid #e5e7eb;border-radius:3px;background:#fff;flex:none"/>' : '') +
           '<b style="flex:1;min-width:0;font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' + (green?';color:#065f46':'') + '">' + (green?'✓ ':'') + escHtml(f.name) + '</b>' +
+          (f.sourceFileUrl ? '<button onclick="pi_fileStudio(\'' + f.id + '\')" title="עורך מסך-מלא — הוספת גלישות וניקוי צלבים" style="flex:none;border:none;background:none;color:#c9a84c;cursor:pointer;font-size:.9rem">🖼️</button>' : '') +
           (f.sourceFileUrl ? '<button onclick="pi_editFileCrop(\'' + f.id + '\')" title="ערוך קובץ — חתוך לגודל נטו / הסר צלבי חיתוך" style="flex:none;border:none;background:none;color:#0f766e;cursor:pointer;font-size:.85rem">✂️</button>' : '') +
           (f.sourceFileUrl ? '<button onclick="pi_preflightFile(\'' + f.id + '\')" title="Preflight — בדיקת הקובץ" style="flex:none;border:none;background:none;color:#7c3aed;cursor:pointer;font-size:.85rem">🔎</button>' : '') +
           (f.preflight ? '<span title="ציון Preflight" style="flex:none;font-size:.66rem;font-weight:800;color:' + (f.preflight.block?'#b91c1c':(f.preflight.warn||f.preflight.fix?'#b45309':'#065f46')) + '">' + f.preflight.score + '</span>' : '') +
