@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785245200';
+window.APP_VERSION = '1785246115';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2000,7 +2000,7 @@ window._fbSnapshot = {};
 
       <div class="field">
         <label id="f-copies-label">מס' עותקים</label>
-        <input class="fi" type="number" id="f-copies" placeholder="5000" min="1" oninput="calcRuns();updateSheetsCalc();_updCopiesMult()">
+        <input class="fi" type="number" id="f-copies" placeholder="5000" min="1" oninput="calcRuns();updateSheetsCalc();_updCopiesMult();_recalcManualRunCopies()">
         <div style="display:flex;align-items:center;gap:7px;margin-top:6px;flex-wrap:wrap">
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;color:#6d28d9;background:#f6f1ff;border:1.5px solid #ddd6fe;border-radius:7px;padding:4px 10px" title="כמה סוגים מודפסים עם אותו כרטיס (למשל 6 עיתונים שונים באותו מפרט). תווית בלבד — לא משנה חישובי כמות/נייר/מחיר.">
             ✖️ סוגים
@@ -7241,6 +7241,23 @@ function setManualRunUpCount(i, n) {
   renderManualRuns();
 }
 
+/* כשמשנים את סך-הכמות בטופס — מעדכנים את כמות-הגיליונות של כל ריצה-אוטומטית
+   (עותקים ÷ "פעמים בגיליון"). באג ישן: בעריכת כרטיס, c.runs נטענו ל-manualRuns
+   ו-getEffectiveRuns מעדיף אותם — אז שינוי הכמות לא עדכן את הריצות והכרטיס נשמר
+   עם הכמות הישנה (למשל 3000→1500 גיל' נשאר, במקום 2000→1000). */
+function _recalcManualRunCopies() {
+  var total = parseInt((document.getElementById('f-copies')||{}).value) || 0;
+  if (!total || !manualRuns.length) return;
+  var changed = false;
+  manualRuns.forEach(function(r){
+    var up = parseInt(r.upCount) || 0;
+    if (up >= 1) {                          // ריצה שנגזרת מסך-הכמות (עיתון) — מקנה מחדש
+      var c = Math.ceil(total / up);
+      if (String(r.copies) !== String(c)) { r.copies = c; changed = true; }
+    }
+  });
+  if (changed && typeof renderManualRuns === 'function') renderManualRuns();
+}
 function getEffectiveRuns() {
   // ריצות ידניות גוברות על אוטומטיות כשיש לפחות ריצה אחת מוגדרת
   var validManual = manualRuns.filter(r => r.pages || r.copies || r.machine || r.paper || r.abEnabled || (r.manualExtra && r.manualExtra.trim()));
@@ -9585,13 +9602,26 @@ function previewFromRunsModal() {
   showPreviewModal(card);
 }
 
+// הדפסה ישירה מרשימת הכרטיסים — פותח את חלון הכרטיס ומדפיס
+function _printCardFromList(id){
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(id); });
+  if (!c){ showToast('הכרטיס לא נמצא'); return; }
+  showPrintModal(c);
+  setTimeout(function(){ if (typeof doPrint === 'function') doPrint(); }, 80);
+}
 function showPreviewModal(card) {
   document.getElementById('print-card-content').innerHTML = buildPrintCard(card);
   document.getElementById('print-modal-save-btn').style.display =
     card.id === 'preview' ? 'inline-block' : 'none';
   document.getElementById('print-modal').classList.add('open');
   window._previewCard = card;
+  window._printModalCardId = card.id;
   window._printModalIsPreview = true; // סגירה תשאיר את המשתמש בטופס, לא תזרוק לרשימת הכרטיסים
+  // מרקר זמין גם בתצוגה מקדימה מהטופס (יצירה/עריכה) — נשמר על הכרטיס הנערך
+  window._mkMode = false;
+  var _mkRoot = document.getElementById('print-card-content');
+  if (_mkRoot) _mkRoot.classList.remove('mk-mode');
+  _mkEnsureCss(); _mkApply();
 }
 
 // ── זיהוי מבריק/מט + גרמז' משם הנייר (טקסט חופשי) → תג GLOSS/MATT להצגה ליד סוג הנייר ──
@@ -10248,7 +10278,10 @@ function _mkEnsureCss(){
 }
 function _mkCard(){
   var id = window._printModalCardId;
-  return (id && id !== 'preview') ? (cards||[]).find(function(c){ return String(c.id) === String(id); }) : window._previewCard;
+  if (id && id !== 'preview') return (cards||[]).find(function(c){ return String(c.id) === String(id); });
+  // תצוגה מקדימה בזמן עריכת כרטיס קיים — הסימונים נשמרים על הכרטיס האמיתי
+  if (window._editingCardId) { var e = (cards||[]).find(function(c){ return String(c.id) === String(window._editingCardId); }); if (e) return e; }
+  return window._previewCard;
 }
 /* רשימת צמתי-הטקסט בסדר המסמך + הטקסט המלא (שרשור nodeValue) —
    כך שאינדקס-תו גלובלי ממופה חזרה לצומת+היסט. */
@@ -15576,6 +15609,7 @@ function _jobCardHtml(c) {
       <div class="jc-actions">
         <button class="btn btn-sm" style="background:#f0f4ff;color:#2d3561;border:1.5px solid #c0ccf0" onclick="editCard(${c.id})">✏️ ערוך</button>
         <button class="btn btn-sm" style="background:#f0fdf4;color:#0f6347;border:1.5px solid #6ee7b7" onclick="showPrintModal(cards.find(c=>c.id===${c.id}))">👁️ צפה</button>
+        <button class="btn btn-sm" style="background:#1f2937;color:#fff;border:1.5px solid #1f2937" onclick="_printCardFromList(${c.id})" title="פתח והדפס את כרטיס העבודה">🖨️ הדפס</button>
         ${_proofBtnsHtml(c)}
         <button class="btn btn-sm" style="background:#dcfce7;color:#166534;border:1.5px solid #25D366" onclick="whatsappCard(${c.id})">📱 וואטסאפ</button>
         <button class="btn btn-sm" style="background:#eef2ff;color:#4338ca;border:1.5px solid #c7d2fe" onclick="emailCard(${c.id})">✉️ מייל</button>
