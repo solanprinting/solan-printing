@@ -363,7 +363,7 @@ function detailAll(){
       <div class="tab${_tab!=='ready'&&_tab!=='done'?' on':''}" data-t="flow">🔄 זרימת עבודות</div>
       <div class="tab${_tab==='ready'?' on':''}" data-t="ready">✅ מוכן לאספקה${nReady?`<span class="n">${nReady}</span>`:''}</div>
       <div class="tab${_tab==='done'?' on':''}" data-t="done">🚚 סופקו</div>
-    </div>${body}`;
+    </div>${_globalPopupBanner()}${body}`;
 }
 
 function detail(a){
@@ -378,16 +378,19 @@ function detail(a){
   else if(_tab==='ready') body = readyView(a.agreementId);
   else if(_tab==='done')  body = deliveredView(a.agreementId);
   else if(_tab==='notes') body = notesCard(notes,a);
+  else if(_tab==='cnotes')body = custNotesCard(a);
   else                    body = flowBoard([{ag:a, orders:orders}]);
 
   const open=orders.filter(o=>o.status==='pending'||o.status==='ready').length;
+  const nPop=FW.activePopupNotes(a).length, nAllNotes=FW.custNotes(a).length;
   return `<div class="tabs">
       <div class="tab${_tab==='flow'?' on':''}" data-t="flow">🔄 זרימת עבודות${open?`<span class="n">${open}</span>`:''}</div>
       <div class="tab${_tab==='new'?' on':''}" data-t="new">➕ הזמנה חדשה</div>
       <div class="tab${_tab==='ready'?' on':''}" data-t="ready">✅ מוכן לאספקה${ready.length?`<span class="n">${ready.length}</span>`:''}</div>
       <div class="tab${_tab==='done'?' on':''}" data-t="done">🚚 סופקו</div>
+      <div class="tab${_tab==='cnotes'?' on':''}" data-t="cnotes">📝 הערות לקוח${nPop?`<span class="n" style="background:#dc2626">🔔${nPop}</span>`:(nAllNotes?`<span class="n">${nAllNotes}</span>`:'')}</div>
       <div class="tab${_tab==='notes'?' on':''}" data-t="notes">📄 תעודות משלוח${notes.length?`<span class="n">${notes.length}</span>`:''}</div>
-    </div>${body}`;
+    </div>${_custPopupBanner(a)}${body}`;
 }
 
 /* ═══════════ 📋 הסכמי מסגרת — הלקוחות והמלאי שלהם ═══════════
@@ -655,8 +658,98 @@ function notesCard(notes,a){
   </div>`;
 }
 
+/* ═══════════ 📝 הערות לקוח + הערה קופצת ═══════════
+   רובריקת הערות פר-לקוח לתזכורות עתידיות (למשל: לספק שוב חבילה ללא תשלום עקב
+   חבילה תקולה). הערה "קופצת" (🔔) צפה כבאנר בולט בראש מסך הלקוח וברשימת-העל. */
+function _noteDate(at){ if(!at) return ''; try{ return new Date(at).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'2-digit'}); }catch(e){ return ''; } }
+function _custPopupBanner(a){
+  const pops=FW.activePopupNotes(a);
+  if(!pops.length) return '';
+  return `<div class="card" style="background:#fff;border:2px solid #dc2626;background:#fff5f5;margin-bottom:10px">
+    <div style="font-weight:900;color:#b91c1c;margin-bottom:6px">🔔 תזכורות ל${esc(a.customer)}</div>
+    ${pops.map(n=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-top:1px solid #fecaca">
+      <div style="flex:1;font-weight:600;color:#7f1d1d">${esc(n.text)}${n.dueDate?` <span class="muted" style="color:#b45309">· עד ${esc(n.dueDate)}</span>`:''}</div>
+      <button class="cnDone" data-a="${a.agreementId}" data-n="${n.id}" style="padding:4px 10px;font-size:.8rem;background:#16a34a;color:#fff;border:none">✓ טופל</button>
+    </div>`).join('')}</div>`;
+}
+function custNotesCard(a){
+  const notes=FW.custNotes(a);
+  return `<div class="card">
+    <h3 style="margin:0 0 8px">📝 הערות ותזכורות — ${esc(a.customer)}</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:12px">
+      <label style="flex:1;min-width:260px">הערה חדשה
+        <input id="cnText" placeholder="לדוגמה: לספק שוב חבילה אחת פלייסמנטים ללא תשלום — חבילה תקולה שהוחזרה" style="width:100%">
+      </label>
+      <label>לתזכורת עד <input id="cnDue" type="date" style="width:150px"></label>
+      <label style="display:inline-flex;align-items:center;gap:6px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:7px;padding:7px 11px;cursor:pointer;color:#b91c1c;font-weight:700">
+        <input type="checkbox" id="cnPop" checked> 🔔 הערה קופצת</label>
+      <button id="cnAdd" class="primary">➕ הוסף</button>
+    </div>
+    ${notes.length?`<div style="display:flex;flex-direction:column;gap:7px">${notes.map(n=>`
+      <div class="card" style="margin:0;padding:9px 12px;border-inline-start:4px solid ${n.done?'#94a3b8':(n.popup?'#dc2626':'#c9a84c')};${n.done?'opacity:.6':''}">
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <div style="flex:1">
+            <div style="font-weight:${n.done?'500':'700'};${n.done?'text-decoration:line-through;color:#64748b':''}">${n.popup&&!n.done?'🔔 ':''}${esc(n.text)}</div>
+            <div class="muted" style="font-size:.74rem;margin-top:2px">${esc(n.by||'')}${n.at?' · '+esc(_noteDate(n.at)):''}${n.dueDate?' · עד '+esc(n.dueDate):''}</div>
+          </div>
+          <div style="display:flex;gap:5px;flex-shrink:0;flex-wrap:wrap">
+            <button class="cnDone" data-a="${a.agreementId}" data-n="${n.id}" style="padding:4px 9px;font-size:.78rem;${n.done?'':'background:#16a34a;color:#fff;border:none'}">${n.done?'↩ החזר':'✓ טופל'}</button>
+            <button class="cnPopT" data-a="${a.agreementId}" data-n="${n.id}" title="הפוך לקופצת / רגילה" style="padding:4px 9px;font-size:.78rem">${n.popup?'🔕 בטל קפיצה':'🔔 הפוך לקופצת'}</button>
+            <button class="cnDel danger" data-a="${a.agreementId}" data-n="${n.id}" style="padding:4px 9px;font-size:.78rem">🗑</button>
+          </div>
+        </div>
+      </div>`).join('')}</div>`:'<div class="muted" style="text-align:center;padding:14px">אין הערות ללקוח זה. הוסיפו תזכורת למעלה.</div>'}
+  </div>`;
+}
+/* באנר-על: כל התזכורות הקופצות הפעילות בכל הלקוחות — במבט-על ובקטגוריות */
+function _globalPopupBanner(){
+  const pops=FW.allActivePopups(_all);
+  if(!pops.length) return '';
+  return `<div class="card" style="border:2px solid #dc2626;background:#fff5f5;margin-bottom:12px">
+    <div style="font-weight:900;color:#b91c1c;margin-bottom:6px">🔔 תזכורות פעילות (${pops.length})</div>
+    ${pops.map(p=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-top:1px solid #fecaca">
+      <b style="min-width:110px;color:#7f1d1d;cursor:pointer" class="cnJump" data-a="${p.agreementId}">${esc(p.customer)}</b>
+      <div style="flex:1;color:#7f1d1d">${esc(p.note.text)}${p.note.dueDate?` <span class="muted" style="color:#b45309">· עד ${esc(p.note.dueDate)}</span>`:''}</div>
+      <button class="cnDone" data-a="${p.agreementId}" data-n="${p.note.id}" style="padding:4px 10px;font-size:.8rem;background:#16a34a;color:#fff;border:none">✓ טופל</button>
+    </div>`).join('')}</div>`;
+}
+
+/* עריכת הערות-לקוח — הוספה/סימון-טופל/הפיכה-לקופצת/מחיקה. שמירה per-agreement. */
+function _wireCustNotes(){
+  const add=document.getElementById('cnAdd');
+  if(add) add.onclick=async()=>{
+    const ag=cur(); if(!ag) return;
+    const text=(document.getElementById('cnText')||{}).value||'';
+    if(!text.trim()){ alert('כתבו את תוכן ההערה'); return; }
+    const res=FW.addCustNote(ag,{ text, popup:(document.getElementById('cnPop')||{}).checked,
+      dueDate:(document.getElementById('cnDue')||{}).value||'', by:_me(), at:Date.now() });
+    if(!res.ok){ alert('נכשל'); return; }
+    if(await save(_normAg(res.agreement))){ _tab='cnotes'; render(); }
+  };
+  const byId=id=>_all.find(x=>x.agreementId===id);
+  document.querySelectorAll('.cnDone').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation(); const ag=byId(el.dataset.a); if(!ag) return;
+    const res=FW.toggleCustNoteDone(ag,el.dataset.n);
+    if(res.ok && await save(_normAg(res.agreement))) render();
+  });
+  document.querySelectorAll('.cnPopT').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation(); const ag=byId(el.dataset.a); if(!ag) return;
+    const res=FW.toggleCustNotePopup(ag,el.dataset.n);
+    if(res.ok && await save(_normAg(res.agreement))) render();
+  });
+  document.querySelectorAll('.cnDel').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation(); const ag=byId(el.dataset.a); if(!ag) return;
+    if(!confirm('למחוק את ההערה?')) return;
+    const res=FW.removeCustNote(ag,el.dataset.n);
+    if(res.ok && await save(_normAg(res.agreement))) render();
+  });
+  document.querySelectorAll('.cnJump').forEach(el=>el.onclick=e=>{
+    e.stopPropagation(); _sel=el.dataset.a; _tab='cnotes'; render();
+  });
+}
 /* ═══════════ אירועים ═══════════ */
 function wire(a){
+  _wireCustNotes();
   document.querySelectorAll('[data-t]').forEach(el=>el.onclick=()=>{ _tab=el.dataset.t; render(); });
   // מלוח-הזרימה אפשר לקפוץ ישר ללקוח וללשונית הרלוונטית
   document.querySelectorAll('.goReady').forEach(el=>el.onclick=e=>{

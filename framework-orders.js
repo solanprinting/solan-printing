@@ -32,6 +32,7 @@
   function _num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
   function _int(v) { var n = parseInt(v, 10); return isFinite(n) ? n : 0; }
   function _s(v) { return String(v == null ? '' : v).trim(); }
+  function _clone(v) { return JSON.parse(JSON.stringify(v || {})); }
 
   // ── מזהים ──────────────────────────────────────────────────────────────────
   function makeId(prefix, rng) {
@@ -1076,8 +1077,86 @@
     return { rows: rows, text: rows.map(function (r) { return r.filter(Boolean).join(', '); }).join('\n') };
   }
 
+  /* ═══════════ הערות-לקוח (רובריקת הערות + הערה "קופצת") ═══════════
+     המשרד רושם הערות פר-לקוח על ההסכם/הלקוח (ag.custNotes). הערה עם popup=true
+     צפה כתזכורת בולטת בראש מסך הלקוח וברשימת-העל, כדי שלא תישכח (למשל: "לספק
+     שוב חבילה ללא תשלום עקב חבילה תקולה"). הערה שסומנה done יורדת מהתזכורות. */
+  function _custNotesArr(ag) {
+    var n = ag && ag.custNotes;
+    if (Array.isArray(n)) return n.filter(Boolean);
+    if (n && typeof n === 'object') return Object.keys(n).map(function (k) { return n[k]; }).filter(Boolean);
+    return [];
+  }
+  function custNotes(agreement) {
+    return _custNotesArr(agreement).slice().sort(function (a, b) {
+      if (!!a.done !== !!b.done) return (a.done ? 1 : 0) - (b.done ? 1 : 0);        // שהושלמו בסוף
+      if (!!b.popup !== !!a.popup) return (b.popup ? 1 : 0) - (a.popup ? 1 : 0);   // מבין הפעילות — קופצות קודם
+      return (b.at || 0) - (a.at || 0);
+    });
+  }
+  function activePopupNotes(agreement) {
+    return _custNotesArr(agreement).filter(function (n) { return n && n.popup && !n.done; });
+  }
+  /* כל התזכורות הקופצות הפעילות בכל הלקוחות — לבאנר-על במסך המשרד */
+  function allActivePopups(agreements) {
+    var out = [];
+    (agreements || []).forEach(function (ag) {
+      if (!ag) return;
+      activePopupNotes(ag).forEach(function (n) {
+        out.push({ agreementId: ag.agreementId, customer: ag.customer || '', note: n });
+      });
+    });
+    return out.sort(function (a, b) { return (b.note.at || 0) - (a.note.at || 0); });
+  }
+  function addCustNote(agreement, input, rng) {
+    var ag = _clone(agreement || {});
+    var text = _s(input && input.text);
+    if (!text) return { ok: false, errors: ['NOTE_TEXT_REQUIRED'] };
+    var note = {
+      id: makeId('note', rng), text: text,
+      popup: !!(input && input.popup), done: false,
+      dueDate: _s(input && input.dueDate) || null,
+      at: (input && input.at) || 0, by: _s(input && input.by) || ''
+    };
+    ag.custNotes = _custNotesArr(ag).concat([note]);
+    return { ok: true, agreement: ag, note: note };
+  }
+  function _updNote(agreement, noteId, fn) {
+    var ag = _clone(agreement || {});
+    var arr = _custNotesArr(ag), found = false;
+    ag.custNotes = arr.map(function (n) {
+      if (n && n.id === noteId) { found = true; return fn(Object.assign({}, n)); }
+      return n;
+    });
+    return found ? { ok: true, agreement: ag } : { ok: false, errors: ['NOTE_NOT_FOUND'] };
+  }
+  function updateCustNote(agreement, noteId, fields) {
+    return _updNote(agreement, noteId, function (n) {
+      if (fields && 'text' in fields) n.text = _s(fields.text);
+      if (fields && 'popup' in fields) n.popup = !!fields.popup;
+      if (fields && 'done' in fields) n.done = !!fields.done;
+      if (fields && 'dueDate' in fields) n.dueDate = _s(fields.dueDate) || null;
+      return n;
+    });
+  }
+  function toggleCustNoteDone(agreement, noteId) {
+    return _updNote(agreement, noteId, function (n) { n.done = !n.done; return n; });
+  }
+  function toggleCustNotePopup(agreement, noteId) {
+    return _updNote(agreement, noteId, function (n) { n.popup = !n.popup; return n; });
+  }
+  function removeCustNote(agreement, noteId) {
+    var ag = _clone(agreement || {});
+    var before = _custNotesArr(ag);
+    ag.custNotes = before.filter(function (n) { return n && n.id !== noteId; });
+    return { ok: ag.custNotes.length < before.length, agreement: ag };
+  }
+
   return {
     STATUSES: STATUSES, MOVE_TYPES: MOVE_TYPES, KINDS: KINDS, kindOf: kindOf, kindLabel: kindLabel,
+    custNotes: custNotes, activePopupNotes: activePopupNotes, allActivePopups: allActivePopups,
+    addCustNote: addCustNote, updateCustNote: updateCustNote, removeCustNote: removeCustNote,
+    toggleCustNoteDone: toggleCustNoteDone, toggleCustNotePopup: toggleCustNotePopup,
     parseDocxXml: parseDocxXml,
     makeId: makeId, buildItem: buildItem, buildAgreement: buildAgreement, buildMovement: buildMovement,
     computeBalances: computeBalances, checkDraw: checkDraw, applyMovement: applyMovement,
