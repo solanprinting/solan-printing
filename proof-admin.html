@@ -6,6 +6,7 @@
 <title>לקוחות עיתונים — ניהול | סולן הדפסות</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="proof-trash.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -85,6 +86,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn ghost" id="invite">+ לקוח / עבודה חדשה</button>
       <button class="btn ghost" id="usageBtn">💾 ניצול אחסון</button>
+      <button class="btn ghost" id="trashBtn" title="קבצים שהוסרו — ניתן לשחזר">🗑 סל מיחזור</button>
       <button class="btn" id="refresh">↻ רענן</button>
     </div>
   </div>
@@ -669,43 +671,130 @@ function xhrPost(url, bytes){
   });
 }
 
-// מחיקת ריצה בודדת
+// ── סל-מיחזור (ProofTrash) — 🗑 כאן לא מוחק מיד לצמיתות. הרשומה עוברת ל-customerProofsTrash
+//    (מוסרת מהרשימה החיה), אבל הקובץ ב-Storage *נשאר* עד ניקוי אוטומטי אחרי 30 יום או
+//    מחיקה ידנית מפורשת מתוך הסל. זה מונע אובדן קובץ-לקוח בלתי-הפיך מלחיצה בטעות. ──
+async function _trashPut(key, entry) {
+  await fetch(await _au(`${_FBURL}/customerProofsTrash/${key}.json`), { method: 'PUT',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) });
+}
+// מחיקת ריצה בודדת — לסל-מיחזור (הקובץ נשאר ב-Storage)
 async function deletePart(jobId, pid, filePath) {
-  if (!confirm('למחוק את הריצה הזו? הקובץ יימחק ולא ניתן לשחזר.')) return;
-  msg('מוחק ריצה…');
+  const job = _allRows.find(r => r.id === jobId);
+  const part = job && job.parts && job.parts[pid];
+  if (!confirm('להעביר את הריצה הזו לסל-המיחזור?\nהיא תוסר מכאן; הקובץ עצמו יישמר ' + ProofTrash.DEFAULT_GRACE_DAYS + ' יום ואפשר לשחזר אותו מתוך "🗑 סל מיחזור".')) return;
+  msg('מעביר לסל מיחזור…');
   try {
-    if (filePath) {
-      for (const bucket of ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com']) {
-        try { const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(filePath)}`, { method: 'DELETE', headers: await _authHeaders() });
-          if (r.ok || r.status === 404) break; } catch (e) {}
-      }
-    }
+    const entry = ProofTrash.buildPartTrashEntry(jobId, Object.assign({ pid, filePath }, part || {}), job || {}, Date.now());
+    await _trashPut(jobId + '_' + pid, entry);
     await fetch(await _au(`${_FBURL}/customerProofs/${jobId}/parts/${pid}.json`), { method: 'DELETE' });
     await loadProofs();
-  } catch (e) { console.error(e); msg('✗ שגיאה במחיקה: ' + e.message); }
+    msg('🗑 הועבר לסל-המיחזור — ניתן לשחזר מתוך "🗑 סל מיחזור"');
+  } catch (e) { console.error(e); msg('✗ שגיאה בהעברה לסל: ' + e.message); }
 }
 
-// מחיקת קובץ: מוחק את הקובץ מ-Storage ואת הרשומה מ-RTDB.
+// מחיקת עבודה שלמה — לסל-מיחזור (הקבצים נשארים ב-Storage)
 async function deleteProof(p) {
   if (!p) return;
-  if (!confirm(`למחוק לצמיתות את "${p.title || p.customer || 'עיתון'}"?\nכל הקבצים והרשומה יימחקו ולא ניתן לשחזר.`)) return;
-  msg('מוחק…');
+  const label = p.title || p.customer || 'עיתון';
+  if (!confirm(`להעביר את "${label}" לסל-המיחזור?\nהיא תוסר מכאן; הקבצים יישמרו ${ProofTrash.DEFAULT_GRACE_DAYS} יום ואפשר לשחזר מתוך "🗑 סל מיחזור".`)) return;
+  msg('מעביר לסל מיחזור…');
   try {
-    // אסוף את כל הנתיבים: קובץ ראשי + כל הריצות
-    const paths = [];
-    if (p.filePath) paths.push(p.filePath);
-    if (p.parts) Object.values(p.parts).forEach(pt => pt.filePath && paths.push(pt.filePath));
-    for (const fp of paths) {
-      for (const bucket of ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com']) {
-        try {
-          const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(fp)}`, { method: 'DELETE', headers: await _authHeaders() });
-          if (r.ok || r.status === 404) break;
-        } catch (e) { /* נסה bucket הבא */ }
-      }
-    }
+    const entry = ProofTrash.buildJobTrashEntry(p, Date.now());
+    await _trashPut(p.id, entry);
     await fetch(await _au(`${_FBURL}/customerProofs/${p.id}.json`), { method: 'DELETE' });
     await loadProofs();
-  } catch (e) { console.error(e); msg('✗ שגיאה במחיקה: ' + e.message); }
+    msg('🗑 הועבר לסל-המיחזור — ניתן לשחזר מתוך "🗑 סל מיחזור"');
+  } catch (e) { console.error(e); msg('✗ שגיאה בהעברה לסל: ' + e.message); }
+}
+
+// ── מחיקה סופית מ-Storage (רק מתוך הסל, אחרי אישור נוסף, או ניקוי אוטומטי) ──
+async function _purgeStorage(entry) {
+  for (const fp of ProofTrash.storagePaths(entry)) {
+    for (const bucket of ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com']) {
+      try {
+        const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(fp)}`, { method: 'DELETE', headers: await _authHeaders() });
+        if (r.ok || r.status === 404) break;
+      } catch (e) { /* נסה bucket הבא */ }
+    }
+  }
+}
+async function _loadTrash() {
+  const data = await (await fetch(await _au(`${_FBURL}/customerProofsTrash.json`))).json() || {};
+  return Object.entries(data).map(([key, e]) => Object.assign({ key }, e));
+}
+// ניקוי אוטומטי שקט: פריטים בסל מעל 30 יום נמחקים סופית מ-Storage + מהסל
+async function _autoPurgeTrash() {
+  try {
+    const trash = await _loadTrash();
+    const due = ProofTrash.purgeable(trash, Date.now());
+    for (const entry of due) {
+      await _purgeStorage(entry);
+      await fetch(await _au(`${_FBURL}/customerProofsTrash/${entry.key}.json`), { method: 'DELETE' });
+    }
+  } catch (e) { console.error('auto-purge trash failed', e); }
+}
+setTimeout(_autoPurgeTrash, 4000);
+
+// ── מודל סל-המיחזור: שחזור לרשימה החיה, או מחיקה סופית ידנית ──
+async function openTrash() {
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center';
+  box.innerHTML = `<div style="background:#fff;width:92vw;max-width:720px;max-height:85vh;border-radius:12px;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#2d3561;color:#fff">
+      <span style="font-weight:800">🗑 סל מיחזור — קבצי לקוחות שהוסרו</span>
+      <button id="trashClose" style="background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer">✕</button>
+    </div>
+    <div style="padding:8px 16px;font-size:.8rem;color:#6b7280;background:#fafafa">קובץ שהוסר נשמר כאן ${ProofTrash.DEFAULT_GRACE_DAYS} יום לפני מחיקה סופית — אפשר לשחזר בכל עת עד אז.</div>
+    <div id="trashList" style="flex:1;overflow:auto;padding:10px 16px">טוען…</div>
+  </div>`;
+  document.body.appendChild(box);
+  document.getElementById('trashClose').onclick = () => box.remove();
+  box.onclick = (e) => { if (e.target === box) box.remove(); };
+  const list = await _loadTrash();
+  const sorted = ProofTrash.sortByDeletedDesc(list);
+  const el = document.getElementById('trashList');
+  if (!sorted.length) { el.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:24px">הסל ריק</div>'; return; }
+  const fmt = t => t ? new Date(t).toLocaleString('he-IL', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
+  el.innerHTML = sorted.map(entry => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #eee">
+    <div style="min-width:0">
+      <div style="font-weight:700;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(ProofTrash.describe(entry))}</div>
+      <div style="font-size:.75rem;color:#9ca3af">הוסר: ${fmt(entry.deletedAt)} · נותרו ${ProofTrash.daysLeft(entry, Date.now())} ימים לפני מחיקה סופית</div>
+    </div>
+    <div style="display:flex;gap:6px;flex-shrink:0">
+      <button data-restore="${entry.key}" style="padding:6px 12px;border:1.5px solid #16a34a;background:#f0fdf4;color:#16a34a;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.8rem">↩ שחזר</button>
+      <button data-purge="${entry.key}" style="padding:6px 12px;border:1.5px solid #fecaca;background:#fff;color:#dc2626;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.8rem">מחק לצמיתות</button>
+    </div>
+  </div>`).join('');
+  el.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => {
+    const entry = sorted.find(x => x.key === b.dataset.restore); if (!entry) return;
+    b.disabled = true; b.textContent = 'משחזר…';
+    try {
+      if (entry.type === 'part') {
+        await fetch(await _au(`${_FBURL}/customerProofs/${entry.jobId}/parts/${entry.partId}.json`), { method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: entry.name, fileUrl: entry.fileUrl, filePath: entry.filePath, pagesUrl: entry.pagesUrl, pageCount: entry.pageCount, status: 'approved', approvedAt: Date.now() }) });
+      } else {
+        const restored = { customer: entry.customer, title: entry.title, status: entry.parts.length ? 'parts' : 'approved', mode: entry.parts.length ? 'parts' : 'full', createdAt: Date.now() };
+        if (entry.fileUrl) { restored.fileUrl = entry.fileUrl; restored.filePath = entry.filePath; restored.approvedAt = Date.now(); }
+        if (entry.parts.length) restored.parts = Object.fromEntries(entry.parts.map(pt => [pt.pid, { name: pt.name, fileUrl: pt.fileUrl, filePath: pt.filePath, status: 'approved', approvedAt: Date.now() }]));
+        await fetch(await _au(`${_FBURL}/customerProofs/${entry.jobId}.json`), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(restored) });
+      }
+      await fetch(await _au(`${_FBURL}/customerProofsTrash/${entry.key}.json`), { method: 'DELETE' });
+      await loadProofs();
+      box.remove(); openTrash();
+    } catch (e) { console.error(e); alert('שחזור נכשל: ' + (e.message || e)); b.disabled = false; b.textContent = '↩ שחזר'; }
+  });
+  el.querySelectorAll('[data-purge]').forEach(b => b.onclick = async () => {
+    const entry = sorted.find(x => x.key === b.dataset.purge); if (!entry) return;
+    if (!confirm(`למחוק לצמיתות את "${ProofTrash.describe(entry)}"?\nהקובץ יימחק סופית מהאחסון ולא ניתן יהיה לשחזר.`)) return;
+    b.disabled = true; b.textContent = 'מוחק…';
+    try {
+      await _purgeStorage(entry);
+      await fetch(await _au(`${_FBURL}/customerProofsTrash/${entry.key}.json`), { method: 'DELETE' });
+      box.remove(); openTrash();
+    } catch (e) { console.error(e); alert('מחיקה נכשלה: ' + (e.message || e)); b.disabled = false; b.textContent = 'מחק לצמיתות'; }
+  });
 }
 
 // ── ייצור ריצות מהקובץ המאושר ──
@@ -920,6 +1009,7 @@ $('usageBtn').onclick = async () => {
 };
 
 $('refresh').onclick = loadProofs;
+$('trashBtn').onclick = openTrash;
 loadProofs();
 </script>
 </body>
