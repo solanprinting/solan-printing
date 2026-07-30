@@ -1521,7 +1521,27 @@ function _dz(mode, title, sub){
 /* ── ניתוח בענן: אותו מנוע של מסך ההזמנות באפליקציה ──
    כותבים את הבקשה ל-aiRelay ב-Firebase; הפרוקסי המקומי מנתח וכותב תשובה.
    ⚠️ הדפדפן חסום מול localhost במדיניות ארגונית — לכן ממסר ולא קריאה ישירה. */
-function _aiRelay(payload, onTick){
+// פרוקסי-ענן (Cloudflare Worker) — ניתוח מיידי גם כשמחשב-המשרד כבוי. ראה [[solan-ai-cloud-proxy]].
+var _CLOUD_PROXY_URL = 'https://solan-ai-proxy.solanprint.workers.dev';
+async function _aiCloud(payload){
+  const base=String(_CLOUD_PROXY_URL||'').replace(/\/+$/,'');
+  if(!base) throw new Error('CLOUD_NET no-url');
+  const t=await _auth();
+  const r=await fetch(base+'/v1/messages',{ method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+(t||'')}, body:JSON.stringify(payload) });
+  if(!r.ok){ let e={}; try{ e=await r.json(); }catch(_){} const er=new Error('CLOUD_HTTP '+r.status+': '+JSON.stringify(e)); er._http=r.status; throw er; }
+  return r.json();
+}
+// ניתוח AI: קודם ענן (עובד גם כשהמחשב כבוי), ואם נכשל רשתית/worker — הממסר (דורש מחשב פעיל).
+async function _aiRelay(payload, onTick){
+  try { return await _aiCloud(payload); }
+  catch(err){
+    const st=err&&err._http;
+    if(st && st!==401 && st!==403 && st!==404 && st<500) throw err;   // שגיאת-API אמיתית → הצג
+    return _aiRelayQueue(payload, onTick);                            // ענן לא-זמין → ממסר
+  }
+}
+function _aiRelayQueue(payload, onTick){
   if(!_isProd()) return Promise.reject(new Error('ניתוח AI פועל רק באתר החי (הגנת-סביבה)'));
   const id='r_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
   return _put('aiRelay/'+id, { ts:Date.now(), status:'pending', req:payload }).then(()=>

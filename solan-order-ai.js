@@ -17,8 +17,8 @@
   // ⚠️ זהה למסך ההזמנות באפליקציה — כל שינוי כאן משנה את שני המסכים.
   var SYS = 'אתה עוזר של בית דפוס בישראל. חלץ את פרטי ההזמנה מהמסמך. החזר אך ורק שורות בפורמט הבא — שדה אחד בכל שורה, בלי טקסט נוסף ובלי הסברים:\n'
     + 'לקוח: <שם הלקוח או החברה שמזמינים בשבילו>\n'
-    + 'פריט: <תיאור המוצר/העבודה> | <כמות במספר>\n'
-    + '(אם יש כמה פריטים שונים באותה הזמנה — כתוב שורת "פריט:" נפרדת לכל פריט)\n'
+    + 'פריט: מק"ט=<מספר קטלוגי/מק"ט של הפריט אם מופיע בטבלה, אחרת ריק> | תיאור=<תיאור המוצר/העבודה> | כמות=<המספר בעמודת הכמות בלבד> | יחידה=<יחידת המידה: קרטון / חבילות / יחידות — כפי שמופיע>\n'
+    + '(שורת "פריט:" נפרדת לכל שורת-פריט בטבלה. אל תכלול שורות של כותרת, סיכום, מע"מ, סה"כ, כתובת, טלפון או מספרי-מסמך — רק פריטים אמיתיים שהוזמנו.)\n'
     + 'מספר הזמנה: <מספר הזמנת הרכש/PO של הלקוח כפי שמופיע במסמך; אחרת ריק>\n'
     + 'תאריך: <YYYY-MM-DD אם מופיע תאריך אספקה או הזמנה>\n'
     + 'כתובת: <כתובת אספקה אם קיימת>\n'
@@ -39,12 +39,27 @@
       if (!m) return;
       var tag = m[1].trim(), val = (m[2] || '').trim();
       if (val === '-' || val === '—' || /^(ריק|לא\s*(ידוע|צוין|נמצא|רלוונטי))$/.test(val)) val = '';
-      if (tag === 'פריט') {                                  // פריט חוזר: "<תיאור> | <כמות>"
+      if (tag === 'פריט') {                                  // פריט חוזר. פורמט מתויג:
+        // "מק"ט=<sku> | תיאור=<desc> | כמות=<n> | יחידה=<unit>" · תמיכה לאחור: "<desc> | <qty>"
         if (val) {
-          var parts = val.split('|');
-          var d = (parts[0] || '').trim();
-          var q = ((parts.slice(1).join('|').match(/\d[\d,]*/) || [''])[0]).replace(/,/g, '');
-          if (d || q) { items.push({ desc: d, qty: q }); found = true; }
+          var sku = '', d = '', q = '', unit = '';
+          var subs = val.split('|').map(function (s) { return s.trim(); }).filter(Boolean);
+          var labeled = subs.some(function (s) { return /=/.test(s); });
+          if (labeled) {
+            subs.forEach(function (s) {
+              var mm = s.match(/^([^=]+)=\s*(.*)$/); if (!mm) return;
+              var lbl = mm[1].trim(), v = (mm[2] || '').trim();
+              if (v === '-' || v === '—' || /^ריק$/.test(v)) v = '';
+              if (/מק.?ט|קטלוג/.test(lbl)) sku = v.replace(/[^\d]/g, '');
+              else if (/תיאור|שם|פריט/.test(lbl)) d = v;
+              else if (/כמות/.test(lbl)) q = (v.match(/\d[\d,]*/) || [''])[0].replace(/,/g, '');
+              else if (/יחיד|אריז|קרטון/.test(lbl)) unit = v;
+            });
+          } else {                                            // פורמט ישן: תיאור | כמות
+            d = (subs[0] || '').trim();
+            q = ((subs.slice(1).join('|').match(/\d[\d,]*/) || [''])[0]).replace(/,/g, '');
+          }
+          if (sku || d || q) { items.push({ sku: sku, desc: d, qty: q, unit: unit }); found = true; }
         }
         return;
       }
@@ -101,8 +116,12 @@
     var src = (ex && ex.items && ex.items.length) ? ex.items
       : (ex && (ex.desc || ex.qty)) ? [{ desc: ex.desc, qty: ex.qty }] : [];
     return src.map(function (it) {
-      return { sku: '', name: String(it.desc || '').trim(), qty: parseInt(it.qty, 10) || 0, packs: 0 };
-    }).filter(function (r) { return r.name || r.qty; });
+      var n = parseInt(it.qty, 10) || 0;
+      // יחידת "קרטון"/"אריזה" → המספר הוא מספר-אריזות (packs); היחידות מחושבות לפי גודל-האריזה בהתאמה ללקוח.
+      var isPack = /קרטון|אריז|חביל/.test(String(it.unit || ''));
+      return { sku: String(it.sku || '').trim(), name: String(it.desc || '').trim(),
+               qty: isPack ? 0 : n, packs: isPack ? n : 0, unit: String(it.unit || '').trim() };
+    }).filter(function (r) { return r.name || r.qty || r.packs; });
   }
 
   return { SYS: SYS, parseOrderTags: parseOrderTags, buildPayload: buildPayload, replyText: replyText, toRows: toRows };
