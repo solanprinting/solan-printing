@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785391436';
+window.APP_VERSION = '1785392289';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4180,6 +4180,8 @@ function _doPushMapMerged(coll){
 }
 
 function persist() {
+  // ניקוי תור-המכונות לפני כל שמירה — רשומות "הודפס" ישנות לא נדחפות/נשמרות
+  try { machineQueue = _pruneQueueDone(machineQueue); } catch(e){}
   // Always write to localStorage (works offline too)
   localStorage.setItem('solanHistory',             JSON.stringify(historyDB));
   localStorage.setItem('solanPrintLog',            JSON.stringify(printLog));
@@ -11589,7 +11591,10 @@ function _archiveOldCards(){
   try {
     if (window._isMachineView || !_fbConnected || !window._fbPut) return;
     if (Date.now() - (window._lastPollOkAt||0) > 5*60*1000) return;
-    var now = Date.now(), CUT = 60*24*3600*1000, FRESH = 14*24*3600*1000;
+    // CUT קוצר מ-60 ל-14 יום (2026-07-30, אישור-בעלים): צומת-הכרטיסים ירד מחדש בכל
+    // מכשיר אחרי כל שינוי — 120 מתוך 133 היו "הושלמו" ישנים. הם נשארים בארכיון
+    // ובמוצא-הכרטיס-האבוד; FRESH מגן על כרטיס שנגעו בו לאחרונה.
+    var now = Date.now(), CUT = 14*24*3600*1000, FRESH = 14*24*3600*1000;
     var cands = (cards||[]).filter(function(c){
       if (!c || c.status !== 'done') return false;
       var doneMs = c.printedAt ? (Date.parse(c.printedAt)||0) : 0;
@@ -11620,7 +11625,7 @@ function openCardsArchive(){
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100005;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
   ov.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:82vh;display:flex;flex-direction:column;font-family:Heebo,sans-serif;overflow:hidden">'
     + '<div style="background:var(--press);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">'
-    + '<b>🗄️ ארכיון כרטיסים (הושלמו לפני 60+ יום)</b>'
+    + '<b>🗄️ ארכיון כרטיסים (הושלמו לפני 14+ יום)</b>'
     + '<button onclick="document.getElementById(\'cards-archive-modal\').remove()" style="background:none;border:none;color:#fff;font-size:1.2rem;cursor:pointer">×</button></div>'
     + '<div style="padding:10px 14px"><input id="arch-search" class="fi" placeholder="🔍 חיפוש לפי שם / לקוח..." style="margin:0;width:100%" oninput="_archRender()"></div>'
     + '<div id="arch-list" style="overflow-y:auto;padding:0 14px 14px;flex:1"><div style="padding:20px;text-align:center;color:#9ca3af">טוען ארכיון…</div></div></div>';
@@ -14493,6 +14498,21 @@ function _queueOpenCard(cardId) {
 
 // מיזוג תור-המכונות בין מכשירים — מונע "כרטיסים נעלמים / קמים לתחייה" מדריסת-מערך שלמה.
 // איחוד לפי qid, המצב העדכני יותר (_upd) מנצח, ורשומות שנמחקו (deletedIds.machineQueue) מסוננות תמיד.
+// ── ניקוי תור-המכונות (חיסכון-תעבורה, 2026-07-30) ─────────────────────────
+// רשומות "הודפס" נשארו בתור לנצח (341 רשומות · 335 done · 95KB) — והצומת הזה
+// נמשך במסכי-הדפסים כל ~15 שניות ⇒ ‏~0.5GB ליום למסך. רשומת-תור שהודפסה לפני
+// 7+ ימים היא היסטוריה (הכרטיס עצמו + יומן-ההדפסות שומרים אותה) — נמחקת.
+// דטרמיניסטי לפי doneAt ⇒ כל המכשירים מגיעים לאותה תוצאה בלי tombstones.
+var _QUEUE_DONE_KEEP_MS = 7*24*3600*1000;
+function _pruneQueueDone(arr){
+  var cut = Date.now() - _QUEUE_DONE_KEEP_MS;
+  return (arr||[]).filter(function(e){
+    if (!e || !e.done) return true;                       // פתוחות — לעולם לא נוגעים
+    var t = Date.parse(e.doneAt || '') || 0;
+    if (!t) t = Date.parse(e.addedAt || '') || 0;         // done בלי doneAt — לפי מועד-ההוספה
+    return !t || t >= cut;                                // בלי שום תאריך — נשמרת (זהירות)
+  });
+}
 function _mergeMachineQueue(server, local){
   server = Array.isArray(server) ? server : [];
   local  = Array.isArray(local)  ? local  : [];
@@ -14506,7 +14526,7 @@ function _mergeMachineQueue(server, local){
     if (!s){ byId[String(e.qid)] = e; return; }         // רשומה שקיימת רק מקומית (נוספה זה עתה) — נשמרת
     byId[String(e.qid)] = ((e._upd||0) >= (s._upd||0)) ? e : s;   // המצב העדכני (done וכו') מנצח
   });
-  return Object.keys(byId).map(function(k){ return byId[k]; })
+  return _pruneQueueDone(Object.keys(byId).map(function(k){ return byId[k]; }))
     .sort(function(a,b){ return String(a.machine||'')===String(b.machine||'') ? ((a.order||0)-(b.order||0)) : String(a.machine||'').localeCompare(String(b.machine||'')); });
 }
 function _queueAddEntry(cardId, runIdx, machine) {
@@ -22136,24 +22156,35 @@ function _opLoadAndRender() {
   _opPollN++;
   // customerProofs משתנה לעיתים רחוקות — מורידים אותו רק כל ~מנה 3 (חיסכון ב-Outgoing Bandwidth)
   var fetchProofs = (_opPollN % 3 === 1);
-  // שער-גרסה: cards כבד — מורידים אותו רק אם ה-rev שלו השתנה. machineQueue/printingState
-  // קטנים וקריטיים לתגובה מהירה → נמשכים תמיד.
+  // שער-גרסה על *כל* האוספים (2026-07-30): קודם נמשכו machineQueue+printingState בכל
+  // סבב (~כל 15ש') — ‏~0.5GB ליום למסך-דפסים, עיקר חריגת-התעבורה. עכשיו: מפת-ה-rev
+  // הזעירה נמשכת תמיד, וכל אוסף יורד רק כשחותמת-הגרסה שלו השתנתה. ביטחון: משיכה
+  // מלאה כפויה כל סבב עשרים (אם bump אי-פעם התפספס — מתיישרים תוך ~5 דקות).
+  var forceAll = (_opPollN % 20 === 0);
   window._fbGet('_rev').catch(function(){ return null; }).then(function(rev){
     window._pollRev = (rev && typeof rev === 'object') ? rev : {};
-    var cardsRev = window._pollRev.cards;
-    var needCards = !window._revSynced.cards || cardsRev !== window._lastRev.cards;
+    var need = function(coll){
+      return forceAll || !window._revSynced[coll] || window._pollRev[coll] !== window._lastRev[coll];
+    };
+    var adopt = function(coll){ window._lastRev[coll] = window._pollRev[coll]; window._revSynced[coll] = true; };
+    var needQ = need('machineQueue'), needPs = need('printingState'), needCards = need('cards');
     return Promise.all([
-      window._fbGet('machineQueue').catch(function(){ return null; }),
+      needQ ? window._fbGet('machineQueue').catch(function(){ return null; }) : Promise.resolve(undefined),
       needCards ? window._fbGet('cards').catch(function(){ return null; }) : Promise.resolve(undefined),
       fetchProofs ? window._fbGet('customerProofs').catch(function(){ return null; }) : Promise.resolve(undefined),
-      window._fbGet('printingState').catch(function(){ return null; })
+      needPs ? window._fbGet('printingState').catch(function(){ return null; }) : Promise.resolve(undefined)
     ]).then(function(res) {
-      if (res[0] && Array.isArray(res[0])) machineQueue = _mergeMachineQueue(res[0], machineQueue);
-      if (res[1] !== undefined && res[1] && Array.isArray(res[1])) { cards = res[1]; window._lastRev.cards = cardsRev; window._revSynced.cards = true; }
+      if (res[0] !== undefined && res[0] && Array.isArray(res[0])) { machineQueue = _mergeMachineQueue(res[0], machineQueue); adopt('machineQueue'); }
+      if (res[1] !== undefined && res[1] && Array.isArray(res[1])) { cards = res[1]; adopt('cards'); }
       if (res[2] !== undefined) window._opCustomerProofs = (res[2] && typeof res[2] === 'object') ? res[2] : {};
-      // מצב "בהדפסה" משותף — מעדכנים רק אם החיבור נראה תקין (machineQueue הגיע כמערך),
-      // כדי שבליפ רשת רגעי לא ינקה את הפאנל. צומת ריק => אף מכונה לא מדפיסה ({}).
-      if (Array.isArray(res[0])) window._opPrintingState = (res[3] && typeof res[3] === 'object') ? res[3] : {};
+      // מצב "בהדפסה" משותף. null יכול להיות גם צומת-ריק (אף מכונה לא מדפיסה) וגם כשל-
+      // רשת; מאמצים אותו כ-{} רק כשמפת-ה-rev הגיעה באותו סבב (הוכחה שהרשת תקינה) —
+      // אחרת לא נוגעים בפאנל ולא מאמצים את החותמת, וננסה שוב בסבב הבא.
+      if (res[3] !== undefined) {
+        var _revOk = rev && typeof rev === 'object';
+        if (res[3] && typeof res[3] === 'object') { window._opPrintingState = res[3]; adopt('printingState'); }
+        else if (_revOk) { window._opPrintingState = {}; adopt('printingState'); }
+      }
       _renderOperatorScreen();
     });
   });
