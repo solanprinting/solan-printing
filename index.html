@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785392289';
+window.APP_VERSION = '1785395634';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -5182,6 +5182,36 @@ function _aiRelay(payload){
     });
   });
 }
+// ── פרוקסי ענן (Cloudflare Worker) — ניתוח 24/7 גם כשהמחשב כבוי ──────────────
+// מחזיק את מפתח ה-API בענן; מאובטח ב-Origin + אסימון-הזדהות Firebase (ראה cloud-proxy/).
+// ניתן לעקוף/לכבות ע"י aiConfig/cloudProxyUrl ב-Firebase (נקרא ב-boot) — ריק = כבוי.
+window._CLOUD_PROXY_URL = 'https://solan-ai-proxy.solanprint.workers.dev';
+try { _fbGetRaw('aiConfig/cloudProxyUrl').then(function(u){ if (typeof u === 'string') window._CLOUD_PROXY_URL = u; }); } catch(e){}
+function _cloudProxyFetch(payload){
+  var base = String(window._CLOUD_PROXY_URL || '').replace(/\/+$/, '');
+  if (!base) return Promise.reject(new Error('CLOUD_NET no-url'));
+  return window._fbAuthToken().then(function(t){
+    return fetch(base + '/v1/messages', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + (t||'') },
+      body: JSON.stringify(payload)
+    }).then(function(r){
+      if (!r.ok) return r.json().catch(function(){ return {}; }).then(function(e){ var er=new Error('CLOUD_HTTP ' + r.status + ': ' + JSON.stringify(e)); er._http=r.status; throw er; });
+      return r.json();
+    });
+  }, function(){ throw new Error('CLOUD_NET auth'); })
+   .catch(function(err){ if (err && err._http) throw err; var e2=new Error('CLOUD_NET ' + ((err&&err.message)||'')); throw e2; });
+}
+// ענן קודם (עובד גם כשהמחשב כבוי), ואם אין ענן/נכשל רשתית — relay (דורש מחשב פעיל).
+// שגיאת-API אמיתית מהענן (400/429 מ-Claude) מוצגת; בעיית-worker (401/403/404/5xx) → relay.
+function _aiCloudOrRelay(payload, _route){
+  return _cloudProxyFetch(payload).then(function(v){ _route.r = 'cloud'; return v; })
+    .catch(function(err){
+      var st = err && err._http;
+      if (st && st !== 401 && st !== 403 && st !== 404 && st < 500) throw err;   // שגיאת-API אמיתית → הצג
+      return _aiRelay(payload).then(function(v){ _route.r = 'cloud'; return v; });
+    });
+}
 // נקודת כניסה אחידה לכל בקשות ה-AI: מנסה ישיר לפרוקסי, ואם הדפדפן חוסם — דרך הענן.
 window._proxyDirectOk = null;   // null=לא נבדק, true=ישיר עובד, false=דרך הענן
 function _aiRequest(payload){
@@ -5192,7 +5222,7 @@ function _aiRequest(payload){
   var _route = { r: null };
   if (window._aiStartRequestStatus) window._aiStartRequestStatus(window._proxyDirectOk === false ? 'cloud' : (window._proxyDirectOk === true ? 'local' : null));
   var p;
-  if (window._proxyDirectOk === false) p = _aiRelay(payload).then(function(v){ _route.r = 'cloud'; return v; });   // כבר ידוע שהישיר חסום בסשן הזה
+  if (window._proxyDirectOk === false) p = _aiCloudOrRelay(payload, _route);   // כבר ידוע שהישיר חסום בסשן הזה → ענן/relay
   else p = _proxyFetch(JSON.stringify(payload)).then(function(r){
     if (!r.ok) return r.json().then(function(e){ throw new Error('API ' + r.status + ': ' + JSON.stringify(e)); });
     window._proxyDirectOk = true; _route.r = 'local';
@@ -5202,7 +5232,7 @@ function _aiRequest(payload){
     if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1) {
       window._proxyDirectOk = false;
       if (window._aiSetServiceState) window._aiSetServiceState({ requestRoute:'cloud' });   // "מעבד דרך הענן" (עדיין לא success)
-      return _aiRelay(payload).then(function(v){ _route.r = 'cloud'; return v; });           // חסימת רשת → מעבר לענן (אותה operation)
+      return _aiCloudOrRelay(payload, _route);           // חסימת רשת מקומית → ענן (ואם אין — relay), אותה operation
     }
     throw err;                       // שגיאת API אמיתית → הצג אותה
   });
@@ -5248,8 +5278,26 @@ window._aiCheckServiceHealth = function(){
           return window._aiServiceState;
         }
       }
-    } catch(e){ /* local לא זמין / timeout — ננסה heartbeat */ }
-    // (2) fallback: heartbeat של ה-relay — קריאה בלבד (בלי _rev/merge/persist/כתיבה)
+    } catch(e){ /* local לא זמין / timeout — ננסה ענן ואז heartbeat */ }
+    // (2) פרוקסי ענן — GET /health. עובד 24/7 גם כשהמחשב כבוי, לכן נבדק לפני ה-relay.
+    try {
+      var base = String(window._CLOUD_PROXY_URL || '').replace(/\/+$/, '');
+      if (base){
+        var cc = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        var cto = setTimeout(function(){ try { cc && cc.abort(); } catch(e){} }, window._AI_HEALTH_TIMEOUT_MS);
+        var cr = await fetch(base + '/health', { method:'GET', signal: cc ? cc.signal : undefined });
+        clearTimeout(cto);
+        if (cr && cr.ok){
+          var ch = await cr.json();
+          if (ch && ch.ready === true){
+            _apply({ status:'cloud', checkedAt:Date.now(),
+              local:null, relay:{ cloud:true, providerConfigured: !!ch.providerConfigured }, error:null });
+            return window._aiServiceState;
+          }
+        }
+      }
+    } catch(e){ /* ענן לא זמין — ננסה heartbeat של ה-relay */ }
+    // (3) fallback: heartbeat של ה-relay — קריאה בלבד (בלי _rev/merge/persist/כתיבה)
     try {
       var hb = window._fbGetRaw ? await window._fbGetRaw('aiServiceHeartbeat/proxy') : null;
       var fresh = !!(hb && hb.relayWorker === true && typeof hb.timestamp === 'number'
