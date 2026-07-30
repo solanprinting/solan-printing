@@ -6,6 +6,7 @@
 <title>צפייה בעיתון — סולן הדפסות</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="lib-loader.js"></script>
 <script src="page-spine.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
@@ -90,7 +91,35 @@
 <div id="picker" class="hidden" style="padding:10px"></div>
 
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+/* ⚠️ אצל צופה עם סינון-תוכן/פרוקסי ש-cdnjs חסום אצלו, pdfjsLib לא מוגדר — והשורה
+   הזו זרקה ReferenceError שהרג את *כל* הסקריפט (דף מת בלי שום הודעה). עכשיו מוגן,
+   עם מראות-גיבוי (LibLoader) והודעה מפורשת אם כל המראות חסומות. */
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+var _libsP = null;
+function _ensureLibs(){
+  if (!window.LibLoader) return Promise.resolve({ ok: !!(window.pdfjsLib && window.PDFLib) });
+  if (LibLoader.allReady(window)) return Promise.resolve({ ok: true });
+  if (!_libsP) _libsP = LibLoader.ensureAll({ win: window }).then(function(r){
+    if (!r.ok) _libsP = null;                       // ניסיון חוזר בפעם הבאה (אולי הרשת השתנתה)
+    else if (window.pdfjsLib && r.loaded.pdfjs)     // ה-worker חייב לבוא מאותה מראה
+      pdfjsLib.GlobalWorkerOptions.workerSrc = LibLoader.workerFor(r.loaded.pdfjs);
+    return r;
+  });
+  return _libsP;
+}
+// חוסם פעולה שדורשת את הספריות ומציג הסבר ברור אם הן חסומות
+async function _requireLibs(){
+  showOverlay('טוען רכיבי צפייה…', true);
+  var r = await _ensureLibs();
+  showOverlay('', false);
+  if (!r.ok){
+    showOverlay((r.message || (window.LibLoader ? LibLoader.blockedMessage() : 'רכיבי הצפייה לא נטענו.')), true);
+    throw new Error('LIBS_BLOCKED');
+  }
+  return true;
+}
 const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
 // ── הזדהות אנונימית מול Firebase (מנעול אבטחה) ──
 const _FB_APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
@@ -292,6 +321,9 @@ async function _loadTrimsBg(){
     } catch(e){ console.warn('quick-cache failed, falling back to PDF render:', e); }
   }
 
+  try {
+    await _requireLibs();   // רכיבי-הצפייה חסומים → הודעה ברורה במקום דף/מסך מת
+  } catch(e){ return; }
   try {
     showOverlay('מוריד את הקובץ… 0%', true, 0);
     const rawBuf = await _fetchWithProgress(url, function(pct, mb, totMb){

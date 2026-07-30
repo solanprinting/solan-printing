@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}</script>
+<script src="lib-loader.js"></script>
 <script src="imposition-decoder.js"></script>
 <script src="imposition-decoder-exec.js"></script>
 <script src="imposition-fold-adapter.js"></script>
@@ -86,6 +87,22 @@ function _nowIso(){ return new Date().toISOString(); }
 function _whenVisible(){ if(!document.hidden) return Promise.resolve();
   return new Promise(res=>{ const h=()=>{ if(!document.hidden){ document.removeEventListener('visibilitychange',h); res(); } }; document.addEventListener('visibilitychange',h); }); }
 async function sha256(u8){ const h=await crypto.subtle.digest('SHA-256', u8 instanceof Uint8Array?u8:new Uint8Array(u8)); return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+/* אצל לקוח/עובד ש-cdnjs חסום אצלו (סינון-תוכן, פרוקסי, חוסם-פרסומות) pdf.js/pdf-lib לא
+   נטענות. מראות-גיבוי דרך LibLoader, ואם כולן חסומות — הודעה מפורשת בעברית במקום
+   שגיאה סתמית ("PDFLib is not defined") או מסך שנשאר על "טוען…". */
+var _libsP=null;
+function _ensureLibs(){
+  if(!window.LibLoader) return Promise.resolve({ ok: !!(window.pdfjsLib && window.PDFLib) });
+  if(LibLoader.allReady(window)) return Promise.resolve({ ok:true });
+  if(!_libsP) _libsP=LibLoader.ensureAll({ win:window }).then(r=>{
+    if(!r.ok) _libsP=null;                                          // ניסיון חוזר (אולי הרשת השתנתה)
+    else if(window.pdfjsLib && r.loaded.pdfjs)                      // ה-worker מאותה מראה שהצליחה
+      pdfjsLib.GlobalWorkerOptions.workerSrc=LibLoader.workerFor(r.loaded.pdfjs);
+    return r;
+  });
+  return _libsP;
+}
+function _libsBlockedMsg(r){ return (r&&r.message) || (window.LibLoader?LibLoader.blockedMessage():'רכיבי הצפייה בקבצים לא נטענו.'); }
 function _auth(){ if(_tok.id&&Date.now()<_tok.exp-120000) return Promise.resolve(_tok.id);
   return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_APIKEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})})
     .then(r=>r.ok?r.json():Promise.reject(new Error('auth '+r.status))).then(j=>{ _tok={id:j.idToken,exp:Date.now()+(parseInt(j.expiresIn)||3600)*1000}; return j.idToken; }); }
@@ -823,6 +840,8 @@ function workerScreen(){
     if(!_multi() && !ADP.customerFoldTemplateAllowed(tid)){ alert('טמפלט לא-נתמך'); return; }
     $('foldBtn').disabled=true; if($('bleedSel'))$('bleedSel').disabled=true; $('wstatus').textContent='⏳ יוצר חוברת…'; setStep(2);
     try{
+      const _lr=await _ensureLibs();          // ספריות חסומות → הודעה מובנת, לא "PDFLib is not defined"
+      if(!_lr.ok) throw new Error(_libsBlockedMsg(_lr));
       if(_multi()){
         if(_runRows.length<2) throw new Error('נדרשות לפחות 2 ריצות');
         const runDescs=_runRows.map(r=>({ u8:r.u8, legacyType:r.legacyType, pages:r.pages, name:r.name }));
@@ -949,6 +968,9 @@ async function clientScreen(versionId, token){
   // הוכחת-זהות: ה-bytes שהתקבלו === outputHash שברשומה
   const gotHash=await sha256(bytes);
   if(gotHash!==rec.outputHash){ $('cMeta').innerHTML+=' <span class="bad">· אזהרה: החוברת אינה תואמת לגרסה המאושרת</span>'; }
+  // רכיבי-הצפייה (pdf.js) חייבים להיות זמינים לפני הדפדוף — אחרת הלקוח נשאר על "טוען…"
+  const _lr=await _ensureLibs();
+  if(!_lr.ok){ $('cMeta').innerHTML+='<div class="bad" style="white-space:pre-line;margin-top:8px">'+_libsBlockedMsg(_lr)+'</div>'; return; }
   $('cBook').style.display=''; await mountFlipbook($('cFlip'), bytes);
   renderApprove(rec, gotHash===rec.outputHash);
 }

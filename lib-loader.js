@@ -29,11 +29,51 @@
       'https://unpkg.com/pdf-lib@' + PDFLIB_VER + '/dist/pdf-lib.min.js'
     ]
   };
-  /* המשתנה הגלובלי שכל ספרייה מייצרת — כך בודקים אם באמת נטענה */
-  var GLOBALS = { pdfjs: 'pdfjsLib', pdflib: 'PDFLib' };
+  /* ספריות-משנה של הדפים הפנימיים (אקסל, זיפ, PDF-מהמסך, QR, ברקוד). הן לא חלק מ-CORE:
+     אין להן חלק בטעינה-חוסמת של דפי-הלקוח, אבל גם הן מגיעות מ-cdnjs ולכן גם הן נחסמות.
+     `names()` נשאר CORE בכוונה — כדי ש-ensureAll בדפי-הלקוח לא יגרור ספריות מיותרות. */
+  var EXTRA_MIRRORS = {
+    xlsx: [
+      'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+      'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+      'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js'
+    ],
+    jszip: [
+      'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+      'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
+      'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js'
+    ],
+    jspdf: [
+      'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+      'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js',
+      'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js'
+    ],
+    html2canvas: [
+      'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+      'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+      'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js'
+    ],
+    qrcode: [
+      'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',
+      'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js',
+      'https://unpkg.com/qrcode-generator@1.4.4/qrcode.js'
+    ],
+    jsbarcode: [
+      'https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js',
+      'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js',
+      'https://unpkg.com/jsbarcode@3.11.6/dist/JsBarcode.all.min.js'
+    ]
+  };
 
-  function names() { return Object.keys(MIRRORS); }
-  function mirrors(name) { return (MIRRORS[name] || []).slice(); }
+  /* המשתנה הגלובלי שכל ספרייה מייצרת — כך בודקים אם באמת נטענה */
+  var GLOBALS = { pdfjs: 'pdfjsLib', pdflib: 'PDFLib',
+    xlsx: 'XLSX', jszip: 'JSZip', jspdf: 'jspdf',
+    html2canvas: 'html2canvas', qrcode: 'qrcode', jsbarcode: 'JsBarcode' };
+
+  function names() { return Object.keys(MIRRORS); }                    /* CORE בלבד */
+  function extraNames() { return Object.keys(EXTRA_MIRRORS); }
+  function allNames() { return names().concat(extraNames()); }
+  function mirrors(name) { return (MIRRORS[name] || EXTRA_MIRRORS[name] || []).slice(); }
   function globalOf(name) { return GLOBALS[name] || ''; }
 
   /* ה-worker של pdf.js חייב להגיע מאותה מראה כמו הספרייה עצמה —
@@ -112,11 +152,23 @@
     return attempt();
   }
 
-  /* מוודא את כל הספריות. מחזיר {ok, loaded:{name:url}, failed:[names], message} */
+  /* מוודא רשימת-ספריות מפורשת (כולל ספריות-משנה כמו xlsx/jszip). אותה תבנית-תשובה
+     כמו ensureAll, כך שהדפים הפנימיים יכולים לבקש בדיוק את מה שהם צריכים. */
+  function ensureNames(list, opt) {
+    opt = opt || {};
+    var win = opt.win || (typeof self !== 'undefined' ? self : {});
+    var need = (list || []).filter(function (n) { return GLOBALS[n] && !win[GLOBALS[n]]; });
+    return _ensureList(need, opt);
+  }
+
+  /* מוודא את כל הספריות (CORE). מחזיר {ok, loaded:{name:url}, failed:[names], message} */
   function ensureAll(opt) {
     opt = opt || {};
     var win = opt.win || (typeof self !== 'undefined' ? self : {});
-    var need = missing(win);
+    return _ensureList(missing(win), opt);
+  }
+
+  function _ensureList(need, opt) {
     if (!need.length) return Promise.resolve({ ok: true, loaded: {}, failed: [], message: '' });
     var loaded = {}, failed = [];
     return need.reduce(function (chain, n) {
@@ -131,10 +183,61 @@
     });
   }
 
+  /* טקסט הבאנר לדפים הפנימיים — קצר יותר מהודעת-הלקוח, ומכוון לעובד */
+  function bannerText(failedNames) {
+    return 'חלק מרכיבי הקבצים לא נטענו (' + (failedNames || []).join(', ') + ') — כנראה חסימת אינטרנט '
+      + 'או תקלת-רשת. פעולות שדורשות קריאה/יצירה של PDF ואקסל עלולות להיכשל. '
+      + 'כתובות לאישור: ' + hosts(failedNames).join(' · ');
+  }
+
+  /* מציג באנר-אזהרה בראש הדף (פעם אחת). אין תלות בשום CSS של הדף. */
+  function showBanner(failedNames, doc) {
+    var d = doc || (typeof document !== 'undefined' ? document : null);
+    if (!d) return null;
+    function put() {
+      if (d.getElementById('libBlockedBanner')) return;
+      var box = d.createElement('div');
+      box.id = 'libBlockedBanner';
+      box.setAttribute('dir', 'rtl');
+      box.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483000;background:#7f1d1d;color:#fff;'
+        + 'font:600 14px/1.5 Heebo,system-ui,Arial,sans-serif;padding:10px 44px 10px 14px;text-align:center;'
+        + 'box-shadow:0 2px 10px rgba(0,0,0,.35)';
+      box.textContent = '⚠️ ' + bannerText(failedNames);
+      var x = d.createElement('button');
+      x.textContent = '✕';
+      x.style.cssText = 'position:absolute;top:6px;left:8px;background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer';
+      x.onclick = function () { box.remove(); };
+      box.appendChild(x);
+      (d.body || d.documentElement).appendChild(box);
+    }
+    if (d.readyState === 'loading' && d.addEventListener) d.addEventListener('DOMContentLoaded', put);
+    else put();
+    return true;
+  }
+
+  /* מילוי-רקע לדפים הפנימיים: משלים כל ספרייה חסרה ממראה חלופית, מיישר את ה-worker
+     לאותה מראה, ואם משהו נשאר חסום — מזהיר בבירור במקום שהפעולה תיפול אחר-כך
+     עם שגיאה סתמית ("XLSX is not defined"). לא משנה שום נתיב-קוד קיים. */
+  function autoFill(list, opt) {
+    opt = opt || {};
+    var win = opt.win || (typeof self !== 'undefined' ? self : {});
+    var doc = opt.doc || (typeof document !== 'undefined' ? document : null);
+    return ensureNames((list && list.length) ? list : names(), opt).then(function (r) {
+      try {
+        if (r.loaded && r.loaded.pdfjs && win.pdfjsLib)
+          win.pdfjsLib.GlobalWorkerOptions.workerSrc = workerFor(r.loaded.pdfjs);
+      } catch (e) {}
+      if (!r.ok && opt.banner !== false) { try { showBanner(r.failed, doc); } catch (e) {} }
+      return r;
+    });
+  }
+
   return {
     PDFJS_VER: PDFJS_VER, PDFLIB_VER: PDFLIB_VER,
-    names: names, mirrors: mirrors, globalOf: globalOf, workerFor: workerFor,
+    names: names, extraNames: extraNames, allNames: allNames,
+    mirrors: mirrors, globalOf: globalOf, workerFor: workerFor,
     missing: missing, allReady: allReady, hosts: hosts, blockedMessage: blockedMessage,
-    loadScript: loadScript, ensure: ensure, ensureAll: ensureAll
+    loadScript: loadScript, ensure: ensure, ensureAll: ensureAll, ensureNames: ensureNames,
+    bannerText: bannerText, showBanner: showBanner, autoFill: autoFill
   };
 });
