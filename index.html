@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785412582';
+window.APP_VERSION = '1785415044';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4104,24 +4104,32 @@ function _unmarkDeleted(coll, id){
     if (window._fbPut) window._fbPut('deletedIds', deletedIds);   // דחיפה מיידית — לפני שה-union ממכשיר אחר יחזיר
   }
 }
-function _itemKeyJson(it){ var c = Object.assign({}, it); delete c._upd; return _stableStr(c); }   // חסין-סדר-מפתחות (ראה _cardKeyJson) — מונע _upd מדומה גם באוספים אלה
+function _itemKeyJson(it){ var c = Object.assign({}, it); delete c._upd; delete c._pend; return _stableStr(c); }   // חסין-סדר-מפתחות (ראה _cardKeyJson) — מונע _upd מדומה גם באוספים אלה
 function _seedArrSnap(coll, arr){
   var m = {};
   (arr||[]).forEach(function(it){ if (it && it.id != null) m[String(it.id)] = _itemKeyJson(it); });
   window._arrSnap[coll] = m;
 }
-// מטביע _upd=עכשיו על פריטים שתוכנם השתנה מאז הסנכרון האחרון (או שהם חדשים)
+/* מטביע _upd=עכשיו על פריטים שתוכנם השתנה מאז הסנכרון האחרון (או שהם חדשים),
+   ומסמן אותם _pend=1 = "טרם אושר בשרת". הסימון נשמר ב-localStorage יחד עם
+   הפריט, ולכן שורד רענון/סגירת-דפדפן — וזה מה שמונע מפריט שהדחיפה שלו נכשלה
+   להיעלם למחרת (ראה _mergeArrById). מנוקה רק אחרי PUT מוצלח. */
 function _stampChangedArr(coll, arr){
   var snap = window._arrSnap[coll]; var now = Date.now();
   (arr||[]).forEach(function(it){
     if (!it || it.id == null) return;
     var j = _itemKeyJson(it);
-    if (!snap || snap[String(it.id)] !== j) it._upd = now;
+    if (!snap || snap[String(it.id)] !== j) { it._upd = now; it._pend = 1; }
   });
 }
-// מיזוג: בסיס=שרת; לכל מזהה נשמרת הגרסה עם _upd גבוה יותר; פריט מקומי-בלבד נשמר
-// רק אם עודכן ב-12 השעות האחרונות (חדש אמיתי) — פריט ישן שאינו בשרת = נמחק במקום אחר.
-function _mergeArrById(server, local){
+/* מיזוג: בסיס=שרת; לכל מזהה נשמרת הגרסה עם _upd גבוה יותר.
+   פריט מקומי-בלבד: נשמר אם *מעולם לא סונכרן* (אינו בתמונת-המצב _arrSnap → נוצר
+   כאן ועדיין לא הגיע לשרת), או אם עודכן ב-12 השעות האחרונות.
+   ⚠️ הקריטריון "מעולם לא סונכרן" נוסף ב-2026-07-30: קודם ההחלטה הסתמכה רק על
+   _upd, ולכן עיתון חדש שהדחיפה שלו נכשלה נחשב "פריט ישן שנמחק במקום אחר" —
+   ונעלם. מחיקה אמיתית ממילא מטופלת ע"י tombstones (_filterDeleted), ולכן
+   העדפת-השמירה כאן בטוחה: השמטה = אובדן נתונים, שמירה = אפשר למחוק שוב. */
+function _mergeArrById(server, local, coll){
   var FRESH = 12*3600*1000, now = Date.now();
   var out = [], seen = {}, localById = {};
   (local||[]).forEach(function(it){ if (it && it.id != null) localById[String(it.id)] = it; });
@@ -4140,6 +4148,7 @@ function _mergeArrById(server, local){
       return;
     }
     if (seen[String(l.id)]) return;
+    if (l._pend) { out.push(l); return; }                  // טרם אושר בשרת — לא משמיטים בשום מצב
     if ((l._upd||0) > now - FRESH) out.push(l);
   });
   return out;
@@ -4160,12 +4169,25 @@ function _doPushArrMerged(coll){
     var server = Array.isArray(sv) ? sv : (typeof sv === 'object' ? Object.values(sv) : []);
     var local = ref.get();
     _stampChangedArr(coll, local);
-    var merged = _filterDeleted(coll, _mergeArrById(_filterDeleted(coll, server), local));
+    var merged = _filterDeleted(coll, _mergeArrById(_filterDeleted(coll, server), local, coll));
     ref.set(merged);
     localStorage.setItem(ref.ls, JSON.stringify(merged));
-    _seedArrSnap(coll, merged);
-    window._fbSnapshot[coll] = JSON.stringify(merged);
-    return window._fbPut(coll, merged);
+    /* ⚠️ באג שתוקן (2026-07-30) — "עיתון שמוסיפים ונעלם שוב ושוב":
+       כאן סומן "מסונכרן" (_seedArrSnap + _fbSnapshot) *לפני* שה-PUT הצליח. אם
+       הדחיפה נכשלה (רשת/הרשאה/שומר-סביבה), המצב המקומי טען שהעיתון החדש כבר
+       בשרת — ולכן בסבב הבא _stampChangedArr לא הטביע עליו _upd, המיזוג ראה
+       פריט מקומי-בלבד ולא-טרי, והשמיט אותו. עם העיתון נעלמה גם חותמת
+       cardCreatedAt — וזו הסיבה שגם הסימון הירוק ביומן השבועי "ירד".
+       מעכשיו מסמנים כמסונכרן רק אחרי אישור מהשרת. */
+    return Promise.resolve(window._fbPut(coll, merged)).then(function(okPut){
+      if (okPut === false){ console.warn('[' + coll + '] הדחיפה נכשלה — לא מסמנים כמסונכרן'); return false; }
+      merged.forEach(function(it){ if (it) delete it._pend; });   // אושר בשרת — אין יותר "ממתין"
+      ref.set(merged);
+      localStorage.setItem(ref.ls, JSON.stringify(merged));
+      _seedArrSnap(coll, merged);
+      window._fbSnapshot[coll] = JSON.stringify(merged);
+      return true;
+    });
   }).then(function(){ window._fbPendingPuts[coll] = Math.max(0, (window._fbPendingPuts[coll]||1) - 1); })
     .catch(function(){ window._fbPendingPuts[coll] = Math.max(0, (window._fbPendingPuts[coll]||1) - 1); });
 }
@@ -8384,6 +8406,9 @@ function savePaper() {
     internalNotes: document.getElementById('pm-internal-notes').value.trim()
   };
 
+  // חותמת-עדכון בזמן היצירה/העריכה — כדי שהמיזוג יזהה את הפריט כטרי גם לפני
+  // הדחיפה הראשונה (ראה _mergeArrById: פריט מקומי בלי _upd היה נשמט)
+  data._upd = Date.now();
   if (editingPaperId) {
     newspapers = newspapers.map(n=>n.id===editingPaperId?data:n);
   } else {
@@ -8445,11 +8470,12 @@ function saveFlyerModal() {
   // perSheet by size
   const perSheet = size==='A3→A4' || size==='A4→A5' ? 4 : 1;
 
+  var _now = Date.now();   // חותמת-עדכון בזמן היצירה/העריכה (כמו בעיתונים)
   if (editingFlyerId) {
     const idx = flyers.findIndex(x=>x.id===editingFlyerId);
-    if (idx!==-1) flyers[idx] = Object.assign(flyers[idx], {name,paper,copies,color,size,day,perSheet});
+    if (idx!==-1) flyers[idx] = Object.assign(flyers[idx], {name,paper,copies,color,size,day,perSheet,_upd:_now});
   } else {
-    flyers.push({id:Date.now(),name,paper,copies,color,size,day,perSheet});
+    flyers.push({id:_now,name,paper,copies,color,size,day,perSheet,_upd:_now});
   }
   persist();
   closeFlyerModal();
@@ -20323,8 +20349,12 @@ function _uaItems(all){
     var ack = p.ack || {};
     var push = function(key, at, label){
       if (!at || (now - at) > WINDOW) return;
-      out.push({ id: id + '|' + key, proofId: id, ackKey: key, customer: who,
-                 title: label || (p.title||''), at: at, seenAt: (ack[key]||{}).seenAt || 0 });
+      var _key = id + '|' + key;
+      // seenAt מהענן, ואם השמירה לענן נכשלה — לפחות המכשיר הזה יישאר שקט
+      var _seen = (ack[key]||{}).seenAt || 0;
+      if (!_seen && _uaLocalAcked(_key)) _seen = 1;
+      out.push({ id: _key, proofId: id, ackKey: key, customer: who,
+                 title: label || (p.title||''), at: at, seenAt: _seen });
     };
     push('full', p.approvedAt, p.title);
     Object.keys(p.parts||{}).forEach(function(pid){
@@ -20369,27 +20399,51 @@ function _uaBanner(res){
   var b = document.getElementById('ua-seen');
   if (b) b.onclick = function(){ _uaAck(res.items); };
 }
-// סימון "ראיתי" — נכתב לענן לכל ההעלאות הממתינות, ומשתיק את כל המכשירים
+/* סימון "ראיתי" — נכתב לענן לכל ההעלאות הממתינות, ומשתיק את כל המכשירים.
+   ⚠️ באג שתוקן (2026-07-30): כאן נקרא `_au(...)` — פונקציה שקיימת ב-proof-client
+   אבל *לא* בדף הזה. הקריאה זרקה, ה-try בלע אותה, הסימון לא נכתב לענן — וההתראה
+   המשיכה לצייץ אחרי "ראיתי". מעכשיו משתמשים ב-_fbPutRaw של הדף, *ומדווחים*
+   כשהשמירה נכשלת במקום להשתיק את הכשל.
+   השתקה מקומית נשמרת גם ב-localStorage, כדי שהמסך הזה יישאר שקט גם אם הענן
+   נכשל (ואז מוצגת אזהרה שהסימון לא נשמר למכשירים האחרים). */
+function _uaLocalAck(key, patch){
+  try {
+    var m = JSON.parse(localStorage.getItem('solanUaAck') || '{}');
+    m[key] = patch.seenAt;
+    var now = Date.now();
+    Object.keys(m).forEach(function(k){ if (now - m[k] > 3*86400000) delete m[k]; });
+    localStorage.setItem('solanUaAck', JSON.stringify(m));
+  } catch(e){}
+}
+function _uaLocalAcked(key){
+  try { return !!JSON.parse(localStorage.getItem('solanUaAck') || '{}')[key]; } catch(e){ return false; }
+}
 async function _uaAck(items){
   var who = '';
   try { who = (currentUser && currentUser.name) || ''; } catch(e){}
   var patch = UploadAlert.seenPatch(who, Date.now());
   var b = document.getElementById('ua-seen'); if (b){ b.disabled = true; b.textContent = 'שומר…'; }
+  var failed = 0;
   for (var i = 0; i < items.length; i++){
     var it = items[i];
+    // עדכון מקומי מיד — ההתראה נעצרת גם אם הרשת איטית
+    if (window._cpAll && window._cpAll[it.proofId]){
+      var p = window._cpAll[it.proofId];
+      p.ack = p.ack || {}; p.ack[it.ackKey] = patch;
+    }
+    _uaLocalAck(it.id, patch);
+    var okPut = false;
     try {
-      // עדכון מקומי מיד, כדי שההתראה תיפסק גם אם הרשת איטית
-      if (window._cpAll && window._cpAll[it.proofId]){
-        var p = window._cpAll[it.proofId];
-        p.ack = p.ack || {}; p.ack[it.ackKey] = patch;
-      }
-      await fetch(await _au(_FBURL + '/customerProofs/' + it.proofId + '/ack/' + it.ackKey + '.json'),
-        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+      okPut = await _fbPutRaw('customerProofs/' + it.proofId + '/ack/' + it.ackKey, patch);
     } catch(e){ console.warn('ack failed', it.id, e); }
+    if (!okPut) failed++;
   }
   _uaLastSoundAt = 0;
   _uaTick();
-  try { showToast('✔ סומן שראית — ההתראה נעצרה'); } catch(e){}
+  try {
+    if (failed) showToast('⚠️ סומן במכשיר הזה, אך השמירה לענן נכשלה (' + failed + ') — במכשירים אחרים ההתראה תימשך');
+    else showToast('✔ סומן שראית — ההתראה נעצרה');
+  } catch(e){}
 }
 function _uaStart(){
   if (_uaTimer) return;
@@ -20476,7 +20530,7 @@ async function _fbPollAll() {
         window._fbPut('orders', _filterDeleted('orders', orders)); // הגנה מפני דריסה ע"י שרת ריק
       } else {
         // מיזוג במקום דריסה — שינוי מקומי טרי לא נמחק ע"י נתון שרת ישן
-        orders = _filterDeleted('orders', _mergeArrById(_incOrders, orders));
+        orders = _filterDeleted('orders', _mergeArrById(_incOrders, orders, 'orders'));
         localStorage.setItem('solanOrders', JSON.stringify(orders));
         window._fbSnapshot.orders = JSON.stringify(orders);
         _seedArrSnap('orders', orders);
@@ -20527,7 +20581,7 @@ async function _fbPollAll() {
         window._fbPut('newspapers', _filterDeleted('newspapers', newspapers)); // הגנה מפני שרת ריק
       } else {
       _stampChangedArr('newspapers', newspapers);
-      newspapers = _filterDeleted('newspapers', _mergeArrById(_incNP, newspapers));
+      newspapers = _filterDeleted('newspapers', _mergeArrById(_incNP, newspapers, 'newspapers'));
       localStorage.setItem('solanNewspapers', JSON.stringify(newspapers));
       window._fbSnapshot.newspapers = JSON.stringify(newspapers);
       _seedArrSnap('newspapers', newspapers);
@@ -20549,7 +20603,7 @@ async function _fbPollAll() {
         window._fbPut('flyers', _filterDeleted('flyers', flyers));
       } else {
         _stampChangedArr('flyers', flyers);
-        flyers = _filterDeleted('flyers', _mergeArrById(_incFL, flyers));
+        flyers = _filterDeleted('flyers', _mergeArrById(_incFL, flyers, 'flyers'));
         localStorage.setItem('solanFlyers', JSON.stringify(flyers));
         window._fbSnapshot.flyers = JSON.stringify(flyers);
         _seedArrSnap('flyers', flyers);
@@ -20635,7 +20689,7 @@ async function _fbPollAll() {
         window._fbPut('weeklyJobs', _filterDeleted('weeklyJobs', weeklyJobs)); // הגנה מפני שרת ריק
       } else {
         _stampChangedArr('weeklyJobs', weeklyJobs);   // עריכה מקומית שטרם סונכרנה → _upd=עכשיו כדי שהמיזוג לא ידרוס אותה בנתון שרת ישן
-        weeklyJobs = _filterDeleted('weeklyJobs', _mergeArrById(_incWJ, weeklyJobs));
+        weeklyJobs = _filterDeleted('weeklyJobs', _mergeArrById(_incWJ, weeklyJobs, 'weeklyJobs'));
         localStorage.setItem('solanWeeklyJobs', JSON.stringify(weeklyJobs));
         window._fbSnapshot.weeklyJobs = JSON.stringify(weeklyJobs);
         _seedArrSnap('weeklyJobs', weeklyJobs);
@@ -20653,7 +20707,7 @@ async function _fbPollAll() {
         window._fbPut('futureJobs', _filterDeleted('futureJobs', futureJobs)); // הגנה מפני שרת ריק
       } else {
         _stampChangedArr('futureJobs', futureJobs);
-        futureJobs = _filterDeleted('futureJobs', _mergeArrById(_incFJ, futureJobs));
+        futureJobs = _filterDeleted('futureJobs', _mergeArrById(_incFJ, futureJobs, 'futureJobs'));
         localStorage.setItem('solanFutureJobs', JSON.stringify(futureJobs));
         window._fbSnapshot.futureJobs = JSON.stringify(futureJobs);
         _seedArrSnap('futureJobs', futureJobs);
@@ -20679,7 +20733,7 @@ async function _fbPollAll() {
       if (_incPF.length === 0 && printFiles.length > 0) {
         window._fbPut('printFiles', _filterDeleted('printFiles', printFiles)); // הגנה מפני שרת ריק
       } else {
-        printFiles = _filterDeleted('printFiles', _mergeArrById(_incPF, printFiles));
+        printFiles = _filterDeleted('printFiles', _mergeArrById(_incPF, printFiles, 'printFiles'));
         localStorage.setItem('solanPrintFiles', JSON.stringify(printFiles));
         window._fbSnapshot.printFiles = JSON.stringify(printFiles);
         _seedArrSnap('printFiles', printFiles);
@@ -20694,7 +20748,7 @@ async function _fbPollAll() {
       if (_incDN.length === 0 && deliveryNotes.length > 0) {
         window._fbPut('deliveryNotes', _filterDeleted('deliveryNotes', deliveryNotes)); // הגנה מפני שרת ריק
       } else {
-        deliveryNotes = _filterDeleted('deliveryNotes', _mergeArrById(_incDN, deliveryNotes));
+        deliveryNotes = _filterDeleted('deliveryNotes', _mergeArrById(_incDN, deliveryNotes, 'deliveryNotes'));
         localStorage.setItem('solanDeliveryNotes', JSON.stringify(deliveryNotes));
         window._fbSnapshot.deliveryNotes = JSON.stringify(deliveryNotes);
         _seedArrSnap('deliveryNotes', deliveryNotes);
@@ -20708,7 +20762,7 @@ async function _fbPollAll() {
       if (_incQuotes.length === 0 && quotes.length > 0) {
         window._fbPut('quotes', _filterDeleted('quotes', quotes)); // הגנה מפני דריסה ע"י שרת ריק
       } else {
-        quotes = _filterDeleted('quotes', _mergeArrById(_incQuotes, quotes));
+        quotes = _filterDeleted('quotes', _mergeArrById(_incQuotes, quotes, 'quotes'));
         localStorage.setItem('solanQuotes', JSON.stringify(quotes));
         window._fbSnapshot.quotes = JSON.stringify(quotes);
         _seedArrSnap('quotes', quotes);

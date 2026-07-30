@@ -301,6 +301,10 @@ const STATUS = {
 };
 
 let _allRows = [];
+/* פורמט-תאריך גלובלי. ⚠️ באג שתוקן (2026-07-30): `fmt` מוגדר *בתוך* render()
+   בלבד, ולכן moveRun (שהיא גלובלית) זרקה "fmt is not defined" — והלחיצה על
+   "⇄ העבר לגיליון" לא עשתה כלום, בשקט, כי הרכיב async והדחייה נעלמה. */
+const _fmtDate = t => t ? new Date(t).toLocaleString('he-IL', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
 
 // ── יום-בשבוע לכל לקוח (מהיומן השבועי) + לקוחות עם כרטיס-עבודה פעיל ──────────
 // הרשימה התארכה מדי; מסדרים אותה לפי היום שבו הלקוח אמור לשלוח (newspapers[].day),
@@ -734,11 +738,24 @@ function render(rows) {
       t.onclick = function(){ var k=t.dataset.jobtoggle; _jobCollapsed[k] = !_jobCollapsed[k]; render(rows); };
     });
   })();
-  document.querySelectorAll('[data-editproof]').forEach(b => b.onclick = () => editProof(b.dataset.editproof));
-  document.querySelectorAll('[data-closeproof]').forEach(b => b.onclick = () => closeProof(b.dataset.closeproof, b.dataset.on === '1'));
-  document.querySelectorAll('[data-moverun]').forEach(b => b.onclick = () => {
-    const [jobId, pid] = b.dataset.moverun.split('|'); moveRun(jobId, pid, b);
-  });
+  /* ⚠️ פעולה אסינכרונית שנכשלת חייבת *להיאמר*. הבאג שהיה כאן: moveRun זרקה
+     (fmt לא מוגדר בהקשר הגלובלי), הדחייה לא נתפסה, והלחיצה פשוט לא עשתה כלום.
+     _loud עוטף כל handler אסינכרוני ומציג את השגיאה במקום להעלים אותה. */
+  const _loud = (fn, what) => () => {
+    try {
+      const r = fn();
+      if (r && typeof r.catch === 'function')
+        r.catch(e => { console.error(what, e); alert('❌ ' + what + ' נכשל:\n' + (e && e.message || e)); });
+    } catch(e){ console.error(what, e); alert('❌ ' + what + ' נכשל:\n' + (e && e.message || e)); }
+  };
+  document.querySelectorAll('[data-editproof]').forEach(b =>
+    b.onclick = _loud(() => editProof(b.dataset.editproof), 'עריכת פרטי הגיליון'));
+  document.querySelectorAll('[data-closeproof]').forEach(b =>
+    b.onclick = _loud(() => closeProof(b.dataset.closeproof, b.dataset.on === '1'), 'סגירת/פתיחת הגיליון'));
+  document.querySelectorAll('[data-moverun]').forEach(b => b.onclick = _loud(() => {
+    const parts = b.dataset.moverun.split('|');
+    return moveRun(parts[0], parts.slice(1).join('|'), b);   // partId יכול להכיל '|'
+  }, 'העברת הריצה'));
   document.querySelectorAll('[data-notice]').forEach(b => b.onclick = () => sendNotice(b.dataset.notice));
   document.querySelectorAll('[data-apogee]').forEach(b => b.onclick = () => attachApogee(b.dataset.apogee));
   document.querySelectorAll('[data-unlock]').forEach(b => b.onclick = () => unlockProof(b.dataset.unlock));
@@ -1410,8 +1427,10 @@ async function closeProof(id, isClosed){
   } catch(e){ alert('הפעולה נכשלה: ' + (e.message||e)); }
 }
 async function moveRun(jobId, partId, btn){
-  const from = _allRows.find(r => r.id === jobId);
-  if (!from || !from.parts || !from.parts[partId]) return;
+  // בלי return שקט: אם משהו לא נמצא — אומרים מה
+  const from = _allRows.find(r => String(r.id) === String(jobId));
+  if (!from) { alert('הגיליון לא נמצא ברשימה. רעננו את הדף ונסו שוב.'); return; }
+  if (!from.parts || !from.parts[partId]) { alert('הריצה לא נמצאה בגיליון הזה. רעננו את הדף ונסו שוב.'); return; }
   const part = from.parts[partId];
   // יעדים אפשריים: גיליונות של אותו לקוח שפתוחים להעלאה, החדש קודם
   const cands = _allRows.filter(r => r && r.id !== jobId
@@ -1421,7 +1440,7 @@ async function moveRun(jobId, partId, btn){
   if (!cands.length) { alert('אין גיליון פתוח אחר של "' + (from.customer||'') + '" להעביר אליו.\n'
     + 'צרו גיליון חדש (➕ הזמנה ללקוח) ואז העבירו.'); return; }
   const menu = 'להעביר את "' + (part.name || partId) + '" לאיזה גיליון?\n\n'
-    + cands.map((c,i)=>`${i+1}. ${c.title || '(ללא שם)'} — נוצר ${fmt(c.createdAt)}${c.parts?(' · '+Object.keys(c.parts).length+' ריצות'):''}`).join('\n')
+    + cands.map((c,i)=>`${i+1}. ${c.title || '(ללא שם)'} — נוצר ${_fmtDate(c.createdAt)}${c.parts?(' · '+Object.keys(c.parts).length+' ריצות'):''}`).join('\n')
     + '\n\nהקלידו מספר, או בטלו.';
   const pickRaw = prompt(menu, '1');
   if (pickRaw === null) return;
