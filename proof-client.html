@@ -6,6 +6,7 @@
 <title>העלאת קבצים לדפוס — סולן הדפסות</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="lib-loader.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -188,7 +189,37 @@
 <input type="file" id="repInput" accept="application/pdf" hidden>
 
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+/* ⚠️ באג שהשבית לקוחות: אצל לקוח עם סינון-תוכן/פרוקסי ש-cdnjs חסום אצלו, pdfjsLib
+   לא היה מוגדר — והשורה הזו זרקה ReferenceError שהרג את *כל* הסקריפט. הלקוח ראה
+   דף מת בלי שום הודעה ("לא מצליח לפתוח את הקישור"). עכשיו: מוגן, עם מראות-גיבוי
+   (LibLoader) והודעה מפורשת אם כל המראות חסומות. */
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// מוודא שהספריות זמינות לפני כל פעולה שתלויה בהן. נקרא לפני קריאה/בניית PDF.
+var _libsP = null;
+function _ensureLibs(){
+  if (!window.LibLoader) return Promise.resolve({ ok: !!(window.pdfjsLib && window.PDFLib) });
+  if (LibLoader.allReady(window)) return Promise.resolve({ ok: true });
+  if (!_libsP) _libsP = LibLoader.ensureAll({ win: window }).then(function(r){
+    if (!r.ok) _libsP = null;                       // ניסיון חוזר בפעם הבאה (אולי הרשת השתנתה)
+    else if (window.pdfjsLib && r.loaded.pdfjs)     // ה-worker חייב לבוא מאותה מראה
+      pdfjsLib.GlobalWorkerOptions.workerSrc = LibLoader.workerFor(r.loaded.pdfjs);
+    return r;
+  });
+  return _libsP;
+}
+// חוסם פעולה שדורשת את הספריות ומציג הסבר ברור אם הן חסומות
+async function _requireLibs(){
+  showOverlay('טוען רכיבי צפייה…', true);
+  var r = await _ensureLibs();
+  showOverlay('', false);
+  if (!r.ok){
+    showOverlay((r.message || (window.LibLoader ? LibLoader.blockedMessage() : 'רכיבי הצפייה לא נטענו.')), true);
+    throw new Error('LIBS_BLOCKED');
+  }
+  return true;
+}
 const _FBURL   = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
 const _BUCKETS = ['solan-printing.firebasestorage.app']; // appspot.com לא קיים (404) — הוסר
 
@@ -437,6 +468,7 @@ async function _addFilesNow(fileArr) {
   // ספירת עמודים כוללת למד התקדמות
   let total = 0, doneN = 0;
   const docs = [];
+  try { await _requireLibs(); } catch(e){ return; }   // רכיבי-הצפייה חסומים → הודעה ברורה במקום דף מת
   showOverlay('קורא קבצים…', true, 0);
   for (const file of files) {
     try {
@@ -886,6 +918,7 @@ let _repUid = null;
 function replacePage(uid) { _repUid = uid; $('repInput').value=''; $('repInput').click(); }
 $('repInput').onchange = async e => {
   const file = e.target.files[0]; if (!file || _repUid == null) return;
+  try { await _requireLibs(); } catch(err){ return; }
   showOverlay('מחליף עמוד…', true);
   try {
     const bytes = await file.arrayBuffer();
@@ -1152,6 +1185,7 @@ $('approve').onclick = async () => {
   if (_pend === false) return;                      // הלקוח ביטל — חוזר לעריכה
   const _spr = spreadCount();
   if (!confirm(`לאשר ולשלוח ${effPageCount()} עמודים${_spr ? ` (כולל ${_spr} כפולות שנספרות כ-2 עמודים)` : ''}${(_pend&&_pend.length)?` · ${_pend.length} עמודים יישארו ריקים להשלמה`:''} בסדר הנוכחי?\nלאחר האישור לא ניתן לשנות.`)) return;
+  try { await _requireLibs(); } catch(e){ return; }
   _uploading = true; await acquireWakeLock();
   // אות "לקוח מעלה קובץ" — כדי שבית הדפוס יקבל התראה (גם קולית) בזמן אמת
   try { patch({ uploading: { at: Date.now(), name: (mode === 'run' ? runName : 'עיתון מלא'), pages: effPageCount() } }); } catch(e){}

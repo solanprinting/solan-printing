@@ -374,17 +374,24 @@ function detail(a){
 
   // המסך הראשי = זרימת העבודות. המלאי חי בקטגוריה "📋 הסכמי מסגרת" (ובטופס ההזמנה עצמו).
   let body='';
+  const jobs=_cardsForCustomer(a.customer);
+  const hasStock=(a.items||[]).length>0;
+
   if(_tab==='new')        body = newOrderCard(a,b);
   else if(_tab==='ready') body = readyView(a.agreementId);
   else if(_tab==='done')  body = deliveredView(a.agreementId);
   else if(_tab==='notes') body = notesCard(notes,a);
   else if(_tab==='cnotes')body = custNotesCard(a);
+  else if(_tab==='stock') body = stockCard(a)+_stockActions(a);
+  else if(_tab==='hist')  body = historyCard(a,jobs);
   else                    body = flowBoard([{ag:a, orders:orders}]);
 
   const open=orders.filter(o=>o.status==='pending'||o.status==='ready').length;
   const nPop=FW.activePopupNotes(a).length, nAllNotes=FW.custNotes(a).length;
-  return `<div class="tabs">
+  return `${_custHeader(a,b,jobs,orders)}<div class="tabs">
       <div class="tab${_tab==='flow'?' on':''}" data-t="flow">🔄 זרימת עבודות${open?`<span class="n">${open}</span>`:''}</div>
+      <div class="tab${_tab==='hist'?' on':''}" data-t="hist">🗂 היסטוריה${(jobs.length+orders.length)?`<span class="n">${jobs.length+orders.length}</span>`:''}</div>
+      ${hasStock?`<div class="tab${_tab==='stock'?' on':''}" data-t="stock">📦 מלאי</div>`:''}
       <div class="tab${_tab==='new'?' on':''}" data-t="new">➕ הזמנה חדשה</div>
       <div class="tab${_tab==='ready'?' on':''}" data-t="ready">✅ מוכן לאספקה${ready.length?`<span class="n">${ready.length}</span>`:''}</div>
       <div class="tab${_tab==='done'?' on':''}" data-t="done">🚚 סופקו</div>
@@ -658,6 +665,78 @@ function notesCard(notes,a){
   </div>`;
 }
 
+/* ═══════════ תיק-לקוח: כותרת, היסטוריה ומלאי במקום אחד ═══════════
+   לחיצה על לקוח פותחת את כל התמונה שלו — כמה עבודות רצות, מה ממתין, מה המלאי —
+   בלי לחפש את חלון-המלאי בקטגוריה אחרת (הכאב עם אלעל). */
+function _normName(s){ return String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase(); }
+/* כרטיסי-דפוס ששייכים ללקוח — לפי שמות הפריטים בעבודה או שם/לקוח הכרטיס */
+function _cardsForCustomer(name){
+  const n=_normName(name); if(!n) return [];
+  return _cards.filter(c=>{
+    if(!c) return false;
+    if(FW.jobCustomers(c).some(x=>_normName(x)===n)) return true;
+    return _normName(c.customer)===n || _normName(c.name).indexOf(n)>=0;
+  });
+}
+function _custHeader(a,b,jobs,orders){
+  const t=b.totals;
+  const openOrd=orders.filter(o=>o.status==='pending'||o.status==='ready').length;
+  const liveJobs=jobs.filter(c=>FW.jobStage(c,false)!=='delivered').length;
+  const hasStock=(a.items||[]).length>0;
+  return `<div class="card" style="padding:11px 14px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <h3 style="margin:0">📁 ${esc(a.customer)} <span class="muted" style="font-size:.8rem;font-weight:400">${esc(FW.kindLabel(FW.kindOf(a.kind)))}</span></h3>
+      <div class="muted" style="font-size:.8rem">${a.agreementNo?'הסכם '+esc(a.agreementNo)+' · ':''}${a.endDate?'בתוקף עד '+esc(a.endDate):''}</div>
+    </div>
+    <div style="margin-top:7px">
+      <span class="stat">הזמנות פתוחות<b style="color:#b45309">${openOrd}</b></span>
+      <span class="stat">עבודות דפוס פעילות<b style="color:#0369a1">${liveJobs}</b></span>
+      <span class="stat">סה״כ בהיסטוריה<b>${jobs.length+orders.length}</b></span>
+      ${hasStock?`<span class="stat">פנוי במלאי<b class="${t.shortItems?'bad':''}">${t.availableQty.toLocaleString()}</b></span>`:''}
+    </div></div>`;
+}
+/* קיצורי-דרך לניהול המלאי — כדי שלא יצטרכו לחפש את המסך הנכון */
+function _stockActions(a){
+  return `<div class="card" style="padding:10px 14px">
+    <b style="color:var(--press)">עדכון מלאי</b>
+    <div class="muted" style="font-size:.82rem;margin:4px 0 8px">הוספת פריטים, קליטת מלאי חדש ומשיכות — במסך ניהול ההסכמים.</div>
+    <button onclick="window.open('framework-orders.html','_blank')" class="primary">⚙️ פתח ניהול הסכמים ומלאי</button>
+  </div>`;
+}
+/* היסטוריה מלאה: הזמנות + כרטיסי-דפוס של הלקוח, לפי זמן */
+function historyCard(a,jobs){
+  const rows=[];
+  (a.orders||[]).forEach(o=>{
+    const st=FW.orderStage(o);
+    const lbl=st==='delivered'?'סופקה':st==='ready'?'מוכנה לאספקה':st==='new'?'התקבלה':'בייצור';
+    const col=st==='delivered'?'#64748b':st==='ready'?'#15803d':'#b45309';
+    rows.push({ when:o.suppliedAt||o.date||'', kind:'🧾 הזמנה', title:FW.orderTitle(o),
+      qty:FW.effectiveLines(o).reduce((s,l)=>s+(l.qty||0),0), status:lbl, col:col,
+      click:`data-hist-o="${o.orderId}" data-hist-a="${a.agreementId}"` });
+  });
+  jobs.forEach(c=>{
+    const st=FW.jobStage(c,false);
+    const lbl=st==='delivered'?'סופקה':st==='ready'?'מוכן לאספקה':'בייצור';
+    const col=st==='delivered'?'#64748b':st==='ready'?'#15803d':'#0369a1';
+    rows.push({ when:c.deliveryDate||c.orderDate||c.createdAt||'', kind:'🖨 עבודת דפוס', title:c.name||'עבודה',
+      qty:FW.jobLines(c).reduce((s,l)=>s+(l.qty||0),0)||parseInt(c.copies,10)||0, status:lbl, col:col,
+      click:`data-hist-j="${c.id}"` });
+  });
+  rows.sort((x,y)=>String(y.when).localeCompare(String(x.when)));
+  if(!rows.length) return `<div class="card muted" style="text-align:center;padding:20px">אין עדיין היסטוריה ללקוח הזה.</div>`;
+  return `<div class="card">
+    <h3 style="margin:0 0 8px">🗂 היסטוריה — ${esc(a.customer)} <span class="muted" style="font-size:.82rem;font-weight:400">(${rows.length})</span></h3>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>תאריך</th><th>סוג</th><th>עבודה / הזמנה</th><th>כמות</th><th>סטטוס</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr ${r.click} style="cursor:pointer" title="לחצו לפתיחה">
+        <td class="muted" style="white-space:nowrap">${esc(r.when||'—')}</td>
+        <td style="white-space:nowrap">${r.kind}</td>
+        <td><b>${esc(r.title)}</b></td>
+        <td>${r.qty?r.qty.toLocaleString():'—'}</td>
+        <td><b style="color:${r.col}">${r.status}</b></td></tr>`).join('')}</tbody></table></div>
+  </div>`;
+}
+
 /* ═══════════ 📝 הערות לקוח + הערה קופצת ═══════════
    רובריקת הערות פר-לקוח לתזכורות עתידיות (למשל: לספק שוב חבילה ללא תשלום עקב
    חבילה תקולה). הערה "קופצת" (🔔) צפה כבאנר בולט בראש מסך הלקוח וברשימת-העל. */
@@ -746,6 +825,9 @@ function _wireCustNotes(){
   document.querySelectorAll('.cnJump').forEach(el=>el.onclick=e=>{
     e.stopPropagation(); _sel=el.dataset.a; _tab='cnotes'; render();
   });
+  // שורות ההיסטוריה — פתיחת ההזמנה / כרטיס-העבודה
+  document.querySelectorAll('[data-hist-o]').forEach(el=>el.onclick=()=>openOrder(el.dataset.histA, el.dataset.histO));
+  document.querySelectorAll('[data-hist-j]').forEach(el=>el.onclick=()=>openJob(el.dataset.histJ));
 }
 /* ═══════════ אירועים ═══════════ */
 function wire(a){
