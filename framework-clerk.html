@@ -387,6 +387,7 @@ function detail(a){
   else if(_tab==='cnotes')body = custNotesCard(a);
   else if(_tab==='stock') body = stockCard(a)+_stockActions(a);
   else if(_tab==='hist')  body = historyCard(a,jobs);
+  else if(_tab==='contact')body = contactsCard(a);
   else                    body = flowBoard([{ag:a, orders:orders}]);
 
   const open=orders.filter(o=>o.status==='pending'||o.status==='ready').length;
@@ -394,6 +395,7 @@ function detail(a){
   return `${_custHeader(a,b,jobs,orders)}<div class="tabs">
       <div class="tab${_tab==='flow'?' on':''}" data-t="flow">🔄 זרימת עבודות${open?`<span class="n">${open}</span>`:''}</div>
       <div class="tab${_tab==='hist'?' on':''}" data-t="hist">🗂 היסטוריה${(jobs.length+orders.length)?`<span class="n">${jobs.length+orders.length}</span>`:''}</div>
+      <div class="tab${_tab==='contact'?' on':''}" data-t="contact">👤 אנשי קשר</div>
       ${hasStock?`<div class="tab${_tab==='stock'?' on':''}" data-t="stock">📦 מלאי</div>`:''}
       <div class="tab${_tab==='new'?' on':''}" data-t="new">➕ הזמנה חדשה</div>
       <div class="tab${_tab==='ready'?' on':''}" data-t="ready">✅ מוכן לאספקה${ready.length?`<span class="n">${ready.length}</span>`:''}</div>
@@ -696,7 +698,9 @@ function _custHeader(a,b,jobs,orders){
       <span class="stat">עבודות דפוס פעילות<b style="color:#0369a1">${liveJobs}</b></span>
       <span class="stat">סה״כ בהיסטוריה<b>${jobs.length+orders.length}</b></span>
       ${hasStock?`<span class="stat">פנוי במלאי<b class="${t.shortItems?'bad':''}">${t.availableQty.toLocaleString()}</b></span>`:''}
-    </div></div>`;
+    </div>
+    ${(function(){ const p=((a.contact&&a.contact.people)||[]).find(x=>x&&(x.phone||x.name)); return p?`<div class="muted" style="font-size:.82rem;margin-top:6px">👤 ${esc(p.name||'איש קשר')}${p.phone?` · <a href="tel:${esc(p.phone)}">📞 ${esc(p.phone)}</a> <a href="${_waLink(p.phone)}" target="_blank">🟢 וואטסאפ</a>`:''}</div>`:''; })()}
+    </div>`;
 }
 /* קיצורי-דרך לניהול המלאי — כדי שלא יצטרכו לחפש את המסך הנכון */
 function _stockActions(a){
@@ -738,6 +742,64 @@ function historyCard(a,jobs){
         <td>${r.qty?r.qty.toLocaleString():'—'}</td>
         <td><b style="color:${r.col}">${r.status}</b></td></tr>`).join('')}</tbody></table></div>
   </div>`;
+}
+
+/* ═══════════ 👤 אנשי קשר — פרטי-קשר של הלקוח ═══════════
+   נשמר על ההסכם (a.contact = {address, note, people:[{name,role,phone,email}]}).
+   כולל קישורי-פעולה מהירים: וואטסאפ / חיוג / מייל. (בקשת-משתמש 2026-07-30) */
+function _waLink(ph){ var d=String(ph||'').replace(/\D/g,''); if(!d) return ''; if(d.indexOf('972')===0){} else if(d[0]==='0') d='972'+d.slice(1); return 'https://wa.me/'+d; }
+function contactsCard(a){
+  const c = a.contact || {};
+  const people = Array.isArray(c.people) ? c.people : [];
+  const personRow = (p,i)=>`<div class="ctRow" data-i="${i}" style="display:grid;grid-template-columns:1.2fr 1fr 1.2fr 1.4fr auto;gap:6px;margin-bottom:6px">
+      <input class="ct-name"  placeholder="שם" value="${esc(p.name||'')}">
+      <input class="ct-role"  placeholder="תפקיד" value="${esc(p.role||'')}">
+      <input class="ct-phone" placeholder="טלפון" value="${esc(p.phone||'')}">
+      <input class="ct-email" placeholder="מייל" value="${esc(p.email||'')}">
+      <button class="ctDel" title="הסר" style="background:#fff;color:#dc2626;border:1.5px solid #fecaca">🗑</button></div>`;
+  // תצוגת קישורים מהירים לאנשי-קשר שכבר יש להם טלפון/מייל
+  const quick = people.filter(p=>p.phone||p.email).map(p=>`<span style="display:inline-flex;gap:6px;align-items:center;margin:0 0 6px;padding:5px 9px;background:#f8fafc;border:1px solid var(--line);border-radius:8px">
+      <b>${esc(p.name||'איש קשר')}</b>${p.role?`<span class="muted" style="font-size:.8rem">(${esc(p.role)})</span>`:''}
+      ${p.phone?`<a href="tel:${esc(p.phone)}" title="חיוג">📞 ${esc(p.phone)}</a> <a href="${_waLink(p.phone)}" target="_blank" title="וואטסאפ">🟢</a>`:''}
+      ${p.email?`<a href="mailto:${esc(p.email)}" title="מייל">✉️</a>`:''}</span>`).join(' ');
+  return `<div class="card">
+    <h3 style="margin:0 0 8px">👤 אנשי קשר — ${esc(a.customer)}</h3>
+    ${quick?`<div style="margin-bottom:10px">${quick}</div>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <label style="font-size:.85rem">כתובת<br><input id="ct-address" style="width:100%" placeholder="כתובת למשלוח/איסוף" value="${esc(c.address||'')}"></label>
+      <label style="font-size:.85rem">הערת-קשר<br><input id="ct-note" style="width:100%" placeholder="שעות פעילות, העדפות…" value="${esc(c.note||'')}"></label>
+    </div>
+    <div style="font-weight:800;color:var(--press);margin:6px 0">אנשי קשר</div>
+    <div id="ctPeople">${people.map(personRow).join('')||''}</div>
+    <button id="ctAdd" style="margin-top:4px">➕ הוסף איש קשר</button>
+    <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+      <button id="ctSave" class="primary">💾 שמור פרטי קשר</button>
+      <span id="ctMsg" class="muted" style="margin-inline-start:8px"></span>
+    </div></div>`;
+}
+function _wireContacts(){
+  const add=document.getElementById('ctAdd');
+  if(add) add.onclick=()=>{
+    const wrap=document.getElementById('ctPeople'); if(!wrap) return;
+    const i=wrap.querySelectorAll('.ctRow').length;
+    const div=document.createElement('div'); div.className='ctRow'; div.dataset.i=i;
+    div.style.cssText='display:grid;grid-template-columns:1.2fr 1fr 1.2fr 1.4fr auto;gap:6px;margin-bottom:6px';
+    div.innerHTML='<input class="ct-name" placeholder="שם"><input class="ct-role" placeholder="תפקיד"><input class="ct-phone" placeholder="טלפון"><input class="ct-email" placeholder="מייל"><button class="ctDel" style="background:#fff;color:#dc2626;border:1.5px solid #fecaca">🗑</button>';
+    wrap.appendChild(div);
+    div.querySelector('.ctDel').onclick=()=>div.remove();
+  };
+  document.querySelectorAll('.ctDel').forEach(b=>b.onclick=()=>b.closest('.ctRow').remove());
+  const sv=document.getElementById('ctSave');
+  if(sv) sv.onclick=async()=>{
+    const ag=cur(); if(!ag) return;
+    const people=[...document.querySelectorAll('#ctPeople .ctRow')].map(r=>({
+      name:(r.querySelector('.ct-name')||{}).value||'', role:(r.querySelector('.ct-role')||{}).value||'',
+      phone:(r.querySelector('.ct-phone')||{}).value||'', email:(r.querySelector('.ct-email')||{}).value||''
+    })).filter(p=>p.name||p.phone||p.email);
+    ag.contact={ address:(document.getElementById('ct-address')||{}).value||'', note:(document.getElementById('ct-note')||{}).value||'', people };
+    const m=document.getElementById('ctMsg'); if(m) m.textContent='שומר…';
+    if(await save(ag)){ _tab='contact'; render(); }
+  };
 }
 
 /* ═══════════ 📝 הערות לקוח + הערה קופצת ═══════════
@@ -835,6 +897,7 @@ function _wireCustNotes(){
 /* ═══════════ אירועים ═══════════ */
 function wire(a){
   _wireCustNotes();
+  _wireContacts();
   document.querySelectorAll('[data-t]').forEach(el=>el.onclick=()=>{ _tab=el.dataset.t; render(); });
   // מלוח-הזרימה אפשר לקפוץ ישר ללקוח וללשונית הרלוונטית
   document.querySelectorAll('.goReady').forEach(el=>el.onclick=e=>{
