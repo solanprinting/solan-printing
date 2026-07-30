@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <!-- cdnjs נחסם אצל חלק מהמשתמשים (סינון-תוכן/פרוקסי/חוסם-פרסומות) → מראות-גיבוי + אזהרה ברורה -->
 <script src="lib-loader.js"></script>
+<script src="proof-guard.js"></script>
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="storage-cleanup.js"></script>
@@ -438,6 +439,15 @@ function render(rows) {
   };
   const psReqOf = (p, target) => ((p && p.changeRequests) || {})[target] || null;
   // עדכון-לקוח-שמוכן: תג "עודכן" אם כבר הודענו, או כפתור לעדכן עבודה שכבר הושלמה
+  /* ✏️ עריכת פרטי הגיליון בבית-הדפוס: שם-לקוח, שם-עבודה וגודל-עמוד.
+     בקשת-בעלים (2026-07-30): "עדיף שאני אערוך את הפרטים של הלקוח ואיזה גודל
+     עיתון הוא עושה, והלקוח רק יצטרך להעלות קבצים". */
+  const editBtn = (p) => `<button data-editproof="${p.id}" title="ערוך שם-לקוח · שם-עבודה · גודל עמוד">✏️ פרטים</button>`;
+  /* 🔒 סגירת גיליון להעלאות. הרקע: לקוח העלה את ריצת השבוע לגיליון שכבר הושלם.
+     גיליון שסומן "הושלם" סגור אוטומטית; כאן אפשר לסגור/לפתוח גם בלי זה. */
+  const closeBtn = (p) => p.closedAt
+    ? `<button data-closeproof="${p.id}" data-on="1" title="נסגר ${fmt(p.closedAt)} — פתיחה תאפשר ללקוח להעלות שוב">🔓 פתח להעלאה</button>`
+    : `<button data-closeproof="${p.id}" data-on="0" title="הלקוח לא יוכל להעלות לגיליון הזה">🔒 סגור להעלאה</button>`;
   const notifyBtn = (p) => {
     if (p.readyNotice) return `<span class="psTag" style="background:#dcfce7;color:#166534;border:1.5px solid #86efac" title="עודכן ${fmt(p.readyNotice.at)}">📩 הלקוח עודכן שמוכן</span>`;
     if (p.completedAt) return `<button data-notifyready="${p.id}" title="עדכן את הלקוח שהעבודה מוכנה">🔔 עדכן שמוכן</button>`;
@@ -462,7 +472,7 @@ function render(rows) {
           <button data-link="${clientLink}">📤 קישור ללקוח</button>
           <button data-link="${viewerLink}">📤 שלח לעובדים</button>
           <button data-donejob="${p.id}" data-on="${p.completedAt?1:0}" title="${p.completedAt?'החזר לעבודות פעילות':'סמן כהושלם — יעבור ל"עיתונים שהושלמו"'}">${p.completedAt?'↩ החזר':'✅ הושלם'}</button>
-          ${notifyBtn(p)}
+          ${notifyBtn(p)}${editBtn(p)}${closeBtn(p)}
           <button class="del" data-deljob="${p.id}" title="מחק עבודה וכל הריצות">🗑</button>
         </div></td></tr>`;
       const partRows = parts.map(pt => `<tr class="row-ok">
@@ -474,6 +484,7 @@ function render(rows) {
           <button data-link="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}">📤 לעובדים</button>
           ${genCell(pt.fileUrl, jobName(p, pt.name), p.id, pt.pid)}
           ${psCell(p.id, pt.pid, psReqOf(p, pt.pid))}
+          <button data-moverun="${p.id}|${pt.pid}" title="הלקוח העלה לגיליון הלא-נכון? העבר את הריצה לגיליון אחר">⇄ העבר לגיליון</button>
           <button class="del" data-delpart="${p.id}|${pt.pid}|${encodeURIComponent(pt.filePath||'')}" title="מחק ריצה">🗑</button>
         </div></td></tr>`).join('');
       return head + (_col ? '' : partRows);   // מכווץ → מציגים רק את שורת-העבודה
@@ -529,6 +540,7 @@ function render(rows) {
         <a href="${clientLink}" target="_blank">🔗 פתח</a>
         <button data-link="${clientLink}">📤 קישור ללקוח</button>
         ${view}${toWorkers}${gen}${psCell(p.id, 'full', psReqOf(p, 'full'))}${notifyBtn(p)}
+        ${editBtn(p)}${closeBtn(p)}
         <button class="del" data-deljob="${p.id}" title="מחק עבודה">🗑</button>
       </div></td></tr>`;
   };
@@ -722,6 +734,11 @@ function render(rows) {
       t.onclick = function(){ var k=t.dataset.jobtoggle; _jobCollapsed[k] = !_jobCollapsed[k]; render(rows); };
     });
   })();
+  document.querySelectorAll('[data-editproof]').forEach(b => b.onclick = () => editProof(b.dataset.editproof));
+  document.querySelectorAll('[data-closeproof]').forEach(b => b.onclick = () => closeProof(b.dataset.closeproof, b.dataset.on === '1'));
+  document.querySelectorAll('[data-moverun]').forEach(b => b.onclick = () => {
+    const [jobId, pid] = b.dataset.moverun.split('|'); moveRun(jobId, pid, b);
+  });
   document.querySelectorAll('[data-notice]').forEach(b => b.onclick = () => sendNotice(b.dataset.notice));
   document.querySelectorAll('[data-apogee]').forEach(b => b.onclick = () => attachApogee(b.dataset.apogee));
   document.querySelectorAll('[data-unlock]').forEach(b => b.onclick = () => unlockProof(b.dataset.unlock));
@@ -1324,6 +1341,112 @@ $('invite').onclick = async () => {
   await loadProofs();
   prompt('הקישור ללקוח (העתק ושלח):', link);
 };
+
+/* ═══════════ עריכת פרטי גיליון · סגירה להעלאה · העברת ריצה ═══════════
+   באטץ' בקשות-בעלים 2026-07-30. הרקע: לקוח העלה את ריצת השבוע לתוך גיליון
+   שכבר הושלם. שלושת הכלים כאן פותרים את מה שקרה ואת מה שיקרה שוב:
+     ✏️ הדפוס מגדיר את הפרטים והגודל — הלקוח רק מעלה קבצים.
+     🔒 גיליון שנסגר/הושלם לא מקבל קבצים (נאכף גם בצד הלקוח).
+     ⇄ ריצה שנכנסה לגיליון הלא-נכון מועברת ליעד הנכון, עם תיעוד.            */
+const PROOF_PRESETS = [
+  { label: 'עיתון רגיל 16.5×24 ס"מ', w: 165, h: 240 },
+  { label: '24×33 ס"מ',             w: 240, h: 330 },
+  { label: 'A4 (21×29.7)',          w: 210, h: 297 },
+  { label: 'A5 (14.8×21)',          w: 148, h: 210 },
+  { label: 'A3 (29.7×42)',          w: 297, h: 420 },
+  { label: 'טאבלויד 28×40 ס"מ',     w: 280, h: 400 },
+];
+// "1" / "165x240" / "16.5x24" → {w,h} במ"מ. ריק → null (בלי שינוי)
+function _parseSize(raw){
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return null;
+  if (/^\d{1,2}$/.test(s) && PROOF_PRESETS[+s - 1]) { const p = PROOF_PRESETS[+s - 1]; return { w: p.w, h: p.h }; }
+  const m = s.replace(',', '.').match(/(\d+(?:\.\d+)?)\s*[xX*×]\s*(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  let w = +m[1], h = +m[2];
+  if (w > 0 && w < 60) w = Math.round(w * 10);      // ס"מ → מ"מ
+  if (h > 0 && h < 60) h = Math.round(h * 10);
+  return (w > 0 && h > 0) ? { w, h } : null;
+}
+async function editProof(id){
+  const p = _allRows.find(r => r.id === id);
+  if (!p) return;
+  const cust = prompt('שם הלקוח (עיתון):', p.customer || '');
+  if (cust === null) return;
+  const title = prompt('שם העבודה / גיליון:', p.title || '');
+  if (title === null) return;
+  const cur = (+p.reqW > 0 && +p.reqH > 0) ? (p.reqW + 'x' + p.reqH) : '';
+  const sizeRaw = prompt('גודל עמוד נדרש (מ"מ או ס"מ) — הלקוח יקבל אזהרה אם יעלה בגודל אחר:\n\n'
+    + PROOF_PRESETS.map((x,i)=>`${i+1}. ${x.label}  (${x.w}×${x.h})`).join('\n')
+    + '\n\nאפשר גם להקליד "165x240" או "16.5x24". השאירו ריק כדי לא לשנות.', cur);
+  if (sizeRaw === null) return;
+  const patch = {};
+  if (cust.trim() && cust.trim() !== (p.customer||'')) patch.customer = cust.trim();
+  if (title.trim() !== (p.title||'')) patch.title = title.trim();
+  const sz = _parseSize(sizeRaw);
+  if (sz) { patch.reqW = sz.w; patch.reqH = sz.h; }
+  else if (String(sizeRaw).trim() && !sz) { alert('הגודל לא הובן — לא שונה.'); }
+  if (!Object.keys(patch).length) { msg('לא בוצע שינוי'); return; }
+  msg('שומר…');
+  try {
+    await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`),
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    await loadProofs();
+    msg('✓ הפרטים עודכנו' + (sz ? (' · גודל ' + sz.w + '×' + sz.h) : ''));
+  } catch(e){ alert('העדכון נכשל: ' + (e.message||e)); }
+}
+async function closeProof(id, isClosed){
+  const p = _allRows.find(r => r.id === id);
+  if (!p) return;
+  if (!isClosed && !confirm('לסגור את "' + (p.title || p.customer || 'הגיליון') + '" להעלאות?\n\n'
+      + 'הלקוח יקבל הסבר שהגיליון נסגר, ויתבקש לבקש קישור לגיליון החדש.')) return;
+  msg(isClosed ? 'פותח…' : 'סוגר…');
+  try {
+    await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`),
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ closedAt: isClosed ? null : Date.now() }) });
+    await loadProofs();
+    msg(isClosed ? '✓ הגיליון פתוח להעלאה' : '🔒 הגיליון נסגר להעלאות');
+  } catch(e){ alert('הפעולה נכשלה: ' + (e.message||e)); }
+}
+async function moveRun(jobId, partId, btn){
+  const from = _allRows.find(r => r.id === jobId);
+  if (!from || !from.parts || !from.parts[partId]) return;
+  const part = from.parts[partId];
+  // יעדים אפשריים: גיליונות של אותו לקוח שפתוחים להעלאה, החדש קודם
+  const cands = _allRows.filter(r => r && r.id !== jobId
+      && String(r.customer||'') === String(from.customer||'')
+      && !(window.ProofGuard && ProofGuard.isClosed(r)))
+    .sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+  if (!cands.length) { alert('אין גיליון פתוח אחר של "' + (from.customer||'') + '" להעביר אליו.\n'
+    + 'צרו גיליון חדש (➕ הזמנה ללקוח) ואז העבירו.'); return; }
+  const menu = 'להעביר את "' + (part.name || partId) + '" לאיזה גיליון?\n\n'
+    + cands.map((c,i)=>`${i+1}. ${c.title || '(ללא שם)'} — נוצר ${fmt(c.createdAt)}${c.parts?(' · '+Object.keys(c.parts).length+' ריצות'):''}`).join('\n')
+    + '\n\nהקלידו מספר, או בטלו.';
+  const pickRaw = prompt(menu, '1');
+  if (pickRaw === null) return;
+  const to = cands[(parseInt(pickRaw, 10) || 0) - 1];
+  if (!to) { alert('בחירה לא תקינה.'); return; }
+  const plan = window.ProofGuard
+    ? ProofGuard.planMoveRun(from, to, partId, { now: Date.now(), by: 'דפוס', allowStale: true })
+    : { ok: false, errors: ['NO_GUARD'] };
+  if (!plan.ok) { alert('לא ניתן להעביר: ' + plan.errors.join(', ')); return; }
+  if (!confirm('להעביר את "' + (part.name || partId) + '"\nמ: ' + (from.title||from.id)
+    + '\nל: ' + (to.title||to.id) + ' ?\n\nהקובץ עצמו לא זז — רק השיוך.')) return;
+  const old = btn.textContent; btn.disabled = true; btn.textContent = 'מעביר…';
+  try {
+    // קודם כותבים ביעד, ורק אחרי שהצליח מוחקים במקור — כדי שריצה לא תיעלם באמצע
+    await fetch(await _au(`${_FBURL}/customerProofs/${to.id}/${plan.toPath}.json`),
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(plan.part) });
+    await fetch(await _au(`${_FBURL}/customerProofs/${jobId}/${plan.fromPath}.json`),
+      { method: 'DELETE' });
+    await loadProofs();
+    msg('✓ הריצה הועברה ל"' + (to.title || to.id) + '"');
+  } catch(e){
+    btn.disabled = false; btn.textContent = old;
+    alert('ההעברה נכשלה: ' + (e.message||e) + '\nבדקו אם הריצה מופיעה בשני הגיליונות.');
+  }
+}
 
 // ── ניצול אחסון ──
 const STORAGE_LIMIT_GB = 5;   // תקרה לתצוגה (שנה לפי התוכנית שלך)

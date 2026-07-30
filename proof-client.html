@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
 <script src="pdfjs-engine.js"></script>
+<script src="proof-guard.js"></script>
 <script src="page-swap.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
@@ -546,7 +547,18 @@ async function _psEnterEdit(target){
 
 $('chFull').onclick = () => startEditor('full');
 $('chRun').onclick  = () => startEditor('run');
+/* ⚠️ שער-גיליון (2026-07-30): לקוח העלה את ריצת השבוע לתוך גיליון שכבר הושלם.
+   הקובץ נכנס לרשומה הלא-נכונה ואף אחד לא ראה. מעכשיו חוסמים כאן, עם הסבר
+   שמפנה לבקש קישור לגיליון החדש — במקום כשל שקט. */
+function _pcUploadAllowed(){
+  if (!window.ProofGuard) return true;
+  var v = ProofGuard.canAcceptUpload(record, Date.now());
+  if (v.ok) return true;
+  alert('🔒 ' + v.message);
+  return false;
+}
 function startEditor(m) {
+  if (!_pcUploadAllowed()) return;
   mode = m; pages = []; sources.clear(); vIndex = 0; window._pcRun = null;
   if (m === 'run') setTimeout(_pcRunPicker, 80);   // שאל כמה עמודים + איזו ריצה — לזיהוי אוטומטי של כפולות-גבול
   $('editorHint').innerHTML = (m === 'full'
@@ -686,8 +698,20 @@ async function renderPage(pdf, pageNo, box) {
     const l = (tb.x - view[0]) / vbW, t = (view[3] - (tb.y + tb.height)) / vbH,
           w = tb.width / vbW, h = tb.height / vbH;
     if (l > 0.003 || t > 0.003 || w < 0.997 || h < 0.997)
-      trimFrac = { l: Math.max(0,l), t: Math.max(0,t), w: Math.min(1,w), h: Math.min(1,h) };
+      trimFrac = { l: Math.max(0,l), t: Math.max(0,t), w: Math.min(1,w), h: Math.min(1,h),
+                   wmm: netW * 25.4 / 72, hmm: netH * 25.4 / 72 };
   }
+  /* ⚠️ באג שתוקן (2026-07-30): "הצג גלישות" לא הציג כלום. הסיבה אינה בתצוגה —
+     רוב הקבצים שהלקוחות מעלים *לא מצהירים* TrimBox (אומת מול קובץ אמיתי:
+     TrimBox == MediaBox בכל העמודים), ולכן לא היה ממה לגזור מסגרת. אבל העמוד
+     כן גדול מהגודל הנטו הנדרש (170×247 מול 165×240) — הגלישה שם, רק לא מוצהרת.
+     כאן גוזרים אותה מול הגודל הנדרש, כך שהכפתור עובד גם על קבצים כאלה. */
+  if (!trimFrac && window.ProofGuard) {
+    var _d = ProofGuard.deriveTrim(vbW * 25.4 / 72, vbH * 25.4 / 72,
+                                   _toMM(record.reqW), _toMM(record.reqH));
+    if (_d) trimFrac = _d;   // wmm/hmm שבתוכו = הגודל הנטו, וזה מה ש-_pageNetSpec צריך
+  }
+  // wmm/hmm שמוחזרים = הגודל שנמדד בפועל (לבדיקת-גודל), לא הנטו הנגזר
   return { src, trimFrac, wmm: netW * 25.4 / 72, hmm: netH * 25.4 / 72 };
 }
 
@@ -1210,7 +1234,9 @@ function renderViewer() {
     if (tf && (tf.w < 1 || tf.h < 1) && window._pcShowBleed) {
       // עם גלישות + צלבי חיתוך — חיתוך נטו רק בשדרה (חיבור נקי בין העמודים); בליד + צלבים מסביב
       const spine = two ? (pos === 0 ? 'left' : 'right') : 'left';
-      const sp = _pageNetSpec({ l:tf.l, t:tf.t, w:tf.w, h:tf.h, wmm:p.wmm, hmm:p.hmm }, spine);
+      // wmm/hmm כאן חייבים להיות ה*נטו*: במסגרת נגזרת הם יושבים על tf עצמו
+      const sp = _pageNetSpec({ l:tf.l, t:tf.t, w:tf.w, h:tf.h,
+                               wmm: tf.wmm || p.wmm, hmm: tf.hmm || p.hmm }, spine);
       const mc = `aspect-ratio:${sp.arr.toFixed(4)};background-image:url('${p.displaySrc||p.src}');`
         + `background-size:${sp.sizeW.toFixed(3)}% 100%;background-position:${sp.posX.toFixed(3)}% 0%;`;
       const f = sp.frame;
@@ -1229,7 +1255,8 @@ function renderViewer() {
       const posX = tf.w < 1 ? tf.l / (1 - tf.w) * 100 : 0, posY = tf.h < 1 ? tf.t / (1 - tf.h) * 100 : 0;
       // ⚠️ wmm/hmm יושבים על p (העמוד), לא על trimFrac ({l,t,w,h} בלבד) — tf.wmm/tf.hmm החזירו
       //    NaN ל-aspect-ratio → עמוד לבן ריק במצב "מסתיר גלישות". fallback ליחס-הנטו מה-trimFrac.
-      const _arW = (p.wmm && p.hmm) ? (p.wmm / p.hmm) : ((tf.w && tf.h) ? (tf.w / tf.h) : 1);
+      const _arW = (tf.wmm && tf.hmm) ? (tf.wmm / tf.hmm)
+                 : (p.wmm && p.hmm) ? (p.wmm / p.hmm) : ((tf.w && tf.h) ? (tf.w / tf.h) : 1);
       const mc = `aspect-ratio:${_arW.toFixed(4)};background-image:url('${p.displaySrc||p.src}');`
         + `background-size:${sizeW.toFixed(3)}% ${sizeH.toFixed(3)}%;background-position:${posX.toFixed(3)}% ${posY.toFixed(3)}%;`;
       return `<div class="pagewrap">`
@@ -1274,6 +1301,16 @@ function step(d) {
 $('vprev').onclick = () => step(-1);
 $('vnext').onclick = () => step(+1);
 $('vbleed').onclick = function(){
+  /* כפתור שלא עושה כלום בשקט הוא באג בפני עצמו: אם באמת אין גלישות בקבצים
+     (כל העמודים בגודל הסופי), אומרים זאת במקום להשאיר את המשתמש בספק. */
+  var anyBleed = pages.some(function(p){ return p.trimFrac && (p.trimFrac.w < 1 || p.trimFrac.h < 1); });
+  if (!anyBleed && !window._pcShowBleed){
+    var st = window.ProofGuard ? ProofGuard.bleedStatus(null, null) : { note: 'אין גלישות בקבצים' };
+    alert('🔲 ' + st.note + '.\n\n'
+        + 'אם צריך גלישות — יש לייצא את הקבצים עם 3 מ״מ בליד מסביב,\n'
+        + 'או להגדיר לעיתון גודל נטו בבית-הדפוס כדי שנוכל לחשב אותן.');
+    return;
+  }
   window._pcShowBleed = !window._pcShowBleed;
   this.style.background = window._pcShowBleed ? '#2d3561' : '';
   this.style.color = window._pcShowBleed ? '#fff' : '';
@@ -1435,6 +1472,13 @@ async function _psApproveEdited(){
 $('approve').onclick = async () => {
   if (!pages.length) return;
   if (_psEditing) return _psApproveEdited();   // עריכת-גרסה: מסלול נפרד (לא יוצר ריצה חדשה)
+  /* שער-גיליון גם כאן: הלשונית יכולה להיות פתוחה מאתמול, והדפוס סגר את הגיליון
+     בינתיים. בודקים מול הרשומה העדכנית ולא מול מה שנטען בטעינת הדף. */
+  try {
+    const fresh = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
+    if (fresh) { record.closedAt = fresh.closedAt || null; record.completedAt = fresh.completedAt || null; }
+  } catch(e){ /* אין רשת — נסתמך על מה שיש */ }
+  if (!_pcUploadAllowed()) return;
   let runName = '';
   if (mode === 'run') {
     const count = Object.keys(record.parts || {}).length;

@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785411159';
+window.APP_VERSION = '1785412582';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1512,6 +1512,9 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
 <!-- מנוע התצוגה של pdf.js: העדכני מצייר נכון גרפיקה עם מסכת-שקיפות
      (הישן צייר אותה דהויה — "עוצמה" עמ' 28). כאן זה קריטי כי מהמסך הזה מדפיסים. -->
 <script src="pdfjs-engine.js"></script>
+<!-- התראה חוזרת על קבצים שהלקוח שלח (צליל עד שהקדם-דפוס מסמן · הסלמה למנהל) -->
+<script src="upload-alert.js"></script>
+<script src="proof-guard.js"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 try { if (window.LibLoader) LibLoader.autoFill(['xlsx','jspdf','html2canvas','pdfjs','qrcode','jsbarcode']); } catch(e){}
@@ -20119,6 +20122,7 @@ function setupFBListeners() {
   if (window._fbPollInterval) clearInterval(window._fbPollInterval);
   _fbPollAll();
   window._fbPollInterval = setInterval(_fbPollAll, 30 * 1000);   // 30ש' — ריענון מהיר; החיסכון מגיע מהשהיית פולינג של משתמש לא-פעיל (ראה _pausePolling)
+  try { _uaStart(); } catch(e){}                                  // התראה חוזרת על קבצים שהלקוח שלח
 }
 
 // ── השהיית פולינג למשתמש לא-פעיל (~שעתיים) — חוסך Downloads מטאבים שנשארו פתוחים ──
@@ -20294,6 +20298,102 @@ function _checkCustomerUploadAlerts(all){
   });
   Object.keys(seen).forEach(function(k){ if (now - seen[k] > 7*86400000) { delete seen[k]; changed = true; } });
   if (changed || isFirst) _cpSeenSave();
+  window._cpAll = all || {};        // ל-ticker של ההתראה החוזרת
+  _uaTick();
+}
+
+/* ═══════════ התראה חוזרת: "הלקוח שלח קבצים" — עד שרואים אותה ═══════════
+   בקשת-בעלים (2026-07-30): צליל כל כמה שניות במסך הקדם-דפוס, שנפסק *רק*
+   כשהקדם-דפוס מסמן שראה; ואם אחרי 5 דקות לא סומן — ההתראה עולה גם למנהל.
+   ההתראה הישנה (_cpNotify) ירתה פעם אחת בלבד — קל היה לפספס אותה.
+   הסימון נשמר בענן תחת customerProofs/<id>/ack/<key>, כדי שסימון במכשיר אחד
+   ישתיק את כל המכשירים. הלוגיקה עצמה ב-upload-alert.js (נבדקת). */
+var _uaLastSoundAt = 0, _uaTimer = null;
+function _uaRole(){
+  if (_isPrepressScreen()) return 'prepress';
+  try { if (currentUser && currentUser.isAdmin) return 'manager'; } catch(e){}
+  return 'other';
+}
+// ההעלאות שממתינות לעין: עיתון מלא + כל ריצה, מהשעתיים האחרונות בלבד
+function _uaItems(all){
+  var out = [], now = Date.now(), WINDOW = 2*60*60*1000;
+  Object.keys(all||{}).forEach(function(id){
+    var p = all[id]; if (!p) return;
+    var who = (p.customer||'').trim() || 'לקוח';
+    var ack = p.ack || {};
+    var push = function(key, at, label){
+      if (!at || (now - at) > WINDOW) return;
+      out.push({ id: id + '|' + key, proofId: id, ackKey: key, customer: who,
+                 title: label || (p.title||''), at: at, seenAt: (ack[key]||{}).seenAt || 0 });
+    };
+    push('full', p.approvedAt, p.title);
+    Object.keys(p.parts||{}).forEach(function(pid){
+      var pt = p.parts[pid]; if (pt) push(pid, pt.approvedAt, pt.name);
+    });
+  });
+  return out;
+}
+function _uaTick(){
+  if (!window.UploadAlert) return;
+  var res = UploadAlert.tick(_uaItems(window._cpAll), {
+    role: _uaRole(), now: Date.now(), lastSoundAt: _uaLastSoundAt });
+  _uaBanner(res);
+  if (res.sound){
+    _uaLastSoundAt = Date.now();
+    try { _playNewCardSound(); } catch(e){}
+    try { _speakHe(UploadAlert.message(res)); } catch(e){}
+  }
+  // שאר המשתמשים: נקודה אדומה על "לקוחות עיתונים" (ההתנהגות שנקבעה קודם)
+  try {
+    var dot = document.getElementById('np-newfiles');
+    if (dot) dot.style.display = (res.dot || res.banner) ? '' : 'none';
+  } catch(e){}
+}
+function _uaBanner(res){
+  var el = document.getElementById('ua-banner');
+  if (!res || !res.banner){ if (el) el.remove(); return; }
+  if (!el){
+    el = document.createElement('div'); el.id = 'ua-banner';
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:100000;padding:12px 16px;'
+      + 'display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;'
+      + 'font-family:Heebo,sans-serif;font-weight:900;color:#fff;box-shadow:0 4px 20px rgba(0,0,0,.35);direction:rtl';
+    document.body.appendChild(el);
+  }
+  el.style.background = res.escalated ? '#b91c1c' : '#1d4ed8';
+  el.innerHTML = '<span style="font-size:1.05rem">' + _esc(UploadAlert.message(res)) + '</span>'
+    + '<span style="font-size:.85rem;font-weight:700;opacity:.9">'
+    + res.items.map(function(it){ return _esc(it.customer + (it.title ? (' · ' + it.title) : '')); }).join(' · ')
+    + '</span>'
+    + '<button id="ua-seen" style="border:none;border-radius:9px;padding:8px 18px;background:#fff;'
+    + 'color:#1a1a2e;font-weight:900;font-size:.95rem;cursor:pointer;font-family:inherit">✔ ראיתי</button>';
+  var b = document.getElementById('ua-seen');
+  if (b) b.onclick = function(){ _uaAck(res.items); };
+}
+// סימון "ראיתי" — נכתב לענן לכל ההעלאות הממתינות, ומשתיק את כל המכשירים
+async function _uaAck(items){
+  var who = '';
+  try { who = (currentUser && currentUser.name) || ''; } catch(e){}
+  var patch = UploadAlert.seenPatch(who, Date.now());
+  var b = document.getElementById('ua-seen'); if (b){ b.disabled = true; b.textContent = 'שומר…'; }
+  for (var i = 0; i < items.length; i++){
+    var it = items[i];
+    try {
+      // עדכון מקומי מיד, כדי שההתראה תיפסק גם אם הרשת איטית
+      if (window._cpAll && window._cpAll[it.proofId]){
+        var p = window._cpAll[it.proofId];
+        p.ack = p.ack || {}; p.ack[it.ackKey] = patch;
+      }
+      await fetch(await _au(_FBURL + '/customerProofs/' + it.proofId + '/ack/' + it.ackKey + '.json'),
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    } catch(e){ console.warn('ack failed', it.id, e); }
+  }
+  _uaLastSoundAt = 0;
+  _uaTick();
+  try { showToast('✔ סומן שראית — ההתראה נעצרה'); } catch(e){}
+}
+function _uaStart(){
+  if (_uaTimer) return;
+  _uaTimer = setInterval(_uaTick, 4000);   // הבדיקה זולה (בזיכרון); הצליל עצמו כל 8 שניות
 }
 
 // האם המשתמש מקליד/עורך שדה כרגע — אם כן, אסור לדרוס את ה-DOM ולגנוב פוקוס
