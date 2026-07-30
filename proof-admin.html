@@ -1310,7 +1310,7 @@ const STORAGE_LIMIT_GB = 5;   // תקרה לתצוגה (שנה לפי התוכנ
 // המדידה מבוססת על סכום ה-fileSize שנשמר בכל רשומה (הערכה — לא מדידת-באקט מדויקת).
 const _CAP_BYTES = () => STORAGE_LIMIT_GB * 1073741824;
 function _proofsMap(){ const m={}; (_allRows||[]).forEach(p=>{ if(p&&p.id) m[p.id]=p; }); return m; }
-function _usageBytes(){ return StorageCleanup.totalBytes(StorageCleanup.recordFiles(_proofsMap())); }
+function _usageBytes(){ if(!window.StorageCleanup) return 0; return StorageCleanup.totalBytes(StorageCleanup.recordFiles(_proofsMap())); }
 function _renderUsage(total){
   const u = $('usage'); if(!u) return;
   const gb = total/1073741824, mb = total/1048576;
@@ -1339,6 +1339,7 @@ async function _storageDelete(path){
 
 // מודל-אישור לפני פינוי — "ההודעה למנהל לפני הפעולה". אף פעם לא מוחק בלי אישור.
 function _offerCleanup(total){
+  if(!window.StorageCleanup){ alert('רכיב הפינוי לא נטען — נסו לרענן.'); return; }
   const files = StorageCleanup.recordFiles(_proofsMap());
   const sel = StorageCleanup.selectForPurge(files, { used: total, cap: _CAP_BYTES(), now: Date.now() });
   const ex = document.getElementById('cleanupModal'); if(ex) ex.remove();
@@ -1388,6 +1389,7 @@ function _offerCleanup(total){
 // בדיקה אוטומטית בטעינה: אם מעל הסף — הודעה+הצעת-פינוי למנהל (פעם אחת לסשן, לא מטריד שוב ושוב)
 function _storageAutoCheck(){
   try {
+    if (!window.StorageCleanup) return;
     if (sessionStorage.getItem('solanStorageNagged') === '1') return;
     const total = _usageBytes();
     if (StorageCleanup.needsCleanup(total, _CAP_BYTES())) {
