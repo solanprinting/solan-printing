@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785407579';
+window.APP_VERSION = '1785408383';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23170,13 +23170,88 @@ function _opProofImagesOverlay(pagesUrl, pdfUrl, type, label) {
     var l = document.getElementById('op-proof-loading'); if (l) l.remove();
     if (!Array.isArray(imgs) || !imgs.length) { if (pdfUrl){ _opCloseProof(); _opRenderPdfToImages(pdfUrl, type||'application/pdf', label); } return; }
     window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: pdfUrl, type: type, label: label,
-      brown: !!window._opProofBrown, cardId: window._opProofCardId || null, tone: _opToneFor(window._opProofCardId) };
+      brown: !!window._opProofBrown, cardId: window._opProofCardId || null, tone: _opToneFor(window._opProofCardId),
+      fromCache: true, truth: [] };   // תמונות שמורות = תצוגה מהירה; מוחלפות ברינדור מהקובץ עצמו
     _opInk.previewSrc = null; _opInk._hiResIdx = undefined;   // איפוס תצוגת ברזי-צבע ברזולוציה גבוהה לפרופר חדש
     _opPVBuild(ov);
   }).catch(function(){
     var l = document.getElementById('op-proof-loading'); if (l) l.remove();
     if (pdfUrl){ _opCloseProof(); _opRenderPdfToImages(pdfUrl, type||'application/pdf', label); }
   });
+}
+/* ── רינדור-אמת לפרופר של המפעיל ─────────────────────────────────────────
+   אותה תקלה שהעלימה גרפיקה בדפדוף הלקוח (תמונות שמורות שרונדרו במכשיר אחר
+   והועדפו על הקובץ) יכולה להגיע כאן עד המכונה. לכן: התמונות השמורות מוצגות
+   מיד למהירות, ומיד מתחיל רינדור מה-PDF עצמו שמחליף אותן — העמוד שמוצג
+   כרגע ראשון. המפעיל רואה בסוף בדיוק את מה שבקובץ. */
+function _opTruthNote(txt, hideAfter){
+  var el = document.getElementById('op-pv-truth'); if (!el) return;
+  el.textContent = txt || ''; el.style.display = txt ? 'inline-block' : 'none';
+  clearTimeout(_opTruthNote._t);
+  if (hideAfter) _opTruthNote._t = setTimeout(function(){
+    var e2 = document.getElementById('op-pv-truth'); if (e2) e2.style.display = 'none'; }, hideAfter);
+}
+function _opTruthUpgrade(){
+  var pv = window._opPV;
+  if (!pv || !pv.pdfUrl || !pv.fromCache || pv._truthing || !window.pdfjsLib) return;
+  var isPdf = (pv.type||'').indexOf('pdf') !== -1 || /\.pdf(\?|#|$)/i.test(pv.pdfUrl||'');
+  if (!isPdf) return;
+  pv._truthing = true;
+  _opTruthNote('⏳ מרנדר מהקובץ המקורי…');
+  fetch(pv.pdfUrl).then(function(r){ return r.arrayBuffer(); })
+    .then(function(buf){ return pdfjsLib.getDocument({ data: buf }).promise; })
+    .then(function(pdf){
+      var n = pdf.numPages;
+      // מספר-עמודים שונה מהמטמון → הקובץ הוא האמת; מיישרים את התצוגה אליו
+      if (pv.imgs.length !== n){
+        var old = pv.imgs, filled = new Array(n);
+        for (var k = 0; k < n; k++) filled[k] = old[k] || old[old.length-1];
+        pv.imgs = filled; if (pv.idx > n-1) pv.idx = n-1; _opPVRender();
+      }
+      var shown = function(){ return pv.spread ? [pv.idx, pv.idx+1] : [pv.idx]; };
+      var next = function(){
+        var s = shown();
+        for (var a = 0; a < s.length; a++) if (s[a] >= 0 && s[a] < n && !pv.truth[s[a]]) return s[a];  // מה שעל המסך קודם
+        for (var i = 0; i < n; i++) if (!pv.truth[i]) return i;
+        return -1;
+      };
+      var doneCount = 0;
+      (function step(){
+        if (window._opPV !== pv) { pdf.cleanup && pdf.cleanup(); return; }   // נסגר/הוחלף פרופר
+        var i = next();
+        if (i < 0){
+          pdf.cleanup && pdf.cleanup(); pv.fromCache = false; pv._truthing = false;
+          _opTruthNote('✓ מהקובץ המקורי', 3500);
+          return;
+        }
+        pdf.getPage(i+1).then(function(page){
+          var v1 = page.getViewport({ scale: 1 });
+          var vp2 = page.getViewport({ scale: Math.min(4.0, 2900 / v1.height) });
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.floor(vp2.width)); c.height = Math.max(1, Math.floor(vp2.height));
+          var cx = c.getContext('2d');
+          try { cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high'; } catch(e){}
+          cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);
+          return page.render({ canvasContext: cx, viewport: vp2 }).promise.then(function(){
+            var src = c.toDataURL('image/jpeg', 0.96);
+            page.cleanup && page.cleanup();
+            if (window._opPV !== pv) return;
+            pv.imgs[i] = src; pv.truth[i] = true; doneCount++;
+            if (shown().indexOf(i) >= 0){
+              _opInk.previewSrc = null; _opInk._hiResIdx = undefined;   // ברזי-הצבע ייקראו מהתמונה האמיתית
+              _opPVRender();
+            }
+            _opTruthNote(doneCount >= n ? '✓ מהקובץ המקורי' : ('⏳ מרנדר מהקובץ המקורי… ' + doneCount + '/' + n));
+            step();
+          });
+        }).catch(function(e){ console.warn('truth render failed p' + (i+1), e); pv.truth[i] = true; doneCount++; step(); });
+      })();
+    })
+    .catch(function(e){
+      console.warn('truth upgrade failed', e);
+      if (window._opPV === pv) pv._truthing = false;
+      _opTruthNote('⚠️ לא נטען הקובץ המקורי — תצוגה מהירה בלבד', 12000);
+    });
 }
 // מרנדר PDF לתמונות ומציג בצופה-התמונות הנקי (זום/התאם/מסך-מלא) — כדי לא להיתקל בסרגל ה-PDF של הדפדפן.
 // לא-PDF או אין pdf.js → נופל לצופה הרגיל (_opProofOverlay).
@@ -23198,9 +23273,11 @@ function _opRenderPdfToImages(url, type, label){
           var l = document.getElementById('op-proof-loading'); if (l) l.remove();
           if (!imgs.length){ _opCloseProof(); _opProofOverlay(url, type, label, false); return; }
           window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label,
-            brown: !!window._opProofBrown, cardId: window._opProofCardId || null, tone: _opToneFor(window._opProofCardId) };
+            brown: !!window._opProofBrown, cardId: window._opProofCardId || null, tone: _opToneFor(window._opProofCardId),
+            fromCache: false, truth: imgs.map(function(){ return true; }) };   // רונדר כאן מה-PDF → כבר אמת
           _opInk.previewSrc = null; _opInk._hiResIdx = undefined;
           _opPVBuild(ov);
+          _opTruthNote('✓ מהקובץ המקורי', 3500);
           return;
         }
         pdf.getPage(i).then(function(page){
@@ -23231,6 +23308,7 @@ function _opPVBuild(ov){
   bar.style.cssText = 'display:flex;align-items:center;gap:7px;padding:9px 12px;flex-shrink:0;flex-wrap:wrap;background:#0f172a';
   bar.innerHTML =
       '<span style="color:#fff;font-size:.85rem;font-weight:800;font-family:Heebo,sans-serif;margin-left:auto">' + escHtml(pv.label||'פרופר') + '</span>'
+    + '<span id="op-pv-truth" style="display:none;background:#1d4ed8;color:#fff;border-radius:14px;padding:4px 11px;font-size:.78rem;font-weight:800;font-family:Heebo,sans-serif"></span>'
     + (multi ? _opPVbtn('‹','עמוד קודם').replace('<button','<button id="op-pv-prev"') : '')
     + (multi ? '<select id="op-pv-sel" style="height:38px;border:none;border-radius:8px;padding:0 8px;font-family:Heebo,sans-serif;font-size:.9rem;font-weight:700;cursor:pointer"></select>' : '<span id="op-pv-label" style="color:#cbd5e1;font-size:.85rem;font-weight:700;font-family:Heebo,sans-serif"></span>')
     + (multi ? _opPVbtn('›','עמוד הבא').replace('<button','<button id="op-pv-next"') : '')
@@ -23270,6 +23348,7 @@ function _opPVBuild(ov){
   var sel = document.getElementById('op-pv-sel');
   if (sel) sel.onchange = function(){ window._opPV.idx = parseInt(this.value,10)||0; _opPVRender(); };
   _opPVRender();
+  _opTruthUpgrade();   // תמונות שמורות → מוחלפות ברינדור מהקובץ עצמו (העמוד שמוצג ראשון)
 }
 function _opPVRender(){
   var pv = window._opPV; if(!pv) return;
