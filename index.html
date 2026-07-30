@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785384857';
+window.APP_VERSION = '1785387133';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3959,13 +3959,34 @@ function _stampChangedCards(){
     if (window._cardJsonSnap[k] !== j) { c._upd = now; window._cardJsonSnap[k] = j; }
   });
 }
+// ── השלמה היא סופית ──────────────────────────────────────────────────────
+// באג שחזר שוב ושוב: עבודות שהושלמו לפני ימים "חזרו" לקטגוריית גימורים. הסיבה היא
+// שסטטוס יכול להיסוב אחורה בלי שאף אחד נגע בו — עותק ישן ממכשיר אחר (שעדיין ראה
+// 'finishing') נגע בכרטיס מסיבה אחרת, קיבל _upd=עכשיו, וניצח במיזוג. לכן: כרטיס
+// שהושלם (finishedAt/printedAt + status='done') מנצח גרסה שאינה-הושלמה, גם אם
+// חותמת-הזמן שלה חדשה יותר — אלא אם הצד השני נפתח-מחדש במפורש (reopenedAt מאוחר
+// מההשלמה), שזו פעולת-אדם מכוונת (ביטול "הודפס", גרירה בפס-הזרימה).
+function _cardTs(v){ var t = v ? Date.parse(v) : 0; return isNaN(t) ? 0 : t; }
+function _cardDoneAt(c){ return c ? Math.max(_cardTs(c.finishedAt), _cardTs(c.printedAt)) : 0; }
+function _cardFinalized(c){ return !!(c && c.status === 'done' && _cardDoneAt(c) > 0); }
+// מי מנצח בין שתי גרסאות של אותו כרטיס. מחזיר את הגרסה הנבחרת.
+function _pickCardVersion(a, b){
+  var fa = _cardFinalized(a), fb = _cardFinalized(b);
+  if (fa !== fb){
+    var fin = fa ? a : b, other = fa ? b : a;
+    // פתיחה-מחדש מכוונת אחרי ההשלמה — מנצחת; אחרת ההשלמה עומדת בעינה.
+    if (_cardTs(other.reopenedAt) > _cardDoneAt(fin)) return other;
+    return fin;
+  }
+  return _cardUpd(a) > _cardUpd(b) ? a : b;   // תיקו → b (התנהגות המיזוג המקורית: השרת)
+}
 function _mergeCardArrays(server, local){
   var KEEP_LOCAL_MS = 12 * 3600 * 1000, now = Date.now(), byId = {};
   (server||[]).forEach(function(c){ if (c && c.id != null) byId[String(c.id)] = c; });
   (local||[]).forEach(function(c){
     if (!c || c.id == null) return;
     var k = String(c.id);
-    if (byId[k]) { if (_cardUpd(c) > _cardUpd(byId[k])) byId[k] = c; }        // החדש מנצח
+    if (byId[k]) { byId[k] = _pickCardVersion(c, byId[k]); }                  // החדש מנצח · השלמה סופית
     else if (_cardUpd(c) > now - KEEP_LOCAL_MS) byId[k] = c;                   // מקומי חדש בלבד
   });
   return _filterDeleted('cards', Object.keys(byId).map(function(k){ return byId[k]; }));
@@ -4000,14 +4021,19 @@ function _doPushCardsMerged(){
 // פותר את משפחת הבאגים "מערך שלם דורס מערך שלם": שני מכשירים שעורכים בו-זמנית,
 // או טאב ישן שדוחף נתון ישן. כל פריט נושא חותמת _upd; מיזוג שומר את החדש יותר.
 // מחיקות מוגנות ב-tombstones (deletedIds) — כמו בכרטיסים.
-var _MERGED_COLLS = ['orders','quotes','weeklyJobs','printFiles','deliveryNotes','futureJobs'];
+// עיתונים/עלונים נוספו למיזוג-לפי-מזהה (2026-07-30): הם היו מסונכרנים כמערך-שלם, ולכן
+// מכשיר עם רשימה ישנה דרס את כל הרשימה — כולל חותמות cardCreatedAt שמייצרות את הסימון
+// הירוק ביומן השבועי. זו הסיבה שהסימונים "נמחקו" שוב ושוב. ראה _stampWeekDone.
+var _MERGED_COLLS = ['orders','quotes','weeklyJobs','printFiles','deliveryNotes','futureJobs','newspapers','flyers'];
 var _COLL_REF = {
   orders:        { get:function(){return orders;},        set:function(v){orders=v;},        ls:'solanOrders' },
   quotes:        { get:function(){return quotes;},        set:function(v){quotes=v;},        ls:'solanQuotes' },
   weeklyJobs:    { get:function(){return weeklyJobs;},    set:function(v){weeklyJobs=v;},    ls:'solanWeeklyJobs' },
   printFiles:    { get:function(){return printFiles;},    set:function(v){printFiles=v;},    ls:'solanPrintFiles' },
   deliveryNotes: { get:function(){return deliveryNotes;}, set:function(v){deliveryNotes=v;}, ls:'solanDeliveryNotes' },
-  futureJobs:    { get:function(){return futureJobs;},    set:function(v){futureJobs=v;},    ls:'solanFutureJobs' }
+  futureJobs:    { get:function(){return futureJobs;},    set:function(v){futureJobs=v;},    ls:'solanFutureJobs' },
+  newspapers:    { get:function(){return newspapers;},    set:function(v){newspapers=v;},    ls:'solanNewspapers' },
+  flyers:        { get:function(){return flyers;},        set:function(v){flyers=v;},        ls:'solanFlyers' }
 };
 window._arrSnap = window._arrSnap || {};
 var _arrPushTimers = {};
@@ -4081,6 +4107,43 @@ function _doPushArrMerged(coll){
     .catch(function(){ window._fbPendingPuts[coll] = Math.max(0, (window._fbPendingPuts[coll]||1) - 1); });
 }
 
+// ═══ מיזוג מפה לפי מפתח (updatedAt) — כמו _pushArrMerged, לאוספים שהם אובייקט ═══
+// מלאי-לקוחות נדחף עד כה כמפה שלמה (PUT): מכשיר עם נתון ישן דרס עדכון שנעשה במכשיר
+// אחר (הטלפון) — ואז "המלאי לא מתעדכן במחשב". עכשיו: מביאים שרת, מאמצים כל רשומה
+// שעדכנית ממנו, ורק אז דוחפים — כך ששני מכשירים לא מוחקים זה את זה. (2026-07-30)
+var _mapPushTimers = {};
+function _pushMapMerged(coll){
+  if (window._isMachineView || !window._fbGet || !window._fbPut) return;
+  if (_mapPushTimers[coll]) return;
+  _mapPushTimers[coll] = setTimeout(function(){ _mapPushTimers[coll] = null; _doPushMapMerged(coll); }, 350);
+}
+var _MAP_REF = {
+  customerStock: { get:function(){ return customerStock; }, set:function(v){ customerStock = v; }, ls:'solanCustomerStock' }
+};
+function _mergeMapByUpdatedAt(server, local){
+  var out = {};
+  Object.keys(server||{}).forEach(function(k){ out[k] = server[k]; });
+  Object.keys(local||{}).forEach(function(k){
+    var l = local[k], s = out[k];
+    if (!s || (l && (l.updatedAt||0) >= (s.updatedAt||0))) out[k] = l;
+  });
+  return out;
+}
+function _doPushMapMerged(coll){
+  var ref = _MAP_REF[coll]; if (!ref) return;
+  window._fbPendingPuts = window._fbPendingPuts || {};
+  window._fbPendingPuts[coll] = (window._fbPendingPuts[coll]||0) + 1;
+  window._fbGet(coll).then(function(sv){
+    var server = (sv && typeof sv === 'object') ? sv : {};
+    var merged = _mergeMapByUpdatedAt(server, ref.get());
+    ref.set(merged);
+    try { localStorage.setItem(ref.ls, JSON.stringify(merged)); } catch(e){}
+    window._fbSnapshot[coll] = JSON.stringify(merged);
+    return window._fbPut(coll, merged);
+  }).then(function(){ window._fbPendingPuts[coll] = Math.max(0, (window._fbPendingPuts[coll]||1) - 1); })
+    .catch(function(){ window._fbPendingPuts[coll] = Math.max(0, (window._fbPendingPuts[coll]||1) - 1); });
+}
+
 function persist() {
   // Always write to localStorage (works offline too)
   localStorage.setItem('solanHistory',             JSON.stringify(historyDB));
@@ -4128,14 +4191,16 @@ function persist() {
       if (window._fbSnapshot[cl] !== cur) _pushArrMerged(cl);
     });
     var _paths = {
-      newspapers: newspapers, inventory: inventory,
+      inventory: inventory,   // newspapers עבר למיזוג-לפי-מזהה (_MERGED_COLLS) — לא נדחף כמערך שלם
       inventoryPress: inventoryPress, inventoryDeductions: inventoryDeductions,
       inventoryHistory: inventoryHistory, invoiceLogs: invoiceLogs,
       customers: customers,
       recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds,
-      machineQueue: machineQueue, productMemory: productMemory, customerStock: customerStock,
+      machineQueue: machineQueue, productMemory: productMemory,
       managerTasks: managerTasks, sheetSizeMemory: sheetSizeMemory
     };
+    // מלאי-לקוחות — דחיפה ממוזגת לפי-לקוח (לא PUT של המפה כולה)
+    if (window._fbSnapshot.customerStock !== JSON.stringify(customerStock)) _pushMapMerged('customerStock');
     window._fbPendingPuts = window._fbPendingPuts || {};
     Object.keys(_paths).forEach(function(p) {
       var _json = JSON.stringify(_paths[p]);
@@ -4146,8 +4211,12 @@ function persist() {
       // הגנת מלאי: אם לטאב הזה אין עדיין baseline מהשרת עבור האוסף (למשל מסך הדפסים,
       // שמריץ persist דרך טיימרים כמו _purgeCustomerCards אך לא סנכרן מלאי) — אל תדחוף
       // אותו, כדי לא לדרוס מלאי/הורדות תקינים בנתון מקומי ישן/ריק.
+      // גם אוספים שממוזגים-בקריאה לפי updatedAt (מלאי-לקוחות, זיכרונות, משימות-מנהל):
+      // בלי baseline מהשרת דחיפה שלהם = דריסת המפה כולה בנתון מקומי ישן. זה מה שמחק
+      // עדכוני מלאי-לקוחות שנעשו במכשיר אחר (הטלפון) — 2026-07-30.
       if (window._fbSnapshot[p] === undefined &&
-          (p==='inventory'||p==='inventoryDeductions'||p==='inventoryHistory'||p==='invoiceLogs'||p==='inventoryPress')) return;
+          (p==='inventory'||p==='inventoryDeductions'||p==='inventoryHistory'||p==='invoiceLogs'||p==='inventoryPress'
+           ||p==='customerStock'||p==='productMemory'||p==='sheetSizeMemory'||p==='managerTasks')) return;
       // הגנת מחירון: אל תדחוף quotePricing עד שידוע שהוא אמין (נמשך מהשרת או נשמר ידנית),
       // כדי שטאב עם ברירת-מחדל ריקה לא ידרוס את המחירון התקין בשרת.
       if (p === 'quotePricing' && !window._quotePricingLoaded) return;
@@ -7374,6 +7443,44 @@ function _thisWeekRange() {
 function _itemClearedSince(name) {
   return Math.max(weekClearedAt || 0, weekClearedItems[name] || 0);
 }
+// ── סימוני היומן השבועי — מסונכרנים בין מכשירים (2026-07-30) ──────────────
+// עד כה הסימון הידני היה ב-localStorage בלבד: סימון שנעשה בטלפון לא נראה במחשב,
+// והמשתמש חווה את זה כ"הסימון נמחק". עכשיו כל סימון/ניקוי נכתב לצומת weekMarks
+// במפתח נפרד לכל שם (כתיבה ממוקדת — בלי דריסת המפה כולה), והמיזוג לוקח את המקסימום:
+// m = מתי סומן · c = מתי נוקה. המאוחר מנצח, בדיוק כמו בהשוואה המקומית.
+function _wmKey(name){ return encodeURIComponent(String(name||'')).replace(/\./g,'%2E'); }
+function _wmPush(name){
+  if (!window._fbPut || window._isMachineView) return;
+  var n = String(name||'').trim(); if (!n) return;
+  window._fbPut('weekMarks/' + _wmKey(n), { m: weekCardMarked[n] || 0, c: weekClearedItems[n] || 0 });
+}
+function _wmPushAllCleared(){
+  if (!window._fbPut || window._isMachineView) return;
+  window._fbPut('weekMarks/_allClearedAt', { c: weekClearedAt || 0 });
+}
+// מיזוג נתון-שרת פנימה. מחזיר true אם משהו השתנה מקומית (→ צריך רינדור מחדש).
+function _wmMergeIncoming(map){
+  var changed = false;
+  Object.keys(map||{}).forEach(function(k){
+    var rec = map[k]; if (!rec || typeof rec !== 'object') return;
+    if (k === '_allClearedAt'){
+      if ((+rec.c||0) > (weekClearedAt||0)){ weekClearedAt = +rec.c||0;
+        try { localStorage.setItem('solanWeekClearedAt', String(weekClearedAt)); } catch(e){}
+        changed = true; }
+      return;
+    }
+    var name; try { name = decodeURIComponent(k); } catch(e){ name = k; }
+    if ((+rec.m||0) > (weekCardMarked[name]||0)){ weekCardMarked[name] = +rec.m||0; changed = true; }
+    if ((+rec.c||0) > (weekClearedItems[name]||0)){ weekClearedItems[name] = +rec.c||0; changed = true; }
+  });
+  if (changed) {
+    try {
+      localStorage.setItem('solanWeekCardMarked', JSON.stringify(weekCardMarked));
+      localStorage.setItem('solanWeekClearedItems', JSON.stringify(weekClearedItems));
+    } catch(e){}
+  }
+  return changed;
+}
 // איפוס שבועי אוטומטי — כל יום שבת כל הסימונים הירוקים מתאפסים לשבוע חדש (בנוסף לניקוי הידני).
 // דטרמיניסטי (לפי התאריך) — כל המכשירים מחשבים את אותה "שבת אחרונה", אז עקבי בלי סנכרון.
 function _weeklyAutoReset() {
@@ -7426,6 +7533,7 @@ function toggleWeekCardMark(name) {
   else { weekCardMarked[name] = Date.now(); }
   localStorage.setItem('solanWeekCardMarked', JSON.stringify(weekCardMarked));
   localStorage.setItem('solanWeekClearedItems', JSON.stringify(weekClearedItems));
+  _wmPush(String(name).trim());   // הסימון נראה גם במכשירים האחרים
   if (typeof renderWeek === 'function' && document.getElementById('view-week') && document.getElementById('view-week').style.display !== 'none') renderWeek();
   if (typeof renderDashTodayWeekly === 'function') renderDashTodayWeekly();
 }
@@ -7433,6 +7541,7 @@ function toggleWeekCardMark(name) {
 function clearSingleWeekMark(name) {
   weekClearedItems[name] = Date.now();
   localStorage.setItem('solanWeekClearedItems', JSON.stringify(weekClearedItems));
+  _wmPush(String(name).trim());
   renderWeek();
 }
 
@@ -7445,6 +7554,7 @@ function clearWeekDoneMarks() {
   localStorage.setItem('solanWeekClearedAt', weekClearedAt);
   localStorage.setItem('solanWeekClearedItems', JSON.stringify(weekClearedItems));
   localStorage.setItem('solanWeekCardMarked', JSON.stringify(weekCardMarked));
+  _wmPushAllCleared();   // הניקוי חל גם על שאר המכשירים
   renderWeek();
   showToast('🧹 הסימונים נוקו');
 }
@@ -8173,8 +8283,10 @@ function deletePaper(id) {
   if (!item) return;
   const snap = [...newspapers];
   newspapers = newspapers.filter(n=>n.id!==id);
+  _markDeleted('newspapers', id);   // מיזוג-לפי-מזהה — בלי tombstone העיתון "חוזר" ממכשיר אחר
   persist(); renderPaperMgmt(); renderWeek();
   showUndoToast('עיתון "' + (item.name||'') + '" נמחק', function() {
+    _unmarkDeleted('newspapers', id);
     newspapers = snap; persist(); renderPaperMgmt(); renderWeek();
   });
 }
@@ -8234,8 +8346,10 @@ function deleteFlyer(id) {
   if (!item) return;
   const snap = [...flyers];
   flyers = flyers.filter(x=>x.id!==id);
+  _markDeleted('flyers', id);   // מיזוג-לפי-מזהה — בלי tombstone העלון "חוזר" ממכשיר אחר
   persist(); renderFlyerMgmt(); renderWeek();
   showUndoToast('עלון "' + (item.name||'') + '" נמחק', function() {
+    _unmarkDeleted('flyers', id);
     flyers = snap; persist(); renderFlyerMgmt(); renderWeek();
   });
 }
@@ -14060,6 +14174,8 @@ function _cardNeedsCutting(c){
 function _cardNeedsFinishing(c){ return !!(c && (c.needsFolding || c.needsBinding || _cardBookletish(c) || _cardNeedsCutting(c))); }
 // סיום הדפסה: עבודה עם גימור → 'finishing' (ממתינה ל"סיים גימור"); אחרת → 'done'. מחזיר את הסטטוס שנקבע.
 function _completePrinting(c){
+  // עבודה שכבר הושלמה ולא נפתחה-מחדש במפורש — לא מחזירים אותה לגימורים (ראה _cardFinalized)
+  if (_cardFinalized(c) && _cardTs(c.reopenedAt) <= _cardDoneAt(c)) return c.status;
   c.printedAt = new Date().toISOString();
   if (_cardNeedsFinishing(c)){
     c.status = 'finishing';
@@ -14077,6 +14193,8 @@ function _finishCard(cardId){
   c.status = 'done';
   c.finishedAt = new Date().toISOString();
   if (!c.printedAt) c.printedAt = c.finishedAt;
+  delete c.reopenedAt;                 // ההשלמה החדשה מבטלת פתיחה-מחדש קודמת
+  c._upd = Date.now();                 // ההשלמה חייבת לנצח במיזוג מיד, בלי להסתמך על גלאי-שינויים
   c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
   if (typeof _csApplyRefillOnDone === 'function') _csApplyRefillOnDone(c);
   persist();
@@ -14248,6 +14366,7 @@ function unmarkRunDone(cardId, runIdx, machine) {
   if (c.status === 'done' || c.status === 'finishing') {
     c.status = 'inprogress';
     delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
+    c.reopenedAt = new Date().toISOString(); c._upd = Date.now();   // פתיחה-מחדש מכוונת
     renderCards();
   }
   persist(); renderMachineQueue();
@@ -14261,7 +14380,8 @@ function _queueUnmarkCardDone(cardId, runIdx, machine) {
   var c = cards.find(function(x){ return String(x.id) === String(cardId); });
   if (!c) return;
   c.status = 'inprogress';
-  delete c.printedAt;
+  delete c.printedAt; delete c.finishedAt; delete c.finishStartAt;
+  c.reopenedAt = new Date().toISOString(); c._upd = Date.now();   // פתיחה-מחדש מכוונת
   c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
   persist(); renderMachineQueue(); renderCards();
   _logActivity('↩️', 'עבודה "'+(c.name||'')+'" הוחזרה לתור', c.id);
@@ -14439,6 +14559,9 @@ function _syncCardStatusFromQueue(cardId) {
   var allDone = (c._wlDone === true) || (entries.length > 0 && entries.every(function(e){ return e.done; }));
   var anyDone = entries.some(function(e){ return e.done; });
   var changed = false;
+  // אין רשומות בתור (התור נוקה/נארכב) → אין ממה לגזור סטטוס. בלי זה כרטיס שהושלם
+  // "נפתח מחדש" בכל סבב-poll ואז מושלם שוב — וכך חזר לגימורים שוב ושוב.
+  if (!entries.length && c._wlDone !== true) return false;
   if (allDone) {
     if (c.status !== 'done' && c.status !== 'finishing') {
       c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
@@ -14451,6 +14574,8 @@ function _syncCardStatusFromQueue(cardId) {
     // בוטל סימון ההדפסה — החזר לסטטוס מתאים (בהדפסה אם חלק הודפס, אחרת ממתין)
     c.status = anyDone ? 'inprogress' : 'pending';
     delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
+    c.reopenedAt = new Date().toISOString();   // פתיחה-מחדש מכוונת — גוברת על "השלמה סופית" במיזוג
+    c._upd = Date.now();
     c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
     changed = true;
   }
@@ -20084,9 +20209,41 @@ async function _fbPollAll() {
     // עיתונים
     var nv = await _pollGet('newspapers');
     if (nv !== null && !(_pend.newspapers > 0)) {
-      newspapers = Array.isArray(nv) ? nv : Object.values(nv);
+      // מיזוג-לפי-מזהה (לא דריסת מערך) — אחרת חותמות cardCreatedAt (הסימון הירוק) נמחקות
+      var _incNP = _filterDeleted('newspapers', Array.isArray(nv) ? nv : Object.values(nv));
+      if (_incNP.length === 0 && newspapers.length > 0) {
+        window._fbPut('newspapers', _filterDeleted('newspapers', newspapers)); // הגנה מפני שרת ריק
+      } else {
+      _stampChangedArr('newspapers', newspapers);
+      newspapers = _filterDeleted('newspapers', _mergeArrById(_incNP, newspapers));
       localStorage.setItem('solanNewspapers', JSON.stringify(newspapers));
       window._fbSnapshot.newspapers = JSON.stringify(newspapers);
+      _seedArrSnap('newspapers', newspapers);
+      if (JSON.stringify(newspapers) !== JSON.stringify(_incNP)) _pushArrMerged('newspapers');
+      if (document.getElementById('view-week') && document.getElementById('view-week').style.display!=='none' && typeof renderWeek==='function') renderWeek();
+      }
+    }
+    // סימוני היומן השבועי (ידניים) — מיזוג לפי המאוחר; כך סימון מהטלפון נראה במחשב
+    var wmv = await _pollGet('weekMarks');
+    if (wmv !== null && typeof wmv === 'object') {
+      if (_wmMergeIncoming(wmv) && document.getElementById('view-week')
+          && document.getElementById('view-week').style.display!=='none' && typeof renderWeek==='function') renderWeek();
+    }
+    // עלונים — כמו עיתונים: מיזוג לפי מזהה, כדי שחותמות הסימון הירוק לא יימחקו
+    var flv = await _pollGet('flyers');
+    if (flv !== null && !(_pend.flyers > 0)) {
+      var _incFL = _filterDeleted('flyers', Array.isArray(flv) ? flv : Object.values(flv));
+      if (_incFL.length === 0 && flyers.length > 0) {
+        window._fbPut('flyers', _filterDeleted('flyers', flyers));
+      } else {
+        _stampChangedArr('flyers', flyers);
+        flyers = _filterDeleted('flyers', _mergeArrById(_incFL, flyers));
+        localStorage.setItem('solanFlyers', JSON.stringify(flyers));
+        window._fbSnapshot.flyers = JSON.stringify(flyers);
+        _seedArrSnap('flyers', flyers);
+        if (JSON.stringify(flyers) !== JSON.stringify(_incFL)) _pushArrMerged('flyers');
+        if (document.getElementById('view-week') && document.getElementById('view-week').style.display!=='none' && typeof renderWeek==='function') renderWeek();
+      }
     }
     // זיכרון דרישות מוצר — מיזוג לפי updatedAt (לא דריסה)
     var pmv = await _pollGet('productMemory');
@@ -21447,6 +21604,8 @@ function _pipeMoveStage(cardId, toStage){
   if (!c) return;
   var from = _pipelineStageOf(c);
   if (from === toStage) return;
+  // גרירה אחורה מ"הושלם" = פתיחה-מחדש מכוונת; מסמנים כדי שהמיזוג לא יחזיר את ההשלמה
+  if (from === 'done' && toStage !== 'done'){ c.reopenedAt = new Date().toISOString(); }
   if (toStage === 'created'){
     c.status='pending'; delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
     (c.runs||[]).forEach(function(r){ r.done=false; });
