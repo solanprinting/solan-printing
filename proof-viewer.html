@@ -29,9 +29,13 @@
   header { text-align:center; margin-bottom:8px; padding:0 10px; }
   header h1 { font-size:1.05rem; font-weight:800; margin:0; color:var(--press); } header .sub { color:#6b7280; font-size:.85rem; margin-top:3px; }
   #viewer { width:100%; max-width:1500px; background:#fff; border-radius:10px; }
-  /* gap:0 — העמודים נוגעים נטו-לנטו בקו האמצע, כך שתמונה הנפרשת על כפולה מתחברת ברצף */
-  #spread { display:flex; gap:0; justify-content:center; background:#d1d5db; padding:10px; border-radius:8px;
+  /* gap:0 — העמודים נוגעים נטו-לנטו בקו האמצע, כך שתמונה הנפרשת על כפולה מתחברת ברצף.
+     ⚠️ הזום מוחל על .zoomWrap (הכפולה כיחידה אחת) ולא על כל עמוד בנפרד: כשכל עמוד
+     הוגדל סביב המרכז שלו, שני העמודים גדלו זה-לתוך-זה והעמוד השמאלי "עלה" על הימני. */
+  #spread { display:flex; justify-content:center; background:#d1d5db; padding:10px; border-radius:8px;
             min-height:55vh; align-items:center; box-shadow:0 4px 16px rgba(0,0,0,.18); }
+  #spread .zoomWrap { display:flex; gap:0; justify-content:center; align-items:center;
+                      transform-origin:center center; }
   #spread .page { display:inline-flex; flex-direction:column; align-items:center; gap:5px; line-height:0; }
   /* בלי צל פר-עמוד — צל פנימי היה יוצר "תפר" בין שני העמודים */
   #spread img { display:block; height:80vh; width:auto; max-width:48vw; background:#fff; box-shadow:none; }
@@ -517,7 +521,8 @@ function renderViewer(){
   $('vprev').disabled = vIndex <= 0;
   $('vnext').disabled = s[s.length-1] >= imgs.length - 1;
   const two = s.length === 2;
-  spread.innerHTML = s.map((i, pos) => {
+  // עוטף את הכפולה ביחידה אחת (.zoomWrap) — הזום מוחל עליה, לא על כל עמוד בנפרד
+  spread.innerHTML = '<div class="zoomWrap">' + s.map((i, pos) => {
     const tf = metas[i];
     if (tf && (tf.w < 1 || tf.h < 1)) {
       // חותכים ל-TrimBox רק בצד השדרה (חיבור נקי); בצדדים החיצוניים מציגים בליד + צלבי חיתוך + מסגרת trim
@@ -534,7 +539,8 @@ function renderViewer(){
       return `<div class="page"><div class="cropwrap"><div class="mediacrop" style="${mc}"></div><div class="trimframe" style="${fst}"></div>${_cropMarksHtml(f)}</div><div class="pgnum">עמוד ${i+1}</div></div>`;
     }
     return `<div class="page"><img src="${srcFor(i)}" alt=""><div class="pgnum">עמוד ${i+1}</div></div>`;
-  }).join('');
+  }).join('') + '</div>';
+  if (window._pvZoomApply) _pvZoomApply();   // שומר על מצב-הזום גם אחרי רינדור-מחדש
   _renderPageWarn();
   _ensureHi(s);      // העמודים שעל המסך → רינדור חוזר באיכות-שיא (מחליף כשמוכן)
 }
@@ -586,24 +592,27 @@ $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) 
 (function(){
   var sp=$('spread'), btn=$('vzoom'); if(!sp||!btn) return;
   var on=false, sc=1, tx=0, ty=0, drag=null;
-  /* ⚠️ באג שתוקן (2026-07-30): הזום לא עבד בעיתונים שמצהירים קו-חיתוך.
-     עמוד כזה מוצג כ-.cropwrap (רקע + מסגרת + צלבים), לא כ-<img> — והבורר כאן
-     חיפש רק canvas/img, ולכן לא היה על מה להחיל את הזום. עוטפים את כל סוגי
-     העמודים; ב-cropwrap מזיזים את המעטפת כדי שהמסגרת והצלבים יזוזו איתה. */
-  // בורר משולב: כפולה יכולה להכיל עמוד-cropwrap ועמוד-img יחד
-  function targets(){ return sp.querySelectorAll('.cropwrap,canvas,#spread .page > img'); }
+  /* ⚠️ שני באגים שתוקנו (2026-07-30):
+     1) הזום לא עבד בעיתונים שמצהירים קו-חיתוך — עמוד כזה מוצג כ-.cropwrap
+        (רקע + מסגרת + צלבים) ולא כ-<img>, והבורר חיפש רק canvas/img.
+     2) אחרי התיקון הראשון, כל עמוד הוגדל סביב *המרכז שלו* — ולכן בכפולה שני
+        העמודים גדלו זה-לתוך-זה והעמוד השמאלי עלה על הימני.
+     הפתרון לשניהם: מגדילים את הכפולה כ**יחידה אחת** (.zoomWrap שעוטפת את שני
+     העמודים). כך היחס והמפגש בשדרה נשמרים בכל רמת-זום. */
+  function zoomEl(){ return sp.querySelector('.zoomWrap'); }
   function apply(){
-    Array.prototype.forEach.call(targets(), function(t){
-      t.style.transformOrigin='center center';
-      t.style.transform='translate('+tx+'px,'+ty+'px) scale('+sc+')';
+    var t = zoomEl();
+    if (t){
+      t.style.transform = 'translate('+tx+'px,'+ty+'px) scale('+sc+')';
       t.style.cursor = (on && sc>1) ? 'grab' : (on ? 'zoom-in' : '');
-    });
+    }
     sp.style.overflow = on ? 'hidden' : '';
     btn.textContent = on ? ('🔍 זום '+Math.round(sc*100)+'%') : '🔍 זום';
     btn.style.background = on ? '#c9a84c' : ''; btn.style.color = on ? '#1a1a2e' : '';
   }
   function reset(){ sc=1; tx=0; ty=0; apply(); }
   window._pvZoomReset = reset;                       // מעבר-עמוד מאפס
+  window._pvZoomApply = apply;                       // רינדור-מחדש (איכות-שיא) לא מאבד את הזום
   btn.onclick=function(){ on=!on; if(!on) reset(); else apply(); };
   sp.addEventListener('wheel', function(e){
     if(!on) return; e.preventDefault();
