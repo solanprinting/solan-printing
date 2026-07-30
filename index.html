@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785390285';
+window.APP_VERSION = '1785391436';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -3991,6 +3991,26 @@ function _mergeCardArrays(server, local){
   });
   return _filterDeleted('cards', Object.keys(byId).map(function(k){ return byId[k]; }));
 }
+// ── מגן-מחיקה-המונית (2026-07-30) ─────────────────────────────────────────
+// התקרית: כל הכרטיסים הפעילים נמחקו. השורש: _doPushCardsMerged קרא את השרת,
+// הקריאה נכשלה (רשת/הרשאה) → _fbGet החזיר null → הקוד המיר את זה ל-[] ומיזג
+// מולו. המיזוג שומר כרטיס מקומי-בלבד רק אם עודכן ב-12 השעות האחרונות ("חדש
+// אמיתי") — אז מול "שרת ריק" שרדו רק 3 כרטיסים טריים, וה-PUT מחק את כל השאר.
+// שני קווי הגנה:
+//   1) null מהשרת = לא-ידוע (כשל או צומת ריק) — לעולם לא ממזגים מולו. מדלגים
+//      על הדחיפה; היא תקרה בסבב הבא כשהקריאה תצליח. (מחיקות ממילא מסונכרנות
+//      דרך deletedIds, אז דילוג לא מפיץ שום דבר שגוי.)
+//   2) גם כשהקריאה הצליחה: אם התוצאה הממוזגת מפילה יותר מ-30% מכרטיסי-השרת
+//      שאינם מסומנים כמחוקים — לא דוחפים. שינוי לגיטימי בהיקף כזה עובר תמיד
+//      דרך tombstones, אז המגן לא חוסם אותו.
+function _cardsWipeGuard(server, merged, tomb){
+  var t = {}; (tomb||[]).forEach(function(id){ t[String(id)] = 1; });
+  var inM = {}; (merged||[]).forEach(function(c){ if (c && c.id != null) inM[String(c.id)] = 1; });
+  var dropped = (server||[]).filter(function(c){ return c && c.id != null && !inM[String(c.id)] && !t[String(c.id)]; });
+  var n = (server||[]).length;
+  if (n >= 10 && dropped.length > Math.max(4, Math.floor(n * 0.3))) return false;
+  return true;
+}
 // דחיפת כרטיסים ממוזגת (מתוזמנת/מקובצת) — מביאה שרת, ממזגת, ודוחפת.
 var _cardsPushTimer = null;
 function _pushCardsMerged(){
@@ -4003,8 +4023,18 @@ function _doPushCardsMerged(){
   window._fbPendingPuts = window._fbPendingPuts || {};
   window._fbPendingPuts.cards = (window._fbPendingPuts.cards || 0) + 1;
   window._fbGet('cards').then(function(sv){
-    var server = Array.isArray(sv) ? sv : (sv && typeof sv==='object' ? Object.values(sv) : []);
-    cards = _mergeCardArrays(server, cards);
+    // null = כשל-קריאה או צומת-ריק, אי אפשר להבחין — לא ממזגים מול "כלום" (זה מה
+    // שמחק את כל הכרטיסים ב-2026-07-30). מדלגים; הדחיפה תקרה בסבב הבא.
+    if (sv === null) { console.warn('[cards] קריאת-שרת נכשלה/ריקה — הדחיפה נדחתה'); return false; }
+    var server = Array.isArray(sv) ? sv : (typeof sv === 'object' ? Object.values(sv) : []);
+    var merged = _mergeCardArrays(server, cards);
+    // מגן-מחיקה-המונית: הפלת כרטיסי-שרת רבים בלי tombstones = תקלה, לא עריכה
+    if (!_cardsWipeGuard(server, merged, (deletedIds && deletedIds.cards) || [])) {
+      console.error('[cards] המיזוג היה מוחק ' + server.length + '→' + merged.length + ' כרטיסים בלי tombstones — הדחיפה נחסמה');
+      try { _logActivity('🛑', 'דחיפת-כרטיסים נחסמה (מגן-מחיקה): ' + server.length + '→' + merged.length, null); } catch(e){}
+      return false;   // לא דוחפים ולא מאמצים — הסבב הרגיל של ה-poll יתיישר מול השרת
+    }
+    cards = merged;
     localStorage.setItem('solanCards', JSON.stringify(cards));
     _seedCardSnap();
     window._fbSnapshot.cards = JSON.stringify(cards);
@@ -4094,7 +4124,10 @@ function _doPushArrMerged(coll){
   window._fbPendingPuts = window._fbPendingPuts || {};
   window._fbPendingPuts[coll] = (window._fbPendingPuts[coll]||0) + 1;
   window._fbGet(coll).then(function(sv){
-    var server = Array.isArray(sv) ? sv : (sv && typeof sv==='object' ? Object.values(sv) : []);
+    // אותו מגן כמו בכרטיסים: null = כשל-קריאה/צומת-ריק — לא ממזגים מול "כלום",
+    // כי המיזוג משמיט פריטים מקומיים ישנים ("נמחקו במקום אחר") וה-PUT ימחק אותם.
+    if (sv === null) { console.warn('[' + coll + '] קריאת-שרת נכשלה/ריקה — הדחיפה נדחתה'); return false; }
+    var server = Array.isArray(sv) ? sv : (typeof sv === 'object' ? Object.values(sv) : []);
     var local = ref.get();
     _stampChangedArr(coll, local);
     var merged = _filterDeleted(coll, _mergeArrById(_filterDeleted(coll, server), local));
@@ -4134,7 +4167,9 @@ function _doPushMapMerged(coll){
   window._fbPendingPuts = window._fbPendingPuts || {};
   window._fbPendingPuts[coll] = (window._fbPendingPuts[coll]||0) + 1;
   window._fbGet(coll).then(function(sv){
-    var server = (sv && typeof sv === 'object') ? sv : {};
+    // null = כשל-קריאה/צומת-ריק — מיזוג מול {} היה דוחף מקומי-בלבד ומוחק רשומות שרת
+    if (sv === null) { console.warn('[' + coll + '] קריאת-שרת נכשלה/ריקה — הדחיפה נדחתה'); return false; }
+    var server = (typeof sv === 'object') ? sv : {};
     var merged = _mergeMapByUpdatedAt(server, ref.get());
     ref.set(merged);
     try { localStorage.setItem(ref.ls, JSON.stringify(merged)); } catch(e){}
