@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785415957';
+window.APP_VERSION = '1785416899';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -5204,6 +5204,15 @@ function _fbGetRaw(path){
   return window._fbAuthToken().then(function(t){
     return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : '')).then(function(r){ return r.ok ? r.json() : null; });
   }).catch(function(){ return null; });
+}
+// PATCH ממוקד — מעדכן שדות בודדים בצומת בלי לדרוס את השאר (למשל shopSeenAt על ריצה)
+function _fbPatchRaw(path, obj){
+  if (!window._fbWriteGuard('PATCH-RAW ' + path)) return Promise.resolve(false);   // הגנת סביבה
+  return window._fbAuthToken().then(function(t){
+    return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(obj)
+    }).then(function(r){ return r.ok; });
+  }).catch(function(){ return false; });
 }
 function _fbDelRaw(path){
   if (!window._fbWriteGuard('DEL-RAW ' + path)) return Promise.resolve();   // הגנת סביבה
@@ -20350,9 +20359,13 @@ function _uaItems(all){
     var push = function(key, at, label){
       if (!at || (now - at) > WINDOW) return;
       var _key = id + '|' + key;
-      // seenAt מהענן, ואם השמירה לענן נכשלה — לפחות המכשיר הזה יישאר שקט
-      var _seen = (ack[key]||{}).seenAt || 0;
-      if (!_seen && _uaLocalAcked(_key)) _seen = 1;
+      /* מקור-האמת ל"ראיתי" הוא shopSeenAt — אותו שדה שהבאנר הקודם כתב ושהפורטל
+         של הלקוח קורא ("📩 בית-הדפוס קיבל את הקבצים"). ⚠️ תוקן 2026-07-30:
+         ההתראה החדשה כתבה ל-ack/<key> נפרד, ולכן "ראיתי" בבאנר אחד לא השתיק את
+         השני והלקוח גם לא ראה עדכון. עכשיו שני המסלולים על אותו שדה. */
+      var _seen = (key === 'full' ? p.shopSeenAt : ((p.parts && p.parts[key]) ? p.parts[key].shopSeenAt : 0)) || 0;
+      if (!_seen) _seen = (ack[key]||{}).seenAt || 0;        // תאימות-לאחור לסימונים שנכתבו ב-ack
+      if (!_seen && _uaLocalAcked(_key)) _seen = 1;          // הענן נכשל — לפחות המכשיר הזה שקט
       out.push({ id: _key, proofId: id, ackKey: key, customer: who,
                  title: label || (p.title||''), at: at, seenAt: _seen });
     };
@@ -20434,7 +20447,17 @@ async function _uaAck(items){
     _uaLocalAck(it.id, patch);
     var okPut = false;
     try {
-      okPut = await _fbPutRaw('customerProofs/' + it.proofId + '/ack/' + it.ackKey, patch);
+      /* נכתב לאותו מקום שהבאנר הקודם כתב, ושהפורטל של הלקוח קורא — כך שהלקוח
+         רואה "📩 בית-הדפוס קיבל את הקבצים" מיד, ושני הבאנרים משתתקים יחד. */
+      var base = 'customerProofs/' + it.proofId + (it.ackKey === 'full' ? '' : ('/parts/' + it.ackKey));
+      var stamp = { shopSeenAt: patch.seenAt, shopSeenBy: patch.seenBy || 'בית-הדפוס' };
+      okPut = await _fbPatchRaw(base, stamp);
+      // עדכון מקומי של השדה שהתצוגה קוראת ממנו
+      if (window._cpAll && window._cpAll[it.proofId]){
+        var _p = window._cpAll[it.proofId];
+        if (it.ackKey === 'full') { _p.shopSeenAt = stamp.shopSeenAt; _p.shopSeenBy = stamp.shopSeenBy; }
+        else if (_p.parts && _p.parts[it.ackKey]) { _p.parts[it.ackKey].shopSeenAt = stamp.shopSeenAt; _p.parts[it.ackKey].shopSeenBy = stamp.shopSeenBy; }
+      }
     } catch(e){ console.warn('ack failed', it.id, e); }
     if (!okPut) failed++;
   }
@@ -32019,31 +32042,13 @@ try { setTimeout(pi_badge, 4000); } catch(e){}
     var d=document.getElementById('np-newfiles'); if(d) d.style.display = n>0 ? '' : 'none';
     try { document.title = (n>0?('('+n+') '):'') + 'סולן הדפסות'; } catch(e){}
   }
+  /* ⚠️ הבאנר הירוק הקודם הוסר (2026-07-30): הוא הופיע במקביל לבאנר החוזר עם
+     הצליל וההסלמה למנהל (_uaBanner/_uaTick), ושניהם כתבו לשדות שונים — ולכן
+     "✓ ראיתי" באחד לא השתיק את השני. הפולינג כאן נשאר כדי להאיר את הנקודה
+     האדומה על "לקוחות עיתונים" לכל המשתמשים; ההתראה הרועשת מנוהלת במקום אחד. */
   function render(list){
     _setDot(list.length);
-    // הבאנר הגדול + הפופאפ הרועש — רק במסך קדם-הדפוס. לאחרים מספיקה הנקודה האדומה.
-    if(!list.length || (typeof _isPrepressScreen==='function' && !_isPrepressScreen())){ if(_bar){ _bar.remove(); _bar=null; } return; }
-    if(!_bar){ _bar=document.createElement('div'); _bar.id='cpUploadBar';
-      _bar.style.cssText='position:fixed;top:0;left:0;right:0;z-index:100001;background:#15803d;color:#fff;padding:10px 16px;box-shadow:0 3px 14px rgba(0,0,0,.4);font-family:inherit;font-weight:700;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;font-size:1rem';
-      document.body.appendChild(_bar); }
-    _bar.innerHTML='<span style="font-size:1.15rem">📥 '+list.length+' קבצים חדשים מלקוחות:</span> '
-      + list.slice(0,4).map(function(r){ return '<span style="background:rgba(255,255,255,.22);padding:3px 10px;border-radius:12px">'
-          + esc(r.cust)+' — '+esc(r.title)+' ('+r.pages+' עמ׳)'
-          + (r.pend&&r.pend.length?(' <b>⏳ חסרים '+r.pend.join(',')+'</b>'):'')+' · '+_fmt(r.at)+'</span>'; }).join(' ')
-      + (list.length>4?('<span style="opacity:.85">+'+(list.length-4)+' נוספים</span>'):'')
-      + ' <button id="cpSeenAll" style="background:#fff;color:#15803d;border:none;border-radius:8px;padding:7px 16px;font-weight:800;cursor:pointer">✓ ראיתי</button>';
-    var b=document.getElementById('cpSeenAll');
-    if(b) b.onclick=function(){
-      b.disabled=true; b.textContent='מאשר…';
-      var who=(typeof currentUser!=='undefined' && currentUser) ? (currentUser.name||'בית-הדפוס') : 'בית-הדפוס';
-      var stamp={ shopSeenAt: Date.now(), shopSeenBy: who };
-      // כתיבה לכל פריט → הלקוח רואה בפורטל "הדפוס קיבל את הקבצים · ממתין לאישור סופי"
-      var jobs=list.map(function(r){
-        var path = r.partId ? ('customerProofs/'+r.id+'/parts/'+r.partId) : ('customerProofs/'+r.id);
-        return (window._fbPatch ? window._fbPatch(path, stamp) : _cpPatch(path, stamp));
-      });
-      Promise.all(jobs).then(function(){ render([]); poll(); }).catch(function(){ b.disabled=false; b.textContent='✓ ראיתי'; });
-    };
+    if (_bar){ _bar.remove(); _bar = null; }
   }
   // PATCH ישיר ל-RTDB (אם אין _fbPatch גלובלי) — משתמש בטוקן-האנונימי הקיים של האפליקציה
   function _cpPatch(path, obj){

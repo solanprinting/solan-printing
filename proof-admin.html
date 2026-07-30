@@ -319,8 +319,10 @@ function _custDay(name){
   const n = _normName(name); if (!n) return '';
   if (_dayOverride[n]) return _dayOverride[n];       // דריסה ידנית קודמת לכול
   if (_dayByCustomer[n]) return _dayByCustomer[n];
-  // התאמה גמישה: שם-עיתון שמוכל בשם-הלקוח או להפך
-  for (const k in _dayByCustomer){ if (k && (n.indexOf(k)>=0 || k.indexOf(n)>=0)) return _dayByCustomer[k]; }
+  /* התאמה גמישה — אך רק כמילה שלמה, ורק בכיוון אחד: שם-הלקוח מופיע בשם-העיתון
+     שביומן. ⚠️ אותו באג של _custHasActiveCard היה גם כאן: חיפוש דו-כיווני בלי
+     גבולות שייך יום-שליחה שגוי ללקוח ששמו מכיל מילה משותפת (למשל "שבועון"). */
+  for (const k in _dayByCustomer){ if (_nameInside(k, n)) return _dayByCustomer[k]; }
   return '';
 }
 // שמירת יום-שליחה ידני ללקוח (או ניקוי) — נשמר ב-customerDayOverride וגובר על היומן
@@ -333,10 +335,26 @@ async function _setCustDay(custName, day){
   } catch(e){ alert('שמירת היום נכשלה: ' + (e.message||e)); }
   render(_allRows);
 }
+/* האם שם-הלקוח מופיע בשם-הכרטיס כ*מילה שלמה*.
+   ⚠️ באג שתוקן (2026-07-30): ההתאמה הייתה חיפוש-מחרוזת דו-כיווני בלי שום גבול,
+   ולכן כרטיס בשם "שבועון" סימן את הלקוח "שבועון אלעד" כבעל כרטיס פעיל — וגם
+   כל לקוח אחר שהמילה מופיעה בשמו. הכיוון ההפוך (שם-כרטיס שמוכל בשם-הלקוח)
+   הוסר לגמרי: הוא לעולם אינו עדות לכך שהכרטיס שייך ללקוח הזה. */
+const _isSep = ch => ch === '' || /[\s\-–—·,:;()\[\]"'\/|]/.test(ch);
+function _nameInside(hay, needle){
+  if (!hay || !needle || needle.length < 3) return false;
+  if (hay === needle) return true;
+  for (let i = hay.indexOf(needle); i >= 0; i = hay.indexOf(needle, i + 1)){
+    const before = i === 0 ? '' : hay[i - 1];
+    const after  = (i + needle.length >= hay.length) ? '' : hay[i + needle.length];
+    if (_isSep(before) && _isSep(after)) return true;
+  }
+  return false;
+}
 function _custHasActiveCard(name){
   const n = _normName(name); if (!n) return false;
   if (_activeCardCusts[n]) return true;
-  for (const k in _activeCardCusts){ if (k && (n.indexOf(k)>=0 || k.indexOf(n)>=0)) return true; }
+  for (const k in _activeCardCusts){ if (_nameInside(k, n)) return true; }
   return false;
 }
 async function _loadWeeklyContext(){
@@ -353,7 +371,11 @@ async function _loadWeeklyContext(){
     _dayByCustomer = dayMap;
     const active = {};
     const cdArr = Array.isArray(cds) ? cds : (cds && typeof cds==='object' ? Object.values(cds) : []);
-    cdArr.forEach(c=>{ if (c && c.name && c.status!=='done' && c.status!=='trash' && c.status!=='done_hidden' && c.status!=='archived') active[_normName(c.name)] = true; });
+    // גם שם-הכרטיס וגם שדה-הלקוח שבו — שדה-הלקוח הוא ההתאמה המדויקת, ולכן עדיף
+    cdArr.forEach(c=>{
+      if (!c || (c.status==='done' || c.status==='trash' || c.status==='done_hidden' || c.status==='archived')) return;
+      [c.name, c.customer].forEach(v=>{ const k = _normName(v); if (k) active[k] = true; });
+    });
     _activeCardCusts = active;
   } catch(e){}
 }
@@ -473,8 +495,8 @@ function render(rows) {
         <td>נוצר: ${fmt(p.createdAt)}</td>
         <td><div class="acts">
           <a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>
-          <button data-link="${clientLink}">📤 קישור ללקוח</button>
-          <button data-link="${viewerLink}">📤 שלח לעובדים</button>
+          <button data-link="${clientLink}" title="דף ההעלאה של הלקוח — הוא יכול להוסיף/להחליף עמודים ולאשר">📤 קישור העלאה ללקוח</button>
+          <button data-link="${viewerLink}" title="דפדוף לצפייה בלבד — בלי העלאה ובלי אישור. לעובדים/למכונה">👁 קישור צפייה לעובדים</button>
           <button data-donejob="${p.id}" data-on="${p.completedAt?1:0}" title="${p.completedAt?'החזר לעבודות פעילות':'סמן כהושלם — יעבור ל"עיתונים שהושלמו"'}">${p.completedAt?'↩ החזר':'✅ הושלם'}</button>
           ${notifyBtn(p)}${editBtn(p)}${closeBtn(p)}
           <button class="del" data-deljob="${p.id}" title="מחק עבודה וכל הריצות">🗑</button>
@@ -533,7 +555,7 @@ function render(rows) {
     const gen = p.status === 'approved' ? genCell(p.fileUrl, jobName(p), p.id, null)
       : `<button disabled title="זמין רק לאחר אישור">⬇ הורד</button>`;
     const view = p.fileUrl ? `<a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>` : '';
-    const toWorkers = p.fileUrl ? `<button data-link="${viewerLink}">📤 שלח לעובדים</button>` : '';
+    const toWorkers = p.fileUrl ? `<button data-link="${viewerLink}" title="דפדוף לצפייה בלבד — בלי העלאה ובלי אישור. לעובדים/למכונה">👁 קישור צפייה לעובדים</button>` : '';
     const note = (p.status === 'rejected' && p.customerNote) ? `<div class="note">📝 ${escapeHtml(p.customerNote)}</div>` : '';
     const approvedLine = p.approvedAt ? `<div class="note" style="color:#16a34a">✓ אושר: ${fmt(p.approvedAt)}</div>` : '';
     return `<tr class="${p.status==='approved'?'row-ok':''}">
@@ -542,7 +564,7 @@ function render(rows) {
       <td>נוצר: ${fmt(p.createdAt)}${approvedLine}</td>
       <td><div class="acts">
         <a href="${clientLink}" target="_blank">🔗 פתח</a>
-        <button data-link="${clientLink}">📤 קישור ללקוח</button>
+        <button data-link="${clientLink}" title="דף ההעלאה של הלקוח — הוא יכול להוסיף/להחליף עמודים ולאשר">📤 קישור העלאה ללקוח</button>
         ${view}${toWorkers}${gen}${psCell(p.id, 'full', psReqOf(p, 'full'))}${notifyBtn(p)}
         ${editBtn(p)}${closeBtn(p)}
         <button class="del" data-deljob="${p.id}" title="מחק עבודה">🗑</button>
