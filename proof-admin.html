@@ -10,6 +10,7 @@
 <script src="lib-loader.js"></script>
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
+<script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
@@ -1305,41 +1306,101 @@ $('invite').onclick = async () => {
 
 // ── ניצול אחסון ──
 const STORAGE_LIMIT_GB = 5;   // תקרה לתצוגה (שנה לפי התוכנית שלך)
-$('usageBtn').onclick = async () => {
-  const u = $('usage');
-  u.innerHTML = '⏳ בודק ניצול אחסון…';
-  // אסוף את כל הקבצים (עבודות + ריצות)
-  const files = [];
-  _allRows.forEach(p => {
-    if (p.filePath) files.push({ path: p.filePath, size: p.fileSize });
-    if (p.parts) Object.values(p.parts).forEach(pt => pt.filePath && files.push({ path: pt.filePath, size: pt.fileSize }));
-  });
-  let total = 0, unknown = 0;
-  for (const f of files) {
-    if (f.size) { total += +f.size; continue; }
-    let got = false;
-    for (const bucket of ['solan-printing.firebasestorage.app', 'solan-printing.appspot.com']) {
-      try {
-        const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(f.path)}`);
-        if (r.ok) { const j = await r.json(); total += parseInt(j.size || 0, 10); got = true; break; }
-      } catch (e) {}
-    }
-    if (!got) unknown++;
-  }
-  const mb = total / 1048576, gb = total / 1073741824;
+// ── ניצול-אחסון + פינוי-אוטומטי בהתמלאות (בקשת-משתמש 2026-07-30) ──────────────
+// המדידה מבוססת על סכום ה-fileSize שנשמר בכל רשומה (הערכה — לא מדידת-באקט מדויקת).
+const _CAP_BYTES = () => STORAGE_LIMIT_GB * 1073741824;
+function _proofsMap(){ const m={}; (_allRows||[]).forEach(p=>{ if(p&&p.id) m[p.id]=p; }); return m; }
+function _usageBytes(){ return StorageCleanup.totalBytes(StorageCleanup.recordFiles(_proofsMap())); }
+function _renderUsage(total){
+  const u = $('usage'); if(!u) return;
+  const gb = total/1073741824, mb = total/1048576;
   const pct = Math.min(100, Math.round(gb / STORAGE_LIMIT_GB * 100));
   const color = pct >= 85 ? '#dc2626' : pct >= 60 ? '#d97706' : '#16a34a';
-  u.innerHTML = `<div style="background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:12px 14px;margin:4px 0">
-    <b>ניצול אחסון:</b> ${mb.toFixed(0)} MB (${gb.toFixed(2)} GB) ב-${files.length} קבצים${unknown?` <span style="color:#9ca3af">(${unknown} ללא גודל)</span>`:''}
+  const near = pct >= 85;
+  u.innerHTML = `<div style="background:#fff;border:1.5px solid ${near?'#fca5a5':'var(--line)'};border-radius:10px;padding:12px 14px;margin:4px 0">
+    <b>ניצול אחסון:</b> ${mb.toFixed(0)} MB (${gb.toFixed(2)} GB) · ${pct}% מתוך ${STORAGE_LIMIT_GB}GB
     <div style="height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:8px">
       <div style="height:100%;width:${pct}%;background:${color}"></div></div>
-    <div style="font-size:.78rem;color:#6b7280;margin-top:5px">${pct}% מתוך תקרת ${STORAGE_LIMIT_GB}GB · מחקו קבצים ישנים (🗑) כדי לפנות מקום</div>
+    <div style="font-size:.78rem;color:#6b7280;margin-top:5px">${near?'⚠️ האחסון כמעט מלא — ':''}פינוי משחרר את הקבצים הישנים ביותר של עבודות שהושלמו.
+      <button id="freeSpaceBtn" style="margin-inline-start:6px;padding:4px 12px;font-size:.8rem;background:${near?'#dc2626':'#fff'};color:${near?'#fff':'var(--press)'};border:1.5px solid ${near?'#dc2626':'var(--line)'};border-radius:8px;cursor:pointer;font-weight:700">🧹 פנה מקום</button></div>
   </div>`;
-};
+  const b = document.getElementById('freeSpaceBtn'); if(b) b.onclick = () => _offerCleanup(total);
+}
+$('usageBtn').onclick = () => _renderUsage(_usageBytes());
+
+// מחיקת קובץ בודד מ-Storage (פינוי אמיתי — לא סל-מיחזור, שהמקום ישתחרר)
+async function _storageDelete(path){
+  if(!path) return false;
+  try {
+    const r = await fetch(await _au(`https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o/${encodeURIComponent(path)}`), { method:'DELETE' });
+    return r.ok || r.status === 404;   // 404 = כבר לא קיים = נחשב הצלחה
+  } catch(e){ return false; }
+}
+
+// מודל-אישור לפני פינוי — "ההודעה למנהל לפני הפעולה". אף פעם לא מוחק בלי אישור.
+function _offerCleanup(total){
+  const files = StorageCleanup.recordFiles(_proofsMap());
+  const sel = StorageCleanup.selectForPurge(files, { used: total, cap: _CAP_BYTES(), now: Date.now() });
+  const ex = document.getElementById('cleanupModal'); if(ex) ex.remove();
+  const ov = document.createElement('div'); ov.id='cleanupModal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100070;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
+  const list = sel.toPurge;
+  const body = !list.length
+    ? `<div style="padding:16px">אין כרגע קבצים ישנים של עבודות שהושלמו לפינוי (הקבצים החדשים/פעילים מוגנים).</div>`
+    : `<div style="padding:16px">
+        <div style="margin-bottom:8px">כדי לרדת מ-<b>${StorageCleanup.pct(StorageCleanup.usageRatio(sel.before,sel.cap))}</b> ל-<b>~${StorageCleanup.pct(StorageCleanup.usageRatio(sel.after,sel.cap))}</b> יפונו <b>${list.length}</b> קבצים ישנים של עבודות שהושלמו (${StorageCleanup.fmtSize(sel.freed)}):</div>
+        <div style="max-height:40vh;overflow:auto;border:1px solid var(--line);border-radius:8px">
+          <table style="box-shadow:none"><thead><tr><th>לקוח / עבודה</th><th>גודל</th><th>גיל</th></tr></thead><tbody>
+          ${list.map(f=>{ const age=Math.round((Date.now()-f.at)/86400000); return `<tr><td>${escapeHtml(f.customer||'')}${f.title?' · '+escapeHtml(f.title):''}${f.partId?' (ריצה)':''}</td><td style="white-space:nowrap">${StorageCleanup.fmtSize(f.size)}</td><td style="white-space:nowrap">${age} ימים</td></tr>`; }).join('')}
+          </tbody></table></div>
+        <div style="font-size:.8rem;color:#b45309;margin-top:8px">⚠️ הקבצים יימחקו לצמיתות מהאחסון (לא לסל-המיחזור). רשומת-העבודה נשמרת לתיעוד.</div>
+      </div>`;
+  ov.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;font-family:inherit;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="background:var(--press);color:#fff;padding:13px 16px;font-weight:800">🧹 פינוי אחסון</div>
+    ${body}
+    <div style="padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-start">
+      ${list.length?`<button id="clDo" class="btn" style="background:#dc2626">מחק ${list.length} קבצים · פנה ${StorageCleanup.fmtSize(sel.freed)}</button>`:''}
+      <button id="clCancel" class="btn ghost">סגור</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e=>{ if(e.target===ov) ov.remove(); });
+  document.getElementById('clCancel').onclick=()=>ov.remove();
+  const doBtn=document.getElementById('clDo');
+  if(doBtn) doBtn.onclick=async()=>{
+    doBtn.disabled=true; doBtn.textContent='מפנה…';
+    let done=0;
+    for(const f of list){
+      const okDel = await _storageDelete(f.path);
+      if(okDel){
+        const base = f.partId ? `customerProofs/${f.proofId}/parts/${f.partId}` : `customerProofs/${f.proofId}`;
+        try { await fetch(await _au(`${_FBURL}/${base}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ fileUrl:null, filePath:null, fileSize:null, pagesUrl:null, filePurgedAt: Date.now() }) }); } catch(e){}
+        done++;
+      }
+    }
+    ov.remove();
+    await loadProofs();
+    _renderUsage(_usageBytes());
+    msg(`🧹 פונו ${done} קבצים`);
+  };
+}
+
+// בדיקה אוטומטית בטעינה: אם מעל הסף — הודעה+הצעת-פינוי למנהל (פעם אחת לסשן, לא מטריד שוב ושוב)
+function _storageAutoCheck(){
+  try {
+    if (sessionStorage.getItem('solanStorageNagged') === '1') return;
+    const total = _usageBytes();
+    if (StorageCleanup.needsCleanup(total, _CAP_BYTES())) {
+      sessionStorage.setItem('solanStorageNagged','1');
+      _renderUsage(total);
+      _offerCleanup(total);
+    }
+  } catch(e){}
+}
 
 $('refresh').onclick = loadProofs;
 $('trashBtn').onclick = openTrash;
-loadProofs();
+loadProofs().then(function(){ setTimeout(_storageAutoCheck, 1500); });
 </script>
 </body>
 </html>
