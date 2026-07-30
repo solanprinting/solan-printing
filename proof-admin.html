@@ -42,6 +42,10 @@
   .b-pending  { background:#fef3c7; color:var(--amber); }
   .b-approved { background:#dcfce7; color:var(--green); }
   .b-rejected { background:#fee2e2; color:var(--red); }
+  /* פרופר/עבודה שאושרו — כל השורה בירוק בהיר, שברור מיד שאושר */
+  tr.row-ok td { background:#effdf3; }
+  tr.row-ok:hover td { background:#e2f9ea; }
+  tr.row-ok td:first-child { box-shadow:inset 4px 0 0 var(--green); }
   .acts { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
   .acts a, .acts button, .acts select { font-size:.8rem; padding:6px 11px; border-radius:8px; border:1.5px solid var(--line); background:#fff; cursor:pointer; text-decoration:none; color:var(--ink); font-family:inherit; transition:all .12s; }
   .acts a:hover, .acts button:hover { border-color:var(--gold); background:#fffdf6; }
@@ -73,6 +77,16 @@
   .custFilterWrap input:focus { outline:none; border-color:#2d3561; }
   .custItem:hover { background:#f5f3ec; }
   .custItem.on { background:#2d3561; color:#fff; }
+  /* קיבוץ רשימת-הלקוחות לפי יום בשבוע */
+  .dayHdr { padding:5px 12px; background:#eef0f6; color:#6b7280; font-size:.74rem; font-weight:800;
+    border-bottom:1px solid #e5e7eb; position:sticky; top:0; letter-spacing:.02em; }
+  .dayHdr.todayHdr { background:#2d3561; color:var(--gold-light); }
+  .custItem.dayToday { background:#fffbeb; color:#92400e; border-bottom:2px solid var(--gold-light); font-weight:900; }
+  .custItem.dayToday.on { background:var(--gold); color:#2d3561; }
+  .todayCust { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:11px 14px;
+    cursor:pointer; border-bottom:1px solid #eee; font-weight:700; color:#2d3561; transition:background .12s; }
+  .todayCust:hover { background:#faf8f2; }
+  .todaySec { padding:9px 14px; font-weight:800; color:var(--press); background:#faf8f2; border-bottom:1px solid var(--line); font-size:.9rem; }
   .custItem .cName { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .custItem .cCount { flex:0 0 auto; background:rgba(0,0,0,.10); border-radius:10px; padding:1px 8px; font-size:.76rem; }
   .custItem.on .cCount { background:rgba(255,255,255,.25); }
@@ -272,9 +286,47 @@ const STATUS = {
 
 let _allRows = [];
 
+// ── יום-בשבוע לכל לקוח (מהיומן השבועי) + לקוחות עם כרטיס-עבודה פעיל ──────────
+// הרשימה התארכה מדי; מסדרים אותה לפי היום שבו הלקוח אמור לשלוח (newspapers[].day),
+// ומדגישים מי שאמור לשלוח היום או שיש לו כרטיס פעיל. (בקשת-משתמש 2026-07-30)
+const _DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+let _dayByCustomer = {};      // שם-לקוח (מנורמל) → יום בשבוע
+let _activeCardCusts = {};    // שם-לקוח (מנורמל) → true אם יש כרטיס פעיל
+const _normName = s => String(s||'').replace(/["'.,\-()]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+function _custDay(name){
+  const n = _normName(name); if (!n) return '';
+  if (_dayByCustomer[n]) return _dayByCustomer[n];
+  // התאמה גמישה: שם-עיתון שמוכל בשם-הלקוח או להפך
+  for (const k in _dayByCustomer){ if (k && (n.indexOf(k)>=0 || k.indexOf(n)>=0)) return _dayByCustomer[k]; }
+  return '';
+}
+function _custHasActiveCard(name){
+  const n = _normName(name); if (!n) return false;
+  if (_activeCardCusts[n]) return true;
+  for (const k in _activeCardCusts){ if (k && (n.indexOf(k)>=0 || k.indexOf(n)>=0)) return true; }
+  return false;
+}
+async function _loadWeeklyContext(){
+  try {
+    const [np, cds] = await Promise.all([
+      fetch(await _au(`${_FBURL}/newspapers.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(await _au(`${_FBURL}/cards.json`)).then(r=>r.ok?r.json():null).catch(()=>null)
+    ]);
+    const dayMap = {};
+    const npArr = Array.isArray(np) ? np : (np && typeof np==='object' ? Object.values(np) : []);
+    npArr.forEach(n=>{ if (n && n.name && n.day && _DAYS.indexOf(n.day)>=0) dayMap[_normName(n.name)] = n.day; });
+    _dayByCustomer = dayMap;
+    const active = {};
+    const cdArr = Array.isArray(cds) ? cds : (cds && typeof cds==='object' ? Object.values(cds) : []);
+    cdArr.forEach(c=>{ if (c && c.name && c.status!=='done' && c.status!=='trash' && c.status!=='done_hidden' && c.status!=='archived') active[_normName(c.name)] = true; });
+    _activeCardCusts = active;
+  } catch(e){}
+}
+
 async function loadProofs() {
   msg('טוען…');
   const data = await (await fetch(await _au(`${_FBURL}/customerProofs.json`))).json() || {};
+  await _loadWeeklyContext();   // מפת-ימים + כרטיסים-פעילים (לסידור הרשימה)
   _allRows = Object.entries(data)
     .map(([id, p]) => ({ id, ...p }))
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -365,7 +417,7 @@ function render(rows) {
     // ── עבודה לפי ריצות ──
     if (parts.length) {
       const _col = !!_jobCollapsed[p.id];   // עבודה מכווצת → שורות-הריצות מוסתרות
-      const head = `<tr>
+      const head = `<tr class="row-ok">
         <td><span data-jobtoggle="${p.id}" style="cursor:pointer;user-select:none;color:#2d3561;font-weight:900;margin-left:4px" title="${_col?'פתח':'כווץ'} ריצות">${_col?'▶':'▼'}</span> <b>${escapeHtml(p.title || '—')}</b></td>
         <td><span class="badge b-approved">${parts.length} ריצות התקבלו</span></td>
         <td>נוצר: ${fmt(p.createdAt)}</td>
@@ -376,7 +428,7 @@ function render(rows) {
           <button data-donejob="${p.id}" data-on="${p.completedAt?1:0}" title="${p.completedAt?'החזר לעבודות פעילות':'סמן כהושלם — יעבור ל"עיתונים שהושלמו"'}">${p.completedAt?'↩ החזר':'✅ הושלם'}</button>
           <button class="del" data-deljob="${p.id}" title="מחק עבודה וכל הריצות">🗑</button>
         </div></td></tr>`;
-      const partRows = parts.map(pt => `<tr>
+      const partRows = parts.map(pt => `<tr class="row-ok">
         <td style="padding-right:26px;color:#555">↳ ${escapeHtml(pt.name)} <span style="color:#9ca3af">(${pt.pageCount} עמ')</span>${(pt.pendingPages&&pt.pendingPages.length)?` <span style="font-size:.72rem;font-weight:800;color:#b45309;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:5px;padding:1px 7px;white-space:nowrap">⏳ חסרים עמ׳ ${pt.pendingPages.join(', ')}</span>`:''}</td>
         <td><span class="badge b-approved">מאושר</span></td>
         <td>אושר: ${fmt(pt.approvedAt)}</td>
@@ -394,7 +446,7 @@ function render(rows) {
     if (p.apogeeUrl) {
       const approved = !!p.apogeeApprovedAt;
       const link = `${base}imposition-tool.html?proofUrl=${encodeURIComponent(p.apogeeUrl)}&type=${encodeURIComponent(p.apogeeFold||'32')}&auto=1&client=1`;
-      return `<tr>
+      return `<tr class="${approved?'row-ok':''}">
         <td><b>${escapeHtml(p.title || 'פרופר אפוגי')}</b></td>
         <td><span class="badge ${approved?'b-approved':'b-wait'}">${approved ? '✓ אושר לדפוס · נעול' : 'ממתין לאישור הלקוח'}</span></td>
         <td>נוצר: ${fmt(p.createdAt)}${approved ? `<div class="note" style="color:#16a34a">✓ ${escapeHtml(p.apogeeApprovedBy||'')} · ${fmt(p.apogeeApprovedAt)}</div>` : ''}</td>
@@ -432,7 +484,7 @@ function render(rows) {
     const toWorkers = p.fileUrl ? `<button data-link="${viewerLink}">📤 שלח לעובדים</button>` : '';
     const note = (p.status === 'rejected' && p.customerNote) ? `<div class="note">📝 ${escapeHtml(p.customerNote)}</div>` : '';
     const approvedLine = p.approvedAt ? `<div class="note" style="color:#16a34a">✓ אושר: ${fmt(p.approvedAt)}</div>` : '';
-    return `<tr>
+    return `<tr class="${p.status==='approved'?'row-ok':''}">
       <td>${escapeHtml(p.title || (p.customer ? p.customer + ' — עיתון' : 'עיתון'))}${note}</td>
       <td><span class="badge ${cls}">${txt}</span></td>
       <td>נוצר: ${fmt(p.createdAt)}${approvedLine}</td>
@@ -445,18 +497,53 @@ function render(rows) {
   };
 
   // ── פריסת master-detail: רשימת-לקוחות בצד · עבודות הלקוח הנבחר במרכז ──
+  // הרשימה מסודרת לפי היום בשבוע (מהיומן השבועי); ברירת-המחדל = מסך "היום"
+  // שמרכז את מי שאמור לשלוח היום או שיש לו כרטיס-עבודה פעיל. (בקשת-משתמש 2026-07-30)
   const custNames = [...byCustomer.keys()];
-  if (!_selCust || !byCustomer.has(_selCust)) _selCust = custNames[0] || null;
-  const custItems = custNames.map(c => {
+  const _today = _DAYS[new Date().getDay()];
+  const _dayOf = {}; custNames.forEach(c => _dayOf[c] = _custDay(c));
+  if (_selCust == null) _selCust = '__today__';
+  if (_selCust !== '__today__' && !byCustomer.has(_selCust)) _selCust = custNames.length ? '__today__' : null;
+
+  const custItemHtml = (c) => {
     const items = byCustomer.get(c), on = (c === _selCust);
     const act = items.filter(function(p){ return !p.completedAt; }).length;
+    const card = _custHasActiveCard(c) ? ' <span title="כרטיס עבודה פעיל">📋</span>' : '';
     return `<div class="custItem${on?' on':''}" data-cust="${escapeHtml(c)}">
-      <span class="cName">📁 ${escapeHtml(c)}</span><span class="cCount" title="פעילות מתוך סה״כ">${act}${act!==items.length?('/'+items.length):''}</span></div>`;
-  }).join('');
-  const sideList = (custItems || '<div style="padding:12px;color:#9ca3af;font-size:.85rem">אין לקוחות</div>')
-    + '<div id="custNoHit" style="display:none;padding:12px;color:#9ca3af;font-size:.85rem">אין לקוח מתאים</div>';
+      <span class="cName">📁 ${escapeHtml(c)}${card}</span><span class="cCount" title="פעילות מתוך סה״כ">${act}${act!==items.length?('/'+items.length):''}</span></div>`;
+  };
+  // סדר הימים: היום קודם, אחר-כך שאר השבוע במחזור, ולבסוף "ללא יום קבוע"
+  const _tIdx = _DAYS.indexOf(_today);
+  const _orderedDays = _DAYS.slice(_tIdx).concat(_DAYS.slice(0, _tIdx));
+  let sideList = `<div class="custItem dayToday${_selCust==='__today__'?' on':''}" data-cust="__today__">
+      <span class="cName">📅 היום — ${_today}</span></div>`;
+  _orderedDays.forEach(day => {
+    const inDay = custNames.filter(c => _dayOf[c] === day).sort((a,b)=>a.localeCompare(b,'he'));
+    if (!inDay.length) return;
+    sideList += `<div class="dayHdr${day===_today?' todayHdr':''}">${day===_today?'📌 ':''}${day}</div>` + inDay.map(custItemHtml).join('');
+  });
+  const _noDay = custNames.filter(c => !_dayOf[c]).sort((a,b)=>a.localeCompare(b,'he'));
+  if (_noDay.length) sideList += `<div class="dayHdr">ללא יום קבוע</div>` + _noDay.map(custItemHtml).join('');
+  if (!custNames.length) sideList = '<div style="padding:12px;color:#9ca3af;font-size:.85rem">אין לקוחות</div>';
+  sideList += '<div id="custNoHit" style="display:none;padding:12px;color:#9ca3af;font-size:.85rem">אין לקוח מתאים</div>';
 
-  const selAll = _selCust ? byCustomer.get(_selCust) : null;
+  // ── מסך "היום": מי אמור לשלוח היום + מי עם כרטיס פעיל ──
+  let todayDetail = '';
+  if (_selCust === '__today__') {
+    const _custRow = (c) => { const items=byCustomer.get(c), act=items.filter(p=>!p.completedAt).length;
+      return `<div class="todayCust" data-cust="${escapeHtml(c)}"><span>📁 ${escapeHtml(c)}${_custHasActiveCard(c)?' 📋':''}</span>
+        <span class="cCount" style="background:#eef0f6;border-radius:10px;padding:1px 9px;font-size:.78rem">${act} פעילות</span></div>`; };
+    const dueToday = custNames.filter(c => _dayOf[c] === _today).sort((a,b)=>a.localeCompare(b,'he'));
+    const activeCard = custNames.filter(c => _custHasActiveCard(c) && _dayOf[c] !== _today).sort((a,b)=>a.localeCompare(b,'he'));
+    todayDetail = `<div class="custHead"><div style="font-size:1.05rem;font-weight:900;color:#2d3561">📅 היום — ${_today}</div>
+        <div class="muted" style="font-size:.82rem;color:#6b7280;margin-top:3px">לקוחות שאמורים לשלוח היום ולקוחות עם כרטיס-עבודה פעיל</div></div>`
+      + `<div class="todaySec">📤 אמורים לשלוח היום (${dueToday.length})</div>`
+      + (dueToday.length ? dueToday.map(_custRow).join('') : '<div style="padding:14px;color:#9ca3af">אין לקוחות ליום זה ביומן השבועי</div>')
+      + `<div class="todaySec">📋 עם כרטיס-עבודה פעיל (${activeCard.length})</div>`
+      + (activeCard.length ? activeCard.map(_custRow).join('') : '<div style="padding:14px;color:#9ca3af">אין</div>');
+  }
+
+  const selAll = (_selCust && _selCust !== '__today__') ? byCustomer.get(_selCust) : null;
   // פיצול לפעילות / הושלמו — "עיתונים שהושלמו" נשמרים בקטגוריה נפרדת לכל לקוח
   const sel  = selAll ? selAll.filter(p => !p.completedAt) : null;
   const done = selAll ? selAll.filter(p =>  p.completedAt).sort((a,b)=>(b.completedAt||0)-(a.completedAt||0)) : [];
@@ -484,7 +571,7 @@ function render(rows) {
         ${_doneOpen ? `<table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
           <tbody>${done.map(rowHtml).join('')}</tbody></table>` : ''}
       </div>` : ''}`
-    : '<div style="padding:26px;text-align:center;color:#9ca3af">בחרו לקוח מהרשימה בצד</div>';
+    : (todayDetail || '<div style="padding:26px;text-align:center;color:#9ca3af">בחרו לקוח מהרשימה בצד</div>');
 
   $('tableWrap').innerHTML = `<div class="mdWrap">
       <aside class="mdSide"><div class="mdSideTitle">לקוחות (${custNames.length})</div>
@@ -494,6 +581,8 @@ function render(rows) {
     </div>`;
   // בחירת-לקוח → מציג את עבודותיו במרכז (בלי טעינה-מחדש מהשרת)
   document.querySelectorAll('.custItem').forEach(el => el.onclick = () => { _selCust = el.dataset.cust; render(rows); });
+  // לחיצה על לקוח במסך "היום" → פותחת את הלקוח
+  document.querySelectorAll('.todayCust').forEach(el => el.onclick = () => { _selCust = el.dataset.cust; render(rows); });
   // סינון רשימת-הלקוחות — הצג/הסתר בלבד, בלי render מחדש (הקלדה לא מאבדת פוקוס
   // והלקוח הנבחר נשאר נבחר גם אם הוסתר).
   const _cf = $('custFilter');
@@ -504,9 +593,12 @@ function render(rows) {
       const q = _custFilter.trim().toLowerCase();
       let shown = 0;
       document.querySelectorAll('.custItem').forEach(el => {
+        if (el.dataset.cust === '__today__') return;   // פריט "היום" תמיד גלוי
         const hit = !q || el.dataset.cust.toLowerCase().indexOf(q) >= 0;
         el.style.display = hit ? '' : 'none'; if (hit) shown++;
       });
+      // בחיפוש פעיל — מסתירים את כותרות-הימים (הרשימה משוטחת ממילא)
+      document.querySelectorAll('.mdSide .dayHdr').forEach(h => h.style.display = q ? 'none' : '');
       const none = $('custNoHit');
       if (none) none.style.display = shown ? 'none' : '';
     };
