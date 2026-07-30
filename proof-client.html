@@ -370,7 +370,12 @@ async function _fbAuthToken(){
 }
 async function _au(url){ const t = await _fbAuthToken(); return t ? url + (url.indexOf('?')>=0?'&':'?') + 'auth=' + t : url; }
 _fbAuthToken();   // חימום מוקדם
-const RENDER_H = 1100;          // גובה הרינדור (פעם אחת לעמוד) — חד גם במסך מלא
+/* גובה הרינדור (פעם אחת לעמוד) — חד גם במסך מלא.
+   הועלה מ-1100 (בקשת-בעלים 2026-07-30): הלקוח מאשר עיתון, ולכן הוא צריך לראות אותו
+   באיכות מקסימלית. הסקייל מותאם לצפיפות-המסך, עם תקרה שמונעת קנבס ענק שקורס בנייד. */
+const RENDER_H = 2200;
+const RENDER_SCALE_CAP = 4;
+const RENDER_JPEG_Q = 0.94;
 
 const $ = id => document.getElementById(id);
 const overlay = $('overlay');
@@ -646,13 +651,16 @@ async function renderPage(pdf, pageNo, box) {
   const view = page.view;                       // [x0,y0,x1,y1] התיבה שמוצגת
   const vbW = view[2] - view[0], vbH = view[3] - view[1];
   const v1 = page.getViewport({ scale: 1 });
-  const scale = Math.min(2.5, RENDER_H / v1.height);
+  const dpr = Math.min(2, (window.devicePixelRatio || 1));
+  const scale = Math.min(RENDER_SCALE_CAP, (RENDER_H * dpr) / v1.height);
   const vp = page.getViewport({ scale });
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
-  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  const cx = c.getContext('2d');
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);   // רקע לבן מפורש — לא להסתמך על קנבס שקוף
+  await page.render({ canvasContext: cx, viewport: vp }).promise;
   page.cleanup();
-  const src = c.toDataURL('image/jpeg', 0.82);
+  const src = c.toDataURL('image/jpeg', RENDER_JPEG_Q);
 
   // TrimBox → אחוזים יחסית לתמונה; וגודל נטו לבדיקת גודל
   let trimFrac = null, netW = vbW, netH = vbH;
@@ -883,7 +891,7 @@ function _cropHalf(src, side, tf){
       } else { sw=Math.floor(W/2); sx=(side==='right')?(W-sw):0; }   // בלי TrimBox — נפילה-לאחור לחצי-תמונה
       sx=Math.max(0,Math.round(sx)); sw=Math.max(1,Math.round(Math.min(sw, W-sx)));
       var c=document.createElement('canvas'); c.width=sw; c.height=sh;
-      try{ c.getContext('2d').drawImage(img, sx,sy,sw,sh, 0,0,sw,sh); res(c.toDataURL('image/jpeg',0.85)); }catch(e){ res(src); }
+      try{ c.getContext('2d').drawImage(img, sx,sy,sw,sh, 0,0,sw,sh); res(c.toDataURL('image/jpeg',RENDER_JPEG_Q)); }catch(e){ res(src); }
     };
     img.onerror=function(){ res(src); };
     img.src=src;
@@ -1442,10 +1450,38 @@ async function uploadBytes(path, bytes, onProgress) {
 }
 // שומר את העמודים המרונדרים (JSON של תמונות) ל-Storage לפתיחה מהירה. Best-effort — אם נכשל, מחזיר ריק
 // והצופה ייפול חזרה לרינדור ה-PDF הרגיל.
+/* ממזער תמונה ל-JPEG קטן (תצוגה-מהירה בלבד). מחזיר את המקור אם נכשל. */
+const PLACEHOLDER_H = 700, PLACEHOLDER_Q = 0.6;
+function _thumbFor(src){
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = function(){
+      try {
+        const sc = Math.min(1, PLACEHOLDER_H / (img.naturalHeight || PLACEHOLDER_H));
+        const w = Math.max(1, Math.round(img.naturalWidth * sc)), h = Math.max(1, Math.round(img.naturalHeight * sc));
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        const cx = c.getContext('2d');
+        cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
+        cx.drawImage(img, 0, 0, w, h);
+        res(c.toDataURL('image/jpeg', PLACEHOLDER_Q));
+      } catch(e){ res(src); }
+    };
+    img.onerror = function(){ res(src); };
+    img.src = src;
+  });
+}
+/* מטמון-עמודים = *תצוגה-מקדימה בלבד*, לא מקור-אמת.
+   הצופה (proof-viewer) תמיד מרנדר מחדש מה-PDF ומחליף אותו, ולכן כאן שומרים
+   תמונות קטנות: גם זול בתעבורה/אחסון, וגם ברור שזו לא התצוגה שמאשרים לפיה. */
 async function uploadPagesCache(path) {
   try {
     showOverlay('שומר תצוגה מהירה…', true, 0);
-    const json = JSON.stringify(pages.map(p => p.displaySrc || p.src));
+    const thumbs = [];
+    for (let i = 0; i < pages.length; i++) {
+      thumbs.push(await _thumbFor(pages[i].displaySrc || pages[i].src));
+      showOverlay('שומר תצוגה מהירה…', true, Math.round((i+1)/pages.length*100));
+    }
+    const json = JSON.stringify(thumbs);
     const bytes = new TextEncoder().encode(json);
     const url = await uploadBytes(path, bytes, pct => showOverlay('שומר תצוגה מהירה…', true, pct));
     return { url, at: Date.now() };

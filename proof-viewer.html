@@ -189,7 +189,16 @@ async function _fbAuthToken(){
 }
 async function _au(url){ const t = await _fbAuthToken(); return t ? url + (url.indexOf('?')>=0?'&':'?') + 'auth=' + t : url; }
 _fbAuthToken();
-const RENDER_H = 1100;
+/* ── איכות הדפדוף (בקשת-בעלים 2026-07-30: "שהלקוח יראה באיכות מקסימלית") ──
+   שני שלבים, כי רינדור *כל* העיתון באיכות-שיא היה מפיל מכשירים ניידים
+   (עיתון 32 עמ' × 13 מגה-פיקסל לעמוד = מאות מגה-בייט של תמונות בזיכרון):
+   1) מעבר-בסיס על כל העמודים — חד בהרבה מהקודם (1100 → 1500).
+   2) העמודים שמוצגים *כרגע* מרונדרים שוב באיכות-שיא (עד 3000 פיקסל גובה),
+      עם מטמון-זיכרון קטן (LRU) — כך שהזום מגיע לרזולוציה אמיתית בלי לקרוס. */
+const BASE_H = 1500, BASE_Q = 0.88;
+const HI_H   = 3000, HI_Q   = 0.95, HI_MAX = 6;
+const RENDER_SCALE_CAP = 5;
+let _fromCache = false;      // האם מה שמוצג כרגע הוא מטמון (תצוגה מהירה) ולא רינדור-אמת
 
 const $ = id => document.getElementById(id);
 const overlay = $('overlay');
@@ -218,6 +227,21 @@ function showOverlay(t, on=true, pct=null){
   else { $('ovBar').style.display = 'block'; $('ovBar').firstElementChild.style.width = Math.round(pct) + '%'; }
 }
 const show = (id, on=true) => $(id).classList.toggle('hidden', !on);
+/* חיווי-איכות צף: מודיע שהתצוגה עדיין מהירה/מתרנדרת, בלי לחסום את הצפייה */
+let _qbEl = null, _qbT = null;
+function _qBadge(text, hideAfter){
+  if (!_qbEl){
+    _qbEl = document.createElement('div');
+    _qbEl.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:130;'
+      + 'background:rgba(45,53,97,.94);color:#fff;padding:7px 15px;border-radius:20px;font-size:.85rem;'
+      + 'font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.3);direction:rtl;max-width:92vw;text-align:center';
+    document.body.appendChild(_qbEl);
+  }
+  _qbEl.textContent = text;
+  _qbEl.style.display = text ? 'block' : 'none';
+  clearTimeout(_qbT);
+  if (hideAfter) _qbT = setTimeout(function(){ if (_qbEl) _qbEl.style.display = 'none'; }, hideAfter);
+}
 
 const params = new URLSearchParams(location.search);
 const proofId = params.get('id');
@@ -307,16 +331,23 @@ async function _loadTrimsBg(){
   // כמה כפולות בריצה (נשמר באישור) — קובע אם צריך לפצל אותן לתצוגה
   var _sprCount = ((partId && rec.parts && rec.parts[partId]) ? rec.parts[partId].spreadCount : rec.spreadCount) || 0;
 
-  // ── פתיחה מהירה: מטמון מרונדר עדכני — רק כשאין כפולות (עם כפולות צריך לפצל ולרנדר מחדש) ──
+  /* ── מטמון-העמודים = תצוגה מהירה בלבד, לא מקור-אמת ────────────────────────
+     ⚠️ תקרית 2026-07-30 (עוצמה עמ' 28): הלקוח אישר עיתון שבו חלק מהגרפיקה "נעלם"
+     בדפדוף, בזמן שהקובץ עצמו תקין לחלוטין (אומת: הורדה, מייל ופרופר בסדר).
+     השורש: pages.json הוא תמונות ש**מכשיר הלקוח** ריצר בזמן ההעלאה; אם הרינדור שם
+     יצא פגום (לחץ-זיכרון/קנבס בנייד, קובץ 84MB, תמונות-שקיפות כבדות) — כל מי שפתח
+     את הדפדוף ראה את אותה תמונה פגומה, כי המטמון הועדף על הקובץ.
+     מעכשיו: המטמון מוצג מיד כ*מציין-מקום*, ותמיד מתבצע רינדור-אמת מה-PDF שמחליף
+     אותו. מה שהלקוח מאשר הוא מה שבקובץ. */
   var FRESH_MS = 12 * 60 * 60 * 1000;
   if (_sprCount === 0 && cacheUrl && cacheAt && (Date.now() - cacheAt) < FRESH_MS) {
     try {
       showOverlay('טוען תצוגה מהירה…', true, 0);
-      imgs = await (await fetch(cacheUrl)).json();
-      if (Array.isArray(imgs) && imgs.length) {
+      var _c = await (await fetch(cacheUrl)).json();
+      if (Array.isArray(_c) && _c.length) {
+        imgs = _c; _fromCache = true;
         showOverlay('', false); show('viewer', true); renderViewer();
-        _loadTrimsBg();   // מביא TrimBox ברקע → רינדור מחדש עם חיתוך-נטו + מסגרת
-        return;
+        _qBadge('⏳ טוען את הקובץ באיכות מלאה…');
       }
     } catch(e){ console.warn('quick-cache failed, falling back to PDF render:', e); }
   }
@@ -325,37 +356,80 @@ async function _loadTrimsBg(){
     await _requireLibs();   // רכיבי-הצפייה חסומים → הודעה ברורה במקום דף/מסך מת
   } catch(e){ return; }
   try {
-    showOverlay('מוריד את הקובץ… 0%', true, 0);
+    if (!_fromCache) showOverlay('מוריד את הקובץ… 0%', true, 0);
     const rawBuf = await _fetchWithProgress(url, function(pct, mb, totMb){
-      showOverlay(totMb ? ('מוריד את הקובץ… ' + pct + '%  (' + mb + '/' + totMb + ' MB)')
-                        : ('מוריד את הקובץ… ' + mb + ' MB'), true, pct);
+      var t = totMb ? ('מוריד את הקובץ… ' + pct + '%  (' + mb + '/' + totMb + ' MB)')
+                    : ('מוריד את הקובץ… ' + mb + ' MB');
+      if (_fromCache) _qBadge('⏳ ' + t); else showOverlay(t, true, pct);
     });
     const orig = new Uint8Array(rawBuf);
     let norm = orig;
     try { norm = await splitSpreadsPdf(orig); } catch(e){ norm = orig; }   // כפולה → 2 עמודים בודדים
-    showOverlay('מרנדר עמודים…', true, 0);
+    if (!_fromCache) showOverlay('מרנדר עמודים…', true, 0);
     try { metas = await _trimFracsFromPdf(norm.slice(0)); } catch(e){ metas = []; }   // תיבות חיתוך לפני ש-pdf.js "בולע" את ה-buffer
     const pdf = await pdfjsLib.getDocument({ data: norm }).promise;
-    imgs = new Array(pdf.numPages);
+    _pdfDoc = pdf;                      // נשמר לרינדור איכות-שיא לפי-דרישה
+    // רינדור-אמת. כשמוצג מטמון — מחליפים עמוד-עמוד בלי להסתיר את התצוגה,
+    // כך שהלקוח לא ממתין אבל בסוף רואה בדיוק את מה שבקובץ.
+    const fresh = new Array(pdf.numPages);
     for (let i = 1; i <= pdf.numPages; i++) {
-      imgs[i-1] = await renderPage(pdf, i);
-      showOverlay('מרנדר עמודים…', true, Math.round(i/pdf.numPages*100));
-      if (i % 3 === 0) renderViewer();
+      fresh[i-1] = await renderPage(pdf, i, BASE_H, BASE_Q);
+      if (_fromCache) {
+        imgs[i-1] = fresh[i-1];
+        _qBadge('⏳ מרנדר מהקובץ המקורי… ' + i + '/' + pdf.numPages);
+        if (i % 3 === 0 || i === pdf.numPages) renderViewer();
+      } else {
+        imgs = fresh;
+        showOverlay('מרנדר עמודים…', true, Math.round(i/pdf.numPages*100));
+        if (i % 3 === 0) renderViewer();
+      }
     }
+    imgs = fresh; _fromCache = false; _baseDone = true;
     showOverlay('', false); show('viewer', true); renderViewer();
-  } catch(e){ console.error(e); fail('שגיאה בטעינת הקובץ.\n' + (e&&e.message||'')); }
+    _qBadge('✓ מוצג מהקובץ המקורי', 3000);
+  } catch(e){
+    console.error(e);
+    // אם מוצג מטמון — לא הופכים את המסך לשגיאה, אבל *כן* אומרים שזו תצוגה מהירה
+    if (_fromCache) _qBadge('⚠️ לא הצלחנו לטעון את הקובץ המקורי — זו תצוגה מהירה בלבד', 12000);
+    else fail('שגיאה בטעינת הקובץ.\n' + (e&&e.message||''));
+  }
 })();
 
-async function renderPage(pdf, pageNo){
+async function renderPage(pdf, pageNo, targetH, q){
   const page = await pdf.getPage(pageNo);
   const v1 = page.getViewport({ scale:1 });
-  const scale = Math.min(2.5, RENDER_H / v1.height);
+  const dpr = Math.min(2, (window.devicePixelRatio || 1));
+  const scale = Math.min(RENDER_SCALE_CAP, ((targetH || BASE_H) * dpr) / v1.height);
   const vp = page.getViewport({ scale });
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
-  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  const cx = c.getContext('2d');
+  // רקע לבן מפורש: עמוד עם שקיפות נראה אחרת על קנבס שקוף, וב-JPEG שקיפות הופכת לשחור
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: cx, viewport: vp }).promise;
   page.cleanup();
-  return c.toDataURL('image/jpeg', 0.85);
+  return c.toDataURL('image/jpeg', q || BASE_Q);
+}
+
+/* ── שלב 2: איכות-שיא לעמודים שמוצגים כרגע ──────────────────────────────
+   מטמון LRU קטן בזיכרון בלבד; לא נשמר ולא מועלה לשום מקום. */
+let _pdfDoc = null, _baseDone = false;
+const _hi = new Map(), _hiBusy = new Set();
+function srcFor(i){ return _hi.get(i) || imgs[i]; }
+async function _ensureHi(list){
+  if (!_pdfDoc || !_baseDone || _fromCache) return;   // לא מתחרים במעבר-הבסיס
+  for (const i of list){
+    if (_hi.has(i)) { const v = _hi.get(i); _hi.delete(i); _hi.set(i, v); continue; }   // רענון LRU
+    if (_hiBusy.has(i)) continue;
+    _hiBusy.add(i);
+    try {
+      const src = await renderPage(_pdfDoc, i + 1, HI_H, HI_Q);
+      _hi.set(i, src);
+      while (_hi.size > HI_MAX) _hi.delete(_hi.keys().next().value);
+      if (showingPages().indexOf(i) >= 0) renderViewer();     // מוצג עדיין → מחליפים בתמונה החדה
+    } catch(e){ /* נשאר באיכות-הבסיס */ }
+    finally { _hiBusy.delete(i); }
+  }
 }
 
 // דפדוף כפולה RTL
@@ -381,7 +455,7 @@ function renderViewer(){
       // באג שתוקן: לשער (עמוד 1, אי-זוגי) היה מקובע 'left' ולכן הגלישה הוצגה מימין במקום משמאל.
       const spine = PageSpine.spineForIndex(i);
       const sp = PageSpine.netSpec(tf, spine);
-      const mc = `aspect-ratio:${sp.arr.toFixed(4)};background-image:url('${imgs[i]}');`
+      const mc = `aspect-ratio:${sp.arr.toFixed(4)};background-image:url('${srcFor(i)}');`
         + `background-size:${sp.sizeW.toFixed(3)}% 100%;background-position:${sp.posX.toFixed(3)}% 0%;`;
       const f = sp.frame;
       const fb = `border:1.4px dashed #e11d48;`
@@ -389,8 +463,9 @@ function renderViewer(){
       const fst = `left:${f.left.toFixed(2)}%;top:${f.top.toFixed(2)}%;width:${f.width.toFixed(2)}%;height:${f.height.toFixed(2)}%;${fb}`;
       return `<div class="page"><div class="cropwrap"><div class="mediacrop" style="${mc}"></div><div class="trimframe" style="${fst}"></div>${_cropMarksHtml(f)}</div><div class="pgnum">עמוד ${i+1}</div></div>`;
     }
-    return `<div class="page"><img src="${imgs[i]}" alt=""><div class="pgnum">עמוד ${i+1}</div></div>`;
+    return `<div class="page"><img src="${srcFor(i)}" alt=""><div class="pgnum">עמוד ${i+1}</div></div>`;
   }).join('');
+  _ensureHi(s);      // העמודים שעל המסך → רינדור חוזר באיכות-שיא (מחליף כשמוכן)
 }
 // חישוב אזור התצוגה (חיתוך שדרה בלבד) + מיקום מסגרת ה-trim בתוך העמוד, לפי TrimBox
 function _pageNetSpec(tf, spine){

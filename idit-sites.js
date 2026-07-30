@@ -46,5 +46,34 @@
     return [site.num, site.name].filter(Boolean).join(' · ') + (site.address ? (' — ' + site.address) : '');
   }
 
-  return { SITES: SITES, list: list, findSite: findSite, siteLabel: siteLabel };
+  /* אנשי-הקשר של האתר כטקסט קריא: "רועי דהאן (מנהל אתר) 050-2037029 · עליזה (פקידה) …"
+     מאפשר למשרד לראות מי מקבל את המשלוח בלי לחפש בקובץ. */
+  function siteContactsText(site, max) {
+    var cs = (site && site.contacts) || [];
+    var lim = (max == null) ? 6 : max;
+    var out = [];
+    for (var i = 0; i < cs.length && out.length < lim; i++) {
+      var c = cs[i] || {};
+      var nm = String(c.name || '').trim(), role = String(c.role || '').trim(), ph = String(c.phone || '').trim();
+      if (!nm && !ph) continue;
+      out.push((nm || 'איש קשר') + (role ? (' (' + role + ')') : '') + (ph ? (' ' + ph) : ''));
+    }
+    return out.join(' · ');
+  }
+
+  /* כל מה שהמשרד צריך לדעת על יעד-האספקה: מקום · דרישות-כניסה · אנשי-קשר.
+     מוחזר כטקסט אחד לשדה-ההערה של ההזמנה. */
+  function siteDetailsText(site) {
+    if (!site) return '';
+    var parts = [];
+    if (site.name) parts.push('📍 ' + site.name + (site.num ? (' (' + site.num + ')') : ''));
+    if (site.address) parts.push(site.address);
+    if (site.notes) parts.push('⚠️ ' + site.notes);
+    var cc = siteContactsText(site);
+    if (cc) parts.push('☎ ' + cc);
+    return parts.join(' · ');
+  }
+
+  return { SITES: SITES, list: list, findSite: findSite, siteLabel: siteLabel,
+           siteContactsText: siteContactsText, siteDetailsText: siteDetailsText };
 });

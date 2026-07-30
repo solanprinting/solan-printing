@@ -789,6 +789,29 @@
           "גרפיק" (עבודות הגרפיקאי) · "השיעור השבועי" */
   var HIDE_RE = /גרפיק|השיעור\s*השבועי/;
   function isHiddenName(text) { return HIDE_RE.test(_s(text)); }
+  /* בדיקת-הסתרה מלאה על הכרטיס: קודם נבדקו רק name/customer/notes/type, ולכן עבודת-גרפיק
+     שהמילה מופיעה בה בהערה-פנימית, בפירוט-הפלייסמנט או בשורת-פריט (כרטיס משולב) המשיכה
+     להופיע במשרד. כאן סורקים את כל השדות הטקסטואליים + שורות-הפריטים והריצות. */
+  function isHiddenJob(card) {
+    if (!card) return false;
+    var flat = [card.name, card.customer, card.type, card.notes, card.internalNotes,
+                card.placementDetails, card.size, card.pagesNote];
+    for (var i = 0; i < flat.length; i++) if (isHiddenName(flat[i])) return true;
+    var lines = [];
+    try { lines = lines.concat(jobLines(card)); } catch (e) {}
+    try { lines = lines.concat(splitJobItems(card)); } catch (e) {}
+    try { lines = lines.concat(card.combined || []); } catch (e) {}
+    for (var j = 0; j < lines.length; j++) {
+      var l = lines[j] || {};
+      if (isHiddenName(l.name) || isHiddenName(l.customer) || isHiddenName(l.desc)) return true;
+    }
+    var runs = card.runs || [];
+    for (var k = 0; k < runs.length; k++) {
+      var r = runs[k] || {};
+      if (isHiddenName(r.label) || isHiddenName(r.name)) return true;
+    }
+    return false;
+  }
   /* שכבת-משרד על כרטיס-עבודה: המשרד לא עורך את הכרטיס באפליקציה (כדי לא להתנגש
      בסנכרון), אלא שומר עליו שכבה משלו — סטטוס, כמה יצא בפועל, הערה, והסרה מהרשימה. */
   function applyJobOverlay(card, ov) {
@@ -927,7 +950,7 @@
     if (card._removed) return false;                 // הוסר ידנית מרשימת המשרד
     var st = _s(card.status);
     if (st !== 'finishing' && st !== 'done') return false;
-    return !(isHiddenName(card.name) || isHiddenName(card.customer) || isHiddenName(card.notes) || isHiddenName(card.type));
+    return !isHiddenJob(card);
   }
 
   function jobStage(card, hasNote) {
@@ -1166,7 +1189,7 @@
     editOrder: editOrder, revertSupply: revertSupply,
     buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,
     buildJobNote: buildJobNote, jobStage: jobStage, orderStage: orderStage,
-    isClerkJob: isClerkJob, isHiddenName: isHiddenName, applyJobOverlay: applyJobOverlay,
+    isClerkJob: isClerkJob, isHiddenName: isHiddenName, isHiddenJob: isHiddenJob, applyJobOverlay: applyJobOverlay,
     jobLines: jobLines, jobCustomers: jobCustomers, splitJobItems: splitJobItems,
     jobDoneLines: jobDoneLines, jobPendingLines: jobPendingLines, applyToCustomerStock: applyToCustomerStock,
     applyStock: applyStock, findAgreementForCustomer: findAgreementForCustomer,

@@ -16,6 +16,7 @@
 <script src="framework-orders.js"></script>
 <script src="framework-file-reader.js"></script>
 <script src="solan-order-ai.js"></script>
+<script src="clerk-memory.js"></script>
 <script src="idit-sites.js"></script>
 <style>
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -257,6 +258,7 @@ async function loadJobs(){
     // ⚠️ מחיקה באפליקציה = רשומת-מצבה ב-deletedIds; הכרטיס עצמו עדיין ב-cards
     const gone={}; _arr(dl && dl.cards).forEach(id=>{ gone[String(id)]=1; });
     _jobOv=(ov && typeof ov==='object') ? ov : {};
+    _clerkMemLoad();   // זיכרון-לומד (הצעות-השלמה) — ברקע, לא חוסם
     if(st && typeof st==='object') _custStock=st;
     // כל כרטיס עובר דרך שכבת-המשרד לפני הסינון (סטטוס/הסרה שהפקיד קבע)
     if(cs) _cards=_arr(cs).filter(c=>c && c.id!=null && !c._deleted && !gone[String(c.id)])
@@ -637,7 +639,7 @@ function deliveredView(agId){
     const note=_jobNotes.find(n=>(n.cardIds||[]).indexOf(String(c.id))>=0);
     if(!note && !_delivered[c.id]) return;
     const jl=FW.jobLines(c);
-    out.push({ cust:FW.jobCustomers(c).join(' · ')||c.customer||'', title:'🖨 '+(c.name||'עבודה'),
+    out.push({ jobId:String(c.id), cust:FW.jobCustomers(c).join(' · ')||c.customer||'', title:'🖨 '+(c.name||'עבודה'),
       date:(note&&note.date)||(_delivered[c.id]&&_delivered[c.id].at)||'',
       detail: jl.length>1 ? jl.map(l=>'• '+esc(l.customer||'')+' — '+l.qty.toLocaleString()).join('<br>')
         : ((c.doneQty!=null?c.doneQty:(parseInt(c.copies,10)||0)).toLocaleString()+' יח׳'),
@@ -650,7 +652,8 @@ function deliveredView(agId){
     <div style="overflow-x:auto"><table>
       <thead><tr><th>תאריך</th><th>לקוח</th><th>עבודה / הזמנה</th><th>פירוט</th><th>תעודה</th><th></th></tr></thead>
       <tbody>${out.map(r=>`<tr><td>${esc(r.date)}</td><td>${esc(r.cust)}</td>
-        <td><b>${esc(r.title)}</b></td><td style="font-size:.85rem">${r.detail}</td><td>${r.note}</td><td>${r.undo||''}</td></tr>`).join('')
+        <td>${r.jobId?`<b class="jbInfo" data-c="${r.jobId}" style="cursor:pointer;text-decoration:underline dotted" title="לחצו לפרטי העבודה — כמות, נייר, עמודים">${esc(r.title)}</b>`:`<b>${esc(r.title)}</b>`}</td>
+        <td style="font-size:.85rem">${r.detail}</td><td>${r.note}</td><td>${r.undo||''}</td></tr>`).join('')
         ||'<tr><td colspan="6" class="muted" style="text-align:center;padding:12px">עדיין לא סופק דבר</td></tr>'}</tbody></table></div>
   </div>`;
 }
@@ -893,6 +896,8 @@ function _wireCustNotes(){
   // שורות ההיסטוריה — פתיחת ההזמנה / כרטיס-העבודה
   document.querySelectorAll('[data-hist-o]').forEach(el=>el.onclick=()=>openOrder(el.dataset.histA, el.dataset.histO));
   document.querySelectorAll('[data-hist-j]').forEach(el=>el.onclick=()=>openJob(el.dataset.histJ));
+  // "סופקו" — לחיצה על שם העבודה מציגה את פרטיה (כמות/נייר/עמודים), לקריאה בלבד
+  document.querySelectorAll('.jbInfo').forEach(el=>el.onclick=e=>{ e.stopPropagation(); openJobInfo(el.dataset.c); });
 }
 /* ═══════════ אירועים ═══════════ */
 function wire(a){
@@ -1169,14 +1174,56 @@ function openJob(id){
     :[{name:c.name||'',customer:c.customer||'',qty:(ov.qty!=null?ov.qty:(parseInt(c.copies,10)||0)),packs:ov.packs||0,packSize:0}];
   _jbRender(c,ov);
 }
+/* פרטי-העבודה כפי שהם בכרטיס הדפוס — המשרד צריך לראות כמות/נייר/עמודים בלי לשאול.
+   קריאה בלבד (המשרד לא עורך את הכרטיס עצמו). בקשת-משתמש 2026-07-30. */
+function _jobDetailsHtml(c){
+  const f=[];
+  const add=(lbl,val)=>{ if(val!==null&&val!==undefined&&String(val).trim()!=='') f.push([lbl,String(val)]); };
+  add('לקוח', c.customer);
+  add('סוג', c.type);
+  add('כמות עותקים', c.copies?Number(c.copies).toLocaleString():'');
+  add('מס׳ עמודים', c.pages);
+  add('סוג נייר', c.paper);
+  add('נייר נוסף', c.allPaper && c.allPaper!==c.paper ? c.allPaper : '');
+  add('מידה', c.size);
+  add('צבעים', c.color);
+  add('מכונה', c.printMachine||c.machine);
+  add('פירוט', c.placementDetails);
+  add('עמודים בגיליון', c.sheetPages);
+  add('תאריך הזמנה', c.orderDate);
+  add('לאספקה', c.deliveryDate);
+  const fin=[c.needsFolding?'קיפול':'', c.needsBinding?'כריכה':''].filter(Boolean).join(' + ');
+  add('גימורים', fin);
+  add('הערות', c.notes);
+  if(!f.length) return '';
+  return `<div style="background:#faf8f2;border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-bottom:10px">
+    <b style="color:var(--press);font-size:.86rem">📋 פרטי העבודה</b>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:4px 12px;margin-top:5px;font-size:.84rem">
+      ${f.map(([k,v])=>`<div><span class="muted">${esc(k)}:</span> <b>${esc(v)}</b></div>`).join('')}
+    </div></div>`;
+}
+/* חלון פרטי-עבודה לקריאה בלבד — למסך "סופקו" (שם אין מה לערוך) */
+function openJobInfo(id){
+  const c=_cards.find(x=>String(x.id)===String(id)); if(!c) return;
+  let m=$('jobInfoModal');
+  if(!m){ m=document.createElement('div'); m.id='jobInfoModal'; m.className='modal'; document.body.appendChild(m); }
+  m.innerHTML=`<div class="modalIn" style="max-width:600px">
+    <h3 style="margin:0 0 8px">🖨 ${esc(c.name||'עבודה')}</h3>
+    ${_jobDetailsHtml(c)}
+    ${(function(){ const ls=FW.jobLines(c).filter(l=>l&&(l.name||l.qty));
+      return ls.length>1?`<div style="margin-bottom:10px"><b style="color:var(--press);font-size:.86rem">מה יצא בפועל</b>
+        <div style="font-size:.84rem;margin-top:4px">${ls.map(l=>`<div>• ${esc(l.name||'')}${l.customer?' <span class="muted">('+esc(l.customer)+')</span>':''} — ${(l.qty||0).toLocaleString()} יח׳${l.packs?(' · '+l.packs+' אריזות'):''}</div>`).join('')}</div></div>`:''; })()}
+    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button id="jiClose">סגור</button></div></div>`;
+  m.style.display='flex';
+  $('jiClose').onclick=()=>m.remove();
+  m.onclick=e=>{ if(e.target===m) m.remove(); };
+}
 function _jbRender(c,ov){
   let m=$('jobModal');
   if(!m){ m=document.createElement('div'); m.id='jobModal'; m.className='modal'; document.body.appendChild(m); }
   m.innerHTML=`<div class="modalIn" style="max-width:680px">
-    <h3 style="margin:0 0 2px">🖨 ${esc(c.name||'עבודה')}</h3>
-    <div class="muted" style="margin-bottom:10px">
-      ${c.customer?esc(c.customer)+' · ':''}${c.copies?Number(c.copies).toLocaleString()+' עותקים':''}${c.pages?' · '+c.pages+' עמ׳':''}
-      ${c.deliveryDate?' · לאספקה '+esc(c.deliveryDate):''}</div>
+    <h3 style="margin:0 0 6px">🖨 ${esc(c.name||'עבודה')}</h3>
+    ${_jobDetailsHtml(c)}
     <div style="display:grid;gap:9px">
       <label>סטטוס העבודה
         <select id="jbStatus" style="width:100%;margin-top:3px">
@@ -1594,18 +1641,21 @@ async function _impRead(f){
       try{
         const {ex,rows}=await _impAI(f);
         _impRows=rows; _impName=f.name;
-        // ⚠️ בהזמנות עידית מופיע מספר-אתר בלבד — מתרגמים אותו לשם וכתובת מהרשימה
+        // ⚠️ בהזמנות עידית מופיע מספר-אתר בלבד — מתרגמים אותו לשם, כתובת ואנשי-קשר מהרשימה
         const site=ex.siteNum?SolanIditSites.findSite(ex.siteNum):null;
-        if(site){
-          _impPickCustomer(ex.customer||'עידית');
-          $('impRef').value=('אתר '+SolanIditSites.siteLabel(site)).slice(0,80);
-        }
+        _impLastSite = ex.siteNum || '';
+        if(site) _impPickCustomer(ex.customer||'עידית');
         else if(ex.customer) _impPickCustomer(ex.customer);
-        else if(ex.siteNum) $('impRef').value='אתר '+ex.siteNum+' (לא נמצא ברשימת האתרים)';
+        // אסמכתא = רק אם באמת מופיעה במסמך (טלפוני/מייל/הזמנה חתומה).
+        // ⚠️ קודם נדחף לכאן שם-המקום גם כשלא היה סעיף כזה בהזמנה — תוקן.
+        $('impRef').value = ex.reference || '';
         if(ex.poNumber) $('impPo').value=ex.poNumber;      // מס׳ הזמנת רכש מהמסמך (עידית וכד')
         if(ex.date) $('impDue').value=/^\d{4}-\d{2}-\d{2}$/.test(ex.date)?ex.date:'';
-        const addr=(site&&(site.address||site.name))||ex.address;
-        $('impNote').value=[ex.notes,(site&&site.notes)||'',addr].filter(Boolean).join(' · ');
+        // כותרת ההזמנה = שם הלקוח + שם העבודה (באתרי-עידית: שם האתר)
+        $('impTitle').value=_impJobTitle(ex, site, rows);
+        // הערה = פרטי יעד-האספקה מקובץ-האתרים (מקום · דרישות-כניסה · אנשי-קשר) + הערות המסמך
+        const siteInfo = site ? SolanIditSites.siteDetailsText(site) : (ex.siteNum?('📍 אתר '+ex.siteNum+' — לא נמצא ברשימת האתרים'):'');
+        $('impNote').value=[siteInfo, ex.notes, (!site&&ex.address)?ex.address:''].filter(Boolean).join(' · ');
         _dz('off');
         $('impMsg').innerHTML='<span class="ok">✓ נותח '+esc(f.name)+' — '+rows.length+' שורות'
           +(site?(' · אתר '+esc(SolanIditSites.siteLabel(site))):(ex.customer?(' · לקוח: '+esc(ex.customer)):''))
@@ -1629,6 +1679,60 @@ async function _impRead(f){
     $('impMsg').innerHTML='<span class="ok">✓ נקרא '+esc(f.name)+' — זוהו '+_impRows.length+' שורות</span>';
     _impRender();
   }catch(e){ _dz('off'); $('impMsg').innerHTML='<span class="bad">קריאה נכשלה: '+esc(e.message||e)+'</span>'; _impRows=[]; _impRender(); }
+}
+
+/* ═══ 🧠 זיכרון לומד: מה שכבר נרשם חוזר כהצעה בפעם הבאה ═══════════════════
+   נשמר ב-`clerkMemory` (משותף לכל המשרד — עובדה נלמדת פעם אחת ומשרתת את כולם).
+   הלוגיקה ב-clerk-memory.js; כאן רק טעינה, לימוד-בשמירה, והצגת ההצעות. */
+var _clerkMem = {}, _impLastSite = '';   // מספר-האתר שזוהה בקובץ האחרון (נלמד עם ההזמנה)
+function _clerkMemLoad(){
+  _get('clerkMemory').then(function(m){ if(m && typeof m==='object'){ _clerkMem=m; _memRenderHint(); } }).catch(function(){});
+}
+function _clerkMemLearn(order){
+  if(!window.ClerkMemory) return;
+  _clerkMem = ClerkMemory.learn(_clerkMem, order);
+  var key = ClerkMemory.normName(order && order.customer);
+  if(!key) return;
+  // כתיבה לפרופיל הבודד בלבד — לא דורסת פרופילים של לקוחות אחרים
+  _put('clerkMemory/'+encodeURIComponent(key), _clerkMem[key]).catch(function(){});
+}
+// חיווי + כפתור-השלמה בחלון קליטת-ההזמנה, לפי הלקוח שנבחר
+function _memRenderHint(){
+  var box=document.getElementById('impMemHint'); if(!box || !window.ClerkMemory) return;
+  var name=_impSelectedCustomerName();
+  var txt=name?ClerkMemory.summaryText(_clerkMem, name):'';
+  if(!txt){ box.innerHTML=''; box.style.display='none'; return; }
+  var sug=ClerkMemory.suggestedLines(_clerkMem, name);
+  box.style.display='';
+  box.innerHTML='<span>🧠 '+esc(txt)+'</span>'
+    + (sug.length?' <button id="memFill" style="padding:3px 10px;font-size:.78rem;margin-inline-start:6px">➕ מלא את הפריטים הרגילים</button>':'');
+  var b=document.getElementById('memFill');
+  if(b) b.onclick=function(){
+    sug.forEach(function(s){
+      if(_impRows.some(function(r){ return r.name===s.name; })) return;   // לא מכפילים שורה קיימת
+      _impRows.push({ sku:'', name:s.name, qty:s.qty||0, packs:0 });
+    });
+    _impRender();
+    $('impMsg').innerHTML='<span class="ok">🧠 הושלמו '+sug.length+' פריטים מהזמנות קודמות — ערכו לפי הצורך</span>';
+  };
+}
+function _impSelectedCustomerName(){
+  var sel=document.getElementById('impCust'); if(!sel) return '';
+  if(sel.value==='NEW') return ((document.getElementById('impNewCust')||{}).value||'').trim();
+  var ag=_all.find(function(a){ return a.agreementId===sel.value; });
+  return ag?ag.customer:'';
+}
+
+/* כותרת ההזמנה = "שם הלקוח — שם העבודה" (בקשת-משתמש 2026-07-30).
+   שם-העבודה: באתרי-עידית שם-האתר (זה היעד שמזהים לפיו), אחרת הפריט הראשון. */
+function _impJobTitle(ex, site, rows){
+  const cust = (ex && ex.customer) || (site ? 'עידית' : '');
+  let job = '';
+  if (site) job = site.name || ('אתר ' + (ex.siteNum||''));
+  else if (rows && rows.length) job = rows[0].name || '';
+  else if (ex && ex.desc) job = String(ex.desc).split('\n')[0].replace(/^[•\s]+/, '');
+  job = String(job||'').trim();
+  return [cust, job].filter(Boolean).join(' — ').slice(0, 90);
 }
 
 // בוחר את הלקוח שה-AI זיהה; אם אינו קיים — ממלא אותו כלקוח חדש
@@ -1661,6 +1765,7 @@ function _openImport(msg,busy){
         <span>לאספקה עד:</span><input id="impDue" type="date">
         <input id="impNote" placeholder="הערה להזמנה (אופציונלי)" style="width:200px">
       </div>
+      <div id="impMemHint" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:6px 10px;margin-bottom:8px;font-size:.83rem;color:#1e40af"></div>
       <div id="impMsg" class="muted" style="margin-bottom:8px"></div>
       <div id="impPrev"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;justify-content:flex-end">
@@ -1680,7 +1785,8 @@ function _openImport(msg,busy){
     $('impAddRow').onclick=()=>{ _impRows.push({sku:'',name:'',qty:0,packs:0}); _impRender(); };
     $('impSave').onclick=_impSave;
     $('impCust').onchange=()=>{ const nw=$('impCust').value==='NEW';
-      $('impNewCust').style.display=nw?'':'none'; $('impNewKind').style.display=nw?'':'none'; _impRender(); };
+      $('impNewCust').style.display=nw?'':'none'; $('impNewKind').style.display=nw?'':'none'; _impRender(); _memRenderHint(); };
+    $('impNewCust').oninput=()=>_memRenderHint();
   }
   const sel=$('impCust');
   if(sel && !sel.options.length){
@@ -1688,6 +1794,7 @@ function _openImport(msg,busy){
       +'<option value="NEW">➕ לקוח חדש…</option>';
   }
   if(msg) $('impMsg').innerHTML=busy?('<span class="muted">'+esc(msg)+'</span>'):esc(msg);
+  _memRenderHint();   // 🧠 הצעות לפי מה שכבר נרשם ללקוח הזה
 }
 
 // תצוגה מקדימה: לכל שורה מוצג האם היא משויכת לפריט בהסכם, וכמה יישאר פנוי
@@ -1767,6 +1874,10 @@ async function _impSave(){
   if(!res.ok){ alert('נכשל: '+res.errors.join(', ')); return; }
   if(await save(_normAg(res.agreement))){
     const free=res.order.lines.filter(l=>l.free).length;
+    // 🧠 לומדים מההזמנה שנרשמה — בפעם הבאה זה יחזור כהצעה
+    try { _clerkMemLearn({ customer:ag.customer, title:($('impTitle').value||'').trim(),
+      reference:($('impRef').value||'').trim(), siteNum:_impLastSite||'', at:Date.now(),
+      lines:res.order.lines.map(l=>({name:l.name,qty:l.qty,packs:l.packs})) }); } catch(e){}
     $('impModal').remove(); _impRows=[]; _sel=res.agreement.agreementId; _tab='flow'; render();
     alert('✓ ההזמנה נרשמה ('+res.order.lines.length+' שורות'+(free?(', מתוכן '+free+' ללא שיוך למלאי'):'')+').');
   }

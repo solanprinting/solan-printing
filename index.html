@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785402665';
+window.APP_VERSION = '1785407225';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1505,6 +1505,8 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
 <script src="sheet-template.js"></script>
 <script src="card-marker.js"></script>
 <script src="run-split.js"></script>
+<!-- מקור-האמת לכללי "מה המשרד רואה" (isHiddenJob) — משותף עם מסכי המשרד -->
+<script src="framework-orders.js"></script>
 <!-- cdnjs נחסם אצל חלק מהמשתמשים (סינון-תוכן/פרוקסי/חוסם-פרסומות) → מראות-גיבוי + אזהרה ברורה -->
 <script src="lib-loader.js"></script>
 <script>
@@ -3097,6 +3099,14 @@ window._fbSnapshot = {};
           <input type="password" id="settings-api-key" placeholder="sk-ant-..."
             style="font-family:monospace;font-size:.85rem">
           <div class="pages-input-hint">נדרש לקריאת תעודות משלוח עם AI. נשמר רק במכשיר שלך.</div>
+        </div>
+        <div class="mg-field full admin-only" style="padding-top:14px;border-top:1px solid var(--line)">
+          <label>🙈 הסתרת עבודות ממסך המשרד</label>
+          <div style="font-size:.8rem;color:#666;margin-bottom:8px">
+            עבודות שבשמן/בפירוטן מופיע "גרפיק" מוסתרות אוטומטית. כאן אפשר לבחור עבודות נוספות
+            שלא יופיעו במשרד — לא בזרימת-העבודה, לא במוכן-לאספקה ולא בסופקו. במשרד לא מוצג שום חיווי.
+          </div>
+          <button class="btn" onclick="_chOpen()">בחר עבודות להסתרה</button>
         </div>
         <div class="mg-field full" style="padding-top:14px;border-top:1px solid var(--line)">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -19757,6 +19767,74 @@ async function connectFirebase() {
       }
     })
     .catch(() => updateFBStatus(false));
+}
+
+/* ═══ 🙈 הסתרת עבודות ממסך המשרד (בקשת-מנהל 2026-07-30) ═══════════════════
+   המשרד רואה כרטיסי-עבודה בשלב "גימורים"/"הושלם". עבודה שמסומנת כאן מוסתרת ממנו
+   לחלוטין — בזרימת-העבודה, במוכן-לאספקה ובסופקו — **בלי שום חיווי אצלו**.
+   מנגנון: `clerkJobs/<cardId>/removed = true` (אותה שכבת-משרד קיימת; המשרד מסנן
+   `_removed` עוד לפני שהכרטיס נכנס לרשימה שלו, לכן אין מה שיסגיר את ההסתרה).
+   כתיבה לתת-נתיב בלבד — לא דורסת שדות אחרים שהמשרד שמר על אותו כרטיס. */
+var _chHidden = {};      // cardId → true (נטען מ-clerkJobs)
+function _chOpen(){
+  if (!(currentUser && currentUser.isAdmin)) { showToast('🔒 למנהלים בלבד'); return; }
+  var ex = document.getElementById('clerkHideModal'); if (ex) ex.remove();
+  var ov = document.createElement('div');
+  ov.id = 'clerkHideModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100080;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
+  ov.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:84vh;display:flex;flex-direction:column;font-family:Heebo,sans-serif;overflow:hidden">'
+    + '<div style="background:var(--press);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">'
+    + '<b>🙈 הסתרת עבודות ממסך המשרד</b>'
+    + '<button onclick="document.getElementById(\'clerkHideModal\').remove()" style="background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer">×</button></div>'
+    + '<div style="padding:10px 14px"><input id="chSearch" class="fi" placeholder="🔍 חיפוש עבודה / לקוח…" style="margin:0;width:100%" oninput="_chRender()"></div>'
+    + '<div id="chList" style="overflow-y:auto;padding:0 14px 14px;flex:1"><div style="padding:18px;text-align:center;color:#9ca3af">טוען…</div></div></div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', function(e){ if (e.target === ov) ov.remove(); });
+  // טוענים את שכבת-המשרד כדי לדעת מה כבר מוסתר
+  (window._fbGet ? window._fbGet('clerkJobs') : Promise.resolve(null)).then(function(ov2){
+    _chHidden = {};
+    if (ov2 && typeof ov2 === 'object') Object.keys(ov2).forEach(function(k){ if (ov2[k] && ov2[k].removed) _chHidden[String(k)] = true; });
+    _chRender();
+  }).catch(function(){ _chRender(); });
+}
+function _chCands(){
+  // מה שהמשרד בכלל רואה: גימורים/הושלם. מציגים גם מוסתרים (כדי לבטל הסתרה).
+  return (cards||[]).filter(function(c){ return c && (c.status === 'finishing' || c.status === 'done'); })
+    .sort(function(a,b){ return (b._upd||b.id||0) - (a._upd||a.id||0); }).slice(0, 200);
+}
+function _chRender(){
+  var box = document.getElementById('chList'); if (!box) return;
+  var q = ((document.getElementById('chSearch')||{}).value||'').trim().toLowerCase();
+  var list = _chCands().filter(function(c){
+    if (!q) return true;
+    return ((c.name||'') + ' ' + (c.customer||'')).toLowerCase().indexOf(q) >= 0;
+  });
+  var autoHidden = function(c){ return !!(window.FrameworkOrders && FrameworkOrders.isHiddenJob(c)); };
+  if (!list.length){ box.innerHTML = '<div style="padding:18px;text-align:center;color:#9ca3af">אין עבודות מתאימות</div>'; return; }
+  box.innerHTML = list.map(function(c){
+    var auto = autoHidden(c), on = auto || !!_chHidden[String(c.id)];
+    var when = c.printedAt ? new Date(c.printedAt).toLocaleDateString('he-IL') : (c.orderDate || '');
+    return '<label style="display:flex;align-items:center;gap:9px;padding:9px 10px;border-bottom:1px solid #eee;cursor:'+(auto?'default':'pointer')+';background:'+(on?'#f8fafc':'#fff')+'">'
+      + '<input type="checkbox" class="chChk" data-id="'+c.id+'" '+(on?'checked':'')+' '+(auto?'disabled':'')+' style="width:18px;height:18px">'
+      + '<span style="flex:1;min-width:0"><b>'+escHtml(c.name||'עבודה')+'</b>'
+      + (c.customer?' <span style="color:#6b7280">· '+escHtml(c.customer)+'</span>':'')
+      + '<div style="font-size:.76rem;color:#9ca3af">'+(c.status==='done'?'הושלם':'בגימורים')+(when?' · '+when:'')+(c.copies?' · '+Number(c.copies).toLocaleString()+' עותקים':'')+'</div></span>'
+      + (auto?'<span style="font-size:.74rem;color:#b45309;font-weight:800;white-space:nowrap">מוסתר אוטומטית (גרפיק)</span>':'')
+      + '</label>';
+  }).join('');
+  Array.prototype.forEach.call(box.querySelectorAll('.chChk'), function(ch){
+    ch.onchange = function(){ _chToggle(ch.dataset.id, ch.checked, ch); };
+  });
+}
+function _chToggle(cardId, hide, el){
+  if (el) el.disabled = true;
+  var p = window._fbPut ? window._fbPut('clerkJobs/' + cardId + '/removed', hide ? true : null) : Promise.resolve(false);
+  Promise.resolve(p).then(function(ok){
+    if (ok === false) { showToast('⚠️ השמירה נכשלה'); if (el){ el.checked = !hide; } }
+    else { if (hide) _chHidden[String(cardId)] = true; else delete _chHidden[String(cardId)];
+           showToast(hide ? '🙈 הוסתר מהמשרד' : '👁 הוחזר לתצוגת המשרד'); }
+  }).catch(function(){ showToast('⚠️ השמירה נכשלה'); if (el){ el.checked = !hide; } })
+   .then(function(){ if (el) el.disabled = false; });
 }
 
 function openSettings() {
