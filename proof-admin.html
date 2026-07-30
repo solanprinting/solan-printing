@@ -644,7 +644,9 @@ function render(rows) {
           <button data-editcust="${escapeHtml(_selCust)}" title="שינוי שם הלקוח בכל העבודות שלו">✎ ערוך לקוח</button>
           <button data-portal="${escapeHtml(_selCust)}" title="קישור קבוע לפורטל האישי של הלקוח">🔗 קישור-פורטל</button>
           <button data-notice="${escapeHtml(_selCust)}" title="שלח דרישה שתופיע בפורטל הלקוח">📢 שלח דרישה</button>
-          <button data-apogee="${escapeHtml(_selCust)}" title="העלה פרופר-אפוגי לדפדוף+אישור בפורטל">📎 פרופר-אפוגי לפורטל</button>
+          <!-- כפתור העלאת-הפרופר לאישור הוסר מכאן (בקשת-בעלים 2026-07-30):
+               הפעולה עברה ללשונית "📤 פרופר ללקוח", שם יש רשימת-לקוחות,
+               קיפול לפי טמפלט, בדיקה פנימית ותיעוד-גרסאות. -->
         </div>
         <div style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:.85rem">
           <span style="color:#6b7280">📅 יום שליחה:</span>
@@ -779,7 +781,7 @@ function render(rows) {
     return moveRun(parts[0], parts.slice(1).join('|'), b);   // partId יכול להכיל '|'
   }, 'העברת הריצה'));
   document.querySelectorAll('[data-notice]').forEach(b => b.onclick = () => sendNotice(b.dataset.notice));
-  document.querySelectorAll('[data-apogee]').forEach(b => b.onclick = () => attachApogee(b.dataset.apogee));
+  // (data-apogee הוסר — השליחה לאישור עברה ללשונית "📤 פרופר ללקוח")
   document.querySelectorAll('[data-unlock]').forEach(b => b.onclick = () => unlockProof(b.dataset.unlock));
   document.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => {
     const t = _genReg[b.dataset.gen];
@@ -871,7 +873,7 @@ function sendNotice(customer){
     + '</div>'
     + '<textarea id="notice-text" rows="3" placeholder="כתוב את הדרישה..." style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:9px;font-family:inherit;box-sizing:border-box;font-size:.95rem"></textarea>'
     + '<div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px;flex-wrap:wrap">'
-    +   '<button type="button" id="notice-apogee" style="'+bs+';border-color:#99f6e4;color:#0f766e">📎 צרף פרופר-אפוגי במקום</button>'
+    +   '<button type="button" id="notice-apogee" style="'+bs+';border-color:#99f6e4;color:#0f766e" title="עובר ללשונית שבה מעלים פרופר, מקפלים לחוברת ושולחים לאישור">📤 שלח פרופר לאישור במקום</button>'
     +   '<div style="display:flex;gap:8px">'
     +     '<button type="button" id="notice-cancel" style="'+bs+'">ביטול</button>'
     +     '<button type="button" id="notice-send" style="padding:8px 18px;border:none;background:#1a1a4e;color:#fff;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:800;font-size:.85rem">שלח דרישה</button>'
@@ -881,7 +883,15 @@ function sendNotice(customer){
   const ta = document.getElementById('notice-text');
   document.querySelectorAll('#notice-modal [data-tpl]').forEach(function(b){ b.onclick = function(){ ta.value = ta.value ? (ta.value + ' · ' + b.dataset.tpl) : b.dataset.tpl; ta.focus(); }; });
   document.getElementById('notice-cancel').onclick = function(){ document.getElementById('notice-modal').remove(); };
-  document.getElementById('notice-apogee').onclick = function(){ document.getElementById('notice-modal').remove(); attachApogee(customer); };
+  // במקום מעלה-פרופר משלנו — מעבירים ללשונית "📤 פרופר ללקוח" (שם יש רשימת-לקוחות,
+  // קיפול, בדיקה פנימית ותיעוד-גרסאות). אם הדף פתוח לבד — פותחים אותה בחלון חדש.
+  document.getElementById('notice-apogee').onclick = function(){
+    document.getElementById('notice-modal').remove();
+    try {
+      if (window.parent && window.parent !== window && window.parent._npTab){ window.parent._npTab('send'); return; }
+    } catch(e){}
+    window.open('customer-fold-preview.html?cfp=1', '_blank');
+  };
   document.getElementById('notice-send').onclick = async function(){
     const t = (ta.value||'').trim(); if (!t){ ta.focus(); return; }
     document.getElementById('notice-modal').remove();
@@ -917,35 +927,9 @@ async function unlockProof(id){
     await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${nid}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:'הפרופר נפתח מחדש — נא לבדוק ולאשר', type:'approve', at:Date.now(), done:false }) }); } } catch(e){}
   msg('🔓 הפרופר נפתח לשינויים'); await loadProofs();
 }
-function attachApogee(customer){
-  const slug = _slug(customer); if (!slug) return;
-  // פותחים את בורר-הקובץ ישירות על הלחיצה (prompt לפני click חוסם את חלון-ההעלאה בחלק מהדפדפנים);
-  // סוג-הקיפול נשאל אחרי בחירת הקובץ. ה-input מצורף ל-DOM כדי ש-click יעבוד בכל דפדפן.
-  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf';
-  inp.style.display = 'none'; document.body.appendChild(inp);
-  inp.onchange = async function(){
-    const f = inp.files && inp.files[0]; inp.remove(); if (!f) return;
-    msg('מעלה פרופר…');
-    try {
-      const buf = new Uint8Array(await f.arrayBuffer());
-      const jobId = 'apogee_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
-      const safe = (f.name||'apogee.pdf').replace(/[\\/:*?"<>|#%&{}]+/g,'_').slice(0,90);
-      const path = 'customerProofs/'+slug+'/'+jobId+'/'+safe;
-      const url = await uploadBytes(path, buf);
-      // רשומה בעבודות (הסטטוס מופיע ב"לקוחות ועבודות"); סוג-הקיפול ייקבע בכלי "פרופר ללקוח"
-      await fetch(await _au(`${_FBURL}/customerProofs/${jobId}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ customer:customer, title:'פרופר — '+(f.name||''), status:'apogee', apogeeUrl:url, apogeePath:path, source:'shop', createdAt:Date.now() }) });
-      msg('✓ הועלה — נפתח בכלי "פרופר ללקוח"'); await loadProofs();
-      // ממשיכים בכלי החדש: קיפול לפי טמפלט → בדיקה → שליחה ללקוח לאישור
-      const q = 'customer-fold-preview.html?cfp=1&src=' + encodeURIComponent(url)
-              + '&cust=' + encodeURIComponent(customer) + '&job=' + encodeURIComponent(jobId)
-              + '&name=' + encodeURIComponent(f.name||'');
-      try { if (window.parent && window.parent !== window && window.parent._npTab) { window.parent._npTab('send'); } } catch(e){}
-      window.open(q, '_blank');
-    } catch(e){ console.error(e); msg('✗ העלאה נכשלה: ' + (e.message||e)); }
-  };
-  inp.click();
-}
+/* attachApogee הוסר (בקשת-בעלים 2026-07-30): העלאת פרופר לאישור עברה
+   ללשונית "פרופר ללקוח". השארת מעלה-קבצים בלתי-נגיש שכותב ל-Firebase
+   היא מלכודת — עדיף בלי. רשומות apogeeUrl ותיקות ממשיכות להיות מוצגות. */
 async function uploadBytes(path, bytes){
   let lastErr;
   for (const bucket of ['solan-printing.firebasestorage.app']){

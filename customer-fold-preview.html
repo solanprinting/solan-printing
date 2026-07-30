@@ -82,6 +82,8 @@ const _APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
 let _tok={id:null,exp:0};
 function _isProd(){ return /solanprinting\.github\.io/.test(location.host); }   // כתיבה חיה רק בייצור
 function _nowIso(){ return new Date().toISOString(); }
+// שמות-לקוחות/עבודות מגיעים מנתוני-משתמש ונכנסים ל-HTML — חייבים בריחה
+function _esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 // דפדפנים מקפיאים ציור בלשונית-רקע (רינדור pdf.js עלול להיתקע). ממתין עד שהלשונית גלויה
 // לפני כל רינדור → מונע היתקעות, ומתאושש מיד כשחוזרים ללשונית (הקיפול/העלאה רצים גם ברקע).
 function _whenVisible(){ if(!document.hidden) return Promise.resolve();
@@ -538,6 +540,15 @@ function workerScreen(){
    + '</div>'
    + '<div id="tplPane" style="display:none"></div>'
    + '<div id="sendPane">'
+   /* רשימת-הלקוחות — אותה רשימה שבמסך "לקוחות ועבודות" (בקשת-בעלים 2026-07-30),
+      כדי שאפשר לבחור לקוח כאן ולשלוח לו פרופר לדפדוף בלי לחזור למסך אחר.
+      ליד כל לקוח מצוין אם יש לו פורטל — כי זה קובע לאן השליחה הולכת. */
+   + '<div class="card" id="custCard"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+   +   '<b>👥 לקוחות</b>'
+   +   '<input type="search" id="custSearch" placeholder="🔍 חיפוש לקוח…" style="width:180px">'
+   +   '<button id="custReload" style="font-size:.8rem">🔄 רענן</button>'
+   +   '<span class="muted" id="custPicked" style="margin-right:auto;font-size:.85rem"></span>'
+   + '</div><div id="custList" style="margin-top:8px;max-height:190px;overflow-y:auto"></div></div>'
    + '<div class="steps">'+['העלאת פרופר','בחירת טמפלט','יצירת חוברת','בדיקה פנימית','שליחה ללקוח'].map((s,i)=>'<div class="step" id="wstep'+i+'">'+(i+1)+'. '+s+'</div>').join('')+'</div>'
    + '<div class="card"><b>1–2.</b> פרופר: <input type="file" id="proof" accept="application/pdf"> '
    + '<span id="tplPick">· טמפלט: <select id="tpl"><option value="">— בחר —</option></select></span> '
@@ -569,6 +580,75 @@ function workerScreen(){
     if(!send) _renderTplPane();
   }
   $('navSend').onclick=()=>_showPane('send'); $('navTpl').onclick=()=>_showPane('tpl');
+
+  /* ── רשימת לקוחות (כמו ב"לקוחות ועבודות") ──────────────────────────────────
+     מקורות: עבודות-הלקוחות (customerProofs) + רשימת-העיתונים השבועית
+     (newspapers), ומי מהם מוגדר עם פורטל (customerPortals). הפורטל קובע:
+     יש פורטל → הפרופר נשלח ישירות לשם; אין → קישור-צפייה רגיל. */
+  let _custRows = [], _custPortals = {}, _custSel = '';
+  const _cslug = s => String(s||'').trim().toLowerCase().replace(/[.#$\[\]\/\\]+/g,'').replace(/\s+/g,'_');
+  async function _loadCustomers(){
+    $('custList').innerHTML = '<div class="muted">טוען…</div>';
+    let proofs = null, papers = null, portals = null;
+    try { [proofs, papers, portals] = await Promise.all([
+      _dbGet('customerProofs').catch(()=>null), _dbGet('newspapers').catch(()=>null), _dbGet('customerPortals').catch(()=>null) ]);
+    } catch(e){}
+    _custPortals = portals || {};
+    const byName = {};
+    const add = (nm, extra) => {
+      const n = String(nm||'').trim(); if (!n) return;
+      const k = _cslug(n); if (!k) return;
+      byName[k] = Object.assign({ name: n, jobs: 0, last: 0 }, byName[k] || {}, extra || {});
+      byName[k].name = byName[k].name || n;
+    };
+    Object.keys(proofs||{}).forEach(id=>{
+      const p = proofs[id]; if (!p || p._deleted) return;
+      const k = _cslug(p.customer); if (!k) return;
+      add(p.customer);
+      byName[k].jobs++;
+      const t = p.createdAt || p.approvedAt || 0; if (t > byName[k].last) byName[k].last = t;
+    });
+    const pArr = Array.isArray(papers) ? papers : (papers && typeof papers==='object' ? Object.values(papers) : []);
+    pArr.forEach(n=>{ if (n && n.name && !n._deleted) add(n.name, { day: n.day || '' }); });
+    _custRows = Object.keys(byName).map(k=>Object.assign({ slug:k, portal: !!(_custPortals[k] && _custPortals[k].token) }, byName[k]))
+      .sort((a,b)=> (b.last||0)-(a.last||0) || a.name.localeCompare(b.name,'he'));
+    _renderCustList();
+  }
+  function _renderCustList(){
+    const q = ($('custSearch').value||'').trim().toLowerCase();
+    const rows = _custRows.filter(c=>!q || c.name.toLowerCase().indexOf(q)>=0);
+    if (!rows.length){ $('custList').innerHTML = '<div class="muted">'+(_custRows.length?'אין לקוח מתאים':'לא נמצאו לקוחות')+'</div>'; return; }
+    $('custList').innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:.88rem">'
+      + rows.map(c=>{
+          const on = (c.slug === _custSel);
+          return '<tr style="'+(on?'background:#eef2ff':'')+'">'
+            + '<td style="padding:3px 4px"><b>'+_esc(c.name)+'</b>'+(c.day?(' <span class="muted" style="font-size:.78rem">· '+_esc(c.day)+'</span>'):'')+'</td>'
+            + '<td style="text-align:center;white-space:nowrap">'+(c.jobs?('<span class="muted" style="font-size:.78rem">'+c.jobs+' עבודות</span>'):'')+'</td>'
+            + '<td style="text-align:center;white-space:nowrap">'
+            +   (c.portal ? '<span class="ok" style="font-size:.78rem">🔗 פורטל</span>'
+                          : '<span class="muted" style="font-size:.78rem">ללא פורטל</span>')+'</td>'
+            + '<td style="text-align:left;white-space:nowrap"><button class="cPick" data-s="'+_esc(c.slug)+'" style="font-size:.8rem">'
+            +   (on?'✓ נבחר':'בחר')+'</button></td></tr>';
+        }).join('')
+      + '</table>';
+    Array.from(document.getElementsByClassName('cPick')).forEach(b=>b.onclick=()=>_pickCust(b.dataset.s));
+  }
+  function _pickCust(slug){
+    const c = _custRows.find(x=>x.slug===slug); if (!c) return;
+    _custSel = slug;
+    if ($('custName')) $('custName').value = c.name;
+    const ph = (_custPortals[slug] && (_custPortals[slug].phone || _custPortals[slug].tel)) || '';
+    if (ph && $('custPhone') && !$('custPhone').value) $('custPhone').value = ph;
+    $('custPicked').innerHTML = 'נבחר: <b>'+_esc(c.name)+'</b> · '
+      + (c.portal ? '<span class="ok">יישלח ישירות לפורטל שלו</span>'
+                  : '<span style="color:#92400e">אין לו פורטל — יתקבל קישור-צפייה רגיל</span>');
+    _renderCustList();
+    if (window._cfpRefreshSendBtn) window._cfpRefreshSendBtn();
+  }
+  window._cfpSelectedCust = () => (_custRows.find(x=>x.slug===_custSel) || null);
+  $('custSearch').oninput = _renderCustList;
+  $('custReload').onclick = _loadCustomers;
+  _loadCustomers();
 
   // ── לשונית "הוספת טמפלט": רשימת הטמפלטים המותאמים + הוספה חדשה דרך כלי-הסימון ──
   function _renderTplPane(){
@@ -925,12 +1005,25 @@ function workerScreen(){
       const msg='שלום,\nמצורף קישור לאישור החוברת "'+jobLabel+'" לפני הדפסה.\nאנא עברו על סדר העמודים והתוכן, ואשרו בתחתית העמוד:\n'+link;
       const waTxt=encodeURIComponent(msg);
       const mailUrl='mailto:?subject='+encodeURIComponent('אישור חוברת לדפוס — '+jobLabel)+'&body='+waTxt;
+      /* שליחה ישירה לפורטל של הלקוח (בקשת-בעלים 2026-07-30): נרשמת עבודה
+         ב-customerProofs עם foldVersionId+foldToken, והפורטל מציג ממנה כפתור
+         "📖 דפדף ואשר" שפותח בדיוק את מסך-הלקוח הזה. למי שאין פורטל — נשארים
+         עם קישור-הצפייה הרגיל (וואטסאפ/מייל/העתקה). */
+      const _selCustRow = (window._cfpSelectedCust ? window._cfpSelectedCust() : null);
+      const _custHasPortal = !!(_selCustRow && _selCustRow.portal);
+      const _portalBtn = _custHasPortal
+        ? '<button id="sndPortal" class="primary">📥 שלח לפורטל של ' + _esc(_selCustRow.name) + '</button>'
+        : '';
       $('linkOut').innerHTML='<div class="chk"><b>📤 שליחה ללקוח לאישור (V'+versionNumber+')</b>'
         + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">'
+        + _portalBtn
         + '<button id="sndWa" class="primary" style="background:#25d366">🟢 שלח בוואטסאפ</button>'
         + '<a id="sndMail" href="'+mailUrl+'"><button>✉️ שלח במייל</button></a>'
         + '<button id="cpLink">📋 העתק קישור</button>'
         + '<a href="'+link+'" target="_blank"><button>👁 פתח כלקוח (בדיקה)</button></a></div>'
+        + (_selCustRow && !_custHasPortal
+            ? '<div class="muted" style="margin-top:6px;font-size:.82rem">ל־'+_esc(_selCustRow.name)+' אין פורטל — שלחו את הקישור בוואטסאפ/מייל. (פורטל נפתח מ"לקוחות ועבודות" → 🔗 קישור-פורטל)</div>'
+            : '')
         + '<div id="sentInfo" class="muted" style="margin-top:8px;font-size:.85rem"></div>'
         + '<div class="muted" style="margin-top:4px;font-size:.82rem">הקישור מוצג ללקוח עם דפדוף החוברת וכפתור "מאשר להדפסה". אישור/בקשת-תיקון יירשמו על גרסה V'+versionNumber+'.</div>'
         + '<div style="margin-top:6px"><code style="word-break:break-all;font-size:.75rem;opacity:.7">'+link+'</code></div></div>';
@@ -945,6 +1038,25 @@ function workerScreen(){
         window.open(wa,'_blank'); _sent(); };
       $('sndMail').onclick=()=>{ _sent(); };
       $('cpLink').onclick=()=>{ navigator.clipboard&&navigator.clipboard.writeText(link); $('cpLink').textContent='✓ הועתק'; _sent(); };
+      if($('sndPortal')) $('sndPortal').onclick=async()=>{
+        const btn=$('sndPortal'); btn.disabled=true; const was=btn.textContent; btn.textContent='שולח לפורטל…';
+        try{
+          const pid='fold_'+rec.versionId;
+          await _dbPut('customerProofs/'+pid, {
+            customer: _selCustRow.name, title: jobLabel + ' — לאישור (V'+versionNumber+')',
+            status:'apogee',                       // "ממתין לאישורך" בפורטל
+            foldVersionId: rec.versionId, foldToken: rec.share.token,
+            apogeeUrl: up.url,                     // גם הורדה ישירה של החוברת
+            pageCount: _folded.result.orderedPages.length,
+            source:'shop-fold', createdAt: Date.now() });
+          _markSent(rec.versionId);
+          btn.textContent='✓ נשלח לפורטל';
+          $('sentInfo').innerHTML='<span class="ok">✓ מופיע בפורטל של '+_esc(_selCustRow.name)+' כ"ממתין לאישורך"</span>';
+        }catch(e){
+          btn.disabled=false; btn.textContent=was;
+          alert('השליחה לפורטל נכשלה: '+(e.message||e));   // בלי כשל שקט
+        }
+      };
       setStep(4);
     }catch(err){ $('linkStatus').innerHTML='<span class="bad">'+(err.message||err)+'</span>'; $('linkBtn').disabled=false; }
   };
