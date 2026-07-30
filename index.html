@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785407225';
+window.APP_VERSION = '1785407579';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -4969,7 +4969,9 @@ function _orderRenderPdf(dataUrl, canvasId, scale){
       var cv = document.getElementById(canvasId); if(!cv) return;
       var vp = page.getViewport({scale:scale||0.6});
       cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
-      page.render({canvasContext:cv.getContext('2d'), viewport:vp});
+      var cx = cv.getContext('2d');
+      cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);   // רקע לבן — עמוד עם שקיפות לא ייראה דהוי
+      page.render({canvasContext:cx, viewport:vp});
     }).catch(function(){});
   }catch(e){}
 }
@@ -8851,7 +8853,9 @@ async function _renderProofPagesCache(file, spath) {
       var vp = page.getViewport({ scale: scale });
       var c = document.createElement('canvas');
       c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
-      await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      var _cx = c.getContext('2d');
+      _cx.fillStyle = '#fff'; _cx.fillRect(0, 0, c.width, c.height);   // רקע לבן — שקיפות ב-JPEG יוצאת שחורה/דהויה
+      await page.render({ canvasContext: _cx, viewport: vp }).promise;
       imgs.push(c.toDataURL('image/jpeg', 0.95));
       page.cleanup && page.cleanup();
     }
@@ -23484,7 +23488,9 @@ function _opInkHiRes(){
       var scale = Math.min(4, 2600 / v1.height);
       var vp = page.getViewport({ scale: scale });
       var c = document.createElement('canvas'); c.width = Math.max(1,Math.floor(vp.width)); c.height = Math.max(1,Math.floor(vp.height));
-      return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function(){ return c.toDataURL('image/jpeg', 0.95); });
+      var cx = c.getContext('2d');
+      cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);   // רקע לבן — אחרת שקיפות מזייפת את קריאת הכיסוי
+      return page.render({ canvasContext: cx, viewport: vp }).promise.then(function(){ return c.toDataURL('image/jpeg', 0.95); });
     })
     .then(function(url){ _opInk.previewSrc = url; _opInk._hiResIdx = idx; if (note) note.textContent = ''; _opInkRenderBars(); })
     .catch(function(){ if (note) note.textContent = ''; });
@@ -27875,7 +27881,9 @@ function pi_studioRenderPage(n2, cb){
   return st.pdf.getPage(n2).then(function(page){
     var vp = page.getViewport({ scale: 2 });
     var c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
-    return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function(){
+    var cx = c.getContext('2d');
+    cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);   // רקע לבן — עמוד עם שקיפות לא ייצא דהוי/שחור
+    return page.render({ canvasContext: cx, viewport: vp }).promise.then(function(){
       return new Promise(function(res){
         var im = new Image();
         im.onload = function(){ st.pageImgs[n2] = im; cb ? cb(im) : pi_studioShowPage(im); res(im); };
