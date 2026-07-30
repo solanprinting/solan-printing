@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
+<script src="pdfjs-engine.js"></script>
 <script src="page-swap.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
@@ -210,10 +211,26 @@ function _ensureLibs(){
   });
   return _libsP;
 }
+/* מנוע התצוגה: העדכני כברירת-מחדל. זה הדף שבו הלקוח *מאשר* עיתון, ולכן חייב
+   לצייר נכון גרפיקה עם מסכת-שקיפות — המנוע הישן צייר אותה דהויה ("עוצמה"
+   עמ' 28, 2026-07-30). אם כל המראות של העדכני חסומות אצל הלקוח — נופלים-לאחור
+   לישן שכבר נטען, כי דפדוף עם באג עדיף על מסך מת. ?engine=old מכריח את הישן. */
+var _engineP = null, _engineNew = false;
+function _ensureEngine(){
+  if (!window.PdfEngine) return Promise.resolve({ ok: true, engine: 'old' });
+  if (_engineP) return _engineP;
+  var force = PdfEngine.chooseEngine(new URLSearchParams(location.search).get('engine'));
+  _engineP = PdfEngine.ensure({ force: force, win: window }).then(function(r){
+    _engineNew = (r.engine === 'new');
+    return r;
+  });
+  return _engineP;
+}
 // חוסם פעולה שדורשת את הספריות ומציג הסבר ברור אם הן חסומות
 async function _requireLibs(){
   showOverlay('טוען רכיבי צפייה…', true);
   var r = await _ensureLibs();
+  if (r.ok) { try { await _ensureEngine(); } catch(e){ /* נשאר במנוע הישן */ } }
   showOverlay('', false);
   if (!r.ok){
     showOverlay((r.message || (window.LibLoader ? LibLoader.blockedMessage() : 'רכיבי הצפייה לא נטענו.')), true);
@@ -682,12 +699,35 @@ function _toMM(v) { v = +v || 0; return v > 0 && v < 60 ? v * 10 : v; }
 // עמוד כזה רחב בערך פי 2 מרוחב העיתון (ובאותו גובה) — נספר כ-2 עמודים, לא 1.
 // הבסיס להשוואה: הגודל שהוגדר לעיתון; אם לא הוגדר — הגודל השכיח מבין העמודים שהועלו.
 // ── מבנה הריצות לפי מספר עמודים (משוחזר מ-buildRuns) — לדעת אילו עמודים בכל ריצה ──
-function _pcFullSheet() {
-  var w = _toMM(record.reqW), h = _toMM(record.reqH);
+/* כמה עמודים נכנסים בגיליון — קובע את חלוקת הריצות.
+   ⚠️ באג שתוקן (2026-07-30): כאן הייתה נפילה-לאחור *שקטה* ל-16 כשהגודל הנדרש
+   לא היה רשום ברשומה. שבועון 16.5×24 עם 96 עמ' התחלק ל-6 ריצות של 16 במקום
+   3 ריצות של 32 — בלי שום חיווי שהמערכת בכלל ניחשה. עכשיו:
+     1) גודל רשום ברשומה (reqW/reqH) — מקור-אמת ראשון.
+     2) אין גודל → הגודל שנמדד מהעמודים שהועלו בפועל.
+     3) בחירה מפורשת של המשתמש בחלון הריצות גוברת על הכל.
+   וכל מקרה שאינו מהגודל הרשום מסומן בחלון, כדי שאפשר לתקן במקום. */
+function _pcSheetFromMM(w, h) {
   var mx = Math.max(w||0, h||0), mn = Math.min(w||0, h||0);
+  if (!mx || !mn) return 0;
   if (Math.abs(mx-240)<12 && Math.abs(mn-165)<12) return 32;   // 16.5×24 / A5 → 32 עמ' לגיליון
-  return 16;                                                    // A4 / 64×90 → 16
+  if (Math.abs(mx-297)<14 && Math.abs(mn-210)<14) return 16;   // A4 → 16
+  if (Math.abs(mx-330)<14 && Math.abs(mn-240)<14) return 16;   // 24×33 → 16
+  return 0;                                                    // לא מזוהה — לא מנחשים
 }
+function _pcSheetSource() {
+  if (window._pcSheetManual) return { sheet: window._pcSheetManual, src: 'manual' };
+  var saved = parseInt(record && record.sheetPages, 10) || 0;   // נשמר בגיליון — נדבק לריצות הבאות
+  if (saved >= 2) return { sheet: saved, src: 'manual' };
+  var fromReq = _pcSheetFromMM(_toMM(record.reqW), _toMM(record.reqH));
+  if (fromReq) return { sheet: fromReq, src: 'req' };
+  // הגודל שנמדד מהעמודים שהועלו (detectSpreads שומר את הגודל השכיח)
+  var mw = detectSpreads._baseW, mh = detectSpreads._baseH;
+  var fromFiles = _pcSheetFromMM(mw, mh);
+  if (fromFiles) return { sheet: fromFiles, src: 'files' };
+  return { sheet: 0, src: 'unknown' };
+}
+function _pcFullSheet() { return _pcSheetSource().sheet; }
 function _pcRunLayout(total, fullSheet) {
   total = parseInt(total)||0; if (!total || !fullSheet) return [];
   var layers = [];
@@ -742,8 +782,35 @@ function _pcAssignRunPages() {
 function _pcSuggestedRun(){
   try{ var n = record && record.parts ? Object.keys(record.parts).length : 0; return n + 1; }catch(e){ return 1; }
 }
+/* שורת "כמה עמודים בגיליון" — מוצגת *תמיד*, כדי שהחלוקה לריצות לא תהיה ניחוש
+   שקוף. אם המערכת לא יודעת, היא אומרת זאת ומבקשת לבחור. */
+function _pcSheetPickHtml(){
+  var s = _pcSheetSource();
+  var opt = function(v, txt){ return '<option value="'+v+'"'+(s.sheet===v?' selected':'')+'>'+txt+'</option>'; };
+  var note = s.src==='manual' ? 'נבחר על ידיכם'
+           : s.src==='req'    ? 'לפי הגודל שהוגדר לעיתון'
+           : s.src==='files'  ? 'לפי הגודל של הקבצים שהעליתם'
+           : '⚠️ לא זוהה — בחרו כדי שהחלוקה לריצות תהיה נכונה';
+  return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;'
+    + 'background:' + (s.sheet ? '#f8fafc' : '#fffbeb') + ';border:1px solid ' + (s.sheet ? '#e2e8f0' : '#fcd34d')
+    + ';border-radius:9px;padding:8px 11px">'
+    + '<label style="font-weight:700">עמודים בגיליון:</label>'
+    + '<select id="pc-sheet" onchange="_pcSetSheet(this.value)" style="padding:7px 9px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem">'
+    + (s.sheet ? '' : '<option value="">— בחרו —</option>')
+    + opt(32, '32 (עיתון 16.5×24)') + opt(16, '16 (A4 / 24×33)') + opt(8, '8')
+    + '</select>'
+    + '<span style="font-size:.8rem;color:' + (s.sheet ? '#6b7280' : '#92400e') + '">' + note + '</span></div>';
+}
+window._pcSetSheet = function(v){
+  window._pcSheetManual = parseInt(v, 10) || 0;
+  var host = document.getElementById('pc-runbox');
+  if (host) host.innerHTML = _pcSheetPickHtml()
+    + '<div id="pc-runlist">' + _pcRunListHtml(parseInt((document.getElementById('pc-total')||{}).value) || parseInt(record.totalPages) || 0) + '</div>';
+};
 function _pcRunListHtml(total) {
-  var runs = total ? _pcRunLayout(total, _pcFullSheet()) : [];
+  var fs = _pcFullSheet();
+  if (total && !fs) return '<div style="color:#92400e;font-size:.85rem;padding:6px 0">בחרו קודם כמה עמודים נכנסים בגיליון — אחרת החלוקה לריצות תהיה שגויה.</div>';
+  var runs = total ? _pcRunLayout(total, fs) : [];
   if (!runs.length) return '<div style="color:#9ca3af;font-size:.85rem;padding:6px 0">הזינו מספר עמודים כדי לראות את הריצות</div>';
   var sug = _pcSuggestedRun();
   return runs.map(function(r){
@@ -761,15 +828,18 @@ function _pcRunPicker() {
     '<div style="font-size:.85rem;color:#555;margin-bottom:12px">כמה עמודים בעיתון המלא? כך נדע אילו עמודים שייכים לכל ריצה — וכפולה על גבול ריצה תטופל אוטומטית (רק הצד ששייך לריצה).</div>' +
     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><label style="font-weight:700">מספר עמודים בעיתון:</label>' +
       '<input id="pc-total" type="number" min="1" value="'+(total||'')+'" oninput="document.getElementById(\'pc-runlist\').innerHTML=_pcRunListHtml(parseInt(this.value)||0)" style="width:90px;padding:8px 9px;border:1px solid #d1d5db;border-radius:8px;font-size:1rem;text-align:center"></div>' +
-    '<div id="pc-runlist">'+_pcRunListHtml(parseInt(total)||0)+'</div>' +
+    '<div id="pc-runbox">' + _pcSheetPickHtml() + '<div id="pc-runlist">'+_pcRunListHtml(parseInt(total)||0)+'</div></div>' +
     '<div style="margin-top:12px;text-align:left"><button onclick="_pcSkipRun()" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:.85rem;text-decoration:underline">דלג — אבחר ידנית לכל כפולה</button></div>' +
   '</div>';
 }
 window._pcPickRun = function(num) {
   var total = parseInt((document.getElementById('pc-total')||{}).value) || parseInt(record.totalPages) || 0;
   if (!total) { alert('נא להזין את מספר העמודים בעיתון'); return; }
-  record.totalPages = total; try { patch({ totalPages: total }); } catch(e){}
-  var runs = _pcRunLayout(total, _pcFullSheet());
+  var fs = _pcFullSheet();
+  if (!fs) { alert('נא לבחור כמה עמודים נכנסים בגיליון'); return; }   // לא ממשיכים על ניחוש
+  record.totalPages = total; record.sheetPages = fs;
+  try { patch({ totalPages: total, sheetPages: fs }); } catch(e){}     // נדבק לריצות הבאות של אותו גיליון
+  var runs = _pcRunLayout(total, fs);
   window._pcRun = runs.find(function(r){ return r.num===num; }) || null;
   var m = document.getElementById('pc-runpick'); if (m) m.remove();
   if (pages.length) { detectSpreads(); _pcAssignRunPages(); renderAll(); }

@@ -9,6 +9,7 @@
 <script src="lib-loader.js"></script>
 <script src="page-spine.js"></script>
 <script src="pdf-transparency.js"></script>
+<script src="pdfjs-engine.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -211,29 +212,13 @@ const HI_H   = 3000, HI_Q   = 0.95, HI_MAX = 6;
 const RENDER_SCALE_CAP = 5;
 let _fromCache = false;      // האם מה שמוצג כרגע הוא מטמון (תצוגה מהירה) ולא רינדור-אמת
 
-/* ── מנוע תצוגה חלופי ("עוצמה" עמ' 28) ──────────────────────────────────
-   נמדד מול הקובץ האמיתי: הקובץ תקין, וגם *הפענוח* ב-pdf.js תקין (3.11 ו-5.4
-   מפענחים זהה, אותם ערכי אלפא כמו המסכה שבקובץ). מה ששבור הוא שלב ה*ציור*:
-   רשימת-הפעולות מראה שאותה גרפיקה נצבעת גם אטומה וגם עם מסכת-שקיפות, כלומר
-   האלפא מוחל פעמיים → רוח דהויה.
-   מנוע חדש עשוי לתקן זאת, אבל אין דרך לאמת ציור-לקנבס בסביבת-הפיתוח כאן —
-   ולכן הוא *לא* ברירת-מחדל לכל הלקוחות לפני שנראה במו-עינינו שהוא נכון.
-   ?engine=new (או הכפתור בסרגל) מרנדר עם המנוע החדש להשוואה מיידית. */
-const MODERN_PDFJS = '5.4.149';
-async function _useModernEngine(){
-  var bases = ['https://cdn.jsdelivr.net/npm/pdfjs-dist@' + MODERN_PDFJS + '/build/',
-               'https://unpkg.com/pdfjs-dist@' + MODERN_PDFJS + '/build/'];
-  for (var i = 0; i < bases.length; i++){
-    try {
-      var m = await import(bases[i] + 'pdf.min.mjs');
-      if (!m || typeof m.getDocument !== 'function') continue;
-      m.GlobalWorkerOptions.workerSrc = bases[i] + 'pdf.worker.min.mjs';
-      window.pdfjsLib = m;
-      return true;
-    } catch(e){ console.warn('modern engine failed: ' + bases[i], e); }
-  }
-  return false;
-}
+/* ── מנוע התצוגה ("עוצמה" עמ' 28) ───────────────────────────────────────
+   נמדד מול הקובץ האמיתי: הקובץ תקין, וגם *הפענוח* תקין (3.11 ו-5.4 מפענחים
+   זהה, אותם ערכי אלפא כמו המסכה שבקובץ). מה ששבור היה שלב ה*ציור*: אותה
+   גרפיקה נצבעה גם אטומה וגם דרך מסכה → האלפא הוחל פעמיים → רוח דהויה.
+   הבעלים אימת שהמנוע החדש מצייר נכון, ולכן הוא ברירת-המחדל (PdfEngine).
+   ?engine=old מכריח את הישן — להשוואה או אם משהו יתגלה. */
+const MODERN_PDFJS = (window.PdfEngine ? PdfEngine.MODERN : '5.4.149');
 
 const $ = id => document.getElementById(id);
 const overlay = $('overlay');
@@ -392,11 +377,17 @@ async function _loadTrimsBg(){
   try {
     await _requireLibs();   // רכיבי-הצפייה חסומים → הודעה ברורה במקום דף/מסך מת
   } catch(e){ return; }
-  if (params.get('engine') === 'new'){
-    _qBadge('⏳ טוען מנוע תצוגה חדש…');
-    var okNew = await _useModernEngine();
-    _engineNew = okNew;
-    _qBadge(okNew ? ('🔬 מנוע תצוגה חדש (' + MODERN_PDFJS + ')') : '⚠️ המנוע החדש לא נטען — ממשיכים ברגיל', 6000);
+  /* מנוע התצוגה: החדש כברירת-מחדל. אם כל המראות שלו חסומות אצל הצופה —
+     נופלים-לאחור למנוע הישן שכבר נטען, ואז (ורק אז) האזהרה על עמודי-שקיפות
+     נכונה ומוצגת. */
+  if (window.PdfEngine){
+    var wantOld = PdfEngine.chooseEngine(params.get('engine')) === 'old';
+    if (!wantOld) showOverlay('טוען את מנוע התצוגה…', true);
+    var eng = await PdfEngine.ensure({ force: wantOld ? 'old' : 'new', win: window });
+    _engineNew = (eng.engine === 'new');
+    showOverlay('', false);
+    if (wantOld) _qBadge('⚙️ מנוע תצוגה ישן (' + PdfEngine.LEGACY + ') — לפי בקשה בכתובת', 7000);
+    else if (!_engineNew) _qBadge('⚠️ מנוע התצוגה העדכני חסום ברשת שלך — ייתכן שגרפיקה עם שקיפות תיראה חלשה', 12000);
   }
   try {
     if (!_fromCache) showOverlay('מוריד את הקובץ… 0%', true, 0);
@@ -451,25 +442,28 @@ async function _scanTransparency(pdf, pageNo){
     return PdfTransparency.scanPage(ops, pdfjsLib.OPS);
   } catch(e){ return null; }
 }
+/* אזהרת-שקיפות מוצגת *רק* במנוע הישן. במנוע החדש הציור נכון, ואזהרה שם היא
+   רעש-שקר שמפחיד לקוחות על עמודים תקינים. */
 function _renderPageWarn(){
   const el = $('pgWarn'); if (!el) return;
-  const risky = showingPages().filter(i => _tScan[i] && _tScan[i].risky);
+  const eng = _engineNew ? 'new' : 'old';
+  const risky = showingPages().filter(i => window.PdfEngine
+    ? PdfEngine.shouldWarn(eng, _tScan[i]) : (!_engineNew && _tScan[i] && _tScan[i].risky));
   if (!risky.length){ el.innerHTML = ''; return; }
   const worst = risky.map(i => _tScan[i]).sort((a,b)=>b.doubleMasked-a.doubleMasked)[0];
   el.innerHTML = '<span>⚠️ ' + esc(PdfTransparency.warningText(worst)) + '</span>'
-    + '<button id="pwPdf">📄 פתח את הקובץ המקורי</button>'
-    + (_engineNew ? '' : '<button id="pwEngine">🔬 נסה מנוע תצוגה חדש</button>');
+    + '<button id="pwPdf">📄 פתח את הקובץ המקורי</button>';
   var b1 = $('pwPdf'); if (b1) b1.onclick = _openOriginal;
-  var b2 = $('pwEngine'); if (b2) b2.onclick = _toggleEngine;
 }
 function _openOriginal(){
   if (!_pdfUrlForBoxes) return;
   window.open(_pdfUrlForBoxes, '_blank', 'noopener');
 }
+// החלפה בין המנוע העדכני (ברירת-מחדל) לישן — לבדיקה אם משהו נראה חשוד
 function _toggleEngine(){
   var u = new URL(location.href);
-  if (u.searchParams.get('engine') === 'new') u.searchParams.delete('engine');
-  else u.searchParams.set('engine', 'new');
+  if (u.searchParams.get('engine') === 'old') u.searchParams.delete('engine');
+  else u.searchParams.set('engine', 'old');
   location.href = u.toString();
 }
 
@@ -588,9 +582,13 @@ $('vnext').onclick = () => step(+1);
 $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) document.exitFullscreen(); else (v.requestFullscreen||v.webkitRequestFullscreen).call(v); };
 $('vpdf').onclick = _openOriginal;
 $('vengine').onclick = _toggleEngine;
-if (params.get('engine') === 'new'){
-  $('vengine').textContent = '↩ חזרה למנוע הרגיל';
+if (params.get('engine') === 'old'){
+  $('vengine').textContent = '↩ חזרה למנוע העדכני';
+  $('vengine').title = 'המנוע הישן מצייר גרפיקה עם שקיפות חלשה מדי — חזרה לעדכני';
   $('vengine').style.background = '#c9a84c'; $('vengine').style.color = '#1a1a2e';
+} else {
+  $('vengine').textContent = '⚙️ מנוע תצוגה ישן';
+  $('vengine').title = 'רק לבדיקה — המנוע הישן מצייר גרפיקה עם שקיפות חלשה מדי';
 }
 // ── זום בדפדוף (לחצן + גלגלת + גרירה) — לצפייה מקרוב בגיליון שהלקוח העלה ──
 (function(){

@@ -1284,13 +1284,34 @@ $('invite').onclick = async () => {
   ];
   const menu = 'גודל עמוד נדרש — בחר/י מספר מהרשימה,\nאו הקלד/י גודל מותאם במ"מ (רוחב x גובה, למשל 330x500),\nאו השאר/י ריק לדילוג:\n\n'
     + PRESETS.map((p,i)=>`${i+1}. ${p.label}  (${p.w}×${p.h} מ"מ)`).join('\n');
-  const sizeRaw = (prompt(menu, '1') || '').trim();
+  /* גיליון קודם של אותו לקוח = ברירת-המחדל. באג שתוקן (2026-07-30): גיליון חדש
+     שנוצר בלי גודל גרם ל-proof-client לנחש 16 עמ' בגיליון, ושבועון 16.5×24 עם
+     96 עמ' התחלק ל-6 ריצות של 16 במקום 3 של 32. */
+  const prevOf = (function(){
+    try {
+      const mine = _allRows.filter(r => r && String(r.customer||'').trim() === customer.trim()
+                                        && (+r.reqW > 0) && (+r.reqH > 0))
+                           .sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+      return mine[0] || null;
+    } catch(e){ return null; }
+  })();
+  const prevIdx = prevOf ? PRESETS.findIndex(p => p.w === +prevOf.reqW && p.h === +prevOf.reqH) : -1;
+  const dflt = prevOf ? (prevIdx >= 0 ? String(prevIdx + 1) : (prevOf.reqW + 'x' + prevOf.reqH)) : '1';
+  const sizeRaw = (prompt(menu + (prevOf ? ('\n\nבגיליון הקודם של ' + customer.trim() + ': '
+                    + prevOf.reqW + '×' + prevOf.reqH + ' מ"מ (מוצע כברירת-מחדל)') : ''), dflt) || '').trim();
   let reqW = 0, reqH = 0;
   const pick = /^\d{1,2}$/.test(sizeRaw) ? PRESETS[+sizeRaw - 1] : null;
   if (pick) { reqW = pick.w; reqH = pick.h; }
   else {
     const m = sizeRaw.replace(',', '.').match(/(\d+(?:\.\d+)?)\s*[xX*×]\s*(\d+(?:\.\d+)?)/);
     if (m) { reqW = +m[1]; reqH = +m[2]; }
+  }
+  // ס"מ→מ"מ: מי שהקליד "16.5x24" התכוון ל-165×240
+  if (reqW > 0 && reqW < 60) reqW = Math.round(reqW * 10);
+  if (reqH > 0 && reqH < 60) reqH = Math.round(reqH * 10);
+  if (!reqW || !reqH){
+    if (!confirm('לא הוגדר גודל עמוד.\n\nבלי גודל, חלוקת הריצות בצד הלקוח לא תיקבע אוטומטית\n'
+               + '(הלקוח יידרש לבחור כמה עמודים בגיליון).\n\nלהמשיך בלי גודל?')) return;
   }
   const id = crypto.randomUUID?.() || (Date.now().toString(36) + Math.random().toString(36).slice(2));
   msg('יוצר…');
