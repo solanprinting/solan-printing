@@ -59,6 +59,10 @@
   .mdSideTitle { padding:9px 12px; background:#2d3561; color:#fff; font-weight:800; font-size:.86rem; }
   .custItem { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:11px 12px;
     cursor:pointer; border-bottom:1px solid #eee; font-weight:700; color:#2d3561; font-size:.9rem; transition:background .12s; }
+  .custFilterWrap { padding:7px 8px; border-bottom:1px solid var(--line); background:#faf8f2; }
+  .custFilterWrap input { width:100%; box-sizing:border-box; padding:6px 9px; font-family:inherit; font-size:.85rem;
+    border:1.5px solid #cbd5e1; border-radius:8px; }
+  .custFilterWrap input:focus { outline:none; border-color:#2d3561; }
   .custItem:hover { background:#f5f3ec; }
   .custItem.on { background:#2d3561; color:#fff; }
   .custItem .cName { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -312,11 +316,14 @@ function render(rows) {
 
   // רישום יעדים לייצור ריצות (כדי לתמוך גם בריצות בודדות שאינן ב-_allRows)
   _genReg = {}; let gi = 0;
+  /* הורדה מאוחדת: כפתור-הורדה אחד ("⬇ הורד") שמוריד קובץ-PDF יחיד בשם המלא של
+     העבודה — שם-העיתון + גיליון, ובריצה גם שם-הריצה. הפיצול-לקונטרסים נשאר
+     כפעולה משנית ("✂ פיצול לריצות"), כי הוא נדרש רק כשעיתון שלם צריך להתפצל. */
   const genCell = (fileUrl, title, jobId, partId) => {
     const key = 'g' + (gi++); _genReg[key] = { fileUrl, title, jobId, partId };
-    return `<button class="dl" data-dl="${key}" title="הקובץ המקורי שהתקבל מהלקוח">⬇ הקובץ המקורי</button>
-            <select data-sheet="${key}"><option value="32">70×100</option><option value="16">64×90</option></select>
-            <button class="gen" data-gen="${key}" title="כל ריצה כקובץ-PDF אחד — לגרירה ישירה לאפוגי">⬇ הורד ריצות (PDF לכל ריצה)</button>`;
+    return `<button class="dl" data-dl="${key}" title="קובץ-PDF יחיד בשם: ${escapeHtml(title)}">⬇ הורד</button>
+            <select data-sheet="${key}" title="גודל גיליון לפיצול לקונטרסים"><option value="32">70×100</option><option value="16">64×90</option></select>
+            <button class="gen" data-gen="${key}" title="עיתון שלם → קובץ-PDF לכל ריצה (לגרירה ישירה לאפוגי)">✂ פיצול לריצות</button>`;
   };
 
   const rowHtml = p => {
@@ -346,7 +353,7 @@ function render(rows) {
         <td><div class="acts">
           <a href="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}" target="_blank">👁 צפה</a>
           <button data-link="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}">📤 לעובדים</button>
-          ${genCell(pt.fileUrl, (p.title ? p.title + ' — ' : '') + pt.name, p.id, pt.pid)}
+          ${genCell(pt.fileUrl, jobName(p, pt.name), p.id, pt.pid)}
           <button class="del" data-delpart="${p.id}|${pt.pid}|${encodeURIComponent(pt.filePath||'')}" title="מחק ריצה">🗑</button>
         </div></td></tr>`).join('');
       return head + (_col ? '' : partRows);   // מכווץ → מציגים רק את שורת-העבודה
@@ -362,7 +369,7 @@ function render(rows) {
         <td>נוצר: ${fmt(p.createdAt)}${approved ? `<div class="note" style="color:#16a34a">✓ ${escapeHtml(p.apogeeApprovedBy||'')} · ${fmt(p.apogeeApprovedAt)}</div>` : ''}</td>
         <td><div class="acts">
           <a href="${link}" target="_blank">📖 דפדף</a>
-          <a href="${p.apogeeUrl}" target="_blank">⬇ הורד</a>
+          <button class="dl" data-dl="${(function(){ const k='g'+(gi++); _genReg[k]={ fileUrl:p.apogeeUrl, title:jobName(p) }; return k; })()}" title="קובץ-PDF יחיד בשם העבודה">⬇ הורד</button>
           ${approved ? `<button data-unlock="${p.id}" title="בטל נעילה — הלקוח יוכל לשנות/לאשר מחדש">🔓 פתח לשינויים</button>` : ''}
           <button class="del" data-deljob="${p.id}" title="מחק פרופר">🗑</button>
         </div></td></tr>`;
@@ -388,8 +395,8 @@ function render(rows) {
 
     // ── עבודה רגילה (עיתון מלא / ממתין) ──
     const [txt, cls] = STATUS[p.status] || ['—', ''];
-    const gen = p.status === 'approved' ? genCell(p.fileUrl, p.title || p.customer || 'עיתון', p.id, null)
-      : `<button disabled title="זמין רק לאחר אישור">⬇ ייצר ריצות</button>`;
+    const gen = p.status === 'approved' ? genCell(p.fileUrl, jobName(p), p.id, null)
+      : `<button disabled title="זמין רק לאחר אישור">⬇ הורד</button>`;
     const view = p.fileUrl ? `<a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>` : '';
     const toWorkers = p.fileUrl ? `<button data-link="${viewerLink}">📤 שלח לעובדים</button>` : '';
     const note = (p.status === 'rejected' && p.customerNote) ? `<div class="note">📝 ${escapeHtml(p.customerNote)}</div>` : '';
@@ -409,12 +416,14 @@ function render(rows) {
   // ── פריסת master-detail: רשימת-לקוחות בצד · עבודות הלקוח הנבחר במרכז ──
   const custNames = [...byCustomer.keys()];
   if (!_selCust || !byCustomer.has(_selCust)) _selCust = custNames[0] || null;
-  const sideList = custNames.map(c => {
+  const custItems = custNames.map(c => {
     const items = byCustomer.get(c), on = (c === _selCust);
     const act = items.filter(function(p){ return !p.completedAt; }).length;
     return `<div class="custItem${on?' on':''}" data-cust="${escapeHtml(c)}">
       <span class="cName">📁 ${escapeHtml(c)}</span><span class="cCount" title="פעילות מתוך סה״כ">${act}${act!==items.length?('/'+items.length):''}</span></div>`;
-  }).join('') || '<div style="padding:12px;color:#9ca3af;font-size:.85rem">אין לקוחות</div>';
+  }).join('');
+  const sideList = (custItems || '<div style="padding:12px;color:#9ca3af;font-size:.85rem">אין לקוחות</div>')
+    + '<div id="custNoHit" style="display:none;padding:12px;color:#9ca3af;font-size:.85rem">אין לקוח מתאים</div>';
 
   const selAll = _selCust ? byCustomer.get(_selCust) : null;
   // פיצול לפעילות / הושלמו — "עיתונים שהושלמו" נשמרים בקטגוריה נפרדת לכל לקוח
@@ -447,11 +456,32 @@ function render(rows) {
     : '<div style="padding:26px;text-align:center;color:#9ca3af">בחרו לקוח מהרשימה בצד</div>';
 
   $('tableWrap').innerHTML = `<div class="mdWrap">
-      <aside class="mdSide"><div class="mdSideTitle">לקוחות (${custNames.length})</div>${sideList}</aside>
+      <aside class="mdSide"><div class="mdSideTitle">לקוחות (${custNames.length})</div>
+        <div class="custFilterWrap"><input id="custFilter" type="search" placeholder="🔍 חיפוש לקוח…" autocomplete="off"></div>
+        ${sideList}</aside>
       <section class="mdMain">${detail}</section>
     </div>`;
   // בחירת-לקוח → מציג את עבודותיו במרכז (בלי טעינה-מחדש מהשרת)
   document.querySelectorAll('.custItem').forEach(el => el.onclick = () => { _selCust = el.dataset.cust; render(rows); });
+  // סינון רשימת-הלקוחות — הצג/הסתר בלבד, בלי render מחדש (הקלדה לא מאבדת פוקוס
+  // והלקוח הנבחר נשאר נבחר גם אם הוסתר).
+  const _cf = $('custFilter');
+  if (_cf) {
+    _cf.value = _custFilter;
+    const applyFilter = () => {
+      _custFilter = _cf.value;
+      const q = _custFilter.trim().toLowerCase();
+      let shown = 0;
+      document.querySelectorAll('.custItem').forEach(el => {
+        const hit = !q || el.dataset.cust.toLowerCase().indexOf(q) >= 0;
+        el.style.display = hit ? '' : 'none'; if (hit) shown++;
+      });
+      const none = $('custNoHit');
+      if (none) none.style.display = shown ? 'none' : '';
+    };
+    _cf.oninput = applyFilter;
+    applyFilter();
+  }
 
   document.querySelectorAll('[data-link]').forEach(b => b.onclick = () => shareLink(b.dataset.link));
   document.querySelectorAll('[data-portal]').forEach(b => b.onclick = () => portalLink(b.dataset.portal));
@@ -503,6 +533,7 @@ function render(rows) {
 }
 let _genReg = {};
 let _selCust = null;   // הלקוח שנבחר ברשימת-הצד (master-detail)
+let _custFilter = '';  // טקסט סינון רשימת-הלקוחות (נשמר בין רינדורים)
 let _jobCollapsed = {};   // jobId → מכווץ? (כיווץ ריצות של עבודה)
 let _doneOpen = false;    // האם קטגוריית "עיתונים שהושלמו" פתוחה
 
@@ -879,9 +910,9 @@ async function generateRuns(proof, fullSheet, btn) {
 
     // ── כל ריצה = קובץ-PDF אחד (לגרירה ישירה לאפוגי), לא עמודים בודדים בתיקייה ──
     //    סדר-העמודים וסט-העמודים זהים לקודם; רק האריזה השתנתה (מיזוג במקום פיצול).
+    // שם-הבסיס מגיע כבר מוכן מ-jobName (שם-עיתון + גיליון [+ ריצה]) — מקור-אמת יחיד
     const safe = s => String(s || '').replace(/[\\/:*?"<>|]/g, '_').trim();
-    const issue = proof.issue || proof.issueNo || proof.edition || '';
-    const baseName = safe(proof.title || 'חוברת') + (issue ? (' — גיליון ' + safe(issue)) : '');
+    const baseName = safe(proof.title || 'חוברת');
     const built = [];
     for (const run of runs) {
       btn.textContent = `בונה ריצה ${run.num}/${runs.length}…`;
@@ -918,6 +949,19 @@ async function generateRuns(proof, fullSheet, btn) {
 }
 
 // ── עזרים ──
+/* שם העבודה להורדה — מקור-אמת יחיד לכל כפתורי-ההורדה בדף (ולשם-הבסיס של הריצות):
+   שם-הלקוח · שם-העבודה · גיליון N · שם-הריצה. שם-הלקוח נכנס כי בפועל כותרות
+   העבודה הן לעיתים "גיליון 275" בלבד — ובתיקיית-ההורדות אי-אפשר לדעת של מי.
+   אם הכותרת כבר מכילה את שם-הלקוח, לא מכפילים. השדות issue/issueNo/edition הם
+   אותו נתון בשמות שונים לפי מקור-העבודה, ולכן כולם נבדקים. */
+function jobName(p, partName) {
+  p = p || {};
+  const cust = String(p.customer || '').trim(), title = String(p.title || '').trim();
+  const issue = p.issue || p.issueNo || p.edition || '';
+  const head = title ? ((cust && title.indexOf(cust) < 0) ? (cust + ' — ' + title) : title)
+                     : (cust || 'עיתון');
+  return [head, issue ? ('גיליון ' + issue) : '', partName || ''].filter(Boolean).join(' — ');
+}
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 function downloadBlob(blob, name) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
