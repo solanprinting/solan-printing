@@ -836,6 +836,10 @@
       if (ov.qty != null && !(ov.lines && ov.lines.length)) c.doneQty = _int(ov.qty);
       if (ov.packs != null && !(ov.lines && ov.lines.length)) c.donePacks = _int(ov.packs);
       if (_s(ov.note)) c.clerkNote = _s(ov.note);
+      /* כמות שהמשרד רשם היא *הכמות* — לא מספר נוסף ליד הכמות המקורית.
+         בקשת-בעלים 2026-07-30: "שתופיע הכמות שרשמתי ללא זכר לכמות שהייתה במקור".
+         דורסים כאן, בעותק של המשרד בלבד — הכרטיס באפליקציה לא נוגע. */
+      if (c.doneQty != null) { c.copies = c.doneQty; c._qtyByClerk = true; }
       c._byClerk = true;
     }
     return c;
@@ -945,12 +949,24 @@
     return { ok: applied.length > 0, stock: stock, applied: applied, skipped: skipped };
   }
 
+  /* אילו כרטיסי-עבודה מגיעים למשרד.
+     עד 2026-07-30 רק finishing/done — ולכן עבודה שנוצר לה כרטיס וממתינה לייצור
+     (status 'pending') או שנמצאת בהדפסה ('inprogress') לא הופיעה במשרד *בכלל*,
+     והעמודה "📝 התקבלה" נשארה ריקה מעבודות-דפוס. בקשת-בעלים: שהמשרד יראה גם
+     את הממתינות לייצור. 'trash' ועבודות-גרפיק נשארות מוסתרות. */
+  var CLERK_STATUS = { '': 1, pending: 1, inprogress: 1, printing: 1, finishing: 1, done: 1 };
+  function isClerkStatus(st) { return Object.prototype.hasOwnProperty.call(CLERK_STATUS, st); }
   function isClerkJob(card) {
     if (!card) return false;
     if (card._removed) return false;                 // הוסר ידנית מרשימת המשרד
-    var st = _s(card.status);
-    if (st !== 'finishing' && st !== 'done') return false;
+    if (!isClerkStatus(_s(card.status))) return false;   // trash / סטטוס לא-מוכר
     return !isHiddenJob(card);
+  }
+  // עבודה שיש לה כרטיס אבל היא עדיין לא נכנסה לייצור
+  function isAwaitingProduction(card) {
+    if (!isClerkJob(card)) return false;
+    var st = _s(card.status);
+    return st === '' || st === 'pending';
   }
 
   function jobStage(card, hasNote) {
@@ -1190,6 +1206,7 @@
     buildDeliveryNote: buildDeliveryNote, issueDeliveryNote: issueDeliveryNote, nextNoteNumber: nextNoteNumber,
     buildJobNote: buildJobNote, jobStage: jobStage, orderStage: orderStage,
     isClerkJob: isClerkJob, isHiddenName: isHiddenName, isHiddenJob: isHiddenJob, applyJobOverlay: applyJobOverlay,
+    isAwaitingProduction: isAwaitingProduction,
     jobLines: jobLines, jobCustomers: jobCustomers, splitJobItems: splitJobItems,
     jobDoneLines: jobDoneLines, jobPendingLines: jobPendingLines, applyToCustomerStock: applyToCustomerStock,
     applyStock: applyStock, findAgreementForCustomer: findAgreementForCustomer,

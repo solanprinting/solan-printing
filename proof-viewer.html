@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
 <script src="page-spine.js"></script>
+<script src="pdf-transparency.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -60,6 +61,13 @@
   .parts-pick { display:flex; flex-direction:column; gap:10px; max-width:480px; width:100%; }
   .parts-pick a { display:block; padding:14px 18px; background:#fff; border:1.5px solid var(--line); border-radius:10px;
     text-decoration:none; color:var(--press); font-weight:800; font-size:1rem; text-align:center; }
+  /* אזהרת-שקיפות לעמוד — מופיעה רק בעמודים שבהם התצוגה עלולה להחליש גרפיקה */
+  #pgWarn:empty { display:none; }
+  #pgWarn { margin:0 4px 8px; background:#fffbeb; border:1.5px solid #fcd34d; border-radius:9px;
+            padding:8px 12px; font-size:.85rem; color:#78350f; display:flex; gap:9px;
+            align-items:center; flex-wrap:wrap; justify-content:center; text-align:center }
+  #pgWarn button { padding:4px 11px; font-size:.8rem; border:1.5px solid #d97706; background:#fff;
+                   border-radius:7px; cursor:pointer; font-family:inherit; font-weight:700; color:#92400e }
   @media (max-width:680px){ #spread img{height:auto;max-height:60vh;width:auto;max-width:96vw} #spread .mediacrop{height:56vh;max-width:96vw} }
 </style>
 </head>
@@ -85,7 +93,10 @@
     <button id="vnext">הבא ›</button>
     <button id="vfs">⛶ מסך מלא</button>
     <button id="vzoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button>
+    <button id="vpdf" title="פותח את הקובץ עצמו — התצוגה הנאמנה ביותר">📄 הקובץ המקורי</button>
+    <button id="vengine" title="מרנדר מחדש עם מנוע תצוגה עדכני — לבדיקה כשגרפיקה נראית חלשה">🔬 מנוע תצוגה חדש</button>
   </div>
+  <div id="pgWarn"></div>
 </div>
 
 <div id="picker" class="hidden" style="padding:10px"></div>
@@ -200,6 +211,30 @@ const HI_H   = 3000, HI_Q   = 0.95, HI_MAX = 6;
 const RENDER_SCALE_CAP = 5;
 let _fromCache = false;      // האם מה שמוצג כרגע הוא מטמון (תצוגה מהירה) ולא רינדור-אמת
 
+/* ── מנוע תצוגה חלופי ("עוצמה" עמ' 28) ──────────────────────────────────
+   נמדד מול הקובץ האמיתי: הקובץ תקין, וגם *הפענוח* ב-pdf.js תקין (3.11 ו-5.4
+   מפענחים זהה, אותם ערכי אלפא כמו המסכה שבקובץ). מה ששבור הוא שלב ה*ציור*:
+   רשימת-הפעולות מראה שאותה גרפיקה נצבעת גם אטומה וגם עם מסכת-שקיפות, כלומר
+   האלפא מוחל פעמיים → רוח דהויה.
+   מנוע חדש עשוי לתקן זאת, אבל אין דרך לאמת ציור-לקנבס בסביבת-הפיתוח כאן —
+   ולכן הוא *לא* ברירת-מחדל לכל הלקוחות לפני שנראה במו-עינינו שהוא נכון.
+   ?engine=new (או הכפתור בסרגל) מרנדר עם המנוע החדש להשוואה מיידית. */
+const MODERN_PDFJS = '5.4.149';
+async function _useModernEngine(){
+  var bases = ['https://cdn.jsdelivr.net/npm/pdfjs-dist@' + MODERN_PDFJS + '/build/',
+               'https://unpkg.com/pdfjs-dist@' + MODERN_PDFJS + '/build/'];
+  for (var i = 0; i < bases.length; i++){
+    try {
+      var m = await import(bases[i] + 'pdf.min.mjs');
+      if (!m || typeof m.getDocument !== 'function') continue;
+      m.GlobalWorkerOptions.workerSrc = bases[i] + 'pdf.worker.min.mjs';
+      window.pdfjsLib = m;
+      return true;
+    } catch(e){ console.warn('modern engine failed: ' + bases[i], e); }
+  }
+  return false;
+}
+
 const $ = id => document.getElementById(id);
 const overlay = $('overlay');
 // הורדה עם מד-התקדמות אמיתי (fetch לא מדווח התקדמות) — כדי שלא ייראה "מסך תקוע" בקבצים גדולים
@@ -248,6 +283,8 @@ const proofId = params.get('id');
 const partId  = params.get('part');
 let imgs = [], metas = [], vIndex = 0;
 let _pdfUrlForBoxes = '';   // כתובת ה-PDF לקריאת TrimBox (גם כשמוצג ממטמון מהיר)
+let _engineNew = false;     // האם מרנדרים במנוע התצוגה החדש
+let _tScan = [];            // ממצאי-שקיפות לכל עמוד (PdfTransparency)
 
 // קריאת תיבות (MediaBox/TrimBox) מ-PDF דרך pdf-lib → אחוזי חיתוך (trimFrac) לכל עמוד
 async function _trimFracsFromPdf(bytes){
@@ -355,6 +392,12 @@ async function _loadTrimsBg(){
   try {
     await _requireLibs();   // רכיבי-הצפייה חסומים → הודעה ברורה במקום דף/מסך מת
   } catch(e){ return; }
+  if (params.get('engine') === 'new'){
+    _qBadge('⏳ טוען מנוע תצוגה חדש…');
+    var okNew = await _useModernEngine();
+    _engineNew = okNew;
+    _qBadge(okNew ? ('🔬 מנוע תצוגה חדש (' + MODERN_PDFJS + ')') : '⚠️ המנוע החדש לא נטען — ממשיכים ברגיל', 6000);
+  }
   try {
     if (!_fromCache) showOverlay('מוריד את הקובץ… 0%', true, 0);
     const rawBuf = await _fetchWithProgress(url, function(pct, mb, totMb){
@@ -372,8 +415,10 @@ async function _loadTrimsBg(){
     // רינדור-אמת. כשמוצג מטמון — מחליפים עמוד-עמוד בלי להסתיר את התצוגה,
     // כך שהלקוח לא ממתין אבל בסוף רואה בדיוק את מה שבקובץ.
     const fresh = new Array(pdf.numPages);
+    _tScan = new Array(pdf.numPages);
     for (let i = 1; i <= pdf.numPages; i++) {
       fresh[i-1] = await renderPage(pdf, i, BASE_H, BASE_Q);
+      _tScan[i-1] = await _scanTransparency(pdf, i);
       if (_fromCache) {
         imgs[i-1] = fresh[i-1];
         _qBadge('⏳ מרנדר מהקובץ המקורי… ' + i + '/' + pdf.numPages);
@@ -394,6 +439,39 @@ async function _loadTrimsBg(){
     else fail('שגיאה בטעינת הקובץ.\n' + (e&&e.message||''));
   }
 })();
+
+/* סורק את העמוד לציור-עם-מסכת-שקיפות. רשימת-הפעולות כבר נבנתה בזמן הרינדור,
+   ולכן הקריאה כאן זולה. הממצא הופך לאזהרה בעמוד עצמו — כדי שלא יאשרו עיתון
+   לפי תצוגה שאינה נאמנה, גם לפני שבאג-הציור עצמו נפתר. */
+async function _scanTransparency(pdf, pageNo){
+  if (!window.PdfTransparency || !pdfjsLib || !pdfjsLib.OPS) return null;
+  try {
+    const page = await pdf.getPage(pageNo);
+    const ops = await page.getOperatorList();
+    return PdfTransparency.scanPage(ops, pdfjsLib.OPS);
+  } catch(e){ return null; }
+}
+function _renderPageWarn(){
+  const el = $('pgWarn'); if (!el) return;
+  const risky = showingPages().filter(i => _tScan[i] && _tScan[i].risky);
+  if (!risky.length){ el.innerHTML = ''; return; }
+  const worst = risky.map(i => _tScan[i]).sort((a,b)=>b.doubleMasked-a.doubleMasked)[0];
+  el.innerHTML = '<span>⚠️ ' + esc(PdfTransparency.warningText(worst)) + '</span>'
+    + '<button id="pwPdf">📄 פתח את הקובץ המקורי</button>'
+    + (_engineNew ? '' : '<button id="pwEngine">🔬 נסה מנוע תצוגה חדש</button>');
+  var b1 = $('pwPdf'); if (b1) b1.onclick = _openOriginal;
+  var b2 = $('pwEngine'); if (b2) b2.onclick = _toggleEngine;
+}
+function _openOriginal(){
+  if (!_pdfUrlForBoxes) return;
+  window.open(_pdfUrlForBoxes, '_blank', 'noopener');
+}
+function _toggleEngine(){
+  var u = new URL(location.href);
+  if (u.searchParams.get('engine') === 'new') u.searchParams.delete('engine');
+  else u.searchParams.set('engine', 'new');
+  location.href = u.toString();
+}
 
 async function renderPage(pdf, pageNo, targetH, q){
   const page = await pdf.getPage(pageNo);
@@ -465,6 +543,7 @@ function renderViewer(){
     }
     return `<div class="page"><img src="${srcFor(i)}" alt=""><div class="pgnum">עמוד ${i+1}</div></div>`;
   }).join('');
+  _renderPageWarn();
   _ensureHi(s);      // העמודים שעל המסך → רינדור חוזר באיכות-שיא (מחליף כשמוכן)
 }
 // חישוב אזור התצוגה (חיתוך שדרה בלבד) + מיקום מסגרת ה-trim בתוך העמוד, לפי TrimBox
@@ -507,6 +586,12 @@ function step(d){
 $('vprev').onclick = () => step(-1);
 $('vnext').onclick = () => step(+1);
 $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) document.exitFullscreen(); else (v.requestFullscreen||v.webkitRequestFullscreen).call(v); };
+$('vpdf').onclick = _openOriginal;
+$('vengine').onclick = _toggleEngine;
+if (params.get('engine') === 'new'){
+  $('vengine').textContent = '↩ חזרה למנוע הרגיל';
+  $('vengine').style.background = '#c9a84c'; $('vengine').style.color = '#1a1a2e';
+}
 // ── זום בדפדוף (לחצן + גלגלת + גרירה) — לצפייה מקרוב בגיליון שהלקוח העלה ──
 (function(){
   var sp=$('spread'), btn=$('vzoom'); if(!sp||!btn) return;

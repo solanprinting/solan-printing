@@ -71,6 +71,11 @@
   .fBody{padding:9px;display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 250px);overflow-y:auto}
   .fCard{border:1px solid var(--line);border-inline-start:5px solid var(--line);border-radius:9px;padding:8px 10px;background:#fff}
   .fCard:hover{border-color:var(--gold)}
+  /* כותרת-משנה בתוך עמודה — מפרידה בין הזמנות-מסגרת לכרטיסי-עבודה שממתינים לייצור */
+  .fSub{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:2px;
+    background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:5px 9px;
+    font-size:.79rem;font-weight:800;color:#3730a3}
+  .fSubN{background:#3730a3;color:#fff;border-radius:9px;padding:0 8px;font-size:.74rem}
   @media(max-width:1200px){.flow{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:760px){.flow{grid-template-columns:1fr}.fBody{max-height:none}}
   /* ── גרירת קובץ למסך ── */
@@ -440,7 +445,7 @@ function stockCard(a){
 /* ═══════════ לוח זרימת עבודות ═══════════
    שלושה שלבים לפי סטטוס ההזמנה. זה המסך הראשי של הפקיד — לא טבלת מלאי. */
 const _STAGES=[
-  { k:'new',        t:'📝 התקבלה',        c:'#f59e0b', hint:'הזמנה/עבודה שנרשמה — טרם נכנסה לייצור' },
+  { k:'new',        t:'📝 התקבלה',        c:'#f59e0b', hint:'הזמנה שנרשמה + כרטיסי עבודה שנוצרו וממתינים לייצור' },
   { k:'production', t:'🖨 בייצור',         c:'#0ea5e9', hint:'בהדפסה או בגימורים' },
   { k:'ready',      t:'✅ מוכנה לאספקה',   c:'#16a34a', hint:'הושלמה — אפשר להוציא תעודת משלוח' }
 ];
@@ -480,7 +485,7 @@ function _jobCard(c,stage){
     <div style="font-size:.82rem;margin-top:4px">
       ${c.copies?`• ${Number(c.copies).toLocaleString()} עותקים`:''}${c.pages?` · ${c.pages} עמ׳`:''}
       ${c.doneLines&&c.doneLines.length>1?('<div style="font-size:.78rem">'+c.doneLines.map(l=>'<div class="'+(l.done?'ok':'muted')+'">'+(l.done?'✓ ':'⏳ ')+esc(l.name||l.customer||'')+' — '+l.qty.toLocaleString()+(l.packs?(' ('+l.packs+' אריזות)'):'')+'</div>').join('')+'</div>')
-        : (c.doneQty!=null?`<div class="ok" style="font-size:.78rem">יצא בפועל: ${c.doneQty.toLocaleString()}${c.donePacks?` (${c.donePacks} אריזות)`:''}</div>`:'')}
+        : (c.donePacks?`<div class="ok" style="font-size:.78rem">${c.donePacks} אריזות</div>`:'')}
       ${c.clerkNote?`<div class="muted" style="font-size:.76rem">📌 ${esc(c.clerkNote)}</div>`:''}
       ${c.paper?`<div class="muted">${esc(c.paper)}</div>`:''}</div>
     ${c.deliveryDate?`<div class="${late?'bad':'muted'}" style="font-size:.76rem;margin-top:3px">${late?'⚠ עבר מועד: ':'לאספקה: '}${esc(c.deliveryDate)}</div>`:''}
@@ -498,12 +503,21 @@ function flowBoard(groups,withJobs){
   const cols=_STAGES.map(s=>{
     const cards=[];
     groups.forEach(g=>{ (g.orders||[]).forEach(o=>{ if(FW.orderStage(o)===s.k) cards.push(_orderCard(o,g.ag,s.k)); }); });
-    if(withJobs) _cards.forEach(c=>{
-      const done=_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0) || !!_delivered[c.id];
-      if(FW.jobStage(c,done)===s.k) cards.push(_jobCard(c,s.k));
-    });
+    /* כרטיסי-דפוס: ממוינים לפי מועד האספקה — הדחוף למעלה. בעמודה "התקבלה"
+       אלה העבודות שנוצר להן כרטיס והן ממתינות לייצור, ולכן יש להן כותרת משלהן. */
+    let jobCount=0;
+    if(withJobs){
+      const mine=_cards.filter(c=>{
+        const done=_jobNotes.some(n=>(n.cardIds||[]).indexOf(String(c.id))>=0) || !!_delivered[c.id];
+        return FW.jobStage(c,done)===s.k;
+      }).sort((a,b)=>String(a.deliveryDate||'9999').localeCompare(String(b.deliveryDate||'9999')));
+      jobCount=mine.length;
+      if(mine.length && s.k==='new')
+        cards.push(`<div class="fSub">🖨 כרטיסי עבודה שממתינים לייצור<span class="fSubN">${mine.length}</span></div>`);
+      mine.forEach(c=>cards.push(_jobCard(c,s.k)));
+    }
     return `<div class="fCol">
-      <div class="fHead" style="background:${s.c}">${s.t}<span class="fN">${cards.length}</span></div>
+      <div class="fHead" style="background:${s.c}">${s.t}<span class="fN">${cards.length-(jobCount&&s.k==='new'?1:0)}</span></div>
       <div class="fHint">${s.hint}</div>
       <div class="fBody">${cards.join('')||'<div class="muted" style="padding:10px;text-align:center">אין עבודות בשלב זה</div>'}</div>
     </div>`;
@@ -1167,7 +1181,9 @@ function openJob(id){
   const c=_cards.find(x=>String(x.id)===String(id)); if(!c) return;
   const ov=_jobOv[c.id]||{};
   // הדפסה אחת יכולה להכיל כמה פריטים ולכמה לקוחות — מתחילים ממה שכבר נשמר
-  _jbState={ status:(c.status==='done'?'done':'finishing'), note:ov.note||'', toStock:!ov.stockSynced };
+  // עבודה שנוצר לה כרטיס וטרם נכנסה לייצור נשארת "ממתינה" עד שהמשרד מקדם אותה
+  _jbState={ status:(c.status==='done'?'done':(FW.isAwaitingProduction(c)?'pending':'finishing')),
+             note:ov.note||'', toStock:!ov.stockSynced };
   const _split=FW.splitJobItems(c);
   _jbLines=(ov.lines&&ov.lines.length)?ov.lines.map(l=>({name:l.name||'',customer:l.customer||'',qty:l.qty||0,packs:l.packs||0,packSize:l.packSize||0,done:!!l.done}))
     : _split.length ? _split.map(l=>({name:l.name,customer:l.customer,qty:l.qty||0,packs:0,packSize:0}))
@@ -1227,6 +1243,7 @@ function _jbRender(c,ov){
     <div style="display:grid;gap:9px">
       <label>סטטוס העבודה
         <select id="jbStatus" style="width:100%;margin-top:3px">
+          <option value="pending"${_jbState.status==='pending'?' selected':''}>📝 ממתינה לייצור</option>
           <option value="finishing"${_jbState.status==='finishing'?' selected':''}>🖨 בייצור / בגימורים</option>
           <option value="done"${_jbState.status==='done'?' selected':''}>✅ העבודה הושלמה — מוכנה לאספקה</option>
         </select></label>
