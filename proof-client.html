@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
+<script src="page-swap.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -409,13 +410,116 @@ let vIndex = 0;
 })();
 
 function goHome() {
-  if (record.mode === 'full' && record.status === 'approved') return done('העיתון כבר אושר ונשלח לדפוס. תודה!');
+  _psEditing = false; _psTarget = null; _psReplaced = {}; _psBaseUids = [];
+  if (record.mode === 'full' && record.status === 'approved') return _psApprovedScreen('full');
   pages = []; sources.clear(); vIndex = 0;
   show('editor', false); show('status', false); show('home', true);
-  const parts = Object.values(record.parts || {}).sort((a,b)=>(a.approvedAt||0)-(b.approvedAt||0));
+  // partId נשמר על הפריט — נדרש לכפתורי "בקשת החלפת עמודים" לכל ריצה
+  const parts = Object.entries(record.parts || {}).map(([pid, p]) => Object.assign({ partId: pid }, p))
+                  .sort((a,b)=>(a.approvedAt||0)-(b.approvedAt||0));
   $('partsBox').innerHTML = parts.length
-    ? `<div class="parts"><h3>✓ ריצות שכבר נשלחו</h3>${parts.map(p=>`<div class="row"><span>${esc(p.name)}</span><span class="ok">התקבל · ${p.pageCount} עמ'</span></div>`).join('')}</div>`
+    ? `<div class="parts"><h3>✓ ריצות שכבר נשלחו</h3>${parts.map(p=>`<div class="row"><span>${esc(p.name)}</span>
+        <span class="ok">התקבל · ${p.pageCount} עמ'</span>${_psRowActions(p)}</div>`).join('')}</div>`
     : '';
+  _psBindRowActions();
+}
+
+/* ═══════════ החלפת עמודים אחרי אישור — צד הלקוח ═══════════════════════════
+   הלקוח אישר, ואז גילה טעות בעמוד. אסור לפתוח את הקובץ לעריכה מעצמו — הוא כבר
+   יכול להיות באימפוזיציה או על המכונה. לכן: בקשה → אישור בית-הדפוס → חלון-עריכה
+   מוגבל בזמן → החלפה/מחיקה של עמודים → אישור סופי כגרסה חדשה (הקובץ שאושר
+   נשמר; הגרסה החדשה נכתבת לנתיב -v2/-v3). הלוגיקה ב-page-swap.js. */
+let _psTarget = null, _psReplaced = {}, _psBaseUids = [], _psEditing = false;
+function _psReqOf(target){ return ((record && record.changeRequests) || {})[target] || null; }
+function _psState(target){ return window.PageSwap ? PageSwap.state(_psReqOf(target), Date.now()) : 'none'; }
+
+/* כפתורי-בקשה לשורת-ריצה שאושרה */
+function _psRowActions(part){
+  if (!window.PageSwap || !part || !part.partId) return '';
+  const st = _psState(part.partId);
+  if (st === 'approved') return `<button class="psEdit" data-t="${part.partId}" style="background:#b45309">✏️ החלפת עמודים</button>`;
+  if (st === 'pending')  return `<span style="font-size:.78rem;color:#b45309">⏳ ממתין לאישור הדפוס</span>`;
+  return `<button class="psReq" data-t="${part.partId}">🔁 בקשת החלפה</button>`;
+}
+function _psBindRowActions(){
+  document.querySelectorAll('.psReq').forEach(b => b.onclick = () => _psSendRequest(b.dataset.t));
+  document.querySelectorAll('.psEdit').forEach(b => b.onclick = () => _psEnterEdit(b.dataset.t));
+}
+
+/* מסך "העיתון אושר" — עם מסלול בקשת-החלפה */
+function _psApprovedScreen(target){
+  show('home', false); show('editor', false); showOverlay('', false);
+  const s = $('status'); s.classList.remove('hidden');
+  const st = _psState(target), req = _psReqOf(target);
+  const ver = window.PageSwap ? PageSwap.currentVersion(record) : 1;
+  let body = `<div style="color:var(--green);font-size:2.4rem">✓</div>
+    <b>העיתון אושר ונשלח לדפוס. תודה!</b>
+    <div style="font-size:.85rem;color:#6b7280;margin-top:4px">${record.pageCount || ''} עמ׳${ver > 1 ? ` · גרסה ${ver}` : ''}</div>`;
+  if (window.PageSwap){
+    const lbl = PageSwap.label(req, Date.now());
+    if (lbl) body += `<div style="margin-top:12px;padding:9px 12px;border-radius:9px;background:#fffbeb;border:1.5px solid #fcd34d;font-size:.9rem;font-weight:700">${esc(lbl)}</div>`;
+    if (st === 'approved'){
+      const left = PageSwap.remainingLabel(req, Date.now());
+      body += `<div style="margin-top:12px"><button id="psEditBtn" style="background:#b45309;color:#fff;border:0;border-radius:10px;padding:12px 22px;font-size:1rem;font-weight:800;cursor:pointer">✏️ להחליף/למחוק עמודים</button>
+        ${left ? `<div style="font-size:.78rem;color:#6b7280;margin-top:5px">${esc(left)}</div>` : ''}</div>`;
+    } else if (PageSwap.canRequest(req, Date.now())){
+      body += `<div style="margin-top:12px"><button id="psReqBtn" style="background:#2d3561;color:#fff;border:0;border-radius:10px;padding:11px 20px;font-size:.95rem;font-weight:800;cursor:pointer">🔁 בקשת החלפת עמודים</button>
+        <div style="font-size:.78rem;color:#6b7280;margin-top:5px">הבקשה נשלחת לאישור בית-הדפוס — הקובץ שאושר לא משתנה עד לאישור.</div></div>`;
+    }
+  }
+  s.innerHTML = body;
+  const rb = document.getElementById('psReqBtn');  if (rb) rb.onclick = () => _psSendRequest(target);
+  const eb = document.getElementById('psEditBtn'); if (eb) eb.onclick = () => _psEnterEdit(target);
+}
+
+async function _psRefresh(){
+  record = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
+}
+/* שליחת בקשה — נכתבת תחת changeRequests/<target>, בקשה פעילה אחת לכל יעד */
+async function _psSendRequest(target){
+  const note = prompt('מה צריך להחליף? (למשל: "עמוד 3 — מודעה שגויה")', '');
+  if (note === null) return;
+  showOverlay('שולח בקשה…', true);
+  try {
+    const req = PageSwap.buildRequest({ at: Date.now(), by: (record.customer || 'לקוח'), note: note, target: target });
+    await fetch(await _au(`${_FBURL}/${PageSwap.requestPath(proofId, target)}.json`),
+      { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) });
+    await _psRefresh();
+    showOverlay('', false);
+    alert('✓ הבקשה נשלחה לבית-הדפוס. תקבלו גישה לעריכה מיד לאחר האישור.');
+    goHome();
+  } catch(e){ showOverlay('שליחת הבקשה נכשלה: ' + (e.message||e), true); }
+}
+
+/* כניסה לעריכה: טוענים את ה-PDF שאושר כמקור-יחיד, וממשיכים בעורך הרגיל */
+async function _psEnterEdit(target){
+  const req = _psReqOf(target);
+  if (!PageSwap.canEdit(req, Date.now())) { alert('חלון העריכה אינו פתוח.'); return; }
+  const src = (target === 'full') ? record : ((record.parts||{})[target] || null);
+  if (!src || !src.fileUrl) { alert('לא נמצא הקובץ שאושר.'); return; }
+  try { await _requireLibs(); } catch(e){ return; }
+  showOverlay('טוען את הקובץ שאושר…', true, 0);
+  try {
+    const bytes = new Uint8Array(await (await fetch(src.fileUrl)).arrayBuffer());
+    mode = (target === 'full') ? 'full' : 'run';
+    pages = []; sources.clear(); vIndex = 0; _psReplaced = {};
+    const fileId = 'f' + (nextFid++);
+    sources.set(fileId, { bytes, name: 'approved.pdf' });
+    const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+    const boxes = await fileBoxes(bytes);
+    for (let i = 1; i <= pdf.numPages; i++){
+      const r = await renderPage(pdf, i, boxes ? boxes[i-1] : null);
+      pages.push({ uid: nextUid++, fileId: fileId, pageIndex: i-1, src: r.src, trimFrac: r.trimFrac, wmm: r.wmm, hmm: r.hmm });
+      showOverlay('טוען עמודים…', true, Math.round(i/pdf.numPages*100));
+    }
+    pdf.cleanup && pdf.cleanup();
+    _psEditing = true; _psTarget = target; _psBaseUids = pages.map(p => p.uid);
+    $('editorHint').innerHTML = '✏️ <b>עריכת גרסה חדשה</b> — החליפו או מחקו עמודים בסרגל הצד, בדקו בדפדוף, ואז "אישור ושליחה". '
+      + 'הקובץ שאושר קודם נשמר; מה שתאשרו כאן ייווצר כגרסה חדשה.'
+      + `<br>${esc(PageSwap.remainingLabel(_psReqOf(target), Date.now()))}`;
+    renderAll(); show('status', false); show('home', false); show('editor', true);
+    showOverlay('', false);
+  } catch(e){ console.error(e); showOverlay('טעינת הקובץ נכשלה: ' + (e.message||e), true); }
 }
 
 $('chFull').onclick = () => startEditor('full');
@@ -926,6 +1030,7 @@ $('repInput').onchange = async e => {
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
     sources.set(fileId, { bytes });
     const item = pages.find(p => p.uid === _repUid);
+    if (_psEditing) _psReplaced[item.uid] = 1;   // לתיעוד מול בית-הדפוס: אילו עמודים הוחלפו
     item.fileId = fileId; item.pageIndex = 0; item.src = await renderToImg(pdf, 1);
   } catch (e) { console.error(e); }
   _repUid = null; renderAll(); showOverlay('', false);
@@ -1171,8 +1276,87 @@ function _pcMissingCheck(){
     };
   });
 }
+/* הרכבת ה-PDF מרשימת העמודים — מקור-אמת יחיד לאישור הראשון ולעריכת-גרסה */
+async function _pcComposePdf(){
+  const out = await PDFLib.PDFDocument.create();
+  const cache = new Map();
+  // גודל-ייחוס לעמודים ריקים — מהעמוד הראשון שיש לו מקור (אחרת A4)
+  let _refW = 595.28, _refH = 841.89;
+  for (const p of pages) {
+    if (p.blank || !p.fileId || !sources.get(p.fileId)) continue;
+    try { const l0 = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); const g0 = l0.getPage(p.pageIndex || 0); _refW = p.isSpread ? g0.getWidth()/2 : g0.getWidth(); _refH = g0.getHeight(); break; } catch(e){}
+  }
+  for (const p of pages) {
+    if (p.blank || !p.fileId || !sources.get(p.fileId)) { out.addPage([_refW, _refH]); continue; }   // עמוד ריק (לבן)
+    let lib = cache.get(p.fileId);
+    if (!lib) { lib = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); cache.set(p.fileId, lib); }
+    if (p.isSpread) {
+      // כפולה: מפצלים את העמוד הרחב לחצאים (RTL: החצי הימני = העמוד הנמוך, קודם).
+      // אם נבחר רק צד אחד (גבול ריצה) — מוציאים רק אותו, כדי שהעמוד המחובר לא ידלוף לריצה.
+      const sp = lib.getPage(p.pageIndex);
+      const w = sp.getWidth(), h = sp.getHeight(), half = w / 2;
+      const embR = async () => { const e = await out.embedPage(sp, { left: half, bottom: 0, right: w, top: h }); out.addPage([half, h]).drawPage(e); };   // חצי ימין (עמוד נמוך)
+      const embL = async () => { const e = await out.embedPage(sp, { left: 0, bottom: 0, right: half, top: h }); out.addPage([half, h]).drawPage(e); };    // חצי שמאל (עמוד גבוה)
+      if (p.spreadKeep === 'right') { await embR(); }
+      else if (p.spreadKeep === 'left') { await embL(); }
+      else { await embR(); await embL(); }   // שני העמודים (ברירת מחדל)
+    } else {
+      const [cp] = await out.copyPages(lib, [p.pageIndex]); out.addPage(cp);
+    }
+  }
+  return await out.save();
+}
+function _pcFolder(){ return (record.customer || 'לקוח').replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60) || 'לקוח'; }
+
+/* אישור סופי של גרסה מעודכנת (אחרי החלפת/מחיקת עמודים) — נכתבת כגרסה חדשה,
+   הקובץ שאושר קודם נשאר ב-Storage, והבקשה נסגרת עם תיעוד מה השתנה. */
+async function _psApproveEdited(){
+  const target = _psTarget;
+  const req = _psReqOf(target);
+  if (!PageSwap.canEdit(req, Date.now())) { alert('חלון העריכה נסגר. יש לבקש שוב.'); goHome(); return; }
+  const changes = PageSwap.describeChanges(_psBaseUids, pages.map(p => p.uid), Object.keys(_psReplaced).map(Number));
+  if (!changes.replacedCount && !changes.deletedCount && !changes.reordered) { alert('לא בוצע שינוי.'); return; }
+  const warn = PageSwap.pageCountWarning(pages.length);
+  if (!confirm('לאשר ולשלוח את הגרסה המעודכנת?\n' + PageSwap.changesLabel(changes) + (warn ? ('\n\n⚠️ ' + warn) : ''))) return;
+  try { await _requireLibs(); } catch(e){ return; }
+  _uploading = true; await acquireWakeLock();
+  try {
+    showOverlay('מרכיב קובץ…', true);
+    const pdfBytes = await _pcComposePdf();
+    const folder = _pcFolder();
+    const version = PageSwap.nextVersion(record);
+    const basePath = (target === 'full')
+      ? `customerProofs/${folder}/${proofId}/full.pdf`
+      : `customerProofs/${folder}/${proofId}/${target}.pdf`;
+    const path = PageSwap.versionedPath(basePath, version);
+    const fileUrl = await uploadBytes(path, pdfBytes, pct => showOverlay('מעלה לדפוס…', true, pct));
+    const cache = await uploadPagesCache(PageSwap.versionedPath(
+      (target === 'full') ? `customerProofs/${folder}/${proofId}/pages.json`
+                          : `customerProofs/${folder}/${proofId}/${target}-pages.json`, version));
+    const fields = { fileUrl, filePath: path, pageCount: pages.length, spreadCount: 0,
+      fileSize: pdfBytes.byteLength, approvedAt: Date.now(), version: version,
+      pagesUrl: cache.url, pagesReadyAt: cache.at, pendingPages: null };
+    if (target === 'full') await patch(Object.assign({ status: 'approved', mode: 'full' }, fields));
+    else await fetch(await _au(`${_FBURL}/customerProofs/${proofId}/parts/${target}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(Object.assign({ status: 'approved' }, fields)) });
+    // סוגרים את הבקשה עם התיעוד — בית-הדפוס רואה בדיוק מה הוחלף
+    await fetch(await _au(`${_FBURL}/${PageSwap.requestPath(proofId, target)}.json`),
+      { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(PageSwap.markUsed(req, { at: Date.now(), version: version, changes: changes })) });
+    if (target === 'full') await patch({ version: version });
+    await _psRefresh();
+    _psEditing = false;
+    showOverlay('', false);
+    done('הגרסה המעודכנת נשלחה לדפוס (גרסה ' + version + ').<div style="font-size:.85rem;color:#6b7280;margin-top:6px">'
+      + esc(PageSwap.changesLabel(changes)) + '</div>');
+  } catch(e){ console.error(e); showOverlay('שגיאה: ' + (e.message||e), true); }
+  finally { _uploading = false; releaseWakeLock(); }
+}
+
 $('approve').onclick = async () => {
   if (!pages.length) return;
+  if (_psEditing) return _psApproveEdited();   // עריכת-גרסה: מסלול נפרד (לא יוצר ריצה חדשה)
   let runName = '';
   if (mode === 'run') {
     const count = Object.keys(record.parts || {}).length;
@@ -1191,34 +1375,8 @@ $('approve').onclick = async () => {
   try { patch({ uploading: { at: Date.now(), name: (mode === 'run' ? runName : 'עיתון מלא'), pages: effPageCount() } }); } catch(e){}
   try {
     showOverlay('מרכיב קובץ…', true);
-    const out = await PDFLib.PDFDocument.create();
-    const cache = new Map();
-    // גודל-ייחוס לעמודים ריקים — מהעמוד הראשון שיש לו מקור (אחרת A4)
-    let _refW = 595.28, _refH = 841.89;
-    for (const p of pages) {
-      if (p.blank || !p.fileId || !sources.get(p.fileId)) continue;
-      try { const l0 = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); const g0 = l0.getPage(p.pageIndex || 0); _refW = p.isSpread ? g0.getWidth()/2 : g0.getWidth(); _refH = g0.getHeight(); break; } catch(e){}
-    }
-    for (const p of pages) {
-      if (p.blank || !p.fileId || !sources.get(p.fileId)) { out.addPage([_refW, _refH]); continue; }   // עמוד ריק (לבן)
-      let lib = cache.get(p.fileId);
-      if (!lib) { lib = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); cache.set(p.fileId, lib); }
-      if (p.isSpread) {
-        // כפולה: מפצלים את העמוד הרחב לחצאים (RTL: החצי הימני = העמוד הנמוך, קודם).
-        // אם נבחר רק צד אחד (גבול ריצה) — מוציאים רק אותו, כדי שהעמוד המחובר לא ידלוף לריצה.
-        const sp = lib.getPage(p.pageIndex);
-        const w = sp.getWidth(), h = sp.getHeight(), half = w / 2;
-        const embR = async () => { const e = await out.embedPage(sp, { left: half, bottom: 0, right: w, top: h }); out.addPage([half, h]).drawPage(e); };   // חצי ימין (עמוד נמוך)
-        const embL = async () => { const e = await out.embedPage(sp, { left: 0, bottom: 0, right: half, top: h }); out.addPage([half, h]).drawPage(e); };    // חצי שמאל (עמוד גבוה)
-        if (p.spreadKeep === 'right') { await embR(); }
-        else if (p.spreadKeep === 'left') { await embL(); }
-        else { await embR(); await embL(); }   // שני העמודים (ברירת מחדל)
-      } else {
-        const [cp] = await out.copyPages(lib, [p.pageIndex]); out.addPage(cp);
-      }
-    }
-    const pdfBytes = await out.save();
-    const folder = (record.customer || 'לקוח').replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60) || 'לקוח';
+    const pdfBytes = await _pcComposePdf();
+    const folder = _pcFolder();
 
     const _upStart = Date.now();
     const onUp = pct => {

@@ -9,6 +9,7 @@
 <!-- cdnjs נחסם אצל חלק מהמשתמשים (סינון-תוכן/פרוקסי/חוסם-פרסומות) → מראות-גיבוי + אזהרה ברורה -->
 <script src="lib-loader.js"></script>
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
+<script src="page-swap.js"></script>
 <script src="proof-trash.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
@@ -59,6 +60,13 @@
   .mdSideTitle { padding:9px 12px; background:#2d3561; color:#fff; font-weight:800; font-size:.86rem; }
   .custItem { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:11px 12px;
     cursor:pointer; border-bottom:1px solid #eee; font-weight:700; color:#2d3561; font-size:.9rem; transition:background .12s; }
+  /* בקשות החלפת-עמודים */
+  .psTag { display:inline-block; font-size:.76rem; font-weight:800; border-radius:6px; padding:2px 8px; white-space:nowrap; }
+  .psWait { background:#fffbeb; border:1.5px solid #fcd34d; color:#b45309; }
+  .psOpen { background:#eff6ff; border:1.5px solid #93c5fd; color:#1d4ed8; }
+  .psDone { background:#f0fdf4; border:1.5px solid #86efac; color:#166534; }
+  .psOk { background:#16a34a !important; color:#fff !important; }
+  .psNo { background:#b91c1c !important; color:#fff !important; }
   .custFilterWrap { padding:7px 8px; border-bottom:1px solid var(--line); background:#faf8f2; }
   .custFilterWrap input { width:100%; box-sizing:border-box; padding:6px 9px; font-family:inherit; font-size:.85rem;
     border:1.5px solid #cbd5e1; border-radius:8px; }
@@ -282,7 +290,11 @@ function _rowsSig(rows){
   try{ return (rows||[]).map(function(p){
     var parts = p.parts ? Object.keys(p.parts).map(function(k){ var t=p.parts[k]; return k+':'+(t.approvedAt||0)+':'+(t.fileUrl?1:0); }).sort().join(',') : '';
     var files = p.files ? Object.keys(p.files).sort().join(',') : '';
-    return [p.id, p.updatedAt||0, p.approvedAt||0, p.apogeeApprovedAt||0, parts, files].join('|');
+    // בקשות החלפת-עמודים בחתימה — אחרת בקשה חדשה מלקוח לא מופיעה עד רענון ידני
+    var crs = p.changeRequests ? Object.keys(p.changeRequests).map(function(k){
+      var r = p.changeRequests[k]; return k + ':' + (r && r.status) + ':' + ((r && r.decidedAt) || 0);
+    }).sort().join(',') : '';
+    return [p.id, p.updatedAt||0, p.approvedAt||0, p.apogeeApprovedAt||0, p.version||1, parts, files, crs].join('|');
   }).sort().join(';'); }catch(e){ return String(Math.random()); }
 }
 async function _autoRefresh(){
@@ -326,6 +338,24 @@ function render(rows) {
             <button class="gen" data-gen="${key}" title="עיתון שלם → קובץ-PDF לכל ריצה (לגרירה ישירה לאפוגי)">✂ פיצול לריצות</button>`;
   };
 
+  /* ── בקשות לקוח להחלפת עמודים ────────────────────────────────────────────
+     הלקוח אישר, גילה טעות, וביקש להחליף עמוד. אסור שייפתח לעריכה בלי ידיעתנו —
+     הקובץ יכול להיות כבר באימפוזיציה או על המכונה. כאן מאשרים/דוחים, והאישור
+     פותח לו חלון-עריכה מוגבל בזמן (page-swap.js). */
+  const psCell = (jobId, target, req) => {
+    if (!window.PageSwap) return '';
+    const st = PageSwap.state(req, Date.now());
+    const key = jobId + '|' + target;
+    if (st === 'pending') return `<span class="psTag psWait" title="${escapeHtml(req.note||'')}">🔁 בקשת החלפת עמודים${req.note?(' — '+escapeHtml(req.note)):''}</span>
+        <button class="psOk" data-ps="${key}">✔ אשר עריכה</button>
+        <button class="psNo" data-ps="${key}">✖ דחה</button>`;
+    if (st === 'approved') return `<span class="psTag psOpen">✏️ עריכה פתוחה ללקוח · ${escapeHtml(PageSwap.remainingLabel(req, Date.now()))}</span>
+        <button class="psNo" data-ps="${key}" title="סגירת חלון העריכה">✖ סגור</button>`;
+    if (st === 'used') return `<span class="psTag psDone">🔁 ${escapeHtml(PageSwap.changesLabel(req.changes))}</span>`;
+    return '';
+  };
+  const psReqOf = (p, target) => ((p && p.changeRequests) || {})[target] || null;
+
   const rowHtml = p => {
     const clientLink = `${base}proof-client.html?id=${p.id}`;
     const viewerLink = `${base}proof-viewer.html?id=${p.id}`;  // צפייה בלבד — לשליחה לעובדים
@@ -354,6 +384,7 @@ function render(rows) {
           <a href="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}" target="_blank">👁 צפה</a>
           <button data-link="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}">📤 לעובדים</button>
           ${genCell(pt.fileUrl, jobName(p, pt.name), p.id, pt.pid)}
+          ${psCell(p.id, pt.pid, psReqOf(p, pt.pid))}
           <button class="del" data-delpart="${p.id}|${pt.pid}|${encodeURIComponent(pt.filePath||'')}" title="מחק ריצה">🗑</button>
         </div></td></tr>`).join('');
       return head + (_col ? '' : partRows);   // מכווץ → מציגים רק את שורת-העבודה
@@ -408,7 +439,7 @@ function render(rows) {
       <td><div class="acts">
         <a href="${clientLink}" target="_blank">🔗 פתח</a>
         <button data-link="${clientLink}">📤 קישור ללקוח</button>
-        ${view}${toWorkers}${gen}
+        ${view}${toWorkers}${gen}${psCell(p.id, 'full', psReqOf(p, 'full'))}
         <button class="del" data-deljob="${p.id}" title="מחק עבודה">🗑</button>
       </div></td></tr>`;
   };
@@ -482,6 +513,10 @@ function render(rows) {
     _cf.oninput = applyFilter;
     applyFilter();
   }
+
+  // אישור/דחייה של בקשת החלפת-עמודים
+  document.querySelectorAll('.psOk').forEach(b => b.onclick = () => _psDecide(b.dataset.ps, true, b));
+  document.querySelectorAll('.psNo').forEach(b => b.onclick = () => _psDecide(b.dataset.ps, false, b));
 
   document.querySelectorAll('[data-link]').forEach(b => b.onclick = () => shareLink(b.dataset.link));
   document.querySelectorAll('[data-portal]').forEach(b => b.onclick = () => portalLink(b.dataset.portal));
@@ -954,6 +989,29 @@ async function generateRuns(proof, fullSheet, btn) {
    העבודה הן לעיתים "גיליון 275" בלבד — ובתיקיית-ההורדות אי-אפשר לדעת של מי.
    אם הכותרת כבר מכילה את שם-הלקוח, לא מכפילים. השדות issue/issueNo/edition הם
    אותו נתון בשמות שונים לפי מקור-העבודה, ולכן כולם נבדקים. */
+/* החלטת בית-הדפוס על בקשת החלפת-עמודים. אישור פותח ללקוח חלון-עריכה של 48 שעות;
+   דחייה/סגירה נועלת מיד. הכתיבה היא לצומת הבקשה בלבד — הקובץ שאושר לא נוגע. */
+async function _psDecide(key, approve, btn){
+  const [jobId, target] = String(key).split('|');
+  const job = (_allRows || []).find(x => String(x.id) === String(jobId));
+  const req = ((job && job.changeRequests) || {})[target];
+  if (!req) { alert('הבקשה לא נמצאה — רעננו את המסך.'); return; }
+  let note = '';
+  if (!approve) {
+    if (req.status === 'approved') { if (!confirm('לסגור את חלון העריכה של הלקוח?')) return; }
+    else { note = prompt('סיבת הדחייה (תוצג ללקוח):', 'הקובץ כבר בהכנה לדפוס') || ''; if (note === null) return; }
+  } else if (!confirm('לאשר ללקוח להחליף/למחוק עמודים? חלון העריכה ייפתח ל-48 שעות.')) return;
+  const who = 'בית הדפוס';
+  const next = approve ? PageSwap.approve(req, { at: Date.now(), by: who })
+                       : PageSwap.reject(req, { at: Date.now(), by: who, note: note });
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await fetch(await _au(`${_FBURL}/${PageSwap.requestPath(jobId, target)}.json`),
+      { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(next) });
+    await loadProofs();
+  } catch(e){ alert('העדכון נכשל: ' + (e.message||e)); btn.disabled = false; }
+}
+
 function jobName(p, partName) {
   p = p || {};
   const cust = String(p.customer || '').trim(), title = String(p.title || '').trim();
