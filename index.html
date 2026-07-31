@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785495325';
+window.APP_VERSION = '1785496788';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2514,7 +2514,7 @@ window._fbSnapshot = {};
     <div class="modal-header">
       <span>🧮 מחשבון תמחור עיתון/חוברת</span>
       <span style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-clear" style="font-size:.76rem;padding:5px 10px" onclick="openOffsetPricing()">⚙️ תעריפים</button>
+        <button class="btn btn-clear prices-only" style="font-size:.76rem;padding:5px 10px" onclick="openOffsetPricing()">⚙️ תעריפים</button>
         <button class="modal-close" onclick="closeOffsetCalc()">✕</button>
       </span>
     </div>
@@ -2543,8 +2543,8 @@ window._fbSnapshot = {};
           <div class="qw-f qw-wide" style="margin-bottom:11px">
             <label id="oc_sizeLbl">גודל סופי</label>
             <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
-              <button type="button" class="size-btn" id="ocsz-1" onclick="ocPickSize('16.5×24')">16.5×24</button>
-              <button type="button" class="size-btn" id="ocsz-2" onclick="ocPickSize('A4')">A4 (21×29.7)</button>
+              <!-- כפתורי-הגודל נבנים לפי סוג-המוצר (חוברת מול שטוח) — ראה OC_SIZES -->
+              <span id="oc_sizeBtns" style="display:contents"></span>
               <input class="fi" id="oc_sizeCustom" placeholder="אחר — למשל 20×28" style="width:150px;margin:0;font-size:.84rem"
                 oninput="document.getElementById('oc_size').value=this.value;renderOffsetCalc()">
               <input type="hidden" id="oc_size">
@@ -2601,10 +2601,10 @@ window._fbSnapshot = {};
               <div id="oc_paper-note" class="hint"></div>
             </div>
             <div class="qw-f"><label>גרמז׳ (g/m²)</label>
-              <input class="fi" id="oc_gram" type="number" min="0" step="1" oninput="renderOffsetCalc()" placeholder="80"></div>
+              <input class="fi" id="oc_gram" type="number" min="0" step="1" oninput="ocGramChanged()" placeholder="80"></div>
             <div class="qw-f"><label>מחיר טון (₪)</label>
-              <input class="fi" id="oc_ton" type="number" min="0" step="1" oninput="renderOffsetCalc()" placeholder="5000">
-              <div class="hint">ברירת מחדל 5000</div></div>
+              <input class="fi" id="oc_ton" type="number" min="0" step="1" oninput="this.dataset.manual='1';renderOffsetCalc()" placeholder="5000">
+              <div class="hint">לפי משקל: עד 169 גר' — 5,000 · 170 גר' ומעלה — 5,200</div></div>
           </div>
         </div>
       </div>
@@ -2623,7 +2623,7 @@ window._fbSnapshot = {};
           <div class="oc-line"><span>עלות נייר</span><b id="oc_paperCost">₪0</b></div>
           <div class="oc-line"><span>לוחות (<span id="oc_platesCount">0</span>)</span><b id="oc_platesCost">₪0</b></div>
           <div class="oc-line"><span>הדפסה</span><b id="oc_printCost">₪0</b></div>
-          <div class="oc-line"><span>קיפול</span><b id="oc_foldCost">₪0</b></div>
+          <div class="oc-line"><span>קיפול<span id="oc_foldMinTag" style="display:none;font-size:.72rem;font-weight:800;color:#92400e;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:5px;padding:1px 6px;margin-inline-start:6px">מינימום</span></span><b id="oc_foldCost">₪0</b></div>
           <div class="oc-line"><span>כריכה (<span id="oc_stations">0</span> תחנות)</span><b id="oc_bindCost">₪0</b></div>
         </div>
         </div>
@@ -2701,6 +2701,11 @@ window._fbSnapshot = {};
         <div style="display:flex;flex-direction:column;gap:2px"><label style="font-size:.72rem;color:#777">2 קיפולים</label><input class="fi" id="ps_fold2" type="number" min="0" style="margin:0"></div>
         <div style="display:flex;flex-direction:column;gap:2px"><label style="font-size:.72rem;color:#777">1 קיפול</label><input class="fi" id="ps_fold1" type="number" min="0" style="margin:0"></div>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 3fr;gap:8px;margin-top:8px;align-items:end">
+        <div style="display:flex;flex-direction:column;gap:2px"><label style="font-size:.72rem;color:#777">מינימום קיפול לעבודה (₪)</label>
+          <input class="fi" id="ps_foldMin" type="number" min="0" style="margin:0"></div>
+        <div style="font-size:.74rem;color:#777;padding-bottom:7px">הכנת המקפלת עולה אותו דבר בכל כמות. אם החישוב יצא נמוך מהמינימום — נגבה המינימום.</div>
+      </div>
 
       <div style="font-weight:800;color:var(--press);margin:16px 0 6px;font-size:.86rem">כריכה — מחיר ל-1000 לפי מס' תחנות (ריצות)</div>
       <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px">
@@ -2738,7 +2743,7 @@ window._fbSnapshot = {};
     <div class="modal-header">
       <span>📄 מוצר שטוח</span>
       <span style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-clear" style="font-size:.76rem;padding:5px 10px" onclick="openOffsetPricing()">⚙️ תעריפים</button>
+        <button class="btn btn-clear prices-only" style="font-size:.76rem;padding:5px 10px" onclick="openOffsetPricing()">⚙️ תעריפים</button>
         <button class="modal-close" onclick="closeFlatProd()">✕</button>
       </span>
     </div>
@@ -3720,6 +3725,10 @@ function applyPermissionsToUI() {
   // מסך המשרד (הזמנות מסגרת + תעודות משלוח) — לכל מי שרשאי לראות הזמנות
   document.querySelectorAll('.clerk-only').forEach(function(el){
     el.style.display = (isAdmin || hasPermission('orders.view')) ? '' : 'none'; });
+  /* מחירון/תעריפים — מנהל, או מי שהמנהל נתן לו הרשאת "מחירים" (בקשת-בעלים
+     2026-07-31). ההסתרה כאן היא נוחות; ההגנה עצמה בשער שבתוך openOffsetPricing. */
+  document.querySelectorAll('.prices-only').forEach(function(el){
+    el.style.display = canSeePricing() ? '' : 'none'; });
   // בדיקת מלאי לקוחות נמוך — תג על הכפתור (בטעינה, שקט; התראות חדשות יופיעו בפולינג)
   if (isAdmin) setTimeout(function(){ try{ _csLowStockCheck({silent:true}); }catch(e){} try{ _mtBadge(); }catch(e){} }, 2500);
   // תג התראות בכותרת — לרנדר בטעינה (הפולינג מדלג כשיומן השרת ריק, אז התג לא היה מופיע)
@@ -3937,9 +3946,11 @@ var DEFAULT_OFFSET_PRICING = {
   foldRates: { '4':0, '3':0, '2':0, '1':0 },           // קיפול — מחיר ל-1000 לפי מס' קיפולים
   bindRates: { '1':0, '2':0, '3':0, '4':0, '5':0, '6':0 }, // כריכה — מחיר ל-1000 לפי מס' תחנות (ריצות)
   bindFirstKMin: { '5':500, '6':600 }, // כריכה — מינימום לאלף הראשון לפי מס' תחנות
-  // מחיר ₪/טון לפי משקל הנייר — ברירת-מחדל כשלנייר מסוים אין tonPrice משלו.
-  // הסף העליון (maxGram) כולל: 170 גר' → מדרגה ראשונה (5000), 300 גר' → שנייה (5100).
-  tonTiers: [ { maxGram: 170, price: 5000 }, { maxGram: 300, price: 5100 } ],
+  foldMin: 200,          // קיפול — מינימום לעבודה (בקשת-בעלים 2026-07-31)
+  /* מחיר ₪/טון לפי משקל הנייר — ברירת-מחדל כשלנייר מסוים אין tonPrice משלו.
+     כלל-הבעלים (2026-07-31): כל הנייר באותו מחיר, למעט **170 גר' ומעלה** → 5200.
+     maxGram כולל, ולכן המדרגה הראשונה נעצרת ב-169. */
+  tonTiers: [ { maxGram: 169, price: 5000 }, { maxGram: 100000, price: 5200 } ],
   papers: [],            // [{name, sheet:'70×100', sheetW:70, sheetH:100, gram, tonPrice}]
   flatRates: {}          // מוצרים שטוחים — { <id>: { per1000, foldPer1000 } } לפי FLAT_PRODUCTS
 };
@@ -3977,8 +3988,23 @@ if (!quotePricing) quotePricing = JSON.parse(JSON.stringify(DEFAULT_OFFSET_PRICI
 // נדחוף מחירון ל-Firebase רק אחרי שנדע שהוא אמין — נמשך מהשרת או נשמר ידנית.
 // מונע מטאב עם ברירת-מחדל ריקה לדרוס מחירון תקין בשרת ("המחירים נמחקים אחרי זמן מה").
 window._quotePricingLoaded = false;
-// מדרגות מחיר-לטון לפי משקל (5000/5100) — השלמה למחירונים ישנים שנשמרו לפני התוספת.
-function _ensureTonTiers(pr){ if (pr && !Array.isArray(pr.tonTiers)) pr.tonTiers = JSON.parse(JSON.stringify(DEFAULT_OFFSET_PRICING.tonTiers)); return pr; }
+/* השלמה/מיגרציה של מחירונים שנשמרו לפני התוספות.
+   ⚠️ מיגרציית מדרגות-הטון: המחירון כבר נשמר אצל המשתמש (localStorage + Firebase),
+   ולכן שינוי ה-DEFAULT לבדו לא היה משנה כלום בפועל — הכלל החדש (170+ → 5200)
+   פשוט לא היה נכנס לתוקף. לכן מזהים את **מדרגות-ברירת-המחדל הישנות בדיוק**
+   (170/5000 + 300/5100) ומחליפים אותן. מדרגות שהמשתמש ערך ידנית — לא נוגעים. */
+function _isOldTonTiers(t){
+  var old = [ { maxGram: 170, price: 5000 }, { maxGram: 300, price: 5100 } ];   // ברירת-המחדל שקדמה ל-2026-07-31
+  return Array.isArray(t) && t.length === old.length && t.every(function(x, i){
+    return +x.maxGram === old[i].maxGram && +x.price === old[i].price; });
+}
+function _ensureTonTiers(pr){
+  if (!pr) return pr;
+  if (!Array.isArray(pr.tonTiers) || _isOldTonTiers(pr.tonTiers))
+    pr.tonTiers = JSON.parse(JSON.stringify(DEFAULT_OFFSET_PRICING.tonTiers));
+  if (pr.foldMin == null) pr.foldMin = DEFAULT_OFFSET_PRICING.foldMin;
+  return pr;
+}
 _ensureTonTiers(quotePricing);
 // מחיר ₪/טון לנייר: קודם tonPrice ידני של הנייר, אחרת מדרגה לפי משקל (gram).
 function _paperTonPrice(gram, paper, pricing){
@@ -18056,23 +18082,64 @@ function pickOcPaper(name){
   document.getElementById('oc_paper').value = name;
   var p = _resolveOcPaper(name);
   var gramEl = document.getElementById('oc_gram'), tonEl = document.getElementById('oc_ton');
+  /* ⚠️ עד עכשיו מחיר-הטון נקבע כאן ל-5000 קבוע, ומדרגות-המשקל (_paperTonPrice)
+     שימשו רק את מסלול ה-AI. לכן כלל-הבעלים "170 גר' ומעלה = 5200" פשוט לא היה
+     נכנס לתוקף במחשבון. עכשיו שני המסלולים נגזרים מאותה פונקציה. */
   if (p) {                                   // נייר מתומחר — מלא גרמז' ומחיר טון
     if (p.gram) gramEl.value = p.gram;
-    tonEl.value = p.tonPrice || 5000;
-  } else {                                   // נייר חופשי — נסה לחלץ גרמז' מהשם; מחיר טון ברירת מחדל 5000
+    tonEl.value = _paperTonPrice(p.gram || _parseGram(name), p, quotePricing);
+  } else {                                   // נייר חופשי — נסה לחלץ גרמז' מהשם
     var g = _parseGram(name); if (g) gramEl.value = g;
-    if (!tonEl.value) tonEl.value = 5000;
+    tonEl.value = _paperTonPrice(g || +gramEl.value, null, quotePricing);
   }
   hideOcPaperAC();
   renderOffsetCalc();
 }
+/* שינוי-גרמז' ידני מעדכן את מחיר-הטון לפי המדרגה — אלא אם המשתמש דרס ידנית.
+   בלי זה אפשר להקליד 250 גר' ולקבל תמחור של 5000. */
+function ocGramChanged(){
+  var gramEl = document.getElementById('oc_gram'), tonEl = document.getElementById('oc_ton');
+  if (gramEl && tonEl && !tonEl.dataset.manual) tonEl.value = _paperTonPrice(+gramEl.value, null, quotePricing);
+  renderOffsetCalc();
+}
 
+/* גדלים לפי סוג-המוצר (בקשת-בעלים 2026-07-31: "כשאני לוחץ על מוצר שטוח עדיין
+   מופיעים הגדלים של עיתונים"). עד עכשיו היו שני כפתורים קבועים — 16.5×24 ו-A4 —
+   שהם גדלי-חוברת, ולמוצר שטוח לא היה מה לבחור. */
+var OC_SIZES = {
+  booklet: [
+    { v:'16.5×24', l:'16.5×24' },
+    { v:'A4',      l:'A4 (21×29.7)' },
+    { v:'A5',      l:'A5 (14.8×21)' }
+  ],
+  // הגדלים שבית-הדפוס באמת מדפיס שטוח — פלייסמנט, פלאייר/עלון, פוסטר
+  flat: [
+    { v:'30×40',   l:'פלייסמנט 30×40' },
+    { v:'25×35',   l:'פלייסמנט 25×35' },
+    { v:'A4',      l:'A4 (21×29.7)' },
+    { v:'A3',      l:'A3 (29.7×42)' },
+    { v:'A5',      l:'A5 (14.8×21)' },
+    { v:'30×14',   l:'30×14' },
+    { v:'25×30',   l:'25×30' },
+    { v:'20×10',   l:'20×10' },
+    { v:'50×70',   l:'פוסטר חצי גיליון 50×70' },
+    { v:'70×100',  l:'פוסטר גיליון 70×100' }
+  ]
+};
+function _ocRenderSizeBtns(){
+  var box = document.getElementById('oc_sizeBtns'); if (!box) return;
+  var cur = (document.getElementById('oc_size') || {}).value || '';
+  box.innerHTML = (OC_SIZES[ocMode()] || OC_SIZES.booklet).map(function(s){
+    return '<button type="button" class="size-btn' + (s.v === cur ? ' active' : '') +
+           '" data-ocsz="' + s.v + '">' + s.l + '</button>';
+  }).join('');
+  box.querySelectorAll('[data-ocsz]').forEach(function(b){ b.onclick = function(){ ocPickSize(b.dataset.ocsz); }; });
+}
 function ocPickSize(size){
   document.getElementById('oc_size').value = size;
   document.getElementById('oc_sizeCustom').value = '';
-  var b1 = document.getElementById('ocsz-1'), b2 = document.getElementById('ocsz-2');
-  if (b1) b1.classList.toggle('active', size === '16.5×24');
-  if (b2) b2.classList.toggle('active', size === 'A4');
+  var box = document.getElementById('oc_sizeBtns');
+  if (box) box.querySelectorAll('[data-ocsz]').forEach(function(b){ b.classList.toggle('active', b.dataset.ocsz === size); });
   renderOffsetCalc();
 }
 /* בורר סוג-המוצר (בקשת-בעלים 2026-07-31). עד עכשיו המחשבון ידע רק חוברת/עיתון,
@@ -18094,6 +18161,12 @@ function ocPickMode(mode){
   if (hint) hint.textContent = flat ? 'גודל · כמה בגיליון · כמות' : 'גודל · עמודים · כמות';
   var lbl = document.getElementById('oc_sizeLbl');
   if (lbl) lbl.textContent = flat ? 'גודל המוצר' : 'גודל סופי';
+  /* ⚠️ גודל שנבחר במצב הקודם ואינו קיים במצב החדש חייב להתאפס — אחרת מעבר
+     ל"מוצר שטוח" משאיר "16.5×24" נבחר בשקט, והתמחור רץ על גודל-חוברת. */
+  var szEl = document.getElementById('oc_size');
+  if (szEl && szEl.value && !(OC_SIZES[mode]||[]).some(function(s){ return s.v === szEl.value; })
+      && !(document.getElementById('oc_sizeCustom')||{}).value) szEl.value = '';
+  _ocRenderSizeBtns();
   renderOffsetCalc();
 }
 
@@ -18175,6 +18248,12 @@ function computeOffsetQuote(){
     r._foldCost = Math.ceil(copies/1000) * (((pr.foldRates||{})[String(fc)])||0);
     foldCost += r._foldCost;
   });
+  /* מינימום-קיפול לעבודה (בקשת-בעלים 2026-07-31): הכנת המקפלת עולה אותו דבר
+     בין אם מקפלים 800 עותקים או 8,000. המינימום חל על **סך הקיפול בעבודה** ולא
+     לכל ריצה, ורק כשבאמת מקפלים משהו — עבודה בלי קיפול נשארת 0. */
+  var _foldMin = +(pr.foldMin || 0);
+  var _foldRaw = foldCost;
+  if (foldCost > 0 && _foldMin > 0 && foldCost < _foldMin) foldCost = _foldMin;
   var platesCost = plates * (pr.platePrice||0);
 
   // כריכה: לפי מספר התחנות (=מספר הריצות), בתעריף ל-1000.
@@ -18215,7 +18294,8 @@ function computeOffsetQuote(){
     perKPaper:perKPaper, perKPrint:perKPrint, perKFold:perKFold, perKBind:perKBind, perKSub:perKSub, perK1000:perK1000,
     netSheets:netSheets, waste:waste, totalSheets:totalSheets, weightKg:weightKg, gram:gram, tonPrice:tonPrice,
     paperCost:paperCost, plates:plates, platesCost:platesCost, printCost:printCost,
-    foldCost:foldCost, bindCost:bindCost, stations:stations,
+    foldCost:foldCost, foldRaw:_foldRaw, foldMin:_foldMin, foldMinHit:(_foldRaw > 0 && foldCost > _foldRaw),
+    bindCost:bindCost, stations:stations,
     shipInc:shipInc, shipping:shipping, notes:notes,
     subtotal:subtotal, markupPct:markupPct, markupVal:markupVal, grand:grand };
 }
@@ -18254,13 +18334,14 @@ function renderOffsetCalc(){
     if (fsWrap) fsWrap.style.display = 'none';
   }
 
-  // הערת נייר: מתומחר / לא מתומחר (להזמנה)
+  /* הערת נייר. ⚠️ שורת "נייר שאינו במלאי (להזמנה) — ודא גרמז' ומחיר טון" הוסרה
+     (בקשת-בעלים 2026-07-31): כל נייר מתומחר באותו מחיר-טון לפי משקלו, ולכן
+     "לא במלאי" אינו אזהרה — הוא סתם רעש שהופיע כמעט תמיד. */
   var paperName = document.getElementById('oc_paper').value.trim();
   var noteEl = document.getElementById('oc_paper-note');
   if (noteEl) {
-    if (!paperName) noteEl.textContent = '';
-    else if (_resolveOcPaper(paperName)) { noteEl.style.color = '#16a34a'; noteEl.textContent = '✓ נייר מתומחר — גרמז\'/מחיר טון מולאו אוטומטית'; }
-    else { noteEl.style.color = '#e67e22'; noteEl.textContent = 'ℹ️ נייר שאינו במלאי (להזמנה) — ודא גרמז\' ומחיר טון (ברירת מחדל 5000)'; }
+    if (paperName && _resolveOcPaper(paperName)) { noteEl.style.color = '#16a34a'; noteEl.textContent = '✓ נייר מתומחר — גרמז\'/מחיר טון מולאו אוטומטית'; }
+    else noteEl.textContent = '';
   }
 
   /* חיווי מתהפך/דחיפות במוצר שטוח — אומר אם אפשר, ואם לא: למה.
@@ -18317,6 +18398,10 @@ function renderOffsetCalc(){
   set('oc_platesCost', _ocILS(q.platesCost));
   set('oc_printCost', _ocILS(q.printCost));
   set('oc_foldCost', _ocILS(q.foldCost));
+  // חיווי כשהמינימום הרים את המחיר — אחרת ההצעה גבוהה מהתעריף בלי הסבר
+  var _fmt = document.getElementById('oc_foldMinTag');
+  if (_fmt){ _fmt.style.display = q.foldMinHit ? '' : 'none';
+    _fmt.title = q.foldMinHit ? ('לפי התעריף ' + _ocILS(q.foldRaw) + ' — הועלה למינימום ' + _ocILS(q.foldMin)) : ''; }
   set('oc_stations', q.stations);
   set('oc_bindCost', _ocILS(q.bindCost));
   set('oc_subtotal', _ocILS(q.subtotal));
@@ -18339,7 +18424,9 @@ function openOffsetCalc(){
   var colorsEl = document.getElementById('oc_colors');
   if (colorsEl && !colorsEl.value) colorsEl.value = (quotePricing && quotePricing.colors) || 4;
   var tonEl = document.getElementById('oc_ton');
-  if (tonEl && !tonEl.value) tonEl.value = 5000; // ברירת מחדל: 5000 ₪/טון לכל נייר 70–300 גרם
+  // מחיר-הטון נגזר מהמשקל (170 גר' ומעלה → 5200); בפתיחה בדרך-כלל אין עדיין גרמז'
+  if (tonEl && !tonEl.value) tonEl.value = _paperTonPrice(+(document.getElementById('oc_gram')||{}).value || 0, null, quotePricing);
+  _ocRenderSizeBtns();     // כפתורי-הגודל תלויי-מצב — חייבים להיבנות בפתיחה
   document.getElementById('offset-calc-modal').classList.add('open');
   renderOffsetCalc();
 }
@@ -18407,8 +18494,29 @@ function offsetAddToQuote(){
 var _psPapers = [];
 function _psVal(id){ var v = parseFloat(document.getElementById(id).value); return isFinite(v) ? v : 0; }
 
+/* ⚠️ שער-הרשאה (בקשת-בעלים 2026-07-31): "רק למנהל, או למשתמש שהמנהל הגדיר,
+   יהיה אפשר לשנות תמחורים או לראות את המחירון".
+   ההרשאה `prices` כבר קיימת במודל-המשתמש ובמסך ניהול-המשתמשים — מנהל מקבל
+   אותה אוטומטית (hasPermission מחזיר true ל-isAdmin). השער כאן הוא הקובע:
+   הסתרת הכפתור לבדה אינה הגנה, כי הפונקציה גלובלית וניתן לקרוא לה. */
+function canSeePricing(){
+  try {
+    if (!currentUser) return false;
+    if (currentUser.isAdmin) return true;
+    /* ⚠️ דורש אישור **מפורש**, ולא hasPermission('prices') לבדו:
+       ב-DEFAULT_PERMISSIONS הערך הוא true, ולכן משתמש שנשמר לפני שהשדה הזה
+       נולד היה מקבל גישה בשקט — כלומר "רק למנהל" לא היה מתקיים בפועל.
+       כאן ברירת-המחדל היא סגור, והמנהל פותח למי שצריך במסך ניהול-המשתמשים. */
+    return ((currentUser.permissions || {}).prices === true);
+  } catch(e){ return false; }
+}
 function openOffsetPricing(){
+  if (!canSeePricing()){
+    showToast('⛔ המחירון פתוח למנהל בלבד (או למי שהמנהל הגדיר לו הרשאת "מחירים")');
+    return;
+  }
   var p = quotePricing || DEFAULT_OFFSET_PRICING;
+  document.getElementById('ps_foldMin').value = (p.foldMin != null ? p.foldMin : DEFAULT_OFFSET_PRICING.foldMin);
   document.getElementById('ps_waste').value  = p.wastePerRun || 0;
   document.getElementById('ps_colors').value = p.colors || 4;
   document.getElementById('ps_plate').value  = p.platePrice || 0;
@@ -18491,6 +18599,8 @@ function _psSetSheet(i, val){
 }
 
 function saveOffsetPricing(){
+  // שער-הרשאה גם בשמירה — לא רק בפתיחה (הפונקציה גלובלית)
+  if (!canSeePricing()){ showToast('⛔ אין לך הרשאה לשנות תמחורים'); return; }
   quotePricing = {
     wastePerRun: _psVal('ps_waste'),
     colors: _psVal('ps_colors') || 4,
@@ -18501,6 +18611,7 @@ function saveOffsetPricing(){
     foldRates: { '4':_psVal('ps_fold4'), '3':_psVal('ps_fold3'), '2':_psVal('ps_fold2'), '1':_psVal('ps_fold1') },
     bindRates: { '1':_psVal('ps_bind1'), '2':_psVal('ps_bind2'), '3':_psVal('ps_bind3'), '4':_psVal('ps_bind4'), '5':_psVal('ps_bind5'), '6':_psVal('ps_bind6') },
     bindFirstKMin: { '5':_psVal('ps_bindMin5'), '6':_psVal('ps_bindMin6') },
+    foldMin: _psVal('ps_foldMin'),
     tonTiers: (quotePricing && Array.isArray(quotePricing.tonTiers) && quotePricing.tonTiers.length) ? quotePricing.tonTiers : DEFAULT_OFFSET_PRICING.tonTiers,
     papers: _psPapers.filter(function(p){ return p.name || p.gram || p.tonPrice; }),
     flatRates: (function(){
@@ -18614,10 +18725,15 @@ function computeFlat(){
     base = units * (rate.per1000||0);
     foldCost = (prod && prod.fold && fold) ? units * (rate.foldPer1000||0) : 0;
   }
+  // אותו מינימום-קיפול כמו במסלול החוברת — הכנת המקפלת עולה אותו דבר בכל כמות
+  var foldMin = +((pr.foldMin != null) ? pr.foldMin : DEFAULT_OFFSET_PRICING.foldMin) || 0;
+  var foldRaw = foldCost;
+  if (foldCost > 0 && foldMin > 0 && foldCost < foldMin) foldCost = foldMin;
   var subtotal = base + foldCost;
   var markupVal = subtotal * markupPct / 100;
   var grand = subtotal + markupVal;
   return { prod:prod, qty:qty, fold:fold, units:units, base:base, foldCost:foldCost, tiered:tiered,
+           foldRaw:foldRaw, foldMin:foldMin, foldMinHit:(foldRaw > 0 && foldCost > foldRaw),
            subtotal:subtotal, markupPct:markupPct, markupVal:markupVal, grand:grand };
 }
 

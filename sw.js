@@ -11,6 +11,13 @@ self.addEventListener('activate', function(event) {
   event.waitUntil(self.clients.claim());
 });
 
+/* מאזין-fetch ריק — בכוונה.
+   Chrome מתקין אפליקציה למחשב רק אם ל-Service Worker יש מאזין fetch. אין כאן
+   caching ואין offline (זו הייתה החלטה מפורשת): הבקשה פשוט ממשיכה לרשת כרגיל.
+   ⚠️ אסור להוסיף כאן respondWith עם מטמון — מטמון של דף-האפליקציה היה מגיש
+   גרסה ישנה אחרי פריסה, ושומר-הגרסאות היה נלחם בו. */
+self.addEventListener('fetch', function() {});
+
 self.addEventListener('push', function(event) {
   var data = {};
   try { data = event.data ? event.data.json() : {}; } catch(e) {

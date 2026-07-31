@@ -6,6 +6,21 @@
 <title>לקוחות עיתונים — ניהול | סולן הדפסות</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!-- התקנה כאפליקציה למחשב (בקשת-בעלים 2026-07-31). התפיסה חייבת להיות מוקדם
+     ככל האפשר — האירוע נורה לפני שרוב הסקריפטים רצים. -->
+<link rel="manifest" href="proof-admin-manifest.json">
+<meta name="theme-color" content="#2d3561">
+<script>
+window._pwaPrompt = null;
+window.addEventListener('beforeinstallprompt', function(ev){
+  ev.preventDefault(); window._pwaPrompt = ev;
+  var b = document.getElementById('installBtn'); if (b) b.style.display = '';
+});
+window.addEventListener('appinstalled', function(){
+  window._pwaPrompt = null;
+  var b = document.getElementById('installBtn'); if (b) b.style.display = 'none';
+});
+</script>
 <!-- cdnjs נחסם אצל חלק מהמשתמשים (סינון-תוכן/פרוקסי/חוסם-פרסומות) → מראות-גיבוי + אזהרה ברורה -->
 <script src="lib-loader.js"></script>
 <script src="proof-guard.js"></script>
@@ -210,6 +225,7 @@
     <h2>📋 עבודות לקוחות</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn ghost" id="invite">+ לקוח / עבודה חדשה</button>
+      <button class="btn ghost" id="installBtn" style="display:none" title="התקנת המסך הזה כאפליקציה על שולחן העבודה">📥 התקן כאפליקציה</button>
       <button class="btn ghost" id="portalsBtn" title="פתיחת פורטל אישי לכל לקוח שמופיע ביומן השבועי">🏢 פורטלים ליומן</button>
       <button class="btn ghost" id="usageBtn">💾 ניצול אחסון</button>
       <button class="btn ghost" id="trashBtn" title="קבצים שהוסרו — ניתן לשחזר">🗑 סל מיחזור</button>
@@ -1975,6 +1991,26 @@ function _renderUsage(total){
 }
 $('usageBtn').onclick = () => _renderUsage(_usageBytes());
 $('portalsBtn').onclick = () => openPortalsBatch();
+
+/* ── 📥 התקנה כאפליקציה למחשב ────────────────────────────────────────────────
+   Chrome/Edge פותחים חלון עצמאי עם אייקון בשולחן-העבודה ובשורת-המשימות.
+   דרישות-הדפדפן להצגת ההצעה: manifest עם start_url ואייקונים, HTTPS,
+   ו-Service Worker עם מאזין fetch (הוסף ב-sw.js במיוחד בשביל זה).
+   ⚠️ הכפתור מוסתר כברירת-מחדל ומופיע רק כשהדפדפן באמת מציע להתקין — כפתור
+   שלא עושה כלום גרוע מכפתור שלא קיים. */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(function(e){ console.warn('sw register', e); });
+}
+$('installBtn').onclick = async () => {
+  const p = window._pwaPrompt;
+  if (!p){ alert('הדפדפן לא מציע התקנה כרגע.\n\nב-Chrome/Edge: תפריט ⋮ ← "התקן" / "Install app".\nאם המסך כבר מותקן — פתח אותו מהאייקון בשולחן העבודה.'); return; }
+  p.prompt();
+  try { await p.userChoice; } catch(e){}
+  window._pwaPrompt = null;
+  $('installBtn').style.display = 'none';
+};
+// כבר רץ כאפליקציה מותקנת? אין מה להציע
+if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) $('installBtn').style.display = 'none';
 
 // מחיקת קובץ בודד מ-Storage (פינוי אמיתי — לא סל-מיחזור, שהמקום ישתחרר)
 async function _storageDelete(path){
