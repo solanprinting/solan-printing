@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785489221';
+window.APP_VERSION = '1785489982';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -621,13 +621,13 @@ textarea.fi{resize:none;min-height:52px;}
    קודם היה מסך אחד צפוף בלי סדר; עכשיו כל שלב הוא כרטיס ממוספר, השדות בשורות
    מוגדרות עם תווית מעל, והפריסה מתקפלת לעמודה אחת בנייד. */
 .qw-step{border:1px solid var(--line);border-radius:12px;padding:0;margin-bottom:12px;background:#fff;overflow:hidden;}
-.qw-head{display:flex;align-items:center;gap:9px;padding:11px 14px;background:#f7f9fd;border-bottom:1px solid var(--line);}
+.qw-head{display:flex;align-items:center;gap:8px;padding:8px 13px;background:#f7f9fd;border-bottom:1px solid var(--line);}
 .qw-num{width:25px;height:25px;flex:none;border-radius:50%;background:var(--press);color:#fff;
   display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.82rem;}
 .qw-title{font-weight:800;color:var(--press);font-size:.92rem;}
 .qw-sub{font-size:.74rem;color:#94a3b8;font-weight:500;margin-inline-start:auto;}
-.qw-body{padding:13px 14px;}
-.qw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:11px;}
+.qw-body{padding:11px 13px;}
+.qw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;}
 .qw-f{display:flex;flex-direction:column;gap:4px;min-width:0;}
 .qw-f>label{font-size:.75rem;color:#64748b;font-weight:700;}
 .qw-f .fi{margin:0;width:100%;box-sizing:border-box;}
@@ -646,9 +646,20 @@ textarea.fi{resize:none;min-height:52px;}
 /* סיכום דביק — המחיר תמיד מול העיניים בזמן שמשנים נתונים */
 .qw-sum{position:sticky;bottom:0;background:#eef2ff;border:1px solid var(--press);border-radius:12px;
   padding:13px 15px;box-shadow:0 -3px 14px rgba(45,53,97,.09);}
+/* פריסת-שתי-עמודות במסך רחב — כדי שכל הסעיפים ייראו יחד, כמעט בלי גלילה
+   (בקשת-בעלים 2026-07-31). מתקפלת לעמודה אחת במסך צר. */
+.qw-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;}
+.qw-cols>.qw-step{margin-bottom:0;}
+.qw-span{grid-column:1/-1;}
+@media(max-width:900px){ .qw-cols{grid-template-columns:1fr;} }
+/* מסך רחב → 3 עמודות, כדי שכל הסעיפים ייראו יחד בלי גלילה */
+@media(min-width:1250px){ .qw-cols{grid-template-columns:repeat(3,1fr);} }
+/* חלון גדול: כמעט מסך-מלא במחשב, מסך-מלא ממש בנייד */
+#quote-modal .modal-box,#offset-calc-modal .modal-box{max-width:1500px;width:97vw;height:97vh;max-height:97vh;}
+#quote-modal .qw-scroll,#offset-calc-modal .qw-scroll{max-height:calc(97vh - 108px);padding:10px 12px !important;}
 @media(max-width:640px){
-  #offset-calc-modal .modal-box{max-width:100vw;width:100vw;height:100vh;max-height:100vh;border-radius:0;}
-  #offset-calc-modal .qw-scroll{max-height:calc(100vh - 118px);}
+  #quote-modal .modal-box,#offset-calc-modal .modal-box{max-width:100vw;width:100vw;height:100vh;max-height:100vh;border-radius:0;}
+  #quote-modal .qw-scroll,#offset-calc-modal .qw-scroll{max-height:calc(100vh - 118px);}
   .qw-grid{grid-template-columns:1fr;}
   .qw-body{padding:11px;}
   .qw-sub{display:none;}
@@ -2393,66 +2404,80 @@ window._fbSnapshot = {};
 
 <!-- ===== QUOTE FORM MODAL ===== -->
 <div class="modal-overlay" id="quote-modal">
-  <div class="modal-box" style="max-width:700px;width:95vw">
+  <!-- הרוחב/הגובה נקבעים ב-CSS (‎#quote-modal .modal-box) — בלי inline, אחרת
+       הוא גובר על ה-CSS והחלון נשאר צר. -->
+  <div class="modal-box">
     <div class="modal-header">
       <span id="quote-modal-title">הצעת מחיר חדשה</span>
       <button class="modal-close" onclick="closeQuoteModal()">✕</button>
     </div>
-    <div style="padding:20px;overflow-y:auto;max-height:75vh">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-        <div style="position:relative">
-          <label style="font-size:.72rem;font-weight:700;color:var(--gold)">לכבוד (לקוח)</label>
-          <input class="fi" id="q-customer" placeholder="שם הלקוח / חברה" style="margin-top:4px"
-            autocomplete="off" oninput="filterCustomerAC(this.value)" onfocus="filterCustomerAC(this.value)" onblur="setTimeout(()=>hideCustomerAC(),180)">
-          <div id="q-customer-ac" style="display:none;position:absolute;z-index:200;background:#fff;border:1.5px solid var(--gold);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;width:100%;top:100%;margin-top:2px"></div>
-        </div>
-        <div>
-          <label style="font-size:.72rem;font-weight:700;color:var(--gold)">אימייל לקוח</label>
-          <input class="fi" id="q-customer-email" placeholder="email@example.com" type="email" style="margin-top:4px">
-        </div>
-        <div>
-          <label style="font-size:.72rem;font-weight:700;color:var(--gold)">תאריך</label>
-          <input class="fi" type="date" id="q-date" style="margin-top:4px">
-        </div>
-        <div style="grid-column:1/-1">
-          <label style="font-size:.72rem;font-weight:700;color:var(--gold)">עובד אחראי</label>
-          <select class="fi" id="q-employee" style="margin-top:4px">
-            <option value="">— בחר עובד —</option>
-            <option value="חיים לווין">חיים לווין</option>
-            <option value="אמיר">אמיר</option>
-            <option value="איציק">איציק</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:.72rem;font-weight:700;color:var(--gold)">מספר מסמך</label>
-          <input class="fi" id="q-docnum" placeholder="אוטומטי" style="margin-top:4px">
-        </div>
-        <div>
-          <label style="font-size:.72rem;font-weight:700;color:var(--gold)">הערות</label>
-          <input class="fi" id="q-notes" placeholder="הערות נוספות..." style="margin-top:4px">
+    <div class="qw-scroll" style="padding:14px 16px;overflow-y:auto;background:#fbfcfe">
+     <div class="qw-cols">
+
+      <!-- ① פרטי הלקוח -->
+      <div class="qw-step">
+        <div class="qw-head"><span class="qw-num">1</span><span class="qw-title">פרטי הלקוח</span>
+          <span class="qw-sub">למי ההצעה</span></div>
+        <div class="qw-body">
+          <div class="qw-grid">
+            <div class="qw-f qw-wide" style="position:relative">
+              <label>לכבוד (לקוח)</label>
+              <input class="fi" id="q-customer" placeholder="שם הלקוח / חברה"
+                autocomplete="off" oninput="filterCustomerAC(this.value)" onfocus="filterCustomerAC(this.value)" onblur="setTimeout(()=>hideCustomerAC(),180)">
+              <div id="q-customer-ac" style="display:none;position:absolute;z-index:200;background:#fff;border:1.5px solid var(--gold);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;width:100%;top:100%;margin-top:2px"></div>
+            </div>
+            <div class="qw-f"><label>אימייל לקוח</label>
+              <input class="fi" id="q-customer-email" placeholder="email@example.com" type="email"></div>
+            <div class="qw-f"><label>תאריך</label>
+              <input class="fi" type="date" id="q-date"></div>
+            <div class="qw-f"><label>עובד אחראי</label>
+              <select class="fi" id="q-employee">
+                <option value="">— בחר עובד —</option>
+                <option value="חיים לווין">חיים לווין</option>
+                <option value="אמיר">אמיר</option>
+                <option value="איציק">איציק</option>
+              </select></div>
+            <div class="qw-f"><label>מספר מסמך</label>
+              <input class="fi" id="q-docnum" placeholder="אוטומטי"></div>
+            <div class="qw-f qw-wide"><label>הערות</label>
+              <input class="fi" id="q-notes" placeholder="הערות נוספות..."></div>
+          </div>
         </div>
       </div>
 
-      <div style="font-size:.78rem;font-weight:700;color:var(--press);margin-bottom:8px">פירוט שירותים / מוצרים</div>
-      <div id="q-items-wrap"></div>
-      <button onclick="addQuoteItem()" style="width:100%;padding:8px;border:1.5px dashed #c0ccf0;border-radius:7px;
-        background:none;color:#aaa;font-family:Heebo,sans-serif;font-size:.82rem;cursor:pointer;margin-bottom:14px"
-        onmouseover="this.style.borderColor='var(--press)';this.style.color='var(--press)'"
-        onmouseout="this.style.borderColor='#c0ccf0';this.style.color='#aaa'">+ הוסף שורה</button>
-
-      <button onclick="openOffsetCalc()" style="width:100%;padding:9px;border:1.5px solid var(--press);border-radius:7px;
-        background:#eef2ff;color:var(--press);font-family:Heebo,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;margin-bottom:8px">🧮 מחשבון תמחור עיתון/חוברת</button>
-
-      <button onclick="openFlatProd()" style="width:100%;padding:9px;border:1.5px solid #7c3aed;border-radius:7px;
-        background:#f6f1ff;color:#6d28d9;font-family:Heebo,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;margin-bottom:8px">📄 מוצר שטוח (פוסטר / פלאייר / פלייסמנט)</button>
-
-      <button onclick="toggleFlyerPanel()" style="width:100%;padding:9px;border:1.5px solid #0891b2;border-radius:7px;
-        background:#ecfeff;color:#0e7490;font-family:Heebo,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;margin-bottom:8px">📋 מחירון פלאיירים — גרפיקה</button>
-      <div id="flyer-panel" style="display:none;margin-bottom:14px;border:1.5px solid #a5f3fc;border-radius:8px;overflow:hidden">
-        <div id="flyer-panel-inner"></div>
+      <!-- ② שורות ההצעה — רוחב מלא, זו הטבלה -->
+      <div class="qw-step qw-span">
+        <div class="qw-head"><span class="qw-num">2</span><span class="qw-title">מה מציעים</span>
+          <span class="qw-sub">שורות ההצעה ללקוח</span></div>
+        <div class="qw-body">
+          <div id="q-items-wrap"></div>
+          <button onclick="addQuoteItem()" style="width:100%;padding:9px;border:1.5px dashed #c0ccf0;border-radius:8px;
+            background:none;color:#94a3b8;font-family:Heebo,sans-serif;font-size:.85rem;font-weight:700;cursor:pointer"
+            onmouseover="this.style.borderColor='var(--press)';this.style.color='var(--press)'"
+            onmouseout="this.style.borderColor='#c0ccf0';this.style.color='#94a3b8'">+ הוסף שורה</button>
+        </div>
       </div>
 
-      <div style="background:#f8f9ff;border-radius:8px;padding:12px 16px;font-size:.88rem">
+      <!-- ③ עזרי תמחור -->
+      <div class="qw-step">
+        <div class="qw-head"><span class="qw-num">3</span><span class="qw-title">עזרי תמחור</span>
+          <span class="qw-sub">מחשבים כאן — התוצאה נכנסת כשורה למעלה</span></div>
+        <div class="qw-body">
+          <div class="qw-pick" style="grid-template-columns:repeat(auto-fit,minmax(175px,1fr))">
+            <button type="button" onclick="openOffsetCalc()">
+              <span class="em">🧮</span><span>עיתון / חוברת</span><span class="d">חישוב עלות מלא</span></button>
+            <button type="button" onclick="openFlatProd()">
+              <span class="em">📄</span><span>מוצר שטוח</span><span class="d">מחירון קבוע ל-1000</span></button>
+            <button type="button" onclick="toggleFlyerPanel()">
+              <span class="em">📋</span><span>מחירון פלאיירים</span><span class="d">מחלקת גרפיקה</span></button>
+          </div>
+          <div id="flyer-panel" style="display:none;margin-top:11px;border:1.5px solid #a5f3fc;border-radius:8px;overflow:hidden">
+            <div id="flyer-panel-inner"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="qw-sum qw-span" style="font-size:.88rem">
         <div style="display:flex;justify-content:space-between;margin-bottom:6px">
           <span style="color:#555">סה"כ לפני מע"מ:</span>
           <strong id="q-subtotal">₪0</strong>
@@ -2471,6 +2496,7 @@ window._fbSnapshot = {};
           <strong style="font-size:1.1rem;color:var(--press)" id="q-total">₪0</strong>
         </div>
       </div>
+     </div>
     </div>
     <div style="padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px">
       <button class="btn btn-clear" onclick="closeQuoteModal()">ביטול</button>
@@ -2483,7 +2509,8 @@ window._fbSnapshot = {};
 
 <!-- ===== OFFSET NEWSPAPER/BOOKLET PRICE CALCULATOR ===== -->
 <div class="modal-overlay" id="offset-calc-modal" style="z-index:260">
-  <div class="modal-box" style="max-width:840px;width:97vw">
+  <!-- הרוחב/הגובה ב-CSS (ראה #offset-calc-modal .modal-box) — בלי inline -->
+  <div class="modal-box">
     <div class="modal-header">
       <span>🧮 מחשבון תמחור עיתון/חוברת</span>
       <span style="display:flex;gap:8px;align-items:center">
@@ -2491,7 +2518,8 @@ window._fbSnapshot = {};
         <button class="modal-close" onclick="closeOffsetCalc()">✕</button>
       </span>
     </div>
-    <div class="qw-scroll" style="padding:14px 16px;overflow-y:auto;max-height:76vh;background:#fbfcfe">
+    <div class="qw-scroll" style="padding:14px 16px;overflow-y:auto;background:#fbfcfe">
+     <div class="qw-cols">
 
       <!-- ① מה מתמחרים -->
       <div class="qw-step">
@@ -2507,8 +2535,8 @@ window._fbSnapshot = {};
         </div>
       </div>
 
-      <!-- ② המוצר -->
-      <div class="qw-step">
+      <!-- ② המוצר — רוחב מלא (הכי הרבה שדות) -->
+      <div class="qw-step qw-span">
         <div class="qw-head"><span class="qw-num">2</span><span class="qw-title">המוצר</span>
           <span class="qw-sub" id="oc_modeHint">גודל · עמודים · כמות</span></div>
         <div class="qw-body">
@@ -2539,20 +2567,22 @@ window._fbSnapshot = {};
               <input class="fi" id="oc_copies" type="number" min="0" step="1" oninput="renderOffsetCalc()" placeholder="5000"></div>
             <div class="qw-f"><label>מספר צבעים</label>
               <input class="fi" id="oc_colors" type="number" min="1" step="1" oninput="renderOffsetCalc()" placeholder="4"></div>
-          </div>
-          <!-- דחיפות + מתהפך — רק במוצר שטוח. הכלל: עד 7 ימי-עבודה אפשר מתהפך
-               (חצי לוחות); עבודה מיידית נכנסת ל-8 צבעים עם 8 לוחות. -->
-          <div id="oc_rushWrap" style="display:none;margin-top:12px;border-top:1px dashed var(--line);padding-top:11px">
-            <div class="qw-f" style="max-width:280px">
+            <!-- דחיפות + מתהפך — רק במוצר שטוח, ובאותה שורת-שדות כדי לא להאריך
+                 את המסך. הכלל: עד 7 ימי-עבודה אפשר מתהפך (חצי לוחות);
+                 עבודה מיידית נכנסת ל-8 צבעים עם 8 לוחות. -->
+            <div class="qw-f" id="oc_rushWrap" style="display:none">
               <label>מתי צריך את העבודה?</label>
               <select class="fi" id="oc_urgency" onchange="renderOffsetCalc()">
                 <option value="normal">יש זמן — עד 7 ימי עבודה</option>
                 <option value="rush">מיידי / דחוף</option>
               </select>
             </div>
-            <label id="oc_turnLbl" style="display:flex;align-items:center;gap:7px;margin-top:9px;cursor:pointer;font-size:.86rem;font-weight:700;color:var(--press)">
-              <input type="checkbox" id="oc_turn" onchange="renderOffsetCalc()"> מתהפך — חצי מהכמות נכנסת בחצי גיליון</label>
-            <div id="oc_turnHint" class="hint" style="margin-top:3px"></div>
+            <div class="qw-f" id="oc_turnWrap" style="display:none">
+              <label>מתהפך (חיסכון בלוחות)</label>
+              <label id="oc_turnLbl" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.84rem;font-weight:700;color:var(--press);padding:7px 0">
+                <input type="checkbox" id="oc_turn" onchange="renderOffsetCalc()"> חצי מהכמות בחצי גיליון</label>
+              <div id="oc_turnHint" class="hint"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -2619,7 +2649,7 @@ window._fbSnapshot = {};
       </div>
 
       <!-- סיכום דביק (מע"מ מתווסף בטופס ההצעה) -->
-      <div class="qw-sum">
+      <div class="qw-sum qw-span">
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:.9rem"><span style="color:#555">סכום ביניים (עלות)</span><b id="oc_subtotal">₪0</b></div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:.9rem">
           <span style="color:#555;display:flex;align-items:center;gap:6px">תוספת רווח
@@ -2638,6 +2668,7 @@ window._fbSnapshot = {};
         </div>
         <div style="font-size:.68rem;color:#94a3b8;margin-top:2px">ללא לוחות וללא האלף הראשון · כולל נייר, הדפסה רצה, קיפול וכריכה · יופיע בהצעה כשורה נפרדת</div>
       </div>
+     </div>
     </div>
     <div style="padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">
       <button class="btn btn-clear" onclick="closeOffsetCalc()">ביטול</button>
@@ -18054,7 +18085,8 @@ function ocPickMode(mode){
   var t = function(id, on){ var e=document.getElementById(id); if(e) e.style.display = on ? '' : 'none'; };
   t('oc_pagesWrap', !flat);          // עמודים — רק בחוברת
   t('oc_upWrap', flat);              // כמה בגיליון — רק במוצר שטוח
-  t('oc_rushWrap', flat);            // דחיפות + מתהפך — רק במוצר שטוח
+  t('oc_rushWrap', flat);            // דחיפות — רק במוצר שטוח
+  t('oc_turnWrap', flat);            // מתהפך — רק במוצר שטוח
   ['ocmode-booklet','ocmode-flat'].forEach(function(id){
     var b=document.getElementById(id); if(b) b.classList.toggle('on', id === ('ocmode-'+mode));
   });
