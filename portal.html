@@ -14,8 +14,8 @@
      ⚠️ הכתובת אינה מעניקה הרשאה. מי שאינו מחובר מועבר להתחברות, ומי
      שמחובר רואה **רק** את הפורטל שב-claims שלו — גם אם ישנה את ?p= בכתובת.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785533103"></script>
-<script src="auth-client.js?v=1785533103"></script>
+<script src="firebase-auth.bundle.js?v=1785534159"></script>
+<script src="auth-client.js?v=1785534159"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -84,7 +84,7 @@ var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, func
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785533103';
+var _BAKED = '1785534159';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 var MY_PID = null, TOK = null;
@@ -99,6 +99,34 @@ SolanAuth.init(FB_CONFIG);
 SolanAuth.onAuthStateChanged(async function(user){
   if (!user) { location.replace(AuthClient.loginUrlFor('portal.html', location.origin)); return; }
   var claims = await SolanAuth.claims(false).catch(function(){ return {}; });
+
+  /* ⚠️ שער אימות-המייל: ההזמנה מוכיחה שמישהו קיבל את הקישור, לא שהוא
+     בעל התיבה. בלי אימות, מי שהקישור הודלף אליו נכנס לפורטל. עובד פטור —
+     חשבונו נוצר ע"י מנהל ולא מהזמנה. */
+  if (claims.accountType === 'customer' && !user.emailVerified) {
+    $('gate').innerHTML =
+      '<div style="font-size:2rem">✉️</div>' +
+      '<div style="margin:10px 0 4px;font-weight:800;color:#2d3561">צריך לאמת את כתובת המייל</div>' +
+      '<div style="font-size:.86rem">שלחנו הודעה ל-' + esc(user.email || '') + '. ' +
+      'פתחו אותה ולחצו על הקישור, ואז חזרו לכאן.</div>' +
+      '<div style="margin-top:14px"><button class="btn" id="resend">שלח שוב</button> ' +
+      '<button class="btn" id="recheck">כבר אימתתי</button></div>';
+    $('gate').classList.remove('hidden');
+    $('resend').onclick = async function(){
+      this.disabled = true;
+      try { await SolanAuth.verifyEmail(); this.textContent = '✓ נשלח'; }
+      catch(e){ this.textContent = 'שליחה נכשלה'; }
+    };
+    /* ⚠️ הדגל emailVerified יושב על הטוקן. אחרי לחיצה במייל צריך לרענן
+       את המשתמש ואת הטוקן, אחרת המסך ימשיך לחשוב שהוא לא מאומת. */
+    $('recheck').onclick = async function(){
+      this.disabled = true; this.textContent = 'בודק…';
+      try { await SolanAuth.reload(); await SolanAuth.claims(true); } catch(e){}
+      location.reload();
+    };
+    try { await SolanAuth.verifyEmail(); } catch(e){}
+    return;
+  }
 
   /* ⚠️ ה-portalId נלקח מה-claims **בלבד**. הפרמטר ?p= בכתובת הוא נוחות
      לניווט ואינו משתתף בהחלטה — מי שישנה אותו לא יראה פורטל אחר. */
