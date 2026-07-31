@@ -118,6 +118,45 @@
     return { kind: k, to: home };
   }
 
+  /* ── שומר-גרסה ────────────────────────────────────────────────────────
+     ⚠️ חותמת ה-?v= מגנה על קובצי ה-JS, אבל על דף ה-HTML שמכיל אותה אין
+     שום הגנה — GitHub Pages מגיש גם אותו ממטמון של ~10 דקות. נתפס פעמיים
+     בפיילוט: תיקון נפרס ואומת מהשרת, והדפדפן המשיך להריץ את הקוד הישן
+     כי login.html עצמו היה מהמטמון.
+
+     needsReload טהור בכוונה — הוא מחליט, ומי שקורא לו מבצע.
+     ⚠️ הגנת-לולאה: אם כבר ניסינו לרענן לגרסה הזו (‎_v בכתובת), לא מנסים
+     שוב. בלי זה דף שנתקע על גרסה ישנה היה נכנס לרענון אינסופי. */
+  function needsReload(baked, latest, search) {
+    var b = String(baked || '').trim(), l = String(latest || '').trim();
+    if (!b || !l || b === l) return null;
+    if (b.indexOf('__APP_') === 0) return null;      // לא נפרס (הרצה מקומית)
+    if (new RegExp('[?&]_v=' + l + '(?:&|$)').test(String(search || ''))) return null;
+    return l;
+  }
+
+  /* בונה את הכתובת לרענון: אותו דף, אותם פרמטרים, ‎_v מעודכן */
+  function reloadUrl(href, latest) {
+    var s = String(href || '');
+    var clean = s.replace(/([?&])_v=[^&#]*(&|$)/, '$1').replace(/[?&]$/, '');
+    return clean + (clean.indexOf('?') >= 0 ? '&' : '?') + '_v=' + encodeURIComponent(latest);
+  }
+
+  /* העטיפה שנוגעת ברשת ובדפדפן — דקה בכוונה, כדי שההחלטה תיבדק ב-Node.
+     מחזירה true אם הדף עומד להתרענן, ואז אין טעם להמשיך לאתחל אותו. */
+  function guardVersion(baked) {
+    if (typeof fetch !== 'function' || typeof location === 'undefined') return Promise.resolve(false);
+    return fetch('version.txt?cb=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (latest) {
+        var to = needsReload(baked, latest, location.search);
+        if (!to) return false;
+        location.replace(reloadUrl(location.href, to));
+        return true;
+      })
+      .catch(function () { return false; });   // אין רשת — לא מפילים את המסך
+  }
+
   /* ניסוח שגיאות למשתמש. ⚠️ בכוונה אינו מבחין בין "אין משתמש כזה" ל"סיסמה
      שגויה" — הבחנה כזו מסגירה אילו כתובות-מייל קיימות במערכת. */
   function errorText(code) {
@@ -140,5 +179,6 @@
     safeReturn: safeReturn, loginUrlFor: loginUrlFor, returnFrom: returnFrom,
     persistenceFor: persistenceFor, routeFor: routeFor, mayOpen: mayOpen,
     kindOf: kindOf, pageOf: pageOf, errorText: errorText,
+    needsReload: needsReload, reloadUrl: reloadUrl, guardVersion: guardVersion,
   };
 });
