@@ -2043,7 +2043,18 @@ async function _storageDelete(path){
 }
 
 // מודל-אישור לפני פינוי — "ההודעה למנהל לפני הפעולה". אף פעם לא מוחק בלי אישור.
+/* ⚠️ מחיקת קבצים מ-Storage מושבתת זמנית (שלב-אבטחה C1, 31/07/2026):
+   חוקי-האחסון אינם מתירים delete לאף אחד, כי אימות אנונימי אינו מבחין בין
+   עובד לתוקף. הפינוי יחזור בשלב B+ עם תפקיד מאומת. עד אז — מהקונסולה.
+   נאמר כאן במפורש כדי שעובד לא ילחץ ויחשוב שהמקום פונה. */
 function _offerCleanup(total){
+  alert('🔒 פינוי אחסון מושבת זמנית\n\n' +
+        'מטעמי אבטחה, מחיקת קבצים מהענן חסומה כרגע לכל המשתמשים —\n' +
+        'כדי שגורם לא-מורשה לא יוכל למחוק קובצי לקוחות.\n\n' +
+        'לפינוי מקום: Firebase Console ← Storage ← Files.\n' +
+        'הפעולה תחזור לממשק בשלב הבא, עם הרשאות מנהל.');
+  return;
+  /* eslint-disable no-unreachable */
   if(!window.StorageCleanup){ alert('רכיב הפינוי לא נטען — נסו לרענן.'); return; }
   const files = StorageCleanup.recordFiles(_proofsMap());
   const sel = StorageCleanup.selectForPurge(files, { used: total, cap: _CAP_BYTES(), now: Date.now() });

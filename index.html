@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785497612';
+window.APP_VERSION = '1785510984';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1593,6 +1593,8 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
 <script src="pdfjs-engine.js"></script>
 <!-- התראה חוזרת על קבצים שהלקוח שלח (צליל עד שהקדם-דפוס מסמן · הסלמה למנהל) -->
 <script src="upload-alert.js"></script>
+<!-- נרמול Content-Type להעלאות (מונע application/octet-stream) -->
+<script src="upload-type.js"></script>
 <script src="proof-guard.js"></script>
 <!-- גיליונות מול מוצרים — מקור-אמת יחיד לתמחור הדפסה (ראה quote-sheets.js) -->
 <script src="quote-sheets.js"></script>
@@ -3358,7 +3360,7 @@ window._fbSnapshot = {};
       <button class="btn btn-clear" onclick="openSnapshotRestore()" style="width:100%;font-size:.83rem">🕐 שחזר מתמונת מצב שמורה</button>
       <div id="snapshot-restore-panel" style="display:none;margin-top:8px"></div>
       <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="btn btn-tpl" onclick="_cloudBackup(true)" style="flex:1;font-size:.83rem">☁️ גבה עכשיו לענן</button>
+        <button class="btn btn-tpl" onclick="_cloudBackup(true)" style="flex:1;font-size:.83rem;opacity:.55" title="מושבת זמנית — הגיבוי היה חלקי (12 מתוך 36 אוספים) ונקרא מהדפדפן. ראה RESTORE.md">🔒 גיבוי-ענן מושבת זמנית</button>
         <button class="btn btn-clear" onclick="openCardsArchive()" style="flex:1;font-size:.83rem">🗄️ ארכיון כרטיסים</button>
       </div>
       <button class="btn btn-clear" onclick="openLostCardFinder()" style="width:100%;font-size:.83rem;margin-top:8px">🔎 מצא כרטיס אבוד (שרת · ארכיון · גיבוי)</button>
@@ -9078,7 +9080,12 @@ function _uploadProofOnce(path, file, onProgress, onXhr) {
       function fin(fn, arg){ if (settled) return; settled = true; if (respTimer) { clearTimeout(respTimer); respTimer = null; } fn(arg); }
       xhr.open('POST', 'https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o?name=' + encodeURIComponent(path));
       xhr.timeout = 8 * 60 * 1000; // גיבוי קשיח: 8 דק' לכל הבקשה (קבצים גדולים)
-      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      /* ⚠️ קודם נשלח כאן `file.type || 'application/octet-stream'`. מכשירים
+         שלא מזהים סוג שלחו octet-stream, וברגע שחוקי-האחסון מפרטים סוגים —
+         אותה העלאה נחסמת, בלי שהמשתמש יבין למה. הסוג נקבע עכשיו ב-
+         upload-type.js לפי הסיומת, והעלאה שאינה נתמכת נעצרת מוקדם יותר
+         (ב-_uploadProofToStorage) עם הודעה ברורה. */
+      xhr.setRequestHeader('Content-Type', _normUploadType(file).contentType);
       if (xhr.upload) {
         xhr.upload.onprogress = function(e){
           if (e.lengthComputable && onProgress) onProgress(Math.min(99, Math.round(e.loaded / e.total * 100)));
@@ -9111,8 +9118,21 @@ function _uploadProofOnce(path, file, onProgress, onXhr) {
   });
 }
 // עטיפה עם ניסיון חוזר אוטומטי אחד — להעלאות שנתקעות/כשלי רשת חולפים.
+/* נרמול Content-Type. blob פנימי (pages-*.json, גיבוי) מותר כ-JSON; קובץ
+   שהמשתמש בחר — רק PDF/JPG/PNG. ראה upload-type.js. */
+function _normUploadType(file, opts){
+  if (window.UploadType) return window.UploadType.normalize(file, opts);
+  return { ok: true, contentType: (file && file.type) || 'application/pdf' };   // המודול לא נטען — לא חוסמים עבודה
+}
 function _uploadProofToStorage(path, file, onProgress, onXhr) {
   if (!window._fbWriteGuard('STORAGE-UPLOAD ' + path)) return Promise.reject(new Error('כתיבה חסומה בסביבת ' + window._solanEnvNow()));   // הגנת סביבה
+  /* ⚠️ חסימה מוקדמת: עדיף להיעצר כאן עם הודעה ברורה מאשר להעלות 80MB
+     ולקבל 403 מהשרת. blob ללא שם = מסלול פנימי, ולכן JSON מותר בו. */
+  var _t = _normUploadType(file, { allowJson: !(file && file.name) });
+  if (!_t.ok) {
+    try { showToast('⚠️ ' + _t.message); } catch(e){}
+    return Promise.reject(new Error(_t.message));
+  }
   var _op = 'upload:' + path;                                         // S2-3: העלאה פעילה חוסמת רענון (מונה — מקביליות)
   if (window._beginCriticalOperation) window._beginCriticalOperation(_op);
   var p = _uploadProofOnce(path, file, onProgress, onXhr).catch(function(err){
@@ -11906,7 +11926,22 @@ function autoBackup() {
 // אין עותק חיצוני. כאן: פעם ביום, המכשיר הניהולי הראשון שמחובר מעלה גיבוי מלא
 // ל-Storage: 7 קבצים יומיים מתחלפים (daily-0..6) + קובץ חודשי (monthly-YYYY-MM).
 // הפורמט זהה לייצוא הידני — ניתן לשחזור דרך "ייבוא גיבוי" הקיים.
+/* ⚠️ הגיבוי הזה הושבת ב-31/07/2026 (שלב-אבטחה C1).
+   שתי סיבות, שתיהן נמדדו:
+   1. הוא **אינו גיבוי מלא**: הוא שומר 12 מתוך 36 אוספי-ה-RTDB, בשמות
+      localStorage. חסרים בו customers (2,850), customerProofs,
+      customerPortals (טוקני-הלקוחות), customerStock ועוד — כלומר הוא
+      אינו יכול לשמש מקור-התאוששות, ולהחזיק אותו יוצר ביטחון-שווא.
+   2. הוא נכתב ל-backups/ מהדפדפן תחת אימות אנונימי, ולכן כל אדם יכול
+      היה לקרוא משם את כל מסד-הנתונים בקובץ אחד.
+   גיבוי מלא מתוזמן בצד-שרת (Admin SDK) נבנה ב-B+.
+   עד אז: snapshot.js + נוהל RESTORE.md. */
+var _CLOUD_BACKUP_DISABLED = true;
 function _cloudBackup(manual){
+  if (_CLOUD_BACKUP_DISABLED) {
+    if (manual) { try { showToast('🔒 גיבוי-ענן מושבת זמנית — ראה RESTORE.md'); } catch(e){} }
+    return Promise.resolve(null);
+  }
   return new Promise(function(resolve){
     try {
       var data = _collectBackupData();
@@ -11933,6 +11968,7 @@ function _cloudBackup(manual){
 }
 // בדיקה תקופתית: אם לא בוצע גיבוי ענן היום (לפי backupMeta המשותף) — בצע.
 function _cloudBackupCheck(){
+  if (_CLOUD_BACKUP_DISABLED) return;   // אין ניסיונות-כתיבה אוטומטיים ל-backups/
   try {
     if (window._isMachineView || !_fbConnected || !window._fbGet) return;
     if (_fbConnected && Date.now() - (window._lastPollOkAt||0) > 5*60*1000) return;   // נתונים לא טריים
@@ -12085,7 +12121,17 @@ function openLostCardFinder(){
   // 3) גיבויי ענן (best-effort)
   _lcfLoadBackups().catch(function(){}).then(function(){ window._lcfLoaded.backup = true; _lcfRender(); });
 }
+/* ⚠️ קריאת backups/ מהדפדפן חסומה בשלב-אבטחה C1 (31/07/2026): הקובץ מכיל
+   את כל מסד-הנתונים, ואימות אנונימי אינו מבחין בין עובד לתוקף. לכן
+   "מצא כרטיס אבוד" לא ימצא עוד מקורות-גיבוי — שני המקורות האחרים (שרת
+   וארכיון) ממשיכים לעבוד. שחזור מגיבוי נעשה מהקונסולה; ראה נוהל-שחזור.
+   הפונקציה נשארת ומדווחת בשקט, כדי שהמסך לא ייתקע. */
 function _lcfLoadBackups(){
+  try { if (window._lcfBackupsBlocked !== false) {
+    var el = document.getElementById('lcf-note');
+    if (el) el.textContent = '🔒 מקור "גיבויי ענן" אינו זמין זמנית (הגנת-אבטחה) — מוצגים שרת וארכיון בלבד.';
+    return Promise.resolve();
+  } } catch(e){}
   var d = new Date(), paths = [];
   for (var i = 0; i < 7; i++) paths.push('backups/daily-' + i + '.json');
   paths.push('backups/monthly-' + d.toISOString().slice(0,7) + '.json');

@@ -363,6 +363,36 @@ async function loadHistory(){
   }).join('');
 }
 
+/* ── כתיבה ל-Firebase עם בדיקת-תגובה ─────────────────────────────────────────
+   ⚠️ הבאג שזה סוגר: RTDB מחזיר 401/403 כ*תגובה תקינה*, ולכן `await fetch` לא
+   זורק. כתיבה שנדחתה על-ידי חוקי-האבטחה נראתה בדיוק כמו הצלחה — הלקוח קיבל
+   "✓ הפרופר אושר — תודה!" בעוד שבבית-הדפוס לא נשמר דבר.
+   הפרטים הטכניים נרשמים ל-console בלבד; ללקוח אף פעם לא מוצגת שגיאת-Firebase. */
+async function fbWrite(url, options, action){
+  var res;
+  try { res = await fetch(url, options); }
+  catch (err) {
+    console.error('Firebase write failed (network)', { action: action, error: err });
+    throw new Error(action || 'network');
+  }
+  if (!res.ok) {
+    var details = '';
+    try { details = await res.text(); } catch (err) { /* גוף לא-קריא לא אמור להכשיל את הטיפול */ }
+    console.error('Firebase write failed', { action: action, status: res.status, statusText: res.statusText, details: details });
+    throw new Error(action || 'write failed');
+  }
+  return res;
+}
+// נוסח אחיד ללקוח — בלי מונחים טכניים, ועם מה לעשות עכשיו
+var ERR_SAVE_APPROVE = 'לא הצלחנו לשמור את האישור. החיבור או ההרשאה נכשלו. נסו שוב, ואם הבעיה נמשכת פנו לבית הדפוס.';
+var ERR_SAVE_JOB     = 'לא הצלחנו לשמור. החיבור או ההרשאה נכשלו. נסו שוב, ואם הבעיה נמשכת פנו לבית הדפוס.';
+
+/* מניעת לחיצה כפולה. שחרור ב-finally — כדי שגם כישלון יאפשר ניסיון חוזר
+   (בלי זה כשל ראשון היה נועל את הפעולה עד רענון-דף). */
+var _busy = {};
+function _lock(key){ if (_busy[key]) return false; _busy[key] = true; return true; }
+function _unlock(key){ _busy[key] = false; }
+
 // ── אישור פרופר-אפוגי ──
 async function approveApogee(id){
   /* שכבת-הגנה שנייה: גם אם הדף פתוח מאתמול והכפתור עדיין על המסך — בודקים
@@ -376,21 +406,28 @@ async function approveApogee(id){
   if (name == null) return;
   name = String(name).trim(); if (!name){ toast('נא להזין שם'); return; }
   if (!confirm('לאשר את הפרופר לדפוס? לאחר האישור הוא נשלח להדפסה.')) return;
+  if (!_lock('approve')) return;                       // לחיצה כפולה מהירה — מתעלמים מהשנייה
   showOv('שולח אישור…', true);
   try {
     var now = Date.now();
-    await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ apogeeApprovedAt: now, apogeeApprovedBy: name }) });
+    /* שתי כתיבות חיוניות. שתיהן אידמפוטנטיות (PATCH על שדות קבועים · PUT על
+       מפתח קבוע portal_<id>), ולכן ניסיון חוזר אחרי כישלון-חלקי בטוח ומשלים
+       את מה שחסר — בלי כפילות ובלי צורך בטרנזקציה. */
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ apogeeApprovedAt: now, apogeeApprovedBy: name }) }, 'approve:customerProofs');
     // רשומת-אישור קבועה (בית הדפוס מנטר את bookletApprovals ומקבל התראה)
-    await fetch(await _au(`${_FBURL}/bookletApprovals/portal_${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, at:now, fileName:(CUST+' — פרופר'), foldType:'', ua:navigator.userAgent, source:'portal' }) });
-    // סגירת דרישות-אישור פתוחות (הפרופר אושר) — בית הדפוס יראה שהן בוצעו
+    await fbWrite(await _au(`${_FBURL}/bookletApprovals/portal_${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, at:now, fileName:(CUST+' — פרופר'), foldType:'', ua:navigator.userAgent, source:'portal' }) }, 'approve:bookletApprovals');
+    /* סגירת דרישות-אישור פתוחות — נוחות-תצוגה בלבד, ולכן *אינה* חיונית:
+       כישלון כאן לא הופך את האישור ללא-תקף ולא ימנע את הודעת-ההצלחה. */
     try {
       var nobj = await (await fetch(await _au(`${_FBURL}/customerNotices/${SLUG}.json`))).json();
       var keys = Object.keys(nobj||{}).filter(function(k){ var n=nobj[k]; return n && n.type==='approve' && !n.done; });
-      for (var ki=0; ki<keys.length; ki++){ await fetch(await _au(`${_FBURL}/customerNotices/${SLUG}/${keys[ki]}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ done:true, doneAt:now }) }); }
-    } catch(e){}
+      for (var ki=0; ki<keys.length; ki++){ await fbWrite(await _au(`${_FBURL}/customerNotices/${SLUG}/${keys[ki]}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ done:true, doneAt:now }) }, 'approve:closeNotice'); }
+    } catch(e){ console.warn('סגירת דרישות נכשלה (לא חיוני)', e); }
     showOv('', false); toast('✓ הפרופר אושר — תודה!');
     await Promise.all([ loadHistory(), loadNotices() ]);
-  } catch(e){ showOv('', false); toast('⚠️ האישור נכשל — נסו שוב'); }
+  } catch(e){
+    showOv('', false); toast('⚠️ ' + ERR_SAVE_APPROVE);
+  } finally { _unlock('approve'); }
 }
 
 // ── העלאת קבצים חדשים לדפוס — מקובצים תחת עיתון/גיליון אחד ──
@@ -398,13 +435,17 @@ async function approveApogee(id){
 async function _newNewspaper(){
   var meta = await _askNewspaper(0);   // 0 = לפני העלאה; בוחרים שם עיתון + גיליון
   if (!meta) return;
+  if (!_lock('newnp')) return;
   showOv('פותח עורך…', true);
   var id = 'np_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
   try {
-    await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ customer:(_portalRec&&_portalRec.name)||CUST, title:meta.title, issue:meta.issue||'', status:'awaiting', source:'portal', createdAt:Date.now() }) });
+    /* ⚠️ הניווט חייב לקרות *רק* אחרי שהרשומה נוצרה בפועל. קודם הוא רץ תמיד,
+       ולכן כתיבה שנדחתה שלחה את הלקוח לעורך של רשומה שאינה קיימת. */
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ customer:(_portalRec&&_portalRec.name)||CUST, title:meta.title, issue:meta.issue||'', status:'awaiting', source:'portal', createdAt:Date.now() }) }, 'newJob:customerProofs');
     location.href = 'proof-client.html?id='+encodeURIComponent(id)+'&back='+encodeURIComponent(location.href);
-  } catch(e){ showOv('',false); toast('⚠️ לא ניתן לפתוח — נסו שוב'); }
+  } catch(e){ showOv('',false); toast('⚠️ ' + ERR_SAVE_JOB); }
+  finally { _unlock('newnp'); }
 }
 function wireUpload(){
   var nb = $('new-np-btn'); if (nb) nb.onclick = _newNewspaper;
@@ -514,6 +555,8 @@ async function handleUpload(fileList){
   if (!files.length){ toast('נא לבחור קובצי PDF'); return; }
   var meta = await _askNewspaper(files.length);
   if (!meta) return;
+  if (!_lock('upload')) { toast('העלאה כבר מתבצעת — רגע…'); return; }
+  try {
   // ── מעבר בדיקת-תקינות: קורא בייטים פעם אחת (לשימוש חוזר בהעלאה) + בודק לפי הכללים ──
   showOv('בודק תקינות קבצים…', true);
   var bufs = [], pfIssues = [];
@@ -549,11 +592,15 @@ async function handleUpload(fileList){
     var filesObj = {}; uploaded.forEach(function(u, i){ filesObj['f'+i] = u; });
     showOv('שומר…', true, 100);
     var preflight = { checked:true, issueCount:pfIssues.length, warnings: pfIssues.map(function(x){ return x.name+': '+x.warnings.join(', '); }) };
-    await fetch(await _au(`${_FBURL}/customerProofs/${jobId}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ customer:(_portalRec&&_portalRec.name)||CUST, title:meta.title, issue:meta.issue||'', status:'awaiting-shop', source:'portal', files:filesObj, fileCount:uploaded.length, preflight:preflight, createdAt:Date.now() }) });
+    /* ⚠️ רק אחרי שהרשומה נשמרה בפועל מוצגת הודעת-הצלחה והרשימה מתרעננת.
+       הקבצים כבר ב-Storage; אם דווקא השמירה נכשלה, ניסיון חוזר יוצר jobId
+       חדש ולכן לא תיווצר עבודה כפולה במסך של בית-הדפוס. */
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${jobId}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ customer:(_portalRec&&_portalRec.name)||CUST, title:meta.title, issue:meta.issue||'', status:'awaiting-shop', source:'portal', files:filesObj, fileCount:uploaded.length, preflight:preflight, createdAt:Date.now() }) }, 'upload:customerProofs');
     showOv('', false); toast('✓ '+uploaded.length+' קבצים נשלחו — '+meta.title);
     await loadHistory();
-  } catch(e){ console.error(e); showOv('', false); toast('⚠️ ההעלאה נכשלה — נסו שוב'); }
+  } catch(e){ console.error(e); showOv('', false); toast('⚠️ ' + ERR_SAVE_JOB); }
+  } finally { _unlock('upload'); }
 }
 async function uploadBytes(path, bytes, onProgress){
   var lastErr;
