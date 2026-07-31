@@ -19,6 +19,12 @@
 
   var LOGIN_PAGE = 'login.html';
   var RETURN_PARAM = 'returnTo';
+  /* ⚠️ מסך-העבודה נקרא krtis-avoda.html **מקומית בלבד**. upload.ps1 מעלה
+     אותו לאתר בשם index.html, ולכן הפניה ל-krtis-avoda.html בייצור מחזירה
+     404 של GitHub Pages. נתפס בפיילוט: ההתחברות הצליחה, ה-claims היו
+     תקינות, והמנהל נחת בדף "File not found".
+     נעול מעכשיו ב-deploy-manifest-tests.js. */
+  var STAFF_HOME = 'index.html';
 
   /* ── יעד-חזרה ─────────────────────────────────────────────────────────
      מותר: נתיב יחסי באותו אתר, או כתובת מלאה באותו מקור.
@@ -51,7 +57,7 @@
     var m = /[?&]returnTo=([^&#]*)/.exec(String(search || ''));
     var raw = '';
     if (m) { try { raw = decodeURIComponent(m[1]); } catch (e) { raw = ''; } }
-    return safeReturn(raw, origin) || (fallback || 'krtis-avoda.html');
+    return safeReturn(raw, origin) || (fallback || STAFF_HOME);
   }
 
   /* ── התמדה ────────────────────────────────────────────────────────────
@@ -64,7 +70,7 @@
   function routeFor(claims, requested) {
     var c = claims || {};
     if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker')) {
-      return { kind: 'staff', to: requested || 'krtis-avoda.html' };
+      return { kind: 'staff', to: requested || STAFF_HOME };
     }
     if (c.accountType === 'customer' && c.portalId) {
       return { kind: 'customer', to: requested || ('customer-portal.html?p=' + encodeURIComponent(c.portalId)) };
