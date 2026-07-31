@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>כניסה — סולן הדפסות</title>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     login.html — מסך ההתחברות המשותף (שלב B+) · ⚠️ מקומי בלבד, לא נפרס.
+
+     מסך אחד לעובד וללקוח. ההבדל אינו במסך אלא ב-claims שעל הטוקן.
+
+     ⚠️ ה-SDK נטען מקובץ **מקומי** (firebase-auth.bundle.js) ולא מ-CDN:
+     אינטרנט כשר חוסם CDNים, וזה כבר הפיל אצלנו דף שלם. ה-bundle נבנה
+     ע"י build-auth-bundle.js ונפרס יחד עם האתר.
+
+     ⚠️ ניהול הסשן, רענון ה-ID Token וה-Refresh Token הם באחריות ה-SDK
+     בלבד. אין כאן שמירה ידנית של סיסמה, טוקן או מזהה — הדבר היחיד שנשמר
+     מקומית הוא דגל "זכור אותי" (session/local), וזו אינה זהות.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script src="firebase-auth.bundle.js"></script>
+<script src="auth-client.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+       font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;color:#1f2937;
+       background:linear-gradient(180deg,#eef1f6 0%,#f5f6f9 100%);padding:20px}
+  .card{width:100%;max-width:380px;background:#fff;border-radius:18px;padding:26px 22px;
+        box-shadow:0 10px 34px rgba(45,53,97,.13)}
+  .logo{width:56px;height:56px;border-radius:15px;background:#2d3561;color:#fff;display:flex;
+        align-items:center;justify-content:center;font-size:1.7rem;margin:0 auto 12px}
+  h1{font-size:1.12rem;margin:0 0 4px;color:#2d3561;text-align:center}
+  .sub{font-size:.84rem;color:#6b7280;text-align:center;margin:0 0 18px}
+  label{display:block;font-size:.8rem;font-weight:700;color:#374151;margin:12px 0 5px}
+  input[type=email],input[type=password]{width:100%;padding:11px 12px;border:1.5px solid #d8dce6;
+        border-radius:10px;font-size:.95rem;font-family:inherit;background:#fbfcfe}
+  input:focus{outline:none;border-color:#2d3561;background:#fff}
+  .row{display:flex;align-items:center;justify-content:space-between;margin-top:14px;font-size:.82rem}
+  .row label{margin:0;display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer}
+  .btn{width:100%;margin-top:18px;background:#2d3561;color:#fff;border:0;border-radius:11px;
+       padding:12px;font-weight:800;font-size:.95rem;font-family:inherit;cursor:pointer}
+  .btn:disabled{opacity:.55;cursor:default}
+  .link{background:none;border:0;color:#2d3561;font-family:inherit;font-size:.82rem;
+        font-weight:700;cursor:pointer;padding:0;text-decoration:underline}
+  .msg{margin-top:14px;padding:10px 12px;border-radius:10px;font-size:.85rem;display:none}
+  .msg.err{display:block;background:#fef2f2;color:#b91c1c;border:1.5px solid #fecaca}
+  .msg.ok{display:block;background:#f0fdf4;color:#15803d;border:1.5px solid #bbf7d0}
+  .foot{margin-top:16px;text-align:center;font-size:.78rem;color:#9099ab}
+  #who{display:none;text-align:center;font-size:.85rem;color:#374151;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">🖨️</div>
+  <h1 id="ttl">כניסה למערכת</h1>
+  <p class="sub" id="sub">סולן הדפסות</p>
+
+  <form id="f" autocomplete="on">
+    <label for="em">כתובת מייל</label>
+    <input id="em" type="email" autocomplete="username" required>
+    <label for="pw">סיסמה</label>
+    <input id="pw" type="password" autocomplete="current-password" required>
+    <div class="row">
+      <label><input id="rm" type="checkbox"> זכור אותי במכשיר הזה</label>
+      <button type="button" class="link" id="forgot">שכחתי סיסמה</button>
+    </div>
+    <button class="btn" id="go" type="submit">כניסה</button>
+  </form>
+
+  <div id="who">מחובר/ת · <button class="link" id="out">יציאה מהחשבון</button></div>
+  <div class="msg" id="msg"></div>
+  <div class="foot">בעיה בכניסה? 📞 03-9042333</div>
+</div>
+
+<script>
+/* ⚠️ מפתח-Web של Firebase — ציבורי מעצם היותו, מופיע בכל דף באפליקציה.
+   אינו סוד ואינו מעניק הרשאות: ההרשאות נקבעות ב-claims ובחוקים. */
+var FB_CONFIG = {
+  apiKey: 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg',
+  authDomain: 'solan-printing.firebaseapp.com',
+  projectId: 'solan-printing',
+  databaseURL: 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app',
+};
+var FN_BASE = 'https://europe-west1-solan-printing.cloudfunctions.net';
+
+var $ = function(id){ return document.getElementById(id); };
+var ORIGIN = location.origin;
+var RETURN = AuthClient.returnFrom(location.search, ORIGIN, null);
+var INVITE = (/[?&]invite=([^&#]+)/.exec(location.search) || [])[1] || '';
+
+function show(kind, text){ var m = $('msg'); m.className = 'msg ' + (kind || ''); m.textContent = text || ''; }
+function busy(on, label){ $('go').disabled = on; $('go').textContent = on ? 'רגע…' : (label || $('go').dataset.label); }
+
+/* ⚠️ ה-persistence נבחר **לפני** ההתחברות ואינו מתאפס בטעינת עמוד:
+   ההעדפה נקראת מהאחסון ב-init, ותיבת-הסימון רק משקפת אותה. */
+var mode = SolanAuth.readPersistence();
+SolanAuth.init(FB_CONFIG, mode);
+$('rm').checked = (mode === 'local');
+$('rm').addEventListener('change', function(){ SolanAuth.usePersistence($('rm').checked ? 'local' : 'session'); });
+
+$('go').dataset.label = 'כניסה';
+if (INVITE) {
+  $('ttl').textContent = 'הפעלת החשבון';
+  $('sub').textContent = 'קבעו סיסמה כדי להיכנס לפורטל';
+  $('pw').autocomplete = 'new-password';
+  $('go').dataset.label = 'הפעלה'; $('go').textContent = 'הפעלה';
+}
+
+/* ניתוב אוטומטי: מי שכבר מחובר לא רואה טופס-כניסה מיותר.
+   ⚠️ בזרימת-הזמנה לא מנתבים — קודם צריך לצרוך את ההזמנה. */
+SolanAuth.onAuthStateChanged(async function(user){
+  if (!user || INVITE) return;
+  var claims = await SolanAuth.claims(false).catch(function(){ return {}; });
+  var route = AuthClient.routeFor(claims, RETURN);
+  if (route.kind === 'pending') { show('err', AuthClient.errorText('pending')); $('who').style.display = 'block'; return; }
+  location.replace(route.to);
+});
+
+$('f').addEventListener('submit', async function(ev){
+  ev.preventDefault();
+  show(''); busy(true);
+  var email = $('em').value.trim(), pw = $('pw').value;
+  try {
+    if (INVITE) {
+      /* ⚠️ החשבון נולד בלי claims. עד ש-acceptInvite מצמיד אותו לפורטל
+         הוא חסום לחלוטין — גם אם המשתמש נרשם לבד. */
+      try { await SolanAuth.signUp(email, pw); }
+      catch (e) { if (String(e.code) === 'auth/email-already-in-use') await SolanAuth.signIn(email, pw); else throw e; }
+      var idToken = await SolanAuth.idToken(false);
+      var res = await fetch(FN_BASE + '/acceptInvite', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+        body: JSON.stringify({ data: { inviteToken: INVITE } }) });
+      var rj = await res.json().catch(function(){ return {}; });
+      if (!res.ok) throw { code: (rj.error && rj.error.message) || 'invite_not_found' };
+      await SolanAuth.verifyEmail().catch(function(){});
+      /* ⚠️ רענון כפוי: ה-claims נכנסות לתוקף רק בטוקן הבא */
+      var claims = await SolanAuth.claims(true);
+      var route = AuthClient.routeFor(claims, RETURN);
+      if (route.kind === 'pending') { show('err', AuthClient.errorText('pending')); busy(false); return; }
+      location.replace(route.to);
+      return;
+    }
+    await SolanAuth.signIn(email, pw);
+    /* הניתוב עצמו נעשה ב-onAuthStateChanged — מקור-אמת אחד */
+  } catch (e) {
+    show('err', AuthClient.errorText(e && e.code));
+    busy(false);
+  }
+});
+
+$('forgot').addEventListener('click', async function(){
+  var email = $('em').value.trim();
+  if (!email) { show('err', 'הזינו קודם את כתובת המייל'); return; }
+  try { await SolanAuth.resetPassword(email); } catch (e) {}
+  /* ⚠️ אותה הודעה תמיד — גם אם אין חשבון כזה. אחרת אפשר לברר מהמסך
+     אילו כתובות רשומות במערכת. */
+  show('ok', 'אם הכתובת רשומה, נשלח אליה קישור לאיפוס סיסמה.');
+});
+
+$('out').addEventListener('click', async function(){
+  await SolanAuth.signOut().catch(function(){});
+  location.replace('login.html');
+});
+</script>
+</body>
+</html>
