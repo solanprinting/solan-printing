@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785514694';
+window.APP_VERSION = '1785516534';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23617,6 +23617,9 @@ function _opSpinStyle() {
 function _opCloseProof() {
   var o = document.getElementById('op-proof-overlay');
   if (o) { try { if (document.fullscreenElement) document.exitFullscreen(); } catch(e){} o.remove(); }
+  // חיווי-הרקע חי מחוץ ל-overlay, ולכן צריך להסירו במפורש — אחרת הוא נשאר
+  // מרחף על המסך אחרי סגירה ונראה כמו תקלה.
+  var bg = document.getElementById('op-proof-bg'); if (bg) bg.remove();
   window._opPV = null;
   // בזמן שהפרופר היה פתוח הרענון הוקפא — מתעדכנים מיד עם סגירתו,
   // כדי שפעולה הבאה של הדפס לא תרוץ על נתונים ישנים
@@ -23635,10 +23638,32 @@ function _opLoadingEl() {
   load.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;font-family:Heebo,sans-serif';
   load.innerHTML =
       '<div style="width:48px;height:48px;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:opspin 1s linear infinite"></div>'
-    + '<div style="font-size:1rem;font-weight:700">⏳ טוען פרופר…</div>'
+    + '<div id="op-proof-loadtxt" style="font-size:1rem;font-weight:700">⏳ טוען פרופר…</div>'
     + '<button onclick="_opCloseProof()" style="margin-top:6px;padding:11px 26px;border-radius:10px;border:1.5px solid rgba(255,255,255,.5);background:transparent;color:#fff;font-family:Heebo,sans-serif;font-size:.95rem;font-weight:800;cursor:pointer">✕ סגור</button>'
     + '<div id="op-proof-slow" style="display:none;font-size:.85rem;color:rgba(255,255,255,.75);text-align:center;max-width:320px;line-height:1.5"></div>';
   return load;
+}
+/* טקסט-הסטטוס בזמן הטעינה. חשוב יותר משנראה: מסך שחור עם ספינר נראה תקוע,
+   ואותו מסך עם "מכין עמוד 3 מתוך 32" נראה עובד. */
+function _opLoadStatus(txt){
+  var el = document.getElementById('op-proof-loadtxt');
+  if (el) el.textContent = txt;
+}
+/* חיווי-רקע: אחרי שהעמוד הראשון כבר מוצג, שאר העמודים ממשיכים להיטען.
+   done=0 → מסתיר. */
+function _opBgProgress(done, total){
+  var id = 'op-proof-bg';
+  var el = document.getElementById(id);
+  if (!done || !total || done >= total){ if (el) el.remove(); return; }
+  if (!el){
+    el = document.createElement('div'); el.id = id;
+    el.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:100001;'
+      + 'background:rgba(15,23,42,.94);color:#fff;padding:7px 15px;border-radius:20px;'
+      + 'font-family:Heebo,sans-serif;font-size:.8rem;font-weight:700;pointer-events:none;'
+      + 'box-shadow:0 4px 16px rgba(0,0,0,.4)';
+    document.body.appendChild(el);
+  }
+  el.textContent = '⏳ טוען עמודים נוספים… ' + done + ' / ' + total;
 }
 /* אחרי 12 שניות — אומרים למפעיל שזה איטי ומציעים פתיחה ישירה בדפדפן,
    כדי שלא ימתין מול מסך שחור בלי לדעת אם משהו קורה. */
@@ -23847,9 +23872,16 @@ function _opTruthNote(txt, hideAfter){
 }
 function _opTruthUpgrade(){
   var pv = window._opPV;
-  if (!pv || !pv.pdfUrl || !pv.fromCache || pv._truthing || !window.pdfjsLib) return;
+  if (!pv || !pv.fromCache || pv._truthing) return;
+  /* ⚠️ קריטי לבקרת-איכות: אם אי-אפשר לרנדר מהקובץ המקורי, המפעיל חייב לדעת
+     שמה שהוא רואה הוא תצוגה מהירה ורכה — ולא הקובץ עצמו. שקט כאן פירושו
+     החלטת-איכות על תמונה שאינה האמת. */
+  if (!pv.pdfUrl || !window.pdfjsLib){
+    _opTruthNote('⚠️ תצוגה מהירה בלבד — לא מהקובץ המקורי');   // ללא hideAfter: נשאר
+    return;
+  }
   var isPdf = (pv.type||'').indexOf('pdf') !== -1 || /\.pdf(\?|#|$)/i.test(pv.pdfUrl||'');
-  if (!isPdf) return;
+  if (!isPdf){ _opTruthNote('⚠️ תצוגה מהירה בלבד — לא מהקובץ המקורי'); return; }
   pv._truthing = true;
   _opTruthNote('⏳ מרנדר מהקובץ המקורי…');
   fetch(pv.pdfUrl).then(function(r){ return r.arrayBuffer(); })
@@ -23917,20 +23949,40 @@ function _opRenderPdfToImages(url, type, label){
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:99999;display:flex;flex-direction:column';
   ov.appendChild(_opLoadingEl());
   document.body.appendChild(ov);
+  /* ⚠️ עד 31/07/2026 הקוד רינדר את **כל** העמודים ב-2900px ורק אז הציג משהו.
+     לעיתון של 32-64 עמודים זו דקה ויותר מול מסך ריק, והמפעיל חושב שנתקע.
+     עכשיו: העמוד הראשון מוצג ברגע שהוא מוכן, והשאר ממשיכים להיטען ברקע
+     ומתווספים לבורר-העמודים. הרזולוציה לא ירדה — רק סדר-ההצגה השתנה. */
+  _opLoadStatus('⏳ מוריד את הקובץ…');
   fetch(url).then(function(r){ return r.arrayBuffer(); })
-    .then(function(buf){ return pdfjsLib.getDocument({ data: buf }).promise; })
+    .then(function(buf){ _opLoadStatus('⏳ פותח את הקובץ…'); return pdfjsLib.getDocument({ data: buf }).promise; })
     .then(function(pdf){
-      var imgs = [], RENDER_H = 2900, n = pdf.numPages;   // רזולוציית רינדור גבוהה יותר → פרופר חד יותר
+      var imgs = [], truth = [], RENDER_H = 2900, n = pdf.numPages, built = false;
+      _opLoadStatus('⏳ מכין עמוד 1 מתוך ' + n + '…');
+      function buildOnce(){
+        if (built) return; built = true;
+        var l = document.getElementById('op-proof-loading'); if (l) l.remove();
+        window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label,
+          brown: !!window._opProofBrown, cardId: window._opProofCardId || null, tone: _opToneFor(window._opProofCardId),
+          fromCache: false, truth: truth };
+        _opInk.previewSrc = null; _opInk._hiResIdx = undefined;
+        _opPVBuild(ov);
+      }
       (function step(i){
+        /* ⚠️ המפעיל סגר באמצע → מפסיקים לרנדר. בלי זה הלולאה המשיכה לרוץ
+           על עשרות עמודים ברקע, טוחנת מעבד ומעדכנת מסך שכבר לא קיים. */
+        if (!document.getElementById('op-proof-overlay')){
+          pdf.cleanup && pdf.cleanup();
+          var bg0 = document.getElementById('op-proof-bg'); if (bg0) bg0.remove();
+          return;
+        }
         if (i > n){
           pdf.cleanup && pdf.cleanup();
           var l = document.getElementById('op-proof-loading'); if (l) l.remove();
           if (!imgs.length){ _opCloseProof(); _opProofOverlay(url, type, label, false); return; }
-          window._opPV = { imgs: imgs, idx: 0, zoom: 1, spread: false, pdfUrl: url, type: type, label: label,
-            brown: !!window._opProofBrown, cardId: window._opProofCardId || null, tone: _opToneFor(window._opProofCardId),
-            fromCache: false, truth: imgs.map(function(){ return true; }) };   // רונדר כאן מה-PDF → כבר אמת
-          _opInk.previewSrc = null; _opInk._hiResIdx = undefined;
-          _opPVBuild(ov);
+          buildOnce();
+          _opBgProgress(0, 0);            // סיום — מסתיר את חיווי-הרקע
+          try { _opPVRender(); } catch(e){}
           _opTruthNote('✓ מהקובץ המקורי', 3500);
           return;
         }
@@ -23945,9 +23997,20 @@ function _opRenderPdfToImages(url, type, label){
           _cx.fillStyle = '#fff'; _cx.fillRect(0, 0, c.width, c.height);   // רקע לבן (JPEG בלי שקיפות)
           return page.render({ canvasContext: _cx, viewport: vp }).promise.then(function(){
             imgs.push(c.toDataURL('image/jpeg', 0.96));
-            page.cleanup && page.cleanup(); step(i + 1);
+            truth.push(true);
+            page.cleanup && page.cleanup();
+            if (!built) {
+              buildOnce();                       // ← העמוד הראשון מוצג מיד
+              _opBgProgress(imgs.length, n);
+            } else {
+              _opBgProgress(imgs.length, n);
+              try { _opPVRender(); } catch(e){}   // מרענן את בורר-העמודים
+            }
+            /* הפסקה קצרה בין עמודים: מחזירה שליטה לדפדפן כדי שהמסך
+               יגיב ללחיצות בזמן שהשאר נטען ברקע. */
+            setTimeout(function(){ step(i + 1); }, 0);
           });
-        }).catch(function(e){ console.warn('pdf page render failed', e); step(i + 1); });
+        }).catch(function(e){ console.warn('pdf page render failed', e); setTimeout(function(){ step(i + 1); }, 0); });
       })(1);
     })
     .catch(function(e){
@@ -24291,8 +24354,17 @@ function _opViewProof(cardId, runKey) {
   // מסך-הדפסים (QC) — מעדיפים רינדור PDF ברזולוציה גבוהה לפרופר חד; ה-cache (רזולוציה נמוכה
   // שנשמרה בהעלאה) מרכך את התמונה, ולכן הוא רק גיבוי כשאין PDF.
   var isPdfDirect = directUrl && ((directType||'').indexOf('pdf') !== -1 || /\.pdf(\?|#|$)/i.test(directUrl));
-  if (isPdfDirect) { _opRenderPdfToImages(directUrl, directType, runKey || 'פרופר'); return; }
+  /* ⚠️ שינוי סדר-העדיפות (31/07/2026), אחרי מדידה:
+     פרופר טיפוסי הוא **גיליון-דפוס 70×100 שיוצא ב-360 DPI** — נמדד 71MB
+     לשני עמודים, שתי תמונות של 14,320×10,108 פיקסלים (145 מגה-פיקסל לעמוד).
+     המציג הוריד את כל 71 המגה לפני שהראה משהו: ~5ש' בחיבור מהיר, ועשרות
+     שניות על הרשת שליד המכונה.
+     הקאש המוקטן (pages-*.json) כבר נשמר בכל העלאה — 5.8MB, פי-12 קטן יותר.
+     לכן: מציגים אותו **מיד**, ו-_opTruthUpgrade (שכבר קיים) מושך את ה-PDF
+     ברקע ומחליף לרינדור-אמת, כשהעמוד שעל המסך ראשון בתור.
+     המפעיל רואה תמונה תוך שנייה, והחדות מגיעה אחריה בלי שהוא ממתין לה. */
   if (pagesUrl) { _opProofImagesOverlay(pagesUrl, directUrl || '', directType, runKey || 'פרופר'); return; }
+  if (isPdfDirect) { _opRenderPdfToImages(directUrl, directType, runKey || 'פרופר'); return; }
   if (directUrl) { _opRenderPdfToImages(directUrl, directType, runKey || 'פרופר'); return; }
   // פרופר ישן (legacy) — base64 ב-RTDB
   showToast('📄 טוען פרופר...');
