@@ -14,8 +14,8 @@
      ⚠️ הכתובת אינה מעניקה הרשאה. מי שאינו מחובר מועבר להתחברות, ומי
      שמחובר רואה **רק** את הפורטל שב-claims שלו — גם אם ישנה את ?p= בכתובת.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785532670"></script>
-<script src="auth-client.js?v=1785532670"></script>
+<script src="firebase-auth.bundle.js?v=1785533103"></script>
+<script src="auth-client.js?v=1785533103"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -81,9 +81,11 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-/* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js */
-var _BAKED = '1785532670';
-AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) SolanAuth.init(FB_CONFIG); });
+/* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
+   ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
+   ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
+var _BAKED = '1785533103';
+AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 var MY_PID = null, TOK = null;
 
@@ -92,6 +94,8 @@ async function dbGet(path){
   return { ok: r.ok, status: r.status, val: r.ok ? await r.json() : null };
 }
 
+function boot(){
+SolanAuth.init(FB_CONFIG);
 SolanAuth.onAuthStateChanged(async function(user){
   if (!user) { location.replace(AuthClient.loginUrlFor('portal.html', location.origin)); return; }
   var claims = await SolanAuth.claims(false).catch(function(){ return {}; });
@@ -165,6 +169,7 @@ $('out').addEventListener('click', async function(){
   await SolanAuth.signOut().catch(function(){});
   location.replace('login.html');
 });
+}   /* boot() */
 </script>
 </body>
 </html>
