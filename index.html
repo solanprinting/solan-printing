@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785488331';
+window.APP_VERSION = '1785489221';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -2539,6 +2539,20 @@ window._fbSnapshot = {};
               <input class="fi" id="oc_copies" type="number" min="0" step="1" oninput="renderOffsetCalc()" placeholder="5000"></div>
             <div class="qw-f"><label>מספר צבעים</label>
               <input class="fi" id="oc_colors" type="number" min="1" step="1" oninput="renderOffsetCalc()" placeholder="4"></div>
+          </div>
+          <!-- דחיפות + מתהפך — רק במוצר שטוח. הכלל: עד 7 ימי-עבודה אפשר מתהפך
+               (חצי לוחות); עבודה מיידית נכנסת ל-8 צבעים עם 8 לוחות. -->
+          <div id="oc_rushWrap" style="display:none;margin-top:12px;border-top:1px dashed var(--line);padding-top:11px">
+            <div class="qw-f" style="max-width:280px">
+              <label>מתי צריך את העבודה?</label>
+              <select class="fi" id="oc_urgency" onchange="renderOffsetCalc()">
+                <option value="normal">יש זמן — עד 7 ימי עבודה</option>
+                <option value="rush">מיידי / דחוף</option>
+              </select>
+            </div>
+            <label id="oc_turnLbl" style="display:flex;align-items:center;gap:7px;margin-top:9px;cursor:pointer;font-size:.86rem;font-weight:700;color:var(--press)">
+              <input type="checkbox" id="oc_turn" onchange="renderOffsetCalc()"> מתהפך — חצי מהכמות נכנסת בחצי גיליון</label>
+            <div id="oc_turnHint" class="hint" style="margin-top:3px"></div>
           </div>
         </div>
       </div>
@@ -18040,6 +18054,7 @@ function ocPickMode(mode){
   var t = function(id, on){ var e=document.getElementById(id); if(e) e.style.display = on ? '' : 'none'; };
   t('oc_pagesWrap', !flat);          // עמודים — רק בחוברת
   t('oc_upWrap', flat);              // כמה בגיליון — רק במוצר שטוח
+  t('oc_rushWrap', flat);            // דחיפות + מתהפך — רק במוצר שטוח
   ['ocmode-booklet','ocmode-flat'].forEach(function(id){
     var b=document.getElementById(id); if(b) b.classList.toggle('on', id === ('ocmode-'+mode));
   });
@@ -18073,7 +18088,15 @@ function computeOffsetQuote(){
     if (!info || !copies || upCount < 1)
       return { ok:false, info:info, runs:[], flat:true, needUp: (copies > 0 && upCount < 1) };
     var flatSheets = (window.QuoteSheets ? QuoteSheets.netSheets(copies, upCount) : Math.ceil(copies / upCount));
-    runs = [{ num:1, pages:1, copies:flatSheets, folds:0, machine:'', _flat:true, _up:upCount }];
+    /* מתהפך/דחיפות (כלל בית-הדפוס 2026-07-31): כמות-בגיליון זוגית + עד 7 ימי
+       עבודה → אפשר מתהפך = חצי לוחות. מיידי → 8 צבעים (פרפקטור) עם 8 לוחות. */
+    var rushEl = document.getElementById('oc_urgency');
+    var isRush = !!(rushEl && rushEl.value === 'rush');
+    var wantTurn = !!(document.getElementById('oc_turn') || {}).checked;
+    var elig = window.QuoteSheets ? QuoteSheets.turnEligible({ up: upCount, rush: isRush }) : { ok:false };
+    var useTurn = wantTurn && elig.ok;
+    runs = [{ num:1, pages:1, copies:flatSheets, folds:0, machine:'',
+              _flat:true, _up:upCount, _flatTurn:useTurn, _rush:isRush }];
   } else {
     if (!info || !pages || !copies) return { ok:false, info:info, runs:[] };
     runs = buildRuns(pages, copies, info.fullSheet);
@@ -18097,10 +18120,15 @@ function computeOffsetQuote(){
   var plates = 0, printCost = 0, foldCost = 0;
   runs.forEach(function(r){
     var rc = parseInt(r.copies)||0;
-    // ⚠️ במוצר שטוח גיליונות < עותקים תמיד (12 בגיליון) — וזו *לא* ריצה מתהפכת
-    var isTurn = !r._flat && rc < copies;     // ריצה מתהפכת (מדפיסה חצי גיליונות, חצי לוחות)
+    /* ⚠️ במוצר שטוח גיליונות < עותקים תמיד (12 בגיליון) — ולכן *אי-אפשר* להסיק
+       מתהפך מהיחס הזה; שם ההחלטה מפורשת (_flatTurn) לפי זוגיות ודחיפות. */
+    var isTurn = r._flat ? !!r._flatTurn : (rc < copies);
     r._isTurn = isTurn;
-    r._plates = colors * (isTurn ? 1 : 2);    // רגילה=צבעים×2, מתהפכת=צבעים×1
+    // מיידי → פרפקטור 8 צבעים, 8 לוחות קבוע
+    var pf = (window.QuoteSheets && r._flat)
+      ? QuoteSheets.platesFor({ colors: colors, isTurn: isTurn, rush: !!r._rush })
+      : { plates: colors * (isTurn ? 1 : 2) };
+    r._plates = pf.plates;                    // רגילה=צבעים×2, מתהפכת=צבעים×1
     plates += r._plates;
     // הדפסה: לכל ריצה — אלף ראשון פיקס (גיליון רגיל / מתהפך חצי) + אלף רץ לכל 1000 מעבר ל-1000
     if (rc > 0) {
@@ -18201,6 +18229,22 @@ function renderOffsetCalc(){
     if (!paperName) noteEl.textContent = '';
     else if (_resolveOcPaper(paperName)) { noteEl.style.color = '#16a34a'; noteEl.textContent = '✓ נייר מתומחר — גרמז\'/מחיר טון מולאו אוטומטית'; }
     else { noteEl.style.color = '#e67e22'; noteEl.textContent = 'ℹ️ נייר שאינו במלאי (להזמנה) — ודא גרמז\' ומחיר טון (ברירת מחדל 5000)'; }
+  }
+
+  /* חיווי מתהפך/דחיפות במוצר שטוח — אומר אם אפשר, ואם לא: למה.
+     בלי זה המשתמש מסמן "מתהפך" ולא מבין למה הלוחות לא ירדו. */
+  if (ocMode() === 'flat' && window.QuoteSheets) {
+    var _up = parseInt((document.getElementById('oc_up')||{}).value) || 0;
+    var _rush = ((document.getElementById('oc_urgency')||{}).value === 'rush');
+    var _el = QuoteSheets.turnEligible({ up: _up, rush: _rush });
+    var _cb = document.getElementById('oc_turn'), _h = document.getElementById('oc_turnHint');
+    if (_cb) { _cb.disabled = !_el.ok; if (!_el.ok) _cb.checked = false; }
+    var _lbl = document.getElementById('oc_turnLbl');
+    if (_lbl) _lbl.style.opacity = _el.ok ? '1' : '.5';
+    if (_h) {
+      _h.style.color = _el.ok ? '#16a34a' : '#94a3b8';
+      _h.textContent = _up ? _el.message : 'הזינו "כמה יוצאים בגיליון" כדי לדעת אם אפשר מתהפך';
+    }
   }
 
   var q = computeOffsetQuote();

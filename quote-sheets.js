@@ -70,6 +70,41 @@
   // לוחות: ריצה רגילה = צבעים×2 · ריצה מתהפכת = צבעים×1
   function plateCount(colors, isTurn){ return _i(colors) * (isTurn ? 1 : 2); }
 
+  /* ═══ מתהפך במוצר שטוח — חיסכון בלוחות, ורק כשיש זמן ═══
+     כלל מבית-הדפוס (2026-07-31): אם הכמות-בגיליון מתחלקת ב-2 וחצי מהמוצרים
+     נכנסים בחצי גיליון (למשל 12 בגיליון 70×100, ו-6 נכנסים ב-70×50) — אפשר
+     להדפיס מתהפך ולחסוך חצי מהלוחות.
+     ⚠️ תלוי בדחיפות: עבודה שיש לה עד 7 ימי-עבודה יכולה להיכנס מתהפך.
+     עבודה מיידית נכנסת ל-8 צבעים (פרפקטור) — שם חייבים 8 לוחות ואין מתהפך. */
+  var TURN_MAX_DAYS = 7;
+  function turnEligible(opts){
+    opts = opts || {};
+    var up = _i(opts.up);
+    if (up < 2 || up % 2 !== 0) return { ok: false, reason: 'ODD_UP',
+      message: 'מתהפך אפשרי רק כשהכמות-בגיליון מתחלקת ב-2 (כאן ' + (up || 0) + ').' };
+    if (opts.rush) return { ok: false, reason: 'RUSH',
+      message: 'עבודה מיידית נכנסת ל-8 צבעים עם 8 לוחות — בלי מתהפך.' };
+    var days = (opts.days == null) ? null : _i(opts.days);
+    if (days != null && days > TURN_MAX_DAYS) return { ok: false, reason: 'TOO_LONG',
+      message: 'מתהפך מתאים לעבודה שיש לה עד ' + TURN_MAX_DAYS + ' ימי-עבודה.' };
+    if (opts.halfFits === false) return { ok: false, reason: 'HALF_NO_FIT',
+      message: 'חצי מהמוצרים לא נכנסים בחצי גיליון — אי-אפשר מתהפך.' };
+    return { ok: true, reason: '', halfUp: up / 2,
+      message: 'אפשר מתהפך: ' + (up / 2) + ' בחצי גיליון → חצי מהלוחות.' };
+  }
+
+  /* כמה לוחות בפועל, לפי דחיפות/מתהפך.
+     rush → פרפקטור 8 צבעים = 8 לוחות (קבוע, לא תלוי בבחירת-הצבעים). */
+  function platesFor(opts){
+    opts = opts || {};
+    if (opts.rush) return { plates: 8, colors: 8, isTurn: false, rush: true,
+      note: 'עבודה מיידית — 8 צבעים (פרפקטור), 8 לוחות' };
+    var colors = _i(opts.colors) || 4;
+    var isTurn = !!opts.isTurn;
+    return { plates: plateCount(colors, isTurn), colors: colors, isTurn: isTurn, rush: false,
+      note: isTurn ? ('מתהפך — ' + colors + ' לוחות (חצי)') : (colors + '×2 לוחות') };
+  }
+
   /* משקל-נייר בק"ג לפי גיליונות (מידות ס"מ, משקל גר/מ"ר) */
   function paperKg(sheets, sheetW, sheetH, gram){
     return _i(sheets) * (_n(sheetW) * _n(sheetH) * _n(gram) / 10000000);
@@ -116,6 +151,7 @@
 
   return { maxUpGeometric: maxUpGeometric, upPlausible: upPlausible,
            netSheets: netSheets, totalSheets: totalSheets,
+           TURN_MAX_DAYS: TURN_MAX_DAYS, turnEligible: turnEligible, platesFor: platesFor,
            printCostForRun: printCostForRun, plateCount: plateCount,
            paperKg: paperKg, paperCost: paperCost, flatQuote: flatQuote,
            printSanity: printSanity };
