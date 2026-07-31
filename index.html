@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785511185';
+window.APP_VERSION = '1785514694';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -23626,11 +23626,29 @@ function _opProofFullscreen() {
   var o = document.getElementById('op-proof-overlay'); if (!o) return;
   try { if (document.fullscreenElement) document.exitFullscreen(); else (o.requestFullscreen || o.webkitRequestFullscreen || function(){}).call(o); } catch(e){}
 }
+/* ⚠️ באג שדווח 31/07/2026: "טעינה שנמשכת, אין אפשרות לצאת ממנה".
+   המסך היה `pointer-events:none` ובלי שום כפתור — אם ה-fetch נתקע (רשת
+   איטית, סינון-תוכן, קובץ ענק), המפעיל נשאר עם מסך שחור נעול מול המכונה
+   וללא דרך חזרה. עכשיו תמיד יש ✕, ואחרי 12 שניות מוצעת גם פתיחה ישירה. */
 function _opLoadingEl() {
   var load = document.createElement('div'); load.id = 'op-proof-loading';
-  load.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;font-family:Heebo,sans-serif;pointer-events:none';
-  load.innerHTML = '<div style="width:48px;height:48px;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:opspin 1s linear infinite"></div><div style="font-size:1rem;font-weight:700">⏳ טוען פרופר…</div>';
+  load.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;font-family:Heebo,sans-serif';
+  load.innerHTML =
+      '<div style="width:48px;height:48px;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:opspin 1s linear infinite"></div>'
+    + '<div style="font-size:1rem;font-weight:700">⏳ טוען פרופר…</div>'
+    + '<button onclick="_opCloseProof()" style="margin-top:6px;padding:11px 26px;border-radius:10px;border:1.5px solid rgba(255,255,255,.5);background:transparent;color:#fff;font-family:Heebo,sans-serif;font-size:.95rem;font-weight:800;cursor:pointer">✕ סגור</button>'
+    + '<div id="op-proof-slow" style="display:none;font-size:.85rem;color:rgba(255,255,255,.75);text-align:center;max-width:320px;line-height:1.5"></div>';
   return load;
+}
+/* אחרי 12 שניות — אומרים למפעיל שזה איטי ומציעים פתיחה ישירה בדפדפן,
+   כדי שלא ימתין מול מסך שחור בלי לדעת אם משהו קורה. */
+function _opLoadingSlowHint(url){
+  setTimeout(function(){
+    var el = document.getElementById('op-proof-slow'); if (!el) return;
+    el.style.display = 'block';
+    el.innerHTML = 'הטעינה איטית מהרגיל.'
+      + (url ? '<br><a href="' + escHtml(url) + '" target="_blank" rel="noopener" style="color:#a5b4fc;font-weight:800">פתח את הקובץ ישירות ↗</a>' : '');
+  }, 12000);
 }
 function _opProofBar(label, onPdf) {
   var bar = document.createElement('div');
@@ -24299,8 +24317,23 @@ function _cardHasAnyProof(c){
 function _opProofCardFor(c){
   return (c && _cardHasAnyProof(c)) ? c : null;
 }
+/* ⚠️ באג שדווח 31/07/2026: הפונקציה קיבלה `run` ו**התעלמה ממנו לגמרי** —
+   היא החזירה true אם לכרטיס יש פרופר כלשהו. לכן צירוף פרופר לריצה 1 גרם
+   לכל שלוש הריצות להציג "📄 פרופר", והמפעיל היה לוחץ על R2 ומקבל את הקובץ
+   של R1. במסך-מכונה זו טעות שמגיעה עד ההדפסה עצמה.
+
+   הכלל הנכון:
+     1. יש פרופר ייעודי לריצה → כן.
+     2. יש פרופרים לפי-ריצה אבל לא לריצה הזו → **לא** (זה הלב של התיקון).
+     3. אין פרופרים לפי-ריצה כלל, ויש פרופר יחיד על הכרטיס → תקף לכל הריצות. */
 function _opRunHasProof(c, run) {
-  return !!_opProofCardFor(c);
+  if (!c) return false;
+  var rk = (run && run.num) ? ('R' + run.num) : null;
+  var rp = c.runProofs || null;
+  var hasRunProofs = !!(rp && Object.keys(rp).some(function(k){ return rp[k] && (rp[k].url || rp[k].uploading); }));
+  if (rk && rp && rp[rk] && (rp[rk].url || rp[rk].uploading)) return true;   // (1)
+  if (hasRunProofs) return false;                                            // (2)
+  return !!(c.hasProof || c.proofUrl);                                       // (3)
 }
 
 function _proofBtnsHtml(c) {
@@ -24313,9 +24346,41 @@ function _proofBtnsHtml(c) {
   return runs.map(function(r) {
     var rk = 'R' + r.num;
     var has = !!(c.runProofs && c.runProofs[rk]);
+    /* ⚠️ עד 31/07/2026 לא הייתה שום דרך להסיר פרופר של ריצה בודדת: ה-"✕ הסר"
+       היחיד היה בטופס-הכרטיס והוא מחק את **כל** הפרופרים. מי שהעלה בטעות
+       לריצה 2 היה צריך למחוק הכל ולהעלות מחדש שלוש פעמים. */
     return '<button class="btn btn-sm" style="background:' + (has?'#ede9fe':'#f5f3ff') + ';color:#5b21b6;border:1.5px solid #ddd6fe" onclick="_cardListProofPick(' + c.id + ',\'' + rk + '\')">'
-      + (has ? '📄 ' + rk : '📎 ' + rk) + '</button>';
+      + (has ? '📄 ' + rk : '📎 ' + rk) + '</button>'
+      + (has ? '<button class="btn btn-sm" title="מסיר את השיוך של הפרופר ל-' + rk + '. הקובץ עצמו נשאר שמור." style="background:#fff;color:#b45309;border:1.5px solid #fcd34d;padding:4px 8px;font-size:.74rem" onclick="_removeRunProof(' + c.id + ',\'' + rk + '\')">הסר מ-' + rk + '</button>' : '');
   }).join('');
+}
+
+/* "הסר מהריצה" — מסיר את ההפניה של ריצה אחת בלבד (בקשת-בעלים 31/07/2026).
+   ⚠️ הפעולה נקראת "הסר מהריצה" ולא "מחק" **במכוון**: היא אינה מוחקת דבר
+   מ-Storage. הקובץ נשאר בדלי; מה שמוסר הוא הקישור אליו מהריצה.
+   ⚠️ אין כאן קריאה ל-_deleteProofStorage: בשלב C1 מחיקה חסומה לכל אדם
+   (אימות אנונימי אינו מבחין בין עובד לתוקף), וניסיון-מחיקה היה נכשל בשקט
+   ומייצר רושם שגוי. פינוי קבצים יתומים ייעשה מהקונסולה, ויחזור לממשק ב-B+.
+
+   גבולות הפעולה — נבדקים ב-op-proof-tests.js:
+     · ריצות אחרות: לא נוגעים.
+     · פרופר משותף של הכרטיס (proofUrl/proofPath): לא נוגעים. */
+function _removeRunProof(cardId, runKey){
+  var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
+  if (!c || !c.runProofs || !c.runProofs[runKey]) return;
+  if (!confirm('להסיר את הפרופר מ-' + runKey + '?\n\n' +
+               '· שאר הריצות לא ייפגעו.\n' +
+               '· הקובץ עצמו נשאר שמור — מוסר רק השיוך לריצה הזו.')) return;
+  delete c.runProofs[runKey];
+  if (!Object.keys(c.runProofs).length) {
+    delete c.runProofs;
+    // hasProof מתאפס רק אם גם אין פרופר משותף לכרטיס
+    if (!c.proofUrl && !c.proofPath) c.hasProof = false;
+  }
+  c._upd = Date.now();
+  try { persist(); } catch(e){}
+  try { renderCards(); } catch(e){}
+  showToast('הפרופר הוסר מ-' + runKey);
 }
 
 function _opReturnToPrintQueue() {
