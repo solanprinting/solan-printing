@@ -72,8 +72,12 @@
   function persistenceFor(remember) { return remember ? 'local' : 'session'; }
 
   /* המסכים שלקוח רשאי לפתוח. עובד — הכל; ההפרדה בין admin ל-worker
-     נעשית בתוך המסך עצמו. */
-  var CUSTOMER_PAGES = ['customer-portal.html', 'proof-client.html', 'proof-upload.html'];
+     נעשית בתוך המסך עצמו.
+     ⚠️ portal.html הוא הפורטל של המבנה החדש (לפי portalId ב-claims);
+     customer-portal.html הוא הפורטל הישן של 44 הלקוחות עם ?cust=&k=.
+     השניים חיים זה לצד זה עד שהמעבר יושלם — ולכן שניהם ברשימה. */
+  var CUSTOMER_PAGES = ['portal.html', 'customer-portal.html', 'proof-client.html', 'proof-upload.html'];
+  var CUSTOMER_HOME = 'portal.html';
 
   /* סוג החשבון לפי ה-claims. ⚠️ חשבון שנוצר בלי הזמנה — 'pending':
      לא נכשל בשקט ולא מגיע לשום מסך. */
@@ -109,7 +113,7 @@
     var k = kindOf(claims);
     if (k === 'pending') return { kind: 'pending', to: null };
     var home = (k === 'staff') ? STAFF_HOME
-             : ('customer-portal.html?p=' + encodeURIComponent((claims || {}).portalId));
+             : (CUSTOMER_HOME + '?p=' + encodeURIComponent((claims || {}).portalId));
     if (requested && mayOpen(claims, requested)) return { kind: k, to: requested };
     return { kind: k, to: home };
   }

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>הפורטל שלי — סולן הדפסות</title>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     portal.html — פורטל הלקוח של **המבנה החדש** (portals/portalProofs).
+
+     ⚠️ זה אינו customer-portal.html. הישן משרת 44 לקוחות חיים עם ?cust=&k=
+     ואינו נוגע כאן; החדש עובד לפי portalId שב-claims, בלי שום סוד בכתובת.
+     שני המסכים יחיו זה לצד זה עד שהמעבר יושלם.
+
+     ⚠️ הכתובת אינה מעניקה הרשאה. מי שאינו מחובר מועבר להתחברות, ומי
+     שמחובר רואה **רק** את הפורטל שב-claims שלו — גם אם ישנה את ?p= בכתובת.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script src="firebase-auth.bundle.js?v=1785532230"></script>
+<script src="auth-client.js?v=1785532230"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
+       color:#1f2937;background:linear-gradient(180deg,#eef1f6 0%,#f5f6f9 100%);padding:20px}
+  .wrap{max-width:620px;margin:0 auto}
+  .top{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  .logo{width:46px;height:46px;border-radius:12px;background:#2d3561;color:#fff;display:flex;
+        align-items:center;justify-content:center;font-size:1.4rem}
+  h1{font-size:1.12rem;margin:0;color:#2d3561}
+  .sub{font-size:.8rem;color:#6b7280}
+  .out{margin-inline-start:auto;background:none;border:0;color:#2d3561;font-family:inherit;
+       font-size:.82rem;font-weight:700;cursor:pointer;text-decoration:underline}
+  .card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 8px 26px rgba(45,53,97,.1);margin-bottom:14px}
+  h2{font-size:.95rem;margin:0 0 12px;color:#2d3561}
+  .empty{text-align:center;color:#9099ab;padding:26px 10px;font-size:.9rem}
+  .job{border:1.5px solid #e6e9f2;border-radius:11px;padding:12px;margin-bottom:9px}
+  .job b{font-size:.92rem}
+  .job .meta{font-size:.78rem;color:#6b7280;margin-top:3px}
+  .gate{text-align:center;padding:44px 20px;color:#6b7280}
+  .probe{font-size:.82rem;line-height:1.7}
+  .good{color:#15803d;font-weight:700}
+  .bad{color:#b91c1c;font-weight:700}
+  .note{background:#fffbeb;border:1.5px solid #fde68a;color:#92400e;border-radius:10px;
+        padding:10px 12px;font-size:.8rem;margin-top:10px}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo">🗞️</div>
+    <div>
+      <h1 id="pname">הפורטל שלי</h1>
+      <div class="sub" id="who"></div>
+    </div>
+    <button class="out hidden" id="out">יציאה</button>
+  </div>
+
+  <div id="gate" class="card gate">טוען…</div>
+
+  <div id="app" class="hidden">
+    <div class="card">
+      <h2>📄 העבודות שלי</h2>
+      <div id="jobs"><div class="empty">אין עדיין עבודות בפורטל הזה.</div></div>
+    </div>
+
+    <div class="card" id="probeCard">
+      <h2>🔍 בדיקת בידוד</h2>
+      <div class="probe" id="probe">בודק…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+var FB_CONFIG = {
+  apiKey: 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg',
+  authDomain: 'solan-printing.firebaseapp.com',
+  projectId: 'solan-printing',
+  databaseURL: 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app',
+};
+var DB = FB_CONFIG.databaseURL;
+var $ = function(id){ return document.getElementById(id); };
+var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+  return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
+
+SolanAuth.init(FB_CONFIG);
+
+var MY_PID = null, TOK = null;
+
+async function dbGet(path){
+  var r = await fetch(DB + '/' + path + '.json?auth=' + encodeURIComponent(TOK));
+  return { ok: r.ok, status: r.status, val: r.ok ? await r.json() : null };
+}
+
+SolanAuth.onAuthStateChanged(async function(user){
+  if (!user) { location.replace(AuthClient.loginUrlFor('portal.html', location.origin)); return; }
+  var claims = await SolanAuth.claims(false).catch(function(){ return {}; });
+
+  /* ⚠️ ה-portalId נלקח מה-claims **בלבד**. הפרמטר ?p= בכתובת הוא נוחות
+     לניווט ואינו משתתף בהחלטה — מי שישנה אותו לא יראה פורטל אחר. */
+  if (claims.accountType === 'customer' && claims.portalId) {
+    MY_PID = claims.portalId;
+  } else if (claims.accountType === 'staff') {
+    var m = /[?&]p=(pid_[0-9a-f]{32})/.exec(location.search);
+    if (!m) { $('gate').textContent = 'לצפייה בפורטל מסוים הוסיפו ?p=pid_… לכתובת.'; return; }
+    MY_PID = m[1];              // עובד רשאי לצפות בכל פורטל
+  } else {
+    $('gate').textContent = 'החשבון עדיין לא שויך לפורטל. פנו לבית הדפוס.';
+    return;
+  }
+
+  TOK = await SolanAuth.idToken(false);
+  $('who').textContent = user.email || '';
+  $('out').classList.remove('hidden');
+  $('gate').classList.add('hidden');
+  $('app').classList.remove('hidden');
+
+  var p = await dbGet('portals/' + MY_PID);
+  if (p.ok && p.val && p.val.name) $('pname').textContent = p.val.name;
+
+  var j = await dbGet('portalProofs/' + MY_PID);
+  var jobs = j.val || {};
+  var ids = Object.keys(jobs);
+  if (ids.length) {
+    $('jobs').innerHTML = ids.map(function(id){
+      var x = jobs[id] || {};
+      return '<div class="job"><b>' + esc(x.title || 'עבודה') + '</b>' +
+             '<div class="meta">' + esc(x.status || '') + '</div></div>';
+    }).join('');
+  }
+
+  runProbe(claims);
+});
+
+/* ── בדיקת בידוד ─────────────────────────────────────────────────────────
+   ⚠️ המסך הזה אומר את האמת גם כשהיא לא נוחה: כל עוד חוקי-הייצור הם
+   `auth != null` גורף, קריאה לפורטל של לקוח אחר **תצליח**. הבדיקה מציגה
+   זאת במפורש במקום להסתיר, כדי שלא ייווצר רושם שהמעבר כבר הגן על משהו.
+   כשחוקי B+4 יפורסמו, השורות האלה יהפכו לירוקות מעצמן. */
+async function runProbe(claims){
+  if (claims.accountType !== 'customer') { $('probeCard').classList.add('hidden'); return; }
+  var other = 'pid_' + '0'.repeat(32);          // פורטל שאינו קיים ואינו שלי
+  var lines = [];
+
+  var mine = await dbGet('portalProofs/' + MY_PID);
+  lines.push(mine.ok ? '<span class="good">✓</span> קריאת הפורטל שלי — מותרת (כמצופה)'
+                     : '<span class="bad">✗</span> קריאת הפורטל שלי נחסמה (' + mine.status + ')');
+
+  var foreign = await dbGet('portalProofs/' + other);
+  lines.push(foreign.ok ? '<span class="bad">✗</span> קריאת פורטל אחר — <b>מותרת</b>. עדיין אין בידוד.'
+                        : '<span class="good">✓</span> קריאת פורטל אחר — חסומה');
+
+  var staffData = await dbGet('cards');
+  lines.push(staffData.ok ? '<span class="bad">✗</span> קריאת נתוני בית-הדפוס — <b>מותרת</b>. עדיין אין בידוד.'
+                          : '<span class="good">✓</span> קריאת נתוני בית-הדפוס — חסומה');
+
+  $('probe').innerHTML = lines.join('<br>');
+  if (foreign.ok || staffData.ok) {
+    $('probe').innerHTML += '<div class="note">⚠️ חוקי ה-RTDB בייצור עדיין מתירים לכל מחובר לקרוא הכל. ' +
+      'ההזדהות החדשה עובדת, אבל היא לבדה אינה מגבילה — ההידוק הוא שלב B+4.</div>';
+  }
+}
+
+$('out').addEventListener('click', async function(){
+  await SolanAuth.signOut().catch(function(){});
+  location.replace('login.html');
+});
+</script>
+</body>
+</html>
