@@ -9,6 +9,8 @@
 <script src="lib-loader.js"></script>
 <script src="pdfjs-engine.js"></script>
 <script src="proof-guard.js"></script>
+<!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
+<script src="page-spine.js"></script>
 <script src="page-swap.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
@@ -1185,7 +1187,13 @@ function alignSpread(idx) {
 }
 
 // חישוב אזור התצוגה (חיתוך שדרה בלבד) + מיקום מסגרת ה-trim, לפי TrimBox — זהה ל-proof-viewer
+/* ⚠️ מקור-אמת אחד. הכלל היה כתוב פעמיים — כאן ובדפדוף — והשניים נפרדו:
+   הדפדוף גזר את צד-השדרה ממספר-העמוד, וכאן הוא היה **מקובע**. התוצאה:
+   אותו שער הראה גלישה משמאל בדפדוף ומימין במסך-ההעלאה.
+   מעכשיו שני המסכים קוראים מ-page-spine.js. הגרסה המקומית נשארת כנפילה-לאחור
+   בלבד, למקרה שהמודול לא נטען (חסימת-CDN וכו'). */
 function _pageNetSpec(tf, spine){
+  if (window.PageSpine) return PageSpine.netSpec(tf, spine);
   const mediaHmm = tf.hmm / tf.h, mediaWmm = tf.wmm / tf.w;
   let shownL, shownR;
   if (spine === 'left'){ shownL = tf.l; shownR = 1; }
@@ -1232,8 +1240,17 @@ function renderViewer() {
     const p = pages[i];
     const tf = p.trimFrac;
     if (tf && (tf.w < 1 || tf.h < 1) && window._pcShowBleed) {
-      // עם גלישות + צלבי חיתוך — חיתוך נטו רק בשדרה (חיבור נקי בין העמודים); בליד + צלבים מסביב
-      const spine = two ? (pos === 0 ? 'left' : 'right') : 'left';
+      /* עם גלישות + צלבי חיתוך — חיתוך נטו רק בשדרה (חיבור נקי בין העמודים); בליד + צלבים מסביב.
+         ⚠️ באג שתוקן (31/07/2026, אומת מול הבעלים): צד-השדרה היה נגזר
+         **ממיקום בתצוגה** ולעמוד בודד היה מקובע ל-'left'. לכן בשער — עמוד 1,
+         שהשדרה שלו מימין (שם הסיכות) — הגלישה הוצגה מימין, כלומר בדיוק בצד
+         שאין בו גלישה. עכשיו נגזר ממספר-העמוד, כמו בדפדוף.
+         כפולה אמיתית (שני עמודים בקובץ אחד): השדרה באמצע התמונה ולא בקצה,
+         ולכן אין חיתוך כלל — מוצגת הגלישה משני הצדדים. */
+      const _pgNum = (idx) => { const m = /^(\d+)/.exec(String(_lbls[idx] || '')); return m ? parseInt(m[1], 10) : (idx + 1); };
+      const spine = (p.isSpread && _spreadPages(p) === 2) ? 'none'
+                  : (window.PageSpine ? PageSpine.spineFor(_pgNum(i))
+                                      : (_pgNum(i) % 2 === 0 ? 'left' : 'right'));
       // wmm/hmm כאן חייבים להיות ה*נטו*: במסגרת נגזרת הם יושבים על tf עצמו
       const sp = _pageNetSpec({ l:tf.l, t:tf.t, w:tf.w, h:tf.h,
                                wmm: tf.wmm || p.wmm, hmm: tf.hmm || p.hmm }, spine);

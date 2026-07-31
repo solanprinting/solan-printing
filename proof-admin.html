@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>לקוחות עיתונים — ניהול | סולן הדפסות</title>
+<title>פורטל לקוחות — ניהול | סולן הדפסות</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <!-- התקנה כאפליקציה למחשב (בקשת-בעלים 2026-07-31). התפיסה חייבת להיות מוקדם
@@ -217,7 +217,7 @@ window.addEventListener('appinstalled', function(){
   <div class="logo">🖨️</div>
   <div>
     <h1>סולן הדפסות <span>בע"מ</span></h1>
-    <div class="tag">לוח ניהול — לקוחות עיתונים ואישורי קבצים</div>
+    <div class="tag">לוח ניהול — פורטל לקוחות ואישורי קבצים</div>
   </div>
 </div>
 <div class="wrap">
@@ -467,13 +467,22 @@ function _custHasActiveCard(name){
   for (const k in _activeCardCusts){ if (_nameInside(k, n)) return true; }
   return false;
 }
+let _portalCusts = [];   // לקוחות שיש להם פורטל — גם אם עוד לא העלו כלום
 async function _loadWeeklyContext(){
   try {
-    const [np, cds, ov] = await Promise.all([
+    const [np, cds, ov, po] = await Promise.all([
       fetch(await _au(`${_FBURL}/newspapers.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(await _au(`${_FBURL}/cards.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
-      fetch(await _au(`${_FBURL}/customerDayOverride.json`)).then(r=>r.ok?r.json():null).catch(()=>null)
+      fetch(await _au(`${_FBURL}/customerDayOverride.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(await _au(`${_FBURL}/customerPortals.json`)).then(r=>r.ok?r.json():null).catch(()=>null)
     ]);
+    /* ⚠️ באג שדווח 31/07/2026: נפתחו פורטלים ל-35 לקוחות, ואף אחד מהם לא הופיע
+       במסך. הסיבה: רשימת-הלקוחות נבנתה **רק** מ-customerProofs, כלומר לקוח
+       "קיים" רק אחרי שהעלה קובץ ראשון. פורטל שנפתח ולא נראה בשום מקום הוא
+       פורטל שאי-אפשר לנהל — אי-אפשר לשלוח ממנו קישור או דרישה. */
+    _portalCusts = po && typeof po === 'object'
+      ? Object.keys(po).map(k => (po[k] && po[k].name) || String(k).replace(/_/g,' ')).filter(Boolean)
+      : [];
     _dayOverride = (ov && typeof ov==='object') ? ov : {};
     const dayMap = {};
     const npArr = Array.isArray(np) ? np : (np && typeof np==='object' ? Object.values(np) : []);
@@ -549,6 +558,19 @@ function render(rows) {
     const key = (p.customer || 'ללא לקוח').trim();
     if (!byCustomer.has(key)) byCustomer.set(key, []);
     byCustomer.get(key).push(p);
+  }
+  /* לקוחות שיש להם פורטל אך עדיין לא העלו כלום — נכנסים לרשימה עם 0 עבודות.
+     בלי זה, פורטל שנפתח פשוט לא נראה במסך ואי-אפשר לשלוח ממנו קישור או דרישה.
+     ⚠️ התאמה מנורמלת, כדי שלא ייווצר כפל כשהשם ברשומת-הפורטל שונה בניקוד/רווח
+     משם-הלקוח שעל העבודות. */
+  {
+    const seen = new Set([...byCustomer.keys()].map(_normName));
+    (_portalCusts || []).forEach(function(nm){
+      const clean = String(nm || '').trim();
+      if (!clean) return;
+      const k = _normName(clean);
+      if (k && !seen.has(k)) { seen.add(k); byCustomer.set(clean, []); }
+    });
   }
 
   // רישום יעדים לייצור ריצות (כדי לתמוך גם בריצות בודדות שאינן ב-_allRows)
