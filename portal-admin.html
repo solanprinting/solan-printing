@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ניהול פורטלים — סולן הדפסות</title>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     portal-admin.html — יצירת פורטלים והזמנות (שלב B+)
+
+     ⚠️ המסך אינו ההגנה. הוא רק מסתיר כפתורים ממי שאינו מנהל; מי שמגן הוא
+     שער-ההרשאה בצד השרת — כל אחת מהפונקציות בודקת את ה-claims שעל הטוקן
+     המאומת ודוחה כל אחר. נבדק ב-fn-permissions-tests.js מול קריאות אמיתיות.
+
+     ⚠️ קישור-ההזמנה מוצג **פעם אחת בלבד** ואינו נשמר בשום מקום — לא במסד,
+     לא בלוג, ולא כאן. אם נסגר החלון, מפיקים הזמנה חדשה.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script src="firebase-auth.bundle.js?v=1785531219"></script>
+<script src="auth-client.js?v=1785531219"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
+       color:#1f2937;background:linear-gradient(180deg,#eef1f6 0%,#f5f6f9 100%);padding:20px}
+  .wrap{max-width:640px;margin:0 auto}
+  .top{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  .logo{width:44px;height:44px;border-radius:12px;background:#2d3561;color:#fff;display:flex;
+        align-items:center;justify-content:center;font-size:1.3rem}
+  h1{font-size:1.1rem;margin:0;color:#2d3561}
+  .who{margin-inline-start:auto;font-size:.8rem;color:#6b7280}
+  .card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 8px 26px rgba(45,53,97,.1);margin-bottom:16px}
+  h2{font-size:.95rem;margin:0 0 12px;color:#2d3561}
+  label{display:block;font-size:.8rem;font-weight:700;color:#374151;margin:10px 0 5px}
+  input{width:100%;padding:11px 12px;border:1.5px solid #d8dce6;border-radius:10px;
+        font-size:.95rem;font-family:inherit;background:#fbfcfe}
+  input:focus{outline:none;border-color:#2d3561;background:#fff}
+  .btn{margin-top:14px;background:#2d3561;color:#fff;border:0;border-radius:10px;padding:11px 18px;
+       font-weight:800;font-size:.9rem;font-family:inherit;cursor:pointer}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn.sec{background:#fff;color:#2d3561;border:1.5px solid #ccd3e6}
+  .msg{margin-top:12px;padding:10px 12px;border-radius:10px;font-size:.85rem;display:none}
+  .msg.err{display:block;background:#fef2f2;color:#b91c1c;border:1.5px solid #fecaca}
+  .msg.ok{display:block;background:#f0fdf4;color:#15803d;border:1.5px solid #bbf7d0}
+  .pid{font-family:ui-monospace,Consolas,monospace;font-size:.8rem;background:#f3f4f6;
+       padding:6px 9px;border-radius:7px;display:inline-block;margin-top:6px;direction:ltr}
+  .link{width:100%;margin-top:8px;font-family:ui-monospace,Consolas,monospace;font-size:.75rem;direction:ltr}
+  .warn{background:#fffbeb;border:1.5px solid #fde68a;color:#92400e;border-radius:10px;
+        padding:10px 12px;font-size:.82rem;margin-top:10px}
+  .timing{font-size:.75rem;color:#9099ab;margin-top:8px;direction:ltr;text-align:left}
+  .gate{text-align:center;padding:40px 20px;color:#6b7280}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo">🏢</div>
+    <h1>ניהול פורטלים</h1>
+    <div class="who" id="who"></div>
+  </div>
+
+  <div id="gate" class="card gate">טוען…</div>
+
+  <div id="app" class="hidden">
+    <div class="card">
+      <h2>➕ פורטל חדש</h2>
+      <label for="pname">שם הלקוח</label>
+      <input id="pname" type="text" placeholder="לדוגמה: פורטל בדיקה">
+      <button class="btn" id="mk">צור פורטל</button>
+      <div class="msg" id="pmsg"></div>
+      <div class="timing" id="ptime"></div>
+    </div>
+
+    <div class="card">
+      <h2>✉️ הזמנה למשתמש</h2>
+      <label for="ipid">מזהה הפורטל</label>
+      <input id="ipid" type="text" placeholder="pid_…" dir="ltr">
+      <label for="iemail">כתובת המייל של הלקוח</label>
+      <input id="iemail" type="email" placeholder="name@example.com" dir="ltr">
+      <button class="btn" id="mkinv">הפק קישור הזמנה</button>
+      <div class="msg" id="imsg"></div>
+      <div class="timing" id="itime"></div>
+      <div id="linkbox" class="hidden">
+        <div class="warn">⚠️ הקישור מוצג <b>פעם אחת בלבד</b> ואינו נשמר בשום מקום.
+          העתיקו אותו עכשיו. הוא חד-פעמי, פג אחרי 7 ימים, ותקף רק למי שנכנס
+          בדיוק עם כתובת המייל שלמעלה.</div>
+        <input class="link" id="link" readonly onclick="this.select()">
+        <button class="btn sec" id="copy">📋 העתק</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var FB_CONFIG = {
+  apiKey: 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg',
+  authDomain: 'solan-printing.firebaseapp.com',
+  projectId: 'solan-printing',
+  databaseURL: 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app',
+};
+var FN = 'https://europe-west1-solan-printing.cloudfunctions.net/';
+var $ = function(id){ return document.getElementById(id); };
+
+SolanAuth.init(FB_CONFIG);
+
+/* ⚠️ מסך שנפתח בלי סשן תקף מעביר להתחברות ומחזיר לכאן אחריה. */
+SolanAuth.onAuthStateChanged(async function(user){
+  if (!user) { location.replace(AuthClient.loginUrlFor('portal-admin.html', location.origin)); return; }
+  var claims = await SolanAuth.claims(false).catch(function(){ return {}; });
+  if (claims.accountType !== 'staff' || claims.role !== 'admin') {
+    $('gate').textContent = 'המסך הזה מיועד למנהל בלבד.';
+    return;
+  }
+  $('who').textContent = user.email || '';
+  $('gate').classList.add('hidden');
+  $('app').classList.remove('hidden');
+});
+
+function show(el, kind, text){ var m = $(el); m.className = 'msg ' + kind; m.textContent = text; }
+
+/* קריאה לפונקציה + מדידת זמן. ⚠️ הקריאה הראשונה אחרי תקופת שקט היא
+   cold start — הזמן מוצג כדי שאפשר יהיה למדוד ולא לנחש. */
+async function call(fn, data, timeEl){
+  var t = await SolanAuth.idToken(false);
+  var t0 = performance.now();
+  var r = await fetch(FN + fn, { method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + t },
+    body: JSON.stringify({ data: data }) });
+  var ms = Math.round(performance.now() - t0);
+  var j = await r.json().catch(function(){ return {}; });
+  if (timeEl) $(timeEl).textContent = fn + ' — ' + r.status + ' · ' + ms + 'ms';
+  if (!r.ok) throw new Error((j.error && j.error.message) || 'שגיאה');
+  return j.result;
+}
+
+$('mk').addEventListener('click', async function(){
+  var name = $('pname').value.trim();
+  if (!name) { show('pmsg','err','הזינו שם'); return; }
+  $('mk').disabled = true; show('pmsg','','');
+  try {
+    var res = await call('createPortal', { name: name }, 'ptime');
+    show('pmsg','ok','הפורטל נוצר.');
+    $('pmsg').innerHTML += '<div class="pid">' + res.portalId + '</div>';
+    $('ipid').value = res.portalId;          // ממלא אוטומטית לשלב הבא
+  } catch (e) { show('pmsg','err', e.message); }
+  $('mk').disabled = false;
+});
+
+$('mkinv').addEventListener('click', async function(){
+  var pid = $('ipid').value.trim(), email = $('iemail').value.trim();
+  if (!pid || !email) { show('imsg','err','נדרשים מזהה פורטל וכתובת מייל'); return; }
+  $('mkinv').disabled = true; show('imsg','',''); $('linkbox').classList.add('hidden');
+  try {
+    var res = await call('createPortalInvite', { portalId: pid, email: email }, 'itime');
+    var base = location.origin + location.pathname.replace(/portal-admin\.html$/, 'login.html');
+    $('link').value = base + '?invite=' + encodeURIComponent(res.inviteToken);
+    $('linkbox').classList.remove('hidden');
+    show('imsg','ok','הקישור מוכן. שלחו אותו ללקוח בערוץ שאתם סומכים עליו.');
+    /* ⚠️ במכוון אין console.log של הקישור ואין שמירה שלו */
+  } catch (e) { show('imsg','err', e.message); }
+  $('mkinv').disabled = false;
+});
+
+$('copy').addEventListener('click', function(){
+  $('link').select();
+  navigator.clipboard.writeText($('link').value).then(function(){
+    $('copy').textContent = '✓ הועתק';
+    setTimeout(function(){ $('copy').textContent = '📋 העתק'; }, 1800);
+  }).catch(function(){});
+});
+</script>
+</body>
+</html>
