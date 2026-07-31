@@ -9,6 +9,10 @@
 <!-- cdnjs נחסם אצל חלק מהמשתמשים (סינון-תוכן/פרוקסי/חוסם-פרסומות) → מראות-גיבוי + אזהרה ברורה -->
 <script src="lib-loader.js"></script>
 <script src="proof-guard.js"></script>
+<!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
+<script src="short-link.js"></script>
+<!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
+<script src="shop-view.js"></script>
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="storage-cleanup.js"></script>
@@ -95,12 +99,28 @@
   .custItem.hasNew { background:#fff5f5; border-inline-start:4px solid #dc2626; }
   .custItem.hasNew.on { background:var(--press); color:#fff; }
   .dayHdr .newDot { margin-inline-start:6px; }
+  /* ── פס-סטטוס: התקבל → נצפה → אושר → בדפוס → הושלם ──
+     במקום תג-סטטוס בודד שאומר "מאושר" ולא אומר איפה העבודה עומדת באמת. */
+  .stgBar { display:flex; gap:3px; align-items:center; margin-top:5px; flex-wrap:wrap; }
+  .stg { font-size:.66rem; font-weight:800; border-radius:5px; padding:1px 6px; white-space:nowrap;
+         background:#f1f2f6; color:#b0b4c0; border:1px solid #e5e7eb; }
+  .stg.on   { background:#e0e7ff; color:#3730a3; border-color:#c7d2fe; }   /* שלב שכבר עבר */
+  .stg.cur  { background:var(--press,#2d3561); color:#fff; border-color:var(--press,#2d3561); }
+  .stg.cur.done { background:#16a34a; border-color:#16a34a; }
+  /* ⏳ עמודים שהלקוח עוד לא שלח — היה קבור בשורת-ריצה, עכשיו גם ברמת-הגיליון */
+  .pendTag { display:inline-block; font-size:.72rem; font-weight:800; color:#b45309; background:#fffbeb;
+             border:1.5px solid #fcd34d; border-radius:5px; padding:1px 7px; white-space:nowrap; margin-inline-start:6px; }
   .custItem.dayToday { background:#fffbeb; color:#92400e; border-bottom:2px solid var(--gold-light); font-weight:900; }
   .custItem.dayToday.on { background:var(--gold); color:#2d3561; }
   .todayCust { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:11px 14px;
     cursor:pointer; border-bottom:1px solid #eee; font-weight:700; color:#2d3561; transition:background .12s; }
   .todayCust:hover { background:#faf8f2; }
   .todaySec { padding:9px 14px; font-weight:800; color:var(--press); background:#faf8f2; border-bottom:1px solid var(--line); font-size:.9rem; }
+  /* ⏰ מי שאמור היה לשלוח היום וטרם — זו הרשימה שרודפים אחריה */
+  .todaySec.lateSec { background:#fef2f2; color:#b91c1c; border-bottom-color:#fecaca; }
+  .todayCust.lateCust { background:#fff7f7; border-inline-start:4px solid #dc2626; color:#b91c1c; }
+  .todayCust.lateCust:hover { background:#fee2e2; }
+  .todayCust button { padding:3px 8px; font-size:.8rem; }
   .custItem .cName { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .custItem .cCount { flex:0 0 auto; background:rgba(0,0,0,.10); border-radius:10px; padding:1px 8px; font-size:.76rem; }
   .custItem.on .cCount { background:rgba(255,255,255,.25); }
@@ -403,13 +423,19 @@ async function loadProofs() {
 let _sig = '';
 function _rowsSig(rows){
   try{ return (rows||[]).map(function(p){
-    var parts = p.parts ? Object.keys(p.parts).map(function(k){ var t=p.parts[k]; return k+':'+(t.approvedAt||0)+':'+(t.fileUrl?1:0); }).sort().join(',') : '';
+    /* shopSeenAt/pendingPages נכללים כי הם מזינים את חיווי "🆕 חדש", את פס-הסטטוס
+       ואת תג העמודים-החסרים. בלעדיהם קדם-הדפוס מסמן "ראיתי" במכשיר אחד והמסך
+       השני ממשיך להראות אדום עד רענון ידני. */
+    var parts = p.parts ? Object.keys(p.parts).map(function(k){ var t=p.parts[k];
+      return k+':'+(t.approvedAt||0)+':'+(t.fileUrl?1:0)+':'+(t.shopSeenAt||0)+':'+((t.pendingPages||[]).join('.')); }).sort().join(',') : '';
     var files = p.files ? Object.keys(p.files).sort().join(',') : '';
     // בקשות החלפת-עמודים בחתימה — אחרת בקשה חדשה מלקוח לא מופיעה עד רענון ידני
     var crs = p.changeRequests ? Object.keys(p.changeRequests).map(function(k){
       var r = p.changeRequests[k]; return k + ':' + (r && r.status) + ':' + ((r && r.decidedAt) || 0);
     }).sort().join(',') : '';
-    return [p.id, p.updatedAt||0, p.approvedAt||0, p.apogeeApprovedAt||0, p.version||1, parts, files, crs].join('|');
+    return [p.id, p.updatedAt||0, p.approvedAt||0, p.apogeeApprovedAt||0, p.version||1,
+            p.shopSeenAt||0, p.completedAt||0, p.closedAt||0, (p.pendingPages||[]).join('.'),
+            p.readyNotice?1:0, parts, files, crs].join('|');
   }).sort().join(';'); }catch(e){ return String(Math.random()); }
 }
 async function _autoRefresh(){
@@ -486,6 +512,37 @@ function render(rows) {
     return '';
   };
 
+  /* ── פס-סטטוס לכל גיליון (בקשת-בעלים 2026-07-31) ──────────────────────────
+     עד היום הסטטוס היה מילה אחת ("מאושר"), ולא ענה על השאלה שבאמת נשאלת מול
+     המסך: איפה העבודה עומדת עכשיו. השלבים נגזרים משדות שכבר קיימים —
+     shopSeenAt/approvedAt/completedAt — ו"בדפוס" מוצלב מול כרטיס-עבודה פעיל
+     (הצלבה בקריאה בלבד; אין שדה כזה ברשומת-הגיליון ואיננו כותבים חדש). */
+  const stageBar = (p) => {
+    if (!window.ShopView) return '';
+    const cur = ShopView.stageOf(p, { hasActiveCard: _custHasActiveCard(p.customer || '') });
+    const at = ShopView.stageIndex(cur);
+    return '<div class="stgBar">' + ShopView.STAGES.map(function(s, i){
+      const cls = i < at ? 'stg on' : (i === at ? ('stg cur' + (s.key === 'done' ? ' done' : '')) : 'stg');
+      return `<span class="${cls}">${s.icon} ${s.label}</span>`;
+    }).join('') + '</div>';
+  };
+  /* ⏳ עמודים חסרים ברמת-הגיליון. היו מוצגים רק בשורת-ריצה, כך שעיתון-מלא עם
+     עמודים חסרים נראה תקין לגמרי. הכינוס נעשה במודול הבדוק. */
+  const pendTag = (p) => {
+    if (!window.ShopView) return '';
+    const miss = ShopView.pendingPages(p);
+    return miss.length ? `<span class="pendTag" title="הלקוח טרם שלח את העמודים האלה">⏳ חסרים עמ׳ ${miss.join(', ')}</span>` : '';
+  };
+
+  /* 👁 סימון-צפייה: מופיע רק כשיש מה לסמן (הלקוח שלח וטרם סומן). כשכבר סומן —
+     תג עם מי ומתי, כדי שלא יסמנו פעמיים ולא יתווכחו מי ראה. */
+  const seenBtn = (p, pid) => {
+    const t = pid ? ((p.parts || {})[pid] || {}) : p;
+    if (!t.approvedAt) return '';
+    if (t.shopSeenAt) return `<span class="psTag" style="background:#eef2ff;color:#3730a3;border:1.5px solid #c7d2fe" title="${escapeHtml(t.shopSeenBy||'')} · ${fmt(t.shopSeenAt)}">👁 נצפה</span>`;
+    return `<button data-seen="${p.id}|${pid || 'full'}" title="עוצר את ההתראה החוזרת, ומעדכן את הלקוח שקיבלנו">👁 ראיתי</button>`;
+  };
+
   const rowHtml = p => {
     const clientLink = `${base}proof-client.html?id=${p.id}`;
     const viewerLink = `${base}proof-viewer.html?id=${p.id}`;  // צפייה בלבד — לשליחה לעובדים
@@ -497,7 +554,7 @@ function render(rows) {
       const _col = !!_jobCollapsed[p.id];   // עבודה מכווצת → שורות-הריצות מוסתרות
       const head = `<tr class="row-ok">
         <td><span data-jobtoggle="${p.id}" style="cursor:pointer;user-select:none;color:#2d3561;font-weight:900;margin-left:4px" title="${_col?'פתח':'כווץ'} ריצות">${_col?'▶':'▼'}</span> <b>${escapeHtml(p.title || '—')}</b></td>
-        <td><span class="badge b-approved">${parts.length} ריצות התקבלו</span></td>
+        <td><span class="badge b-approved">${parts.length} ריצות התקבלו</span>${pendTag(p)}${stageBar(p)}</td>
         <td>נוצר: ${fmt(p.createdAt)}</td>
         <td><div class="acts">
           <a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>
@@ -514,7 +571,7 @@ function render(rows) {
         <td><div class="acts">
           <a href="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}" target="_blank">👁 צפה</a>
           <button data-link="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}">📤 לעובדים</button>
-          ${genCell(pt.fileUrl, jobName(p, pt.name), p.id, pt.pid)}
+          ${seenBtn(p, pt.pid)}${genCell(pt.fileUrl, jobName(p, pt.name), p.id, pt.pid)}
           ${psCell(p.id, pt.pid, psReqOf(p, pt.pid))}
           <button data-moverun="${p.id}|${pt.pid}" title="הלקוח העלה לגיליון הלא-נכון? העבר את הריצה לגיליון אחר">⇄ העבר לגיליון</button>
           <button class="del" data-delpart="${p.id}|${pt.pid}|${encodeURIComponent(pt.filePath||'')}" title="מחק ריצה">🗑</button>
@@ -528,7 +585,7 @@ function render(rows) {
       const link = `${base}imposition-tool.html?proofUrl=${encodeURIComponent(p.apogeeUrl)}&type=${encodeURIComponent(p.apogeeFold||'32')}&auto=1&client=1`;
       return `<tr class="${approved?'row-ok':''}">
         <td><b>${escapeHtml(p.title || 'פרופר אפוגי')}</b></td>
-        <td><span class="badge ${approved?'b-approved':'b-wait'}">${approved ? '✓ אושר לדפוס · נעול' : 'ממתין לאישור הלקוח'}</span></td>
+        <td><span class="badge ${approved?'b-approved':'b-wait'}">${approved ? '✓ אושר לדפוס · נעול' : 'ממתין לאישור הלקוח'}</span>${stageBar(p)}</td>
         <td>נוצר: ${fmt(p.createdAt)}${approved ? `<div class="note" style="color:#16a34a">✓ ${escapeHtml(p.apogeeApprovedBy||'')} · ${fmt(p.apogeeApprovedAt)}</div>` : ''}</td>
         <td><div class="acts">
           <a href="${link}" target="_blank">📖 דפדף</a>
@@ -549,7 +606,7 @@ function render(rows) {
       return `<tr>
         <td><b>${escapeHtml(p.title || (p.customer ? p.customer + ' — עיתון' : 'עיתון'))}</b>
           <span style="color:#9ca3af">(${fkeys.length} קבצים${p.issue ? ' · גיליון ' + escapeHtml(String(p.issue)) : ''})</span>${pf}</td>
-        <td><span class="badge b-wait">התקבל מהלקוח</span></td>
+        <td><span class="badge b-wait">התקבל מהלקוח</span>${pendTag(p)}${stageBar(p)}</td>
         <td>נוצר: ${fmt(p.createdAt)}</td>
         <td><div class="acts">${dls}
           <button class="del" data-deljob="${p.id}" title="מחק עבודה וכל הקבצים">🗑</button>
@@ -566,12 +623,12 @@ function render(rows) {
     const approvedLine = p.approvedAt ? `<div class="note" style="color:#16a34a">✓ אושר: ${fmt(p.approvedAt)}</div>` : '';
     return `<tr class="${p.status==='approved'?'row-ok':''}">
       <td>${escapeHtml(p.title || (p.customer ? p.customer + ' — עיתון' : 'עיתון'))}${note}</td>
-      <td><span class="badge ${cls}">${txt}</span></td>
+      <td><span class="badge ${cls}">${txt}</span>${pendTag(p)}${stageBar(p)}</td>
       <td>נוצר: ${fmt(p.createdAt)}${approvedLine}</td>
       <td><div class="acts">
         <a href="${clientLink}" target="_blank">🔗 פתח</a>
         <button data-link="${clientLink}" title="דף ההעלאה של הלקוח — הוא יכול להוסיף/להחליף עמודים ולאשר">📤 קישור העלאה ללקוח</button>
-        ${view}${toWorkers}${gen}${psCell(p.id, 'full', psReqOf(p, 'full'))}${notifyBtn(p)}
+        ${view}${toWorkers}${seenBtn(p, null)}${gen}${psCell(p.id, 'full', psReqOf(p, 'full'))}${notifyBtn(p)}
         ${editBtn(p)}${closeBtn(p)}
         <button class="del" data-deljob="${p.id}" title="מחק עבודה">🗑</button>
       </div></td></tr>`;
@@ -641,14 +698,35 @@ function render(rows) {
   // ── מסך "היום": מי אמור לשלוח היום + מי עם כרטיס פעיל ──
   let todayDetail = '';
   if (_selCust === '__today__') {
-    const _custRow = (c) => { const items=byCustomer.get(c), act=items.filter(p=>!p.completedAt).length;
-      return `<div class="todayCust" data-cust="${escapeHtml(c)}"><span>📁 ${escapeHtml(c)}${_custHasActiveCard(c)?' 📋':''}</span>
-        <span class="cCount" style="background:#eef0f6;border-radius:10px;padding:1px 9px;font-size:.78rem">${act} פעילות</span></div>`; };
+    /* ⚠️ הפער האמיתי (בקשת-בעלים 2026-07-31): עד היום המסך ענה "מי אמור לשלוח
+       היום" — אבל השאלה שנשאלת ב-14:00 היא "אחרי מי אני צריך לרדוף". לכן
+       הרשימה מתפצלת לשניים: מי שטרם נרשמה ממנו שליחה היום — ראשון ובאדום.
+       ⚠️ "שליחה" נמדדת גם לפי createdAt ולא רק approvedAt: העלאה מהפורטל לא
+       תמיד כותבת approvedAt, ולקוח כזה היה מסומן בטעות כמי שלא שלח. */
+    const _custRow = (c, late) => { const items=byCustomer.get(c), act=items.filter(p=>!p.completedAt).length;
+      const nNew = _newFilesFor(c);
+      return `<div class="todayCust${late?' lateCust':''}" data-cust="${escapeHtml(c)}">
+        <span>${late?'⏰ ':'📁 '}${escapeHtml(c)}${_custHasActiveCard(c)?' 📋':''}${nNew?` <span class="newDot">🆕 ${nNew}</span>`:''}</span>
+        <span style="display:flex;gap:6px;align-items:center">
+          <button data-portal="${escapeHtml(c)}" title="קישור לפורטל האישי של הלקוח">🔗</button>
+          <button data-notice="${escapeHtml(c)}" title="שלח דרישה שתופיע בפורטל הלקוח">📢</button>
+          <span class="cCount" style="background:#eef0f6;border-radius:10px;padding:1px 9px;font-size:.78rem">${act} פעילות</span>
+        </span></div>`; };
     const dueToday = custNames.filter(c => _dayOf[c] === _today).sort((a,b)=>a.localeCompare(b,'he'));
+    const _board = window.ShopView
+      ? ShopView.todayBoard(dueToday.map(c => ({ name:c, day:_today, proofs: byCustomer.get(c) || [] })), Date.now())
+      : { missing: [], sent: [] };
+    const _missing = _board.missing, _sent = dueToday.filter(c => _missing.indexOf(c) < 0);
     todayDetail = `<div class="custHead"><div style="font-size:1.05rem;font-weight:900;color:#2d3561">📅 היום — ${_today}</div>
-        <div class="muted" style="font-size:.82rem;color:#6b7280;margin-top:3px">לקוחות שאמורים לשלוח היום (כרטיסים פעילים בפאנל שמשמאל)</div></div>`
-      + `<div class="todaySec">📤 אמורים לשלוח היום (${dueToday.length})</div>`
-      + (dueToday.length ? dueToday.map(_custRow).join('') : '<div style="padding:14px;color:#9ca3af">אין לקוחות ליום זה ביומן השבועי</div>');
+        <div class="muted" style="font-size:.82rem;color:#6b7280;margin-top:3px">${dueToday.length} אמורים לשלוח · ${_sent.length} שלחו · ${_missing.length} טרם</div></div>`
+      + (dueToday.length ? (
+          `<div class="todaySec lateSec">⏰ טרם נרשמה שליחה היום (${_missing.length})</div>`
+          + (_missing.length ? _missing.map(c => _custRow(c, true)).join('')
+                             : '<div style="padding:14px;color:#16a34a;font-weight:700">✓ כולם שלחו היום</div>')
+          + `<div class="todaySec">✓ שלחו היום (${_sent.length})</div>`
+          + (_sent.length ? _sent.map(c => _custRow(c, false)).join('')
+                          : '<div style="padding:14px;color:#9ca3af">עדיין אף אחד</div>')
+        ) : '<div style="padding:14px;color:#9ca3af">אין לקוחות ליום זה ביומן השבועי</div>');
   }
 
   // ── פאנל "כרטיסים פעילים" בצד שמאל (במקום בתחתית מסך-היום) ──
@@ -710,7 +788,11 @@ function render(rows) {
   // בחירת-לקוח → מציג את עבודותיו במרכז (בלי טעינה-מחדש מהשרת)
   document.querySelectorAll('.custItem').forEach(el => el.onclick = () => { _selCust = el.dataset.cust; render(rows); });
   // לחיצה על לקוח במסך "היום" → פותחת את הלקוח
-  document.querySelectorAll('.todayCust').forEach(el => el.onclick = () => { _selCust = el.dataset.cust; render(rows); });
+  // (הכפתורים שבתוך השורה מטופלים בנפרד — קליק עליהם לא אמור לפתוח את הלקוח)
+  document.querySelectorAll('.todayCust').forEach(el => el.onclick = (ev) => {
+    if (ev.target.closest('button')) return;
+    _selCust = el.dataset.cust; render(rows);
+  });
   // לחיצה על לקוח בפאנל "כרטיסים פעילים" → פותחת את הלקוח
   document.querySelectorAll('.cardItem').forEach(el => el.onclick = () => { _selCust = el.dataset.cust; render(rows); });
   // לחיצה על כותרת-יום → פתיחה/קיווץ של קבוצת-היום (בלי render מלא — רק הצג/הסתר)
@@ -752,7 +834,13 @@ function render(rows) {
   document.querySelectorAll('.psOk').forEach(b => b.onclick = () => _psDecide(b.dataset.ps, true, b));
   document.querySelectorAll('.psNo').forEach(b => b.onclick = () => _psDecide(b.dataset.ps, false, b));
 
-  document.querySelectorAll('[data-link]').forEach(b => b.onclick = () => shareLink(b.dataset.link));
+  // סוג-הקישור נגזר מהיעד — כדי שברשומת הקישור-הקצר יהיה ברור מה נשלח
+  document.querySelectorAll('[data-link]').forEach(b => b.onclick = () => {
+    const u = b.dataset.link;
+    const kind = /proof-client/.test(u) ? 'upload' : /proof-viewer/.test(u) ? 'view'
+               : /customer-portal/.test(u) ? 'portal' : 'link';
+    shareLink(u, { kind, customer: _selCust && _selCust !== '__today__' ? _selCust : '' });
+  });
   document.querySelectorAll('[data-portal]').forEach(b => b.onclick = () => portalLink(b.dataset.portal));
   document.querySelectorAll('[data-editcust]').forEach(b => b.onclick = () => renameCustomer(b.dataset.editcust));
   // סימון "הושלם" → העבודה עוברת לקטגוריית "עיתונים שהושלמו" של אותו לקוח (הפיך)
@@ -768,6 +856,29 @@ function render(rows) {
       // בסימון-הושלמה → לשאול אם לעדכן את הלקוח שהעבודה מוכנה (בקשת-משתמש 2026-07-30)
       if(!on && _job) _askNotifyReady(_job);
     }catch(e){ alert('העדכון נכשל: '+(e.message||e)); b.disabled=false; b.textContent = on ? '↩ החזר' : '✅ הושלם'; }
+  });
+  /* 👁 "ראיתי" ישירות ממסך-הדפוס (בקשת-בעלים 2026-07-31: פעולות רלוונטיות
+     לעובדי-דפוס מתוך הרשימה). עד היום הסימון היה אפשרי רק מהבאנר בכרטיס-העבודה,
+     כך שמי שיושב על המסך הזה נאלץ לעבור מסך רק כדי להשתיק את ההתראה.
+     ⚠️ נכתב לאותו נתיב בדיוק כמו `_uaAck` בכרטיס-עבודה — customerProofs/<id>
+     או .../parts/<pid> — כדי ששני המקומות והפורטל של הלקוח יראו אותו דבר.
+     כישלון-שמירה נאמר בקול; זו בדיוק התקלה שגרמה להתראה להמשיך לצייץ. */
+  document.querySelectorAll('[data-seen]').forEach(b => b.onclick = async () => {
+    const raw = b.dataset.seen, cut = raw.indexOf('|');
+    const jobId = raw.slice(0, cut), key = raw.slice(cut + 1);   // pid עלול להכיל '|' — חותכים רק בראשון
+    b.disabled = true; b.textContent = 'שומר…';
+    const stamp = { shopSeenAt: Date.now(), shopSeenBy: 'בית-הדפוס' };
+    const path = `customerProofs/${jobId}` + (key === 'full' ? '' : `/parts/${key}`);
+    try{
+      const r = await fetch(await _au(`${_FBURL}/${path}.json`), { method:'PATCH',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify(stamp) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      await loadProofs();
+      msg('✓ סומן שראית — ההתראה נעצרה');
+    }catch(e){
+      alert('הסימון לא נשמר: ' + (e.message||e) + '\nההתראה תמשיך — נסה שוב.');
+      b.disabled = false; b.textContent = '👁 ראיתי';
+    }
   });
   // "🔔 עדכן שמוכן" על עבודה שכבר הושלמה
   document.querySelectorAll('[data-notifyready]').forEach(b => b.onclick = () => {
@@ -882,7 +993,7 @@ async function portalLink(customer){
   }
   const base = location.href.replace(/[^/]+(\?.*)?$/, '');
   const link = base + 'customer-portal.html?cust=' + encodeURIComponent(customer) + '&k=' + encodeURIComponent(rec.token);
-  shareLink(link); msg('✓ קישור הפורטל מוכן');
+  shareLink(link, { kind:'portal', customer: customer }); msg('✓ קישור הפורטל מוכן');
 }
 function sendNotice(customer){
   const slug = _slug(customer); if (!slug) return;
@@ -1318,9 +1429,26 @@ function downloadBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 // מציג את הקישור (תמיד ניתן להעתיק, גם בתוך iframe) וגם מנסה להעתיק אוטומטית.
-async function shareLink(url) {
-  try { await navigator.clipboard.writeText(url); } catch (e) {}
-  prompt('קישור ללקוח — העתק (Ctrl+C) ושלח:', url);
+/* ═══ קישור קצר ללקוח (בקשת-בעלים 2026-07-31) ═══
+   הקישורים הארוכים (מזהה 36 תווים + טוקן) נראים מלחיצים בוואטסאפ. כאן יוצרים
+   קוד קצר, שומרים אותו ב-Firebase, ומשתפים כתובת קצרה שמפנה אליו (s.html).
+   הכתובת הארוכה נשמרת ומוצגת כגיבוי — וקישורים שכבר נשלחו ממשיכים לעבוד. */
+async function _makeShortLink(url, meta){
+  if (!window.ShortLink) return '';
+  try {
+    var code = ShortLink.newCode();
+    var rec = ShortLink.record(url, Object.assign({ at: Date.now() }, meta || {}));
+    var r = await fetch(await _au(`${_FBURL}/${ShortLink.nodePath(code)}.json`),
+      { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(rec) });
+    if (!r.ok) return '';
+    return ShortLink.shortUrl(location.href, code);
+  } catch(e){ console.warn('short link failed', e); return ''; }
+}
+async function shareLink(url, meta) {
+  var short = await _makeShortLink(url, meta);
+  var send = short || url;                        // נכשל? שולחים את הארוך — לא נתקעים
+  try { await navigator.clipboard.writeText(send); } catch (e) {}
+  prompt(short ? 'קישור קצר ללקוח — הועתק, אפשר לשלוח:' : 'קישור ללקוח — העתק ושלח:', send);
 }
 
 async function copyText(text, btn) {

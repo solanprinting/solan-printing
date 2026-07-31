@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>סולן הדפסות</title>
+<!-- דף-הפניה זעיר לקישורים הקצרים. באתר סטטי (GitHub Pages) אין שרת שיבצע
+     rewrite, ולכן ההפניה נעשית כאן: קוראים את הקוד, שולפים את היעד מ-Firebase
+     ומפנים. הדף חייב להיות קליל — הלקוח רואה אותו לשבריר שנייה. -->
+<script src="short-link.js"></script>
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+       font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;color:#1f2937;
+       background:linear-gradient(180deg,#eef1f6 0%,#f5f6f9 100%);padding:24px;text-align:center}
+  .box{max-width:420px}
+  .logo{width:54px;height:54px;border-radius:14px;background:#2d3561;color:#fff;display:flex;
+        align-items:center;justify-content:center;font-size:1.6rem;margin:0 auto 14px}
+  h1{font-size:1.05rem;margin:0 0 6px;color:#2d3561}
+  p{font-size:.9rem;color:#6b7280;margin:6px 0}
+  .spin{width:26px;height:26px;border:3px solid #dbe2f5;border-top-color:#2d3561;border-radius:50%;
+        margin:14px auto;animation:sp .8s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  a.btn{display:inline-block;margin-top:10px;background:#2d3561;color:#fff;text-decoration:none;
+        padding:9px 16px;border-radius:9px;font-weight:800;font-size:.88rem}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="logo">🖨️</div>
+  <h1 id="t">סולן הדפסות</h1>
+  <div class="spin" id="sp"></div>
+  <p id="m">רגע, פותחים…</p>
+  <div id="act"></div>
+</div>
+<script>
+(function(){
+  var FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+  var APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+  var $ = function(id){ return document.getElementById(id); };
+  function fail(msg){
+    $('sp').style.display='none';
+    $('t').textContent = 'הקישור לא נמצא';
+    $('m').textContent = msg;
+    $('act').innerHTML = '<a class="btn" href="tel:039042333">📞 התקשרו לבית הדפוס — 03-9042333</a>';
+  }
+  // אימות אנונימי — אותו מנגנון כמו בשאר הדפים (חוקי-הקריאה דורשים auth)
+  function token(){
+    return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + APIKEY,
+      { method:'POST', headers:{'Content-Type':'application/json'}, body:'{"returnSecureToken":true}' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){ return (j && j.idToken) || null; })
+      .catch(function(){ return null; });
+  }
+  var code = window.ShortLink ? ShortLink.codeFromUrl(location.href) : '';
+  if (!code) { fail('הקישור אינו תקין. בקשו קישור מעודכן מבית הדפוס.'); return; }
+  token().then(function(t){
+    var u = FBURL + '/' + ShortLink.nodePath(code) + '.json' + (t ? ('?auth=' + t) : '');
+    return fetch(u).then(function(r){ return r.ok ? r.json() : null; });
+  }).then(function(rec){
+    if (!rec || !rec.url) { fail('הקישור פג או שאינו קיים. בקשו קישור מעודכן מבית הדפוס.'); return; }
+    /* יעד בטוח בלבד — הקישור הקצר לא ישמש להפניה לאתר זר */
+    var target = ShortLink.safeTarget(rec.url, location.origin);
+    if (!target) { fail('הקישור אינו תקין.'); return; }
+    location.replace(target);
+  }).catch(function(){
+    fail('אין חיבור כרגע. נסו שוב בעוד רגע.');
+  });
+})();
+</script>
+</body>
+</html>
