@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>הפורטל שלי — סולן הדפסות</title>
 <script src="lib-loader.js"></script>
+<!-- אותו כלל "גיליון סגור" שבצד הדפוס — עבודה שהושלמה/נסגרה נעולה לשינויים -->
+<script src="proof-guard.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -33,6 +35,7 @@
   .row .meta { font-size:.78rem; color:#6b7280; margin-top:2px; }
   .badge { font-size:.72rem; font-weight:800; padding:3px 9px; border-radius:999px; white-space:nowrap; }
   .b-approved { background:#dcfce7; color:#166534; } .b-wait { background:#fef9c3; color:#854d0e; } .b-new { background:#e0e7ff; color:#3730a3; }
+  .b-done { background:#e0e7ff; color:#3730a3; border:1px solid #a5b4fc; }   /* עבודה שהושלמה — נעולה */
   .btn { border:none; border-radius:9px; padding:9px 14px; font-weight:800; cursor:pointer; font-family:inherit; font-size:.85rem; text-decoration:none; display:inline-flex; align-items:center; gap:5px; }
   .btn-v { background:#eef2ff; color:var(--press); } .btn-dl { background:#f3f4f6; color:#374151; }
   .btn-approve { background:linear-gradient(135deg,var(--green),#15803d); color:#fff; }
@@ -137,9 +140,9 @@
           <span class="ic">💬</span>
           <span><span class="lb">ווטסאפ</span><br><span class="vl">054-3343735</span></span>
         </a>
-        <a href="mailto:solan@solanprinting.co.il" class="ml">
+        <a href="mailto:solan2@solanprinting.co.il" class="ml">
           <span class="ic">✉️</span>
-          <span><span class="lb">דוא״ל</span><br><span class="vl">solan@solanprinting.co.il</span></span>
+          <span><span class="lb">דוא״ל</span><br><span class="vl">solan2@solanprinting.co.il</span></span>
         </a>
       </div>
     </div>
@@ -269,7 +272,9 @@ async function loadNotices(){
 // מאשר פרופר-אפוגי ממתין ישירות מהדרישה (אם יש בדיוק אחד); אחרת מפנה להיסטוריה
 async function _portalApproveFromNotice(){
   var all = null; try { all = await (await fetch(await _au(`${_FBURL}/customerProofs.json`))).json(); } catch(e){}
-  var pend = _portalFilterProofs(all, SLUG).filter(function(p){ return p.apogeeUrl && !p.apogeeApprovedAt; });
+  var pend = _portalFilterProofs(all, SLUG).filter(function(p){
+    if (window.ProofGuard ? ProofGuard.isClosed(p) : (p.completedAt || p.closedAt)) return false;   // הושלמה — לא לאישור
+    return p.apogeeUrl && !p.apogeeApprovedAt; });
   if (!pend.length){ toast('אין פרופר שממתין לאישור'); return; }
   if (pend.length === 1){ approveApogee(pend[0]._id); }
   else { toast('יש כמה פרופרים — אשרו מהרשימה למטה'); var h=$('history'); if(h) h.scrollIntoView({ behavior:'smooth' }); }
@@ -301,6 +306,10 @@ async function loadHistory(){
   $('history').innerHTML = list.map(function(p){
     var b = _proofBadge(p);
     var date = p.createdAt ? new Date(p.createdAt).toLocaleDateString('he-IL') : (p.approvedAt ? new Date(p.approvedAt).toLocaleDateString('he-IL') : '');
+    /* ⚠️ עבודה שהושלמה/נסגרה בבית-הדפוס — נעולה לחלוטין (בקשת-בעלים 2026-07-31):
+       בלי עריכה, בלי העלאה, בלי אישור ובלי בקשות. אותו כלל בדיוק שחוסם בצד
+       ההעלאה (ProofGuard.isClosed) — כדי שלא ייווצרו שני מקורות-אמת. */
+    var isDone = window.ProofGuard ? ProofGuard.isClosed(p) : !!(p.completedAt || p.closedAt);
     var acts = '';
     /* חוברת שנשלחה מ"פרופר ללקוח" — הדפדוף והאישור מתבצעים במסך-הלקוח של
        אותו כלי (שם יש תיעוד-גרסאות מלא), ולכן פותחים אותו ולא את כלי-הקיפול. */
@@ -314,7 +323,7 @@ async function loadHistory(){
       var link = 'imposition-tool.html?proofUrl='+encodeURIComponent(p.apogeeUrl)+'&type='+encodeURIComponent(fold)+'&auto=1&client=1';
       acts += '<a class="btn btn-v" target="_blank" rel="noopener" href="'+link+'">📖 דפדף פרופר</a>';
       acts += '<a class="btn btn-dl" href="'+esc(p.apogeeUrl)+'" download>⬇ הורד</a>';
-      if (!p.apogeeApprovedAt) acts += '<button class="btn btn-approve" onclick="approveApogee(\''+p._id+'\')">✓ אשר לדפוס</button>';
+      if (!p.apogeeApprovedAt && !isDone) acts += '<button class="btn btn-approve" onclick="approveApogee(\''+p._id+'\')">✓ אשר לדפוס</button>';
     } else if (p.files){
       // העלאה-מהירה ישנה — קבצים מקובצים (הורדה בלבד)
       Object.keys(p.files).forEach(function(k){ var fl=p.files[k]; if(fl&&fl.fileUrl) acts += '<a class="btn btn-dl" href="'+esc(fl.fileUrl)+'" download title="'+esc(fl.fileName||'')+'">⬇ '+esc((fl.fileName||'קובץ').slice(0,16))+'</a>'; });
@@ -322,12 +331,16 @@ async function loadHistory(){
       // עיתון proof-client — דפדוף + עריכת עמודים (המערכת המוכרת ללקוח)
       var _hasContent = p.fileUrl || p.parts || p.status === 'approved';
       if (_hasContent) acts += '<a class="btn btn-v" target="_blank" rel="noopener" href="proof-viewer.html?id='+encodeURIComponent(p._id)+'">👁 דפדף בעיתון</a>';
-      if (!(p.apogeeApprovedAt || p.status === 'approved')) acts += '<a class="btn btn-primary" href="proof-client.html?id='+encodeURIComponent(p._id)+'&back='+encodeURIComponent(location.href)+'">✏️ ערוך / העלה</a>';
+      if (!(p.apogeeApprovedAt || p.status === 'approved') && !isDone) acts += '<a class="btn btn-primary" href="proof-client.html?id='+encodeURIComponent(p._id)+'&back='+encodeURIComponent(location.href)+'">✏️ ערוך / העלה</a>';
     }
     var cnt = p.fileCount || (p.files ? Object.keys(p.files).length : 0);
-    var locked = !!p.apogeeApprovedAt || p.status === 'approved';   // אושר לדפוס → נעול לשינויים (עד שהדפוס יפתח)
-    var lockNote = locked ? '<div style="font-size:.74rem;color:#166534;margin-top:3px">🔒 נעול לדפוס — לשינויים פנו לבית הדפוס</div>' : '';
-    var rowStyle = locked ? 'border-inline-start:4px solid #16a34a;background:#f6fbf6;padding-inline-start:9px;border-radius:8px' : '';
+    var locked = isDone || !!p.apogeeApprovedAt || p.status === 'approved';   // הושלם/אושר → נעול לשינויים
+    var lockNote = isDone
+      ? '<div style="font-size:.74rem;color:#3730a3;margin-top:3px">🔒 העבודה הושלמה — לא ניתן לערוך, להעלות או לבקש שינויים. לכל בקשה פנו לבית הדפוס.</div>'
+      : (locked ? '<div style="font-size:.74rem;color:#166534;margin-top:3px">🔒 נעול לדפוס — לשינויים פנו לבית הדפוס</div>' : '');
+    var rowStyle = isDone
+      ? 'border-inline-start:4px solid #6366f1;background:#f5f5ff;padding-inline-start:9px;border-radius:8px;opacity:.92'
+      : (locked ? 'border-inline-start:4px solid #16a34a;background:#f6fbf6;padding-inline-start:9px;border-radius:8px' : '');
     var _appDate = locked ? new Date(p.apogeeApprovedAt || p.approvedAt || p.createdAt).toLocaleDateString('he-IL') : '';
     // חיווי "הדפוס קיבל" — נכתב ע"י בית-הדפוס בלחיצת "✓ ראיתי" על הבאנר (shopSeenAt).
     // כולל גם ריצות: מספיק שריצה אחת סומנה כדי להראות ללקוח שההעלאה נתקבלה.
@@ -342,15 +355,23 @@ async function loadHistory(){
         + ' <span style="color:#6b7280">· בבדיקת קדם-דפוס · לא נדרשת ממך פעולה</span></div>' : '';
     // בית-הדפוס סימן שהעבודה מוכנה (בקשת-משתמש 2026-07-30) → באנר ירוק בולט ללקוח
     var readyNote = p.readyNotice ? '<div style="font-size:.82rem;color:#166534;background:#dcfce7;border:1.5px solid #16a34a;border-radius:7px;padding:6px 10px;margin-top:5px;font-weight:800;display:inline-block">🎉 העבודה מוכנה! ניתן לתאם איסוף/משלוח עם בית הדפוס</div>' : '';
-    return '<div class="row" style="'+rowStyle+'"><div class="main"><div class="title">'+(p.readyNotice?'🎉 ':(locked?'✅ ':''))+esc(p.title || (p.customer? p.customer+' — עיתון' : 'עיתון'))+'</div>'
-      + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(locked?'אושר '+_appDate:'')+'</div>'+lockNote+readyNote+seenNote+'</div>'
-      + '<span class="badge '+(locked?'b-approved':b.cls)+'" style="'+(locked?'font-size:.78rem;padding:4px 11px':'')+'">'+(locked?'✓ אושר לדפוס':b.txt)+'</span>'
+    return '<div class="row" style="'+rowStyle+'"><div class="main"><div class="title">'+(isDone?'🏁 ':(p.readyNotice?'🎉 ':(locked?'✅ ':'')))+esc(p.title || (p.customer? p.customer+' — עיתון' : 'עיתון'))+'</div>'
+      + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(locked&&!isDone?'אושר '+_appDate:'')+'</div>'+lockNote+readyNote+seenNote+'</div>'
+      + '<span class="badge '+(isDone?'b-done':(locked?'b-approved':b.cls))+'" style="'+(locked?'font-size:.78rem;padding:4px 11px':'')+'">'
+      + (isDone?'🏁 הושלמה':(locked?'✓ אושר לדפוס':b.txt))+'</span>'
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">'+acts+'</div></div>';
   }).join('');
 }
 
 // ── אישור פרופר-אפוגי ──
 async function approveApogee(id){
+  /* שכבת-הגנה שנייה: גם אם הדף פתוח מאתמול והכפתור עדיין על המסך — בודקים
+     מול הרשומה העדכנית שהעבודה לא הושלמה בינתיים. */
+  try {
+    var fresh = await (await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`))).json();
+    var closed = window.ProofGuard ? ProofGuard.isClosed(fresh) : !!(fresh && (fresh.completedAt || fresh.closedAt));
+    if (closed){ toast('העבודה כבר הושלמה — לא ניתן לאשר. פנו לבית הדפוס.'); loadHistory(); return; }
+  } catch(e){ /* אין רשת — ממשיכים; השרת ממילא מקור-האמת */ }
   var name = prompt('לאישור הפרופר לדפוס — שם מלא של המאשר:', (_portalRec && _portalRec.name) || CUST);
   if (name == null) return;
   name = String(name).trim(); if (!name){ toast('נא להזין שם'); return; }

@@ -89,6 +89,12 @@
   .dayHdr.todayHdr { background:#2d3561; color:var(--gold-light); }
   .dayHdr.todayHdr .dayArrow { color:var(--gold); }
   .dayHdr.todayHdr .dayCnt { background:rgba(255,255,255,.2); }
+  /* 🆕 קבצים חדשים מהלקוח שקדם-הדפוס טרם סימן שראה */
+  .newDot { background:#dc2626; color:#fff; border-radius:10px; padding:1px 7px; font-size:.7rem;
+            font-weight:900; white-space:nowrap; margin-inline-start:4px; }
+  .custItem.hasNew { background:#fff5f5; border-inline-start:4px solid #dc2626; }
+  .custItem.hasNew.on { background:var(--press); color:#fff; }
+  .dayHdr .newDot { margin-inline-start:6px; }
   .custItem.dayToday { background:#fffbeb; color:#92400e; border-bottom:2px solid var(--gold-light); font-weight:900; }
   .custItem.dayToday.on { background:var(--gold); color:#2d3561; }
   .todayCust { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:11px 14px;
@@ -583,18 +589,39 @@ function render(rows) {
   // קבוצות-הימים מקווצות כברירת-מחדל; לחיצה על יום פותחת (בקשת-משתמש 2026-07-30)
   const _dayKey = (day) => day || 'ללא יום קבוע';
   const _isDayCollapsed = (day) => _dayCollapsed[_dayKey(day)] !== false;   // undefined → מקווץ
+  /* 🆕 חיווי "קבצים חדשים מהלקוח" (בקשת-בעלים 2026-07-31): העלאה שאושרה
+     ושקדם-הדפוס עדיין לא סימן שראה (shopSeenAt). אותו שדה שמפעיל את ההתראה
+     החוזרת ואת "בית-הדפוס קיבל" בפורטל — מקור-אמת אחד. */
+  const _newFilesFor = (c) => {
+    const items = byCustomer.get(c) || [];
+    let n = 0;
+    items.forEach(function(p){
+      if (!p) return;
+      if (p.approvedAt && !p.shopSeenAt && p.mode !== 'parts') n++;
+      Object.keys(p.parts || {}).forEach(function(k){
+        const pt = p.parts[k]; if (pt && pt.approvedAt && !pt.shopSeenAt) n++;
+      });
+    });
+    return n;
+  };
+  const _dayNew = {};   // כמה חדשים בכל יום — לחיווי על כותרת-היום
   const custItemHtml = (c, day) => {
     const items = byCustomer.get(c), on = (c === _selCust);
     const act = items.filter(function(p){ return !p.completedAt; }).length;
     const card = _custHasActiveCard(c) ? ' <span title="כרטיס עבודה פעיל">📋</span>' : '';
     const hidden = _isDayCollapsed(day) ? ' style="display:none"' : '';
-    return `<div class="custItem${on?' on':''}" data-cust="${escapeHtml(c)}" data-day="${escapeHtml(_dayKey(day))}"${hidden}>
-      <span class="cName">📁 ${escapeHtml(c)}${card}</span><span class="cCount" title="פעילות מתוך סה״כ">${act}${act!==items.length?('/'+items.length):''}</span></div>`;
+    const nNew = _newFilesFor(c);
+    if (nNew) _dayNew[_dayKey(day)] = (_dayNew[_dayKey(day)] || 0) + nNew;
+    const newTag = nNew
+      ? ` <span class="newDot" title="${nNew} קבצים חדשים שטרם נצפו">🆕 ${nNew}</span>` : '';
+    return `<div class="custItem${on?' on':''}${nNew?' hasNew':''}" data-cust="${escapeHtml(c)}" data-day="${escapeHtml(_dayKey(day))}"${hidden}>
+      <span class="cName">📁 ${escapeHtml(c)}${card}${newTag}</span><span class="cCount" title="פעילות מתוך סה״כ">${act}${act!==items.length?('/'+items.length):''}</span></div>`;
   };
   const dayHdrHtml = (day, count) => {
     const col = _isDayCollapsed(day), isToday = (day === _today);
+    const nNew = _dayNew[_dayKey(day)] || 0;
     return `<div class="dayHdr${isToday?' todayHdr':''}" data-daytoggle="${escapeHtml(_dayKey(day))}">
-      <span class="dayArrow">${col?'▶':'▼'}</span> ${isToday?'📌 ':''}${_dayKey(day)} <span class="dayCnt">(${count})</span></div>`;
+      <span class="dayArrow">${col?'▶':'▼'}</span> ${isToday?'📌 ':''}${_dayKey(day)} <span class="dayCnt">(${count})</span>${nNew?` <span class="newDot">🆕 ${nNew}</span>`:''}</div>`;
   };
   // סדר הימים: היום קודם, אחר-כך שאר השבוע במחזור, ולבסוף "ללא יום קבוע"
   const _tIdx = _DAYS.indexOf(_today);
