@@ -116,6 +116,44 @@
     cursor:pointer; border-bottom:1px solid #eee; font-weight:700; color:#2d3561; transition:background .12s; }
   .todayCust:hover { background:#faf8f2; }
   .todaySec { padding:9px 14px; font-weight:800; color:var(--press); background:#faf8f2; border-bottom:1px solid var(--line); font-size:.9rem; }
+  /* ── מבנה-פורטל: ימי-השבוע כניווט ראשי ─────────────────────────────── */
+  .pvWrap { display:flex; flex-direction:column; gap:0; }
+  .pvDays { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:9px 12px;
+            background:#faf8f2; border:1px solid var(--line); border-radius:12px 12px 0 0; }
+  .pvSpacer { flex:1; }
+  .pvDay { display:inline-flex; align-items:center; gap:5px; padding:7px 13px; border-radius:9px;
+           border:1.5px solid var(--line); background:#fff; color:#2d3561; font-family:inherit;
+           font-weight:800; font-size:.88rem; cursor:pointer; }
+  .pvDay:hover { background:#f3f4f8; }
+  .pvDay.isToday { border-color:var(--gold,#d4af37); }
+  .pvDay.on { background:var(--press,#2d3561); color:#fff; border-color:var(--press,#2d3561); }
+  .pvCnt { background:rgba(0,0,0,.08); border-radius:9px; padding:0 7px; font-size:.76rem; }
+  .pvDay.on .pvCnt { background:rgba(255,255,255,.22); }
+  .pvSwitch { padding:6px 11px; border-radius:8px; border:1px dashed #cbd5e1; background:#fff;
+              color:#6b7280; font-family:inherit; font-size:.78rem; cursor:pointer; }
+  .pvBody { display:grid; grid-template-columns:290px 1fr 220px; align-items:start;
+            border:1px solid var(--line); border-top:none; border-radius:0 0 12px 12px; overflow:hidden; }
+  .pvSide { border-inline-end:1px solid var(--line); background:#fff; max-height:72vh; overflow:auto; }
+  .pvSideTitle { padding:8px 13px; font-weight:800; color:#6b7280; font-size:.82rem;
+                 background:#faf8f2; border-bottom:1px solid var(--line); }
+  /* כרטיס-לקוח: מצב העבודה נקרא בלי להיכנס פנימה.
+     ⚠️ display:block הכרחי — הכרטיס נושא גם את המחלקה .custItem (בשביל החיפוש
+     והקליק המשותפים), ו-.custItem מגדירה display:flex. בלי הדריסה הזו שלוש
+     שורות-הכרטיס נפרסות זו לצד זו ונצבטות בעמודה של 290px. */
+  .pvCust { display:block; padding:10px 13px; border-bottom:1px solid #eee; cursor:pointer; transition:background .12s; }
+  .pvCust:hover { background:#faf8f2; }
+  .pvCust.on { background:var(--press,#2d3561); color:#fff; }
+  .pvCust.on .pvcFoot, .pvCust.on .pvcAct { color:rgba(255,255,255,.75); }
+  .pvCust.hasNew { border-inline-start:4px solid #dc2626; }
+  .pvcTop { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .pvcName { font-weight:800; font-size:.9rem; }
+  .pvcMeta { display:flex; gap:5px; align-items:center; flex-wrap:wrap; margin-top:5px; }
+  .pvcAct { font-size:.75rem; color:#6b7280; }
+  .pvcFoot { margin-top:4px; font-size:.72rem; color:#9ca3af; }
+  @media (max-width:900px){
+    .pvBody { grid-template-columns:1fr; }
+    .pvSide { max-height:none; border-inline-end:none; border-bottom:1px solid var(--line); }
+  }
   /* ⏰ מי שאמור היה לשלוח היום וטרם — זו הרשימה שרודפים אחריה */
   .todaySec.lateSec { background:#fef2f2; color:#b91c1c; border-bottom-color:#fecaca; }
   .todayCust.lateCust { background:#fff7f7; border-inline-start:4px solid #dc2626; color:#b91c1c; }
@@ -340,6 +378,19 @@ let _dayByCustomer = {};      // שם-לקוח (מנורמל) → יום בשב�
 let _dayOverride = {};        // דריסה ידנית של יום-הלקוח (מנצחת את היומן) — customerDayOverride ב-Firebase
 let _activeCardCusts = {};    // שם-לקוח (מנורמל) → true אם יש כרטיס פעיל
 let _dayCollapsed = {};       // day → true אם קבוצת-היום מקווצת (ברירת-מחדל: מקווץ)
+/* ── מבנה חדש: ימי-השבוע כניווט ראשי (בקשת-בעלים 2026-07-31) ─────────────────
+   "חלון כמו של פורטל הלקוחות: בצד אחד ימי השבוע, בלחיצה על יום נפתחים כל
+   הלקוחות של אותו יום, ובלחיצה על לקוח נפתח הפורטל שלו ממבט הדפוס."
+   ⚠️ מוקם מאחורי דגל ולא מחליף את המסך הקיים: ?ui=portal מפעיל, ?ui=classic
+   מכבה, והבחירה נזכרת. כך אפשר לחזור אחורה בלחיצה אחת אם משהו מפריע בעבודה. */
+let _pvDay = null;            // היום שנבחר בניווט (null = היום הנוכחי)
+const _uiPortal = (function(){
+  try{
+    const q = new URLSearchParams(location.search).get('ui');
+    if (q === 'portal' || q === 'classic') localStorage.setItem('solanShopUi', q);
+    return (q || localStorage.getItem('solanShopUi') || 'portal') === 'portal';
+  }catch(e){ return true; }
+})();
 const _normName = s => String(s||'').replace(/["'.,\-()]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
 function _custDay(name){
   const n = _normName(name); if (!n) return '';
@@ -519,7 +570,7 @@ function render(rows) {
      (הצלבה בקריאה בלבד; אין שדה כזה ברשומת-הגיליון ואיננו כותבים חדש). */
   const stageBar = (p) => {
     if (!window.ShopView) return '';
-    const cur = ShopView.stageOf(p, { hasActiveCard: _custHasActiveCard(p.customer || '') });
+    const cur = ShopView.stageOf(p, { hasActiveCard: _hasCard(p.customer || '') });
     const at = ShopView.stageIndex(cur);
     return '<div class="stgBar">' + ShopView.STAGES.map(function(s, i){
       const cls = i < at ? 'stg on' : (i === at ? ('stg cur' + (s.key === 'done' ? ' done' : '')) : 'stg');
@@ -649,7 +700,14 @@ function render(rows) {
   /* 🆕 חיווי "קבצים חדשים מהלקוח" (בקשת-בעלים 2026-07-31): העלאה שאושרה
      ושקדם-הדפוס עדיין לא סימן שראה (shopSeenAt). אותו שדה שמפעיל את ההתראה
      החוזרת ואת "בית-הדפוס קיבל" בפורטל — מקור-אמת אחד. */
+  /* ⚡ מטמון-לרינדור: שתי הפונקציות האלה נקראות 3-4 פעמים לכל לקוח בכל רינדור
+     (רצועת-ימים, כרטיס, פאנל-כרטיסים, מסך-היום), ו-_custHasActiveCard סורקת
+     בפנים את כל שמות-הכרטיסים הפעילים עם השוואת-מחרוזת. הרינדור רץ כל 15
+     שניות. המטמון נבנה מחדש בכל רינדור, ולכן אינו יכול להתיישן. */
+  const _nfCache = new Map(), _acCache = new Map();
+  const _hasCard = (c) => { if (!_acCache.has(c)) _acCache.set(c, _custHasActiveCard(c)); return _acCache.get(c); };
   const _newFilesFor = (c) => {
+    if (_nfCache.has(c)) return _nfCache.get(c);
     const items = byCustomer.get(c) || [];
     let n = 0;
     items.forEach(function(p){
@@ -665,7 +723,7 @@ function render(rows) {
   const custItemHtml = (c, day) => {
     const items = byCustomer.get(c), on = (c === _selCust);
     const act = items.filter(function(p){ return !p.completedAt; }).length;
-    const card = _custHasActiveCard(c) ? ' <span title="כרטיס עבודה פעיל">📋</span>' : '';
+    const card = _hasCard(c) ? ' <span title="כרטיס עבודה פעיל">📋</span>' : '';
     const hidden = _isDayCollapsed(day) ? ' style="display:none"' : '';
     const nNew = _newFilesFor(c);
     if (nNew) _dayNew[_dayKey(day)] = (_dayNew[_dayKey(day)] || 0) + nNew;
@@ -685,15 +743,18 @@ function render(rows) {
   const _orderedDays = _DAYS.slice(_tIdx).concat(_DAYS.slice(0, _tIdx));
   let sideList = `<div class="custItem dayToday${_selCust==='__today__'?' on':''}" data-cust="__today__">
       <span class="cName">📅 היום — ${_today}</span></div>`;
-  _orderedDays.forEach(day => {
-    const inDay = custNames.filter(c => _dayOf[c] === day).sort((a,b)=>a.localeCompare(b,'he'));
-    if (!inDay.length) return;
-    sideList += dayHdrHtml(day, inDay.length) + inDay.map(c => custItemHtml(c, day)).join('');
-  });
-  const _noDay = custNames.filter(c => !_dayOf[c]).sort((a,b)=>a.localeCompare(b,'he'));
-  if (_noDay.length) sideList += dayHdrHtml('', _noDay.length) + _noDay.map(c => custItemHtml(c, '')).join('');
-  if (!custNames.length) sideList = '<div style="padding:12px;color:#9ca3af;font-size:.85rem">אין לקוחות</div>';
-  sideList += '<div id="custNoHit" style="display:none;padding:12px;color:#9ca3af;font-size:.85rem">אין לקוח מתאים</div>';
+  // במבנה-פורטל הרשימה הזו נזרקת — אין טעם לבנות אותה כל 15 שניות
+  if (!_uiPortal) {
+    _orderedDays.forEach(day => {
+      const inDay = custNames.filter(c => _dayOf[c] === day).sort((a,b)=>a.localeCompare(b,'he'));
+      if (!inDay.length) return;
+      sideList += dayHdrHtml(day, inDay.length) + inDay.map(c => custItemHtml(c, day)).join('');
+    });
+    const _noDay = custNames.filter(c => !_dayOf[c]).sort((a,b)=>a.localeCompare(b,'he'));
+    if (_noDay.length) sideList += dayHdrHtml('', _noDay.length) + _noDay.map(c => custItemHtml(c, '')).join('');
+    if (!custNames.length) sideList = '<div style="padding:12px;color:#9ca3af;font-size:.85rem">אין לקוחות</div>';
+    sideList += '<div id="custNoHit" style="display:none;padding:12px;color:#9ca3af;font-size:.85rem">אין לקוח מתאים</div>';
+  }
 
   // ── מסך "היום": מי אמור לשלוח היום + מי עם כרטיס פעיל ──
   let todayDetail = '';
@@ -706,7 +767,7 @@ function render(rows) {
     const _custRow = (c, late) => { const items=byCustomer.get(c), act=items.filter(p=>!p.completedAt).length;
       const nNew = _newFilesFor(c);
       return `<div class="todayCust${late?' lateCust':''}" data-cust="${escapeHtml(c)}">
-        <span>${late?'⏰ ':'📁 '}${escapeHtml(c)}${_custHasActiveCard(c)?' 📋':''}${nNew?` <span class="newDot">🆕 ${nNew}</span>`:''}</span>
+        <span>${late?'⏰ ':'📁 '}${escapeHtml(c)}${_hasCard(c)?' 📋':''}${nNew?` <span class="newDot">🆕 ${nNew}</span>`:''}</span>
         <span style="display:flex;gap:6px;align-items:center">
           <button data-portal="${escapeHtml(c)}" title="קישור לפורטל האישי של הלקוח">🔗</button>
           <button data-notice="${escapeHtml(c)}" title="שלח דרישה שתופיע בפורטל הלקוח">📢</button>
@@ -730,7 +791,7 @@ function render(rows) {
   }
 
   // ── פאנל "כרטיסים פעילים" בצד שמאל (במקום בתחתית מסך-היום) ──
-  const _activeCustNames = custNames.filter(c => _custHasActiveCard(c)).sort((a,b)=>a.localeCompare(b,'he'));
+  const _activeCustNames = custNames.filter(c => _hasCard(c)).sort((a,b)=>a.localeCompare(b,'he'));
   const cardsPanel = `<aside class="mdCards"><div class="hd">📋 כרטיסים פעילים (${_activeCustNames.length})</div>`
     + (_activeCustNames.length
         ? _activeCustNames.map(c => { const items=byCustomer.get(c), act=items?items.filter(p=>!p.completedAt).length:0;
@@ -778,15 +839,127 @@ function render(rows) {
       </div>` : ''}`
     : (todayDetail || '<div style="padding:26px;text-align:center;color:#9ca3af">בחרו לקוח מהרשימה בצד</div>');
 
-  $('tableWrap').innerHTML = `<div class="mdWrap">
-      <aside class="mdSide"><div class="mdSideTitle">לקוחות (${custNames.length})</div>
+  /* ── מבנה-פורטל: ימי-השבוע כניווט ראשי ─────────────────────────────────────
+     ההיררכיה היא יום → לקוחות של אותו יום → הפורטל של הלקוח מבט-דפוס.
+     אותן פעולות ואותן שורות כמו במסך הקלאסי — רק הסידור שונה, ולכן כל
+     החיווט שמתחת (data-cust / data-portal / data-seen …) ממשיך לעבוד. */
+  let portalHtml = '';
+  /* ברירת-המחדל היא היום הנוכחי — אבל אם אין בו אף לקוח (שישי/שבת, למשל)
+     נופלים ליום הבא שיש בו לקוחות. מסך שנפתח ריק נראה כאילו משהו נשבר. */
+  /* ⚠️ '__none__' חייב להיות בשרשרת-הנפילה: אם טעינת היומן נכשלת
+     (_loadWeeklyContext בולעת שגיאות) לאף לקוח אין יום, וכל הלקוחות היו
+     יושבים תחת "ללא יום" — הלשונית האחרונה — בעוד המסך פותח יום ריק
+     ומכריז "אין לקוחות". זה נראה בדיוק כמו אובדן-נתונים. */
+  const _pvAuto = (function(){
+    if (custNames.some(c => _dayOf[c] === _today)) return _today;
+    for (const d of _orderedDays) if (custNames.some(c => _dayOf[c] === d)) return d;
+    if (custNames.some(c => !_dayOf[c])) return '__none__';
+    return _today;
+  })();
+  const _pvDayNow = (_pvDay == null) ? _pvAuto : _pvDay;
+  // מפתח-היום כפי שהוא כתוב על הכרטיסים (data-day) — משמש גם את סינון-החיפוש
+  const _pvDayKey = (_pvDayNow === '__none__') ? 'ללא יום קבוע' : _pvDayNow;
+  if (_uiPortal) {
+    const day = _pvDayNow;
+    const _inDay = (d) => d === '__none__' ? custNames.filter(c => !_dayOf[c])
+                                           : custNames.filter(c => _dayOf[c] === d);
+    const _newInDay = (d) => _inDay(d).reduce((s, c) => s + _newFilesFor(c), 0);
+    // רצועת-ימים: היום קודם, ואז שאר השבוע במחזור — כך שלא צריך לחפש את היום
+    const dayTabs = _orderedDays.concat(['__none__']).map(d => {
+      const n = _inDay(d).length, nw = _newInDay(d), lbl = d === '__none__' ? 'ללא יום' : d;
+      return `<button class="pvDay${d===day?' on':''}${d===_today?' isToday':''}" data-pvday="${escapeHtml(d)}">
+        ${d===_today?'📌 ':''}${escapeHtml(lbl)} <span class="pvCnt">${n}</span>${nw?`<span class="newDot">🆕 ${nw}</span>`:''}</button>`;
+    }).join('');
+
+    // כרטיס-לקוח: כל מה שצריך כדי להחליט אם לפתוח אותו — בלי לפתוח אותו
+    const _card = (c, hidden) => {
+      const items = byCustomer.get(c) || [];
+      const s = window.ShopView
+        ? ShopView.customerSummary(c, items, { day: _dayOf[c], hasActiveCard: _hasCard(c) })
+        : { active: items.length, newFiles: 0, pendingPages: [], stage: 'received', lastAt: 0 };
+      const st = (window.ShopView ? ShopView.STAGES : []).filter(x => x.key === s.stage)[0];
+      return `<div class="pvCust custItem${c===_selCust?' on':''}${s.newFiles?' hasNew':''}" data-cust="${escapeHtml(c)}" data-day="${escapeHtml(_dayKey(_dayOf[c]))}"${hidden?' style="display:none"':''}>
+        <div class="pvcTop"><span class="pvcName">📁 ${escapeHtml(c)}${_hasCard(c)?' <span title="כרטיס עבודה פעיל">📋</span>':''}</span>
+          ${s.newFiles?`<span class="newDot">🆕 ${s.newFiles}</span>`:''}</div>
+        <div class="pvcMeta">
+          ${st?`<span class="stg cur${s.stage==='done'?' done':''}">${st.icon} ${st.label}</span>`:''}
+          <span class="pvcAct">${s.active} פעילות</span>
+          ${s.pendingPages.length?`<span class="pendTag">⏳ חסרים עמ׳ ${s.pendingPages.join(', ')}</span>`:''}
+        </div>
+        <div class="pvcFoot">${s.lastAt?('אחרון: '+fmt(s.lastAt)):'טרם התקבלו קבצים'}</div>
+      </div>`;
+    };
+    /* כל הלקוחות מצוירים תמיד, ומי שלא ביום-הנבחר מוסתר ב-CSS. זה נראה מיותר —
+       אבל זה מה שמאפשר לחיפוש למצוא לקוח *מכל* יום בלי ריצה מחדש של render
+       (ריצה מחדש בכל הקלדה גונבת פוקוס). לקוח שלא זוכרים באיזה יום הוא — וזה
+       המקרה שבו באמת מחפשים — חייב להימצא. */
+    const list = _inDay(day).sort((a,b)=>a.localeCompare(b,'he'));
+    const listHtml = custNames.slice().sort((a,b)=>a.localeCompare(b,'he'))
+      .map(c => _card(c, list.indexOf(c) < 0)).join('')
+      + (list.length ? '' : '<div class="pvEmpty" style="padding:18px;color:#9ca3af;font-size:.86rem">אין לקוחות ליום זה</div>');
+
+    portalHtml = `<div class="pvWrap">
+      <div class="pvDays">${dayTabs}
+        <span class="pvSpacer"></span>
+        <button class="pvDay${_selCust==='__today__'?' on':''}" data-cust="__today__" title="מי אמור לשלוח היום ומי טרם שלח">📅 סיכום היום</button>
+        <button class="pvSwitch" id="uiClassic" title="חזרה למסך הרשימה הקודם">↩ תצוגה קודמת</button>
+      </div>
+      <div class="pvBody">
+        <aside class="pvSide">
+          <div class="custFilterWrap"><input id="custFilter" type="search" placeholder="🔍 חיפוש לקוח…" autocomplete="off"></div>
+          <div class="pvSideTitle">${day==='__none__'?'ללא יום קבוע':day} · ${list.length} לקוחות</div>
+          ${listHtml}
+          <div id="custNoHit" style="display:none;padding:12px;color:#9ca3af;font-size:.85rem">אין לקוח מתאים</div>
+        </aside>
+        <section class="mdMain">${detail}</section>
+        ${cardsPanel}
+      </div></div>`;
+  }
+
+  /* הרענון-האוטומטי (כל 15 שניות) מחליף innerHTML ומאפס גלילה. במבנה-פורטל
+     הרשימה מכילה את *כל* הלקוחות, ולכן קפיצה-לראש באמצע חיפוש-ויזואלי מרגישה
+     כמו תקלה. שומרים ומחזירים. */
+  const _prevScroll = (function(){ const e = document.querySelector('.pvSide, .mdSide'); return e ? e.scrollTop : 0; })();
+  $('tableWrap').innerHTML = _uiPortal ? portalHtml : `<div class="mdWrap">
+      <aside class="mdSide"><div class="mdSideTitle">לקוחות (${custNames.length})
+          <button class="pvSwitch" id="uiPortal" title="מעבר לתצוגת ימי-שבוע">📅 תצוגת ימים</button></div>
         <div class="custFilterWrap"><input id="custFilter" type="search" placeholder="🔍 חיפוש לקוח…" autocomplete="off"></div>
         ${sideList}</aside>
       <section class="mdMain">${detail}</section>
       ${cardsPanel}
     </div>`;
-  // בחירת-לקוח → מציג את עבודותיו במרכז (בלי טעינה-מחדש מהשרת)
-  document.querySelectorAll('.custItem').forEach(el => el.onclick = () => { _selCust = el.dataset.cust; render(rows); });
+  /* ⚠️ כפתור "📅 סיכום היום" ברצועת-הימים נושא data-cust אבל אינו .custItem,
+     ולכן מטפל-הקליק המשותף לא תופס אותו — לחיצה עליו לא עשתה כלום, בשקט.
+     (בדיוק דפוס הכשל-השקט שכבר עלה כאן פעמיים.) */
+  if (_prevScroll) { const e = document.querySelector('.pvSide, .mdSide'); if (e) e.scrollTop = _prevScroll; }
+  document.querySelectorAll('.pvDay[data-cust]').forEach(b => b.onclick = () => {
+    _selCust = b.dataset.cust; render(rows);
+  });
+  // ניווט-ימים (מבנה-פורטל בלבד)
+  document.querySelectorAll('[data-pvday]').forEach(b => b.onclick = () => {
+    _pvDay = b.dataset.pvday;
+    // מעבר-יום לא אמור לגרור איתו לקוח מיום אחר לחלון הימני
+    if (_selCust !== '__today__' && _dayKey(_dayOf[_selCust]) !== (_pvDay === '__none__' ? 'ללא יום קבוע' : _pvDay)) _selCust = '__today__';
+    render(rows);
+  });
+  /* המעבר חייב להיות דו-כיווני. בגרסה הראשונה היה רק כפתור אחד — מי שלחץ
+     "תצוגה קודמת" ננעל עליה, כי הדגל נשמר ב-localStorage ולא הייתה דרך חזרה. */
+  const _switchUi = (mode) => { try{ localStorage.setItem('solanShopUi', mode); }catch(e){} location.search = '?ui=' + mode; };
+  const _uc = document.getElementById('uiClassic');
+  if (_uc) _uc.onclick = () => _switchUi('classic');
+  const _up = document.getElementById('uiPortal');
+  if (_up) _up.onclick = () => _switchUi('portal');
+  /* בחירת-לקוח → מציג את עבודותיו במרכז (בלי טעינה-מחדש מהשרת).
+     במבנה-פורטל, בחירת לקוח שנמצא דרך החיפוש מזיזה גם את לשונית-היום אליו —
+     אחרת הלקוח נפתח מימין אבל נעלם מהרשימה ברגע שמנקים את החיפוש. */
+  document.querySelectorAll('.custItem').forEach(el => el.onclick = () => {
+    _selCust = el.dataset.cust;
+    if (_uiPortal && el.dataset.day) {
+      const d = el.dataset.day;
+      _pvDay = (d === 'ללא יום קבוע') ? '__none__' : d;
+    }
+    render(rows);
+  });
   // לחיצה על לקוח במסך "היום" → פותחת את הלקוח
   // (הכפתורים שבתוך השורה מטופלים בנפרד — קליק עליהם לא אמור לפתוח את הלקוח)
   document.querySelectorAll('.todayCust').forEach(el => el.onclick = (ev) => {
@@ -818,11 +991,19 @@ function render(rows) {
       document.querySelectorAll('.custItem').forEach(el => {
         if (el.dataset.cust === '__today__') return;   // פריט "היום" תמיד גלוי
         if (q) { const hit = el.dataset.cust.toLowerCase().indexOf(q) >= 0; el.style.display = hit ? '' : 'none'; if (hit) shown++; }
-        else { // בלי חיפוש — חוזרים למצב הקיווץ של היום שאליו הפריט שייך
+        else if (_uiPortal) {
+          /* מבנה-פורטל: אין קיווץ-ימים. בלי חיפוש חוזרים להצגת היום הנבחר בלבד —
+             ⚠️ בלי הענף הזה כל הכרטיסים היו נעלמים בניקוי-החיפוש (אין
+             _dayCollapsed במבנה הזה, וברירת-המחדל שלו היא "מקווץ"). */
+          el.style.display = (el.dataset.day === _pvDayKey) ? '' : 'none';
+        }
+        else { // מבנה קלאסי — חוזרים למצב הקיווץ של היום שאליו הפריט שייך
           el.style.display = (_dayCollapsed[el.dataset.day] !== false) ? 'none' : ''; }
       });
       // בחיפוש פעיל — מסתירים את כותרות-הימים (הרשימה משוטחת ממילא)
       document.querySelectorAll('.mdSide .dayHdr').forEach(h => h.style.display = q ? 'none' : '');
+      // ובמבנה-פורטל: הודעת "אין לקוחות ליום זה" לא רלוונטית בזמן חיפוש
+      document.querySelectorAll('.pvEmpty').forEach(e => e.style.display = q ? 'none' : '');
       const none = $('custNoHit');
       if (none) none.style.display = (q && !shown) ? '' : 'none';
     };
