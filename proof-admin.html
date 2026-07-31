@@ -2001,16 +2001,37 @@ $('portalsBtn').onclick = () => openPortalsBatch();
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(function(e){ console.warn('sw register', e); });
 }
-$('installBtn').onclick = async () => {
-  const p = window._pwaPrompt;
-  if (!p){ alert('הדפדפן לא מציע התקנה כרגע.\n\nב-Chrome/Edge: תפריט ⋮ ← "התקן" / "Install app".\nאם המסך כבר מותקן — פתח אותו מהאייקון בשולחן העבודה.'); return; }
-  p.prompt();
-  try { await p.userChoice; } catch(e){}
-  window._pwaPrompt = null;
-  $('installBtn').style.display = 'none';
-};
-// כבר רץ כאפליקציה מותקנת? אין מה להציע
-if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) $('installBtn').style.display = 'none';
+/* ⚠️ שני מצבים שבהם הכפתור "לא הופיע" (דווח 2026-07-31):
+   1. המסך פתוח *בתוך* האפליקציה הראשית (iframe). הדפדפן לא מציע התקנה לדף
+      מוטמע — ההתקנה שייכת לדף העליון. לכן שם מציעים "פתח בחלון נפרד".
+   2. כרום לפעמים לא יורה beforeinstallprompt מיד. קודם הסתרנו את הכפתור עד
+      שהאירוע נורה — כלומר הוא פשוט לא היה שם. עכשיו הוא תמיד מוצג, ואם אין
+      הצעה זמינה — נאמר בדיוק מה לעשות. */
+(function(){
+  const b = $('installBtn'); if (!b) return;
+  const inFrame = (function(){ try { return window.top !== window.self; } catch(e){ return true; } })();
+  const installed = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  if (installed){ b.style.display = 'none'; return; }
+  if (inFrame){
+    b.textContent = '🔗 פתח בחלון נפרד';
+    b.title = 'המסך פתוח בתוך האפליקציה — כדי להתקין אותו כאפליקציה יש לפתוח אותו בכרטיסייה משלו';
+    b.style.display = '';
+    b.onclick = () => window.open(location.href, '_blank', 'noopener');
+    return;
+  }
+  b.style.display = '';
+  b.onclick = async () => {
+    const p = window._pwaPrompt;
+    if (!p){
+      alert('הדפדפן לא מציע התקנה כרגע.\n\nב-Chrome / Edge:\nתפריט ⋮ (למעלה מימין) ← "התקן…" / "Install app"\nאו האייקון 🖥️ שבשורת-הכתובת.\n\nאם המסך כבר מותקן — פתח אותו מהאייקון בשולחן העבודה.');
+      return;
+    }
+    p.prompt();
+    try { await p.userChoice; } catch(e){}
+    window._pwaPrompt = null;
+    b.style.display = 'none';
+  };
+})();
 
 // מחיקת קובץ בודד מ-Storage (פינוי אמיתי — לא סל-מיחזור, שהמקום ישתחרר)
 async function _storageDelete(path){

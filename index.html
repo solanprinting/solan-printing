@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785496788';
+window.APP_VERSION = '1785497612';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -506,6 +506,38 @@ header h1 span{color:var(--gold);}
   border:none;border-radius:7px;font-family:'Heebo',sans-serif;font-size:.82rem;font-weight:700;
   cursor:pointer;transition:all .15s;}
 .pick-pages-btn:hover{background:#1e2545;}
+/* ===== קוביות-עבודה קומפקטיות ביומן השבועי + חלון-הפרטים ===== */
+.wk-chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:6px;}
+.wk-chip{display:flex;align-items:center;gap:5px;text-align:right;background:#f8f7ff;
+  border:1.5px solid #dde3f8;border-radius:8px;padding:8px 9px;cursor:pointer;
+  font-family:'Heebo',sans-serif;font-size:.82rem;font-weight:800;color:var(--press);
+  transition:all .13s;min-height:38px;}
+.wk-chip:hover{border-color:var(--press);background:var(--tpl-bg);transform:translateY(-1px);}
+.wk-chip .ic{flex:0 0 auto;font-size:.85rem;line-height:1;}
+.wk-chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wk-chip.flyer{border-color:#bbf7d0;background:#f6fff9;color:#15803d;}
+.wk-chip.weekly{border-color:#fed7aa;background:#fffaf5;color:#c2410c;}
+.wk-chip.done{background:#f0fdf4;border-color:#86efac;color:#15803d;}
+.wk-chip.done .nm{opacity:.8;}
+/* חלון-העבודה */
+.wkj-info{display:flex;flex-direction:column;gap:1px;margin-bottom:10px;}
+.wkj-row{display:flex;justify-content:space-between;align-items:center;gap:10px;
+  padding:5px 0;border-bottom:1px solid var(--line);font-size:.84rem;}
+.wkj-row:last-child{border-bottom:none;}
+.wkj-row span{color:var(--gray);}
+.wkj-row b{color:var(--press);text-align:left;}
+.wkj-note{font-size:.79rem;color:#555;background:#faf8f2;border:1px solid var(--line);
+  border-radius:7px;padding:7px 9px;margin-bottom:8px;}
+.wkj-note.int{color:#92400e;background:#fffbeb;border-color:#fcd34d;}
+.wkj-sec{font-size:.82rem;font-weight:800;color:var(--gold);margin:12px 0 8px;}
+.wkj-pages{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
+.wkj-pg{padding:11px 4px;border:2px solid #c0ccf0;border-radius:8px;background:var(--tpl-bg);
+  color:var(--press);font-family:'Heebo',sans-serif;font-size:1rem;font-weight:800;cursor:pointer;transition:all .13s;}
+.wkj-pg:hover{background:var(--press);color:#fff;border-color:var(--press);}
+.wkj-pg.none{grid-column:span 2;font-size:.82rem;background:#fff;color:var(--gray);border-color:var(--line);}
+.wkj-custom{display:flex;gap:7px;margin-top:9px;}
+.wkj-custom .fi{flex:1;}
+@media (max-width:600px){ .wk-chips{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));} }
 
 /* ===== FORM ===== */
 .card-form{background:white;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.12);overflow:hidden;}
@@ -7910,100 +7942,20 @@ function renderWeek() {
     const dayWeekly  = weeklyJobs.filter(w => w.day===day);
     const totalItems = dayPapers.length + dayFlyers.length + dayWeekly.length;
 
-    const papersHTML = dayPapers.length ? dayPapers.map(n => {
-      const done = _cardDoneThisWeek(n.name);
-      return `
-      <div class="paper-btn" style="${done ? 'background:#f0fdf4;border-right:3px solid #16a34a;opacity:.85' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
-          <div>
-            <div class="paper-btn-name" style="${done ? 'color:#15803d' : ''}">${done ? '✅ ' : ''}${n.name}</div>
-            <div class="paper-btn-detail">${n.paper||''}${_paperTagBadge(n.paper)} · ${n.copies?parseInt(n.copies).toLocaleString()+' עותקים':''}</div>
-            ${n.internalNotes?`<div style="font-size:.72rem;color:#92400e;background:#fffbeb;border-radius:4px;padding:2px 6px;margin-top:3px">🔒 ${n.internalNotes}</div>`:''}
-          </div>
-          <div style="display:flex;flex-direction:column;gap:1px;flex-shrink:0">
-            <button title="הזז למעלה" onclick="moveNewspaper(${n.id},-1)"
-              style="background:none;border:none;cursor:pointer;color:#bbb;font-size:.75rem;line-height:1;padding:1px 3px"
-              onmouseover="this.style.color='var(--press)'" onmouseout="this.style.color='#bbb'">▲</button>
-            <button title="הזז למטה" onclick="moveNewspaper(${n.id},1)"
-              style="background:none;border:none;cursor:pointer;color:#bbb;font-size:.75rem;line-height:1;padding:1px 3px"
-              onmouseover="this.style.color='var(--press)'" onmouseout="this.style.color='#bbb'">▼</button>
-          </div>
-          <button title="הסר מהיומן השבוע" onclick="hideFromWeek(${n.id})"
-            style="background:none;border:none;cursor:pointer;color:#ccc;font-size:1rem;line-height:1;padding:0;flex-shrink:0"
-            onmouseover="this.style.color='#c62828'" onmouseout="this.style.color='#ccc'">✕</button>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
-          <button class="pick-pages-btn" style="flex:1;margin-top:0;${done ? 'background:#dcfce7;color:#15803d;border-color:#86efac' : ''}"
-            onclick="openPagePicker(${n.id})">
-            ${done ? '✅ כרטיס נוצר — בחר שוב ▼' : 'בחר כמות עמודים השבוע ▼'}
-          </button>
-          ${done ? `<button title="נקה סימון" onclick="clearSingleWeekMark('${n.name.replace(/'/g,"\\'")}')"
-            style="background:#f0fdf4;border:1px solid #86efac;border-radius:5px;cursor:pointer;font-size:.72rem;color:#16a34a;padding:3px 7px;white-space:nowrap;flex-shrink:0">✕ נקה</button>`
-            : `<button title="סמן ידנית שנוצר כרטיס" onclick="toggleWeekCardMark(${_jsStr(n.name)})"
-            style="background:#fff;border:1px solid #86efac;border-radius:5px;cursor:pointer;font-size:.72rem;color:#15803d;padding:3px 7px;white-space:nowrap;flex-shrink:0;font-weight:700">✓ סמן</button>`}
-        </div>
-      </div>`;
-    }).join('') : '';
+    /* ── קוביות-עבודה קומפקטיות (בקשת-בעלים 2026-07-31) ─────────────────────
+       כל עבודה תפסה קוביה גדולה עם נייר, כמות, הערות ושלושה כפתורים — ועמודת
+       יום עמוסה חייבה גלילה ארוכה רק כדי לראות מי יש היום. עכשיו הקוביה היא
+       שם-העבודה בלבד (עם חיווי "נעשה"), וכל השאר — פרטים, בחירת עמודים,
+       סימון, הזזה והסרה — עבר לחלון שנפתח בלחיצה (openWeekJob).
+       הפעולות עצמן לא שוכתבו: החלון קורא לאותן פונקציות קיימות. */
+    const _chip = (kind, id, name, done, icon, cls) =>
+      `<button class="wk-chip${done ? ' done' : ''}${cls ? ' ' + cls : ''}" data-wk="${kind}:${id}"
+         title="${escHtml(name)} — לחץ לפרטים ולבחירת עמודים">
+         <span class="ic">${done ? '✅' : icon}</span><span class="nm">${escHtml(name)}</span></button>`;
 
-    const flyersHTML = dayFlyers.map(f => {
-      const perSheet = f.perSheet || 1;
-      const sheets   = f.copies ? Math.ceil(parseInt(f.copies)/perSheet) : 0;
-      const done     = _cardDoneThisWeek(f.name);
-      return `
-      <div class="paper-btn" style="border-right:3px solid ${done ? '#15803d' : '#16a34a'};${done ? 'background:#f0fdf4;opacity:.85' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
-          <div>
-            <div class="paper-btn-name" style="color:#15803d">📄 ${done ? '✅ ' : ''}${f.name}</div>
-            ${done ? `<button title="נקה סימון" onclick="clearSingleWeekMark('${f.name.replace(/'/g,"\\'")}")"
-              style="background:none;border:none;cursor:pointer;font-size:.75rem;color:#16a34a;padding:0;margin-top:3px;line-height:1">✕✅</button>` : ''}
-            <div class="paper-btn-detail">${f.paper||''}${_paperTagBadge(f.paper)} · ${f.copies?parseInt(f.copies).toLocaleString()+' עותקים':''}</div>
-            ${perSheet>1&&sheets ? `<div style="font-size:.73rem;color:#16a34a;font-weight:700">${sheets.toLocaleString()} גיליונות (${perSheet} לגיליון)</div>` : ''}
-          </div>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
-          <button class="pick-pages-btn" style="flex:1;margin-top:0;background:#dcfce7;color:#15803d;border-color:#86efac"
-            onclick="quickFlyerCard(${f.id})">
-            ${done ? '✅ כרטיס נוצר — צור שוב ▶' : 'צור כרטיס עבודה ▶'}
-          </button>
-          <button title="${done?'נקה סימון':'סמן ידנית שנוצר כרטיס'}" onclick="toggleWeekCardMark(${_jsStr(f.name)})"
-            style="background:${done?'#f0fdf4':'#fff'};border:1px solid #86efac;border-radius:5px;cursor:pointer;font-size:.72rem;color:#15803d;padding:3px 7px;white-space:nowrap;flex-shrink:0;font-weight:700">${done?'✕ נקה':'✓ סמן'}</button>
-        </div>
-      </div>`;
-    }).join('');
-
-    const weeklyHTML = dayWeekly.map(w => {
-      const wDone = _cardDoneThisWeek(w.name);
-      const deptBtns = (!w.cardCreated && (w.needsFolding || w.needsBinding)) ? `
-        <div style="display:flex;gap:5px;margin-top:5px">
-          ${w.needsFolding?`<button title="הוסף לסידור קיפול" onclick="addWeeklyJobToDept('קיפול',${w.id})"
-            style="flex:1;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:6px;padding:4px 6px;font-size:.72rem;font-weight:700;cursor:pointer">📐 לסידור קיפול</button>`:''}
-          ${w.needsBinding?`<button title="הוסף לסידור כריכה" onclick="addWeeklyJobToDept('כריכייה',${w.id})"
-            style="flex:1;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:6px;padding:4px 6px;font-size:.72rem;font-weight:700;cursor:pointer">📚 לסידור כריכה</button>`:''}
-        </div>` : '';
-      return `
-      <div class="paper-btn" style="border-right:3px solid ${wDone?'#16a34a':'#f97316'};${wDone?'background:#f0fdf4;opacity:.9':''}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
-          <div>
-            <div class="paper-btn-name" style="color:${wDone?'#15803d':'#c2410c'}">${wDone?'✅ ':''}🔁 ${w.name||''}</div>
-            <div class="paper-btn-detail">${w.paper||''}${_paperTagBadge(w.paper)}${w.copies?' · '+parseInt(w.copies).toLocaleString()+' עותקים':''}</div>
-            ${w.customer?`<div style="font-size:.72rem;color:#888">${w.customer}</div>`:''}
-            ${w.internalNotes?`<div style="font-size:.72rem;color:#92400e;background:#fffbeb;border-radius:4px;padding:2px 6px;margin-top:3px">🔒 ${w.internalNotes}</div>`:''}
-          </div>
-          <button title="הסר מהיומן השבועי" onclick="removeWeeklyJob(${w.id})"
-            style="background:none;border:none;cursor:pointer;color:#ccc;font-size:1rem;line-height:1;padding:0;flex-shrink:0"
-            onmouseover="this.style.color='#c62828'" onmouseout="this.style.color='#ccc'">✕</button>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
-          <button class="pick-pages-btn" style="flex:1;margin-top:0;background:${wDone?'#dcfce7':'#fff7ed'};color:${wDone?'#15803d':'#c2410c'};border-color:${wDone?'#86efac':'#fed7aa'}"
-            onclick="quickWeeklyJobCard(${w.id})">
-            ${wDone?'✅ כרטיס נוצר — צור שוב ▶':'➕ צור כרטיס עבודה ▶'}
-          </button>
-          <button title="${wDone?'נקה סימון':'סמן ידנית שנוצר כרטיס'}" onclick="toggleWeekCardMark(${_jsStr(w.name)})"
-            style="background:${wDone?'#f0fdf4':'#fff'};border:1px solid #86efac;border-radius:5px;cursor:pointer;font-size:.72rem;color:#15803d;padding:3px 7px;white-space:nowrap;flex-shrink:0;font-weight:700">${wDone?'✕ נקה':'✓ סמן'}</button>
-        </div>
-        ${deptBtns}
-      </div>`;
-    }).join('');
+    const papersHTML = dayPapers.map(n => _chip('paper', n.id, n.name || '', _cardDoneThisWeek(n.name), '📰', '')).join('');
+    const flyersHTML = dayFlyers.map(f => _chip('flyer', f.id, f.name || '', _cardDoneThisWeek(f.name), '📄', 'flyer')).join('');
+    const weeklyHTML = dayWeekly.map(w => _chip('weekly', w.id, w.name || '', _cardDoneThisWeek(w.name), '🔁', 'weekly')).join('');
 
     const emptyHTML = !dayPapers.length && !dayFlyers.length && !dayWeekly.length
       ? '<div class="day-empty">אין פריטים השבוע</div>' : '';
@@ -8014,11 +7966,16 @@ function renderWeek() {
         ${totalItems?`<span class="day-count">${totalItems}</span>`:''}
       </div>
       <div class="day-papers">
-        ${papersHTML}${flyersHTML}${weeklyHTML}${emptyHTML}
+        <div class="wk-chips">${papersHTML}${flyersHTML}${weeklyHTML}</div>${emptyHTML}
         <button class="add-paper-btn" onclick="openPaperModalForDay('${day}')">+ הוסף עיתון</button>
       </div>
     </div>`;
   }).join('');
+
+  // קליק על קוביה → חלון-הפרטים (נרשם אחרי הרינדור, לא inline)
+  grid.querySelectorAll('[data-wk]').forEach(function(b){
+    b.onclick = function(){ var p = b.dataset.wk.split(':'); openWeekJob(p[0], p[1]); };
+  });
 
   // גלול ליום היום אוטומטית (במובייל)
   setTimeout(() => scrollToWeekDay(todayIdx, false), 80);
@@ -8061,6 +8018,122 @@ function _setupWeekNavObserver() {
   }, { root: g, threshold: 0.5 });
   g.querySelectorAll('.day-col').forEach(function(col) {
     _weekNavObserver.observe(col);
+  });
+}
+
+/* ── חלון-עבודה מהיומן השבועי (בקשת-בעלים 2026-07-31) ────────────────────────
+   הקוביה ביומן מציגה רק שם; כל השאר כאן: פרטי-העבודה (נייר, כמות, גודל,
+   צבעים, לקוח, הערות), בחירת מספר-העמודים לשבוע, וכל הפעולות שהיו על הקוביה.
+   ⚠️ אין כאן לוגיקה חדשה — החלון קורא לאותן פונקציות שהכפתורים קראו להן
+   (quickCard / quickFlyerCard / quickWeeklyJobCard / toggleWeekCardMark /
+   clearSingleWeekMark / moveNewspaper / hideFromWeek / removeWeeklyJob /
+   addWeeklyJobToDept), כדי שהתנהגות ההזמנה והסימון תישאר זהה בדיוק. */
+function _wkFind(kind, id){
+  var n = Number(id);
+  if (kind === 'paper')  return (newspapers  || []).find(function(x){ return x.id === n; });
+  if (kind === 'flyer')  return (flyers      || []).find(function(x){ return x.id === n; });
+  if (kind === 'weekly') return (weeklyJobs  || []).find(function(x){ return x.id === n; });
+  return null;
+}
+function closeWeekJob(){ var m = document.getElementById('week-job-modal'); if (m) m.remove(); }
+function openWeekJob(kind, id){
+  var j = _wkFind(kind, id); if (!j) return;
+  closeWeekJob();
+  var done = _cardDoneThisWeek(j.name);
+  var row = function(label, val){
+    if (val === undefined || val === null || val === '' ) return '';
+    return '<div class="wkj-row"><span>' + label + '</span><b>' + val + '</b></div>';
+  };
+  var copies = j.copies ? parseInt(j.copies).toLocaleString() + ' עותקים' : '';
+  var perSheet = (kind === 'flyer' && j.perSheet > 1) ? j.perSheet : 0;
+  var sheets = (perSheet && j.copies) ? Math.ceil(parseInt(j.copies) / perSheet) : 0;
+
+  // ① בחירת מספר-עמודים — רק לעיתון (לעלון/עבודה שבועית אין pageOptions)
+  var pagesBlock = '';
+  if (kind === 'paper'){
+    var opts = j.pageOptions || [];
+    pagesBlock =
+      '<div class="wkj-sec">כמה עמודים השבוע?</div>' +
+      '<div class="wkj-pages">' +
+        opts.map(function(p){ return '<button class="wkj-pg" data-pages="' + p + '">' + p + '</button>'; }).join('') +
+        '<button class="wkj-pg none" data-pages="0">ללא עמודים</button>' +
+      '</div>' +
+      '<div class="wkj-custom"><input class="fi" id="wkj-custom-pages" type="number" min="1" step="2" placeholder="מספר אחר…" style="margin:0">' +
+        '<button class="btn btn-sm btn-tpl" id="wkj-custom-go">המשך ▶</button></div>';
+  } else {
+    pagesBlock = '<div class="wkj-sec">יצירת כרטיס</div>' +
+      '<button class="btn btn-primary" id="wkj-make" style="width:100%">' +
+      (done ? '✅ כרטיס נוצר — צור שוב ▶' : '➕ צור כרטיס עבודה ▶') + '</button>';
+  }
+
+  // ② פעולות משניות לפי סוג — בדיוק אלו שהיו על הקוביה
+  var acts = '';
+  if (kind === 'paper') acts =
+    '<button class="btn btn-sm btn-tpl" data-act="up">▲ העלה</button>' +
+    '<button class="btn btn-sm btn-tpl" data-act="down">▼ הורד</button>' +
+    '<button class="btn btn-sm btn-clear" data-act="hide">✕ הסר מהשבוע</button>';
+  if (kind === 'weekly') acts =
+    ((!j.cardCreated && j.needsFolding) ? '<button class="btn btn-sm btn-tpl" data-act="fold">📐 לסידור קיפול</button>' : '') +
+    ((!j.cardCreated && j.needsBinding) ? '<button class="btn btn-sm btn-tpl" data-act="bind">📚 לסידור כריכה</button>' : '') +
+    '<button class="btn btn-sm btn-clear" data-act="remove">✕ הסר מהיומן</button>';
+
+  var html =
+    '<div class="modal-overlay open" id="week-job-modal">' +
+      '<div class="modal" style="max-width:430px">' +
+        '<div class="modal-header"><h3>' + (done ? '✅ ' : '') + escHtml(j.name || '') + '</h3>' +
+          '<button class="modal-close" data-act="close">×</button></div>' +
+        '<div class="modal-body" style="padding:14px 18px">' +
+          '<div class="wkj-info">' +
+            row('נייר', j.paper ? (escHtml(j.paper) + _paperTagBadge(j.paper)) : '') +
+            row('כמות', copies) +
+            (sheets ? row('גיליונות', sheets.toLocaleString() + ' (' + perSheet + ' לגיליון)') : '') +
+            row('גודל', j.size ? escHtml(j.size) : '') +
+            row('צבעים', j.color ? escHtml(j.color) : '') +
+            row('לקוח', j.customer ? escHtml(j.customer) : '') +
+            row('יום', j.day ? escHtml(j.day) : '') +
+          '</div>' +
+          (j.notes ? '<div class="wkj-note">📝 ' + escHtml(j.notes) + '</div>' : '') +
+          (j.internalNotes ? '<div class="wkj-note int">🔒 ' + escHtml(j.internalNotes) + '</div>' : '') +
+          pagesBlock +
+        '</div>' +
+        '<div class="modal-footer" style="flex-wrap:wrap;gap:6px">' +
+          '<button class="btn btn-sm" data-act="mark" style="background:' + (done ? '#f0fdf4' : '#fff') +
+            ';border:1px solid #86efac;color:#15803d;font-weight:700">' + (done ? '✕ נקה סימון' : '✓ סמן שנעשה') + '</button>' +
+          acts +
+          '<button class="btn btn-sm btn-clear" data-act="close" style="margin-inline-start:auto">סגור</button>' +
+        '</div>' +
+      '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  var m = document.getElementById('week-job-modal');
+  m.onclick = function(ev){ if (ev.target === m) closeWeekJob(); };
+  // בחירת עמודים → אותו מסלול בדיוק של openPagePicker הישן
+  m.querySelectorAll('[data-pages]').forEach(function(b){
+    b.onclick = function(){ closeWeekJob(); quickCard(Number(id), Number(b.dataset.pages)); };
+  });
+  var cg = document.getElementById('wkj-custom-go');
+  if (cg) cg.onclick = function(){
+    var v = parseInt((document.getElementById('wkj-custom-pages') || {}).value, 10);
+    if (!v || v < 1){ showToast('הזן מספר עמודים'); return; }
+    closeWeekJob(); quickCard(Number(id), v);
+  };
+  var mk = document.getElementById('wkj-make');
+  if (mk) mk.onclick = function(){
+    closeWeekJob();
+    if (kind === 'flyer') quickFlyerCard(Number(id)); else quickWeeklyJobCard(Number(id));
+  };
+  m.querySelectorAll('[data-act]').forEach(function(b){
+    b.onclick = function(){
+      var a = b.dataset.act;
+      if (a === 'close'){ closeWeekJob(); return; }
+      if (a === 'mark'){ closeWeekJob(); if (done) clearSingleWeekMark(j.name); else toggleWeekCardMark(j.name); return; }
+      if (a === 'up'){ closeWeekJob(); moveNewspaper(Number(id), -1); return; }
+      if (a === 'down'){ closeWeekJob(); moveNewspaper(Number(id), 1); return; }
+      if (a === 'hide'){ closeWeekJob(); hideFromWeek(Number(id)); return; }
+      if (a === 'remove'){ closeWeekJob(); removeWeeklyJob(Number(id)); return; }
+      if (a === 'fold'){ closeWeekJob(); addWeeklyJobToDept('קיפול', Number(id)); return; }
+      if (a === 'bind'){ closeWeekJob(); addWeeklyJobToDept('כריכייה', Number(id)); return; }
+    };
   });
 }
 
