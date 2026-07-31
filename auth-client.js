@@ -52,12 +52,18 @@
     return LOGIN_PAGE + (back ? ('?' + RETURN_PARAM + '=' + encodeURIComponent(back)) : '');
   }
 
-  /* חילוץ היעד מכתובת מסך-ההתחברות, כבר מסונן */
+  /* חילוץ היעד מכתובת מסך-ההתחברות, כבר מסונן.
+     ⚠️ fallback === null מחזיר null במפורש — "אין יעד מבוקש". בלי זה
+     `returnFrom(..., null)` היה נופל ל-STAFF_HOME, כלומר **כל** התחברות
+     נראתה כאילו ביקשה את מסך-העבודה. נתפס בפיילוט: לקוח שהפעיל חשבון
+     מקישור-הזמנה הופנה ל-index.html במקום לפורטל שלו. */
   function returnFrom(search, origin, fallback) {
     var m = /[?&]returnTo=([^&#]*)/.exec(String(search || ''));
     var raw = '';
     if (m) { try { raw = decodeURIComponent(m[1]); } catch (e) { raw = ''; } }
-    return safeReturn(raw, origin) || (fallback || STAFF_HOME);
+    var safe = safeReturn(raw, origin);
+    if (safe) return safe;
+    return fallback === null ? null : (fallback || STAFF_HOME);
   }
 
   /* ── התמדה ────────────────────────────────────────────────────────────
@@ -65,29 +71,47 @@
      ⚠️ בית-הדפוס עובד ממחשב משותף, ולכן ברירת-המחדל היא **לא** לזכור. */
   function persistenceFor(remember) { return remember ? 'local' : 'session'; }
 
-  /* ── ניתוב לפי claims ─────────────────────────────────────────────────
-     החלטה אחת ומרוכזת: לאן שולחים משתמש אחרי התחברות מוצלחת. */
-  function routeFor(claims, requested) {
+  /* המסכים שלקוח רשאי לפתוח. עובד — הכל; ההפרדה בין admin ל-worker
+     נעשית בתוך המסך עצמו. */
+  var CUSTOMER_PAGES = ['customer-portal.html', 'proof-client.html', 'proof-upload.html'];
+
+  /* סוג החשבון לפי ה-claims. ⚠️ חשבון שנוצר בלי הזמנה — 'pending':
+     לא נכשל בשקט ולא מגיע לשום מסך. */
+  function kindOf(claims) {
     var c = claims || {};
-    if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker')) {
-      return { kind: 'staff', to: requested || STAFF_HOME };
-    }
-    if (c.accountType === 'customer' && c.portalId) {
-      return { kind: 'customer', to: requested || ('customer-portal.html?p=' + encodeURIComponent(c.portalId)) };
-    }
-    /* ⚠️ חשבון שנוצר בלי הזמנה — לא נכשל בשקט ולא מגיע לשום מסך.
-       זה המצב של מי שנרשם לבד: יש לו חשבון, אין לו הרשאות. */
-    return { kind: 'pending', to: null };
+    if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker')) return 'staff';
+    if (c.accountType === 'customer' && c.portalId) return 'customer';
+    return 'pending';
+  }
+
+  /* שם-העמוד בלי השאילתה: 'proof-client.html?id=3' → 'proof-client.html' */
+  function pageOf(target) {
+    var t = String(target || '').split('?')[0].split('#')[0];
+    var i = t.lastIndexOf('/');
+    return i >= 0 ? t.slice(i + 1) : t;
   }
 
   /* האם משתמש רשאי לפתוח מסך מסוים — בדיקת-נוחות בצד הלקוח בלבד.
      ⚠️ אינה תחליף לחוקים: החוקים הם מה שמגן, זה רק חוסך מסך ריק. */
   function mayOpen(claims, page) {
-    var r = routeFor(claims);
-    if (r.kind === 'pending') return false;
-    var CUSTOMER_PAGES = ['customer-portal.html', 'proof-client.html', 'proof-upload.html'];
-    if (r.kind === 'customer') return CUSTOMER_PAGES.indexOf(String(page || '')) >= 0;
-    return true;   // עובד — כל המסכים; ההפרדה בין admin ל-worker היא בתוך המסך
+    var k = kindOf(claims);
+    if (k === 'pending') return false;
+    if (k === 'customer') return CUSTOMER_PAGES.indexOf(pageOf(page)) >= 0;
+    return true;
+  }
+
+  /* ── ניתוב לפי claims ─────────────────────────────────────────────────
+     החלטה אחת ומרוכזת: לאן שולחים משתמש אחרי התחברות מוצלחת.
+     ⚠️ יעד מבוקש שאינו מותר לתפקיד **אינו** מכובד — נופלים לבית של
+     התפקיד. בלי זה לקוח היה נשלח למסך-העבודה של בית-הדפוס רק מפני
+     שהכתובת ביקשה זאת. נתפס בפיילוט. */
+  function routeFor(claims, requested) {
+    var k = kindOf(claims);
+    if (k === 'pending') return { kind: 'pending', to: null };
+    var home = (k === 'staff') ? STAFF_HOME
+             : ('customer-portal.html?p=' + encodeURIComponent((claims || {}).portalId));
+    if (requested && mayOpen(claims, requested)) return { kind: k, to: requested };
+    return { kind: k, to: home };
   }
 
   /* ניסוח שגיאות למשתמש. ⚠️ בכוונה אינו מבחין בין "אין משתמש כזה" ל"סיסמה
@@ -111,6 +135,6 @@
     LOGIN_PAGE: LOGIN_PAGE, RETURN_PARAM: RETURN_PARAM,
     safeReturn: safeReturn, loginUrlFor: loginUrlFor, returnFrom: returnFrom,
     persistenceFor: persistenceFor, routeFor: routeFor, mayOpen: mayOpen,
-    errorText: errorText,
+    kindOf: kindOf, pageOf: pageOf, errorText: errorText,
   };
 });
