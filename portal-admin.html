@@ -14,8 +14,8 @@
      ⚠️ קישור-ההזמנה מוצג **פעם אחת בלבד** ואינו נשמר בשום מקום — לא במסד,
      לא בלוג, ולא כאן. אם נסגר החלון, מפיקים הזמנה חדשה.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785578255"></script>
-<script src="auth-client.js?v=1785578255"></script>
+<script src="firebase-auth.bundle.js?v=1785579008"></script>
+<script src="auth-client.js?v=1785579008"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -69,6 +69,35 @@
       <div class="timing" id="ptime"></div>
     </div>
 
+    <!-- ⚠️ B+3.2: קישור חשבון-עובד ל-staffId. המייל נשאר ב-Firebase Auth
+         בלבד ואינו נכתב ל-RTDB — ראה functions/staff.js. -->
+    <div class="card">
+      <h2>👤 חשבונות עובדים</h2>
+      <div style="font-size:.82rem;color:#6b7280;margin-bottom:6px">
+        החשבון שלי: <span id="myclaims" class="pid">—</span>
+      </div>
+      <label for="mysid">קישור החשבון שלי למזהה-עובד</label>
+      <input id="mysid" type="text" value="admin" dir="ltr">
+      <button class="btn sec" id="linkme">קשר את החשבון שלי</button>
+      <div class="warn" style="margin-top:8px">⚠️ קישור או שינוי תפקיד <b>מנתק את
+        הסשן בכוונה</b>: ה-claims נכנסות לתוקף רק בטוקן הבא. אחרי הלחיצה יש
+        להתחבר מחדש.</div>
+      <div class="msg" id="lmsg"></div>
+      <div class="timing" id="ltime"></div>
+
+      <hr style="border:0;border-top:1px solid #e6e9f2;margin:18px 0">
+      <label for="semail">כתובת מייל אישית של העובד</label>
+      <input id="semail" type="email" placeholder="name@solanprinting.co.il" dir="ltr">
+      <label for="ssid">מזהה-העובד ב-solanUsers</label>
+      <input id="ssid" type="text" placeholder="user_…" dir="ltr">
+      <label for="srole">תפקיד</label>
+      <input id="srole" type="text" value="worker" dir="ltr">
+      <button class="btn" id="mkstaff">פתח חשבון עובד</button>
+      <button class="btn sec" id="sendpw">שלח קישור לקביעת סיסמה</button>
+      <div class="msg" id="smsg"></div>
+      <div class="timing" id="stime"></div>
+    </div>
+
     <div class="card">
       <h2>✉️ הזמנה למשתמש</h2>
       <label for="ipid">מזהה הפורטל</label>
@@ -102,7 +131,7 @@ var $ = function(id){ return document.getElementById(id); };
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785578255';
+var _BAKED = '1785579008';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 function boot(){
@@ -117,6 +146,9 @@ SolanAuth.onAuthStateChanged(async function(user){
     return;
   }
   $('who').textContent = user.email || '';
+  /* ⚠️ מוצג כדי שיהיה אפשר לראות בעין אם החשבון כבר מקושר — בלי staffId
+     הוא ייחסם ברגע שמסך יעבור לאכיפה. */
+  $('myclaims').textContent = 'role=' + (claims.role || '—') + ' · staffId=' + (claims.staffId || 'חסר');
   $('gate').classList.add('hidden');
   $('app').classList.remove('hidden');
 });
@@ -149,6 +181,48 @@ $('mk').addEventListener('click', async function(){
     $('ipid').value = res.portalId;          // ממלא אוטומטית לשלב הבא
   } catch (e) { show('pmsg','err', e.message); }
   $('mk').disabled = false;
+});
+
+/* ── עובדים ────────────────────────────────────────────────────────────────
+   ⚠️ המסך שולח בקשה בלבד. כל הכללים — ייחודיות ה-staffId מול Auth, קיום
+   העובד ברשימה, "לקוח אינו הופך לעובד" וניתוק-הסשן — נאכפים בשרת. */
+$('linkme').addEventListener('click', async function(){
+  var sid = $('mysid').value.trim();
+  if (!sid) { show('lmsg','err','חסר מזהה-עובד'); return; }
+  $('linkme').disabled = true; show('lmsg','','');
+  try {
+    var me = SolanAuth.auth().currentUser;
+    var res = await call('setStaffRole', { uid: me.uid, role: 'admin', staffId: sid }, 'ltime');
+    /* ⚠️ אחרי revoke הטוקן הנוכחי אינו ניתן לרענון, ולכן לא מנסים לקרוא
+       claims מחדש — פשוט מבקשים התחברות מחדש. */
+    show('lmsg','ok', res && res.revoked
+      ? 'החשבון קושר ל-' + sid + '. הסשן נותק בכוונה — התחברו מחדש.'
+      : 'החשבון כבר היה מקושר ל-' + sid + '.');
+  } catch (e) { show('lmsg','err', e.message); }
+  $('linkme').disabled = false;
+});
+
+$('mkstaff').addEventListener('click', async function(){
+  var email = $('semail').value.trim(), sid = $('ssid').value.trim(), role = $('srole').value.trim();
+  if (!email || !sid) { show('smsg','err','נדרשים מייל ומזהה-עובד'); return; }
+  $('mkstaff').disabled = true; show('smsg','','');
+  try {
+    await call('createStaffUser', { email: email, staffId: sid, role: role }, 'stime');
+    /* ⚠️ בלי ה-uid בתצוגה ובלי לוג — מזהה חשבון אינו מידע שצריך להופיע כאן */
+    show('smsg','ok','החשבון נוצר. עכשיו שלחו קישור לקביעת סיסמה.');
+  } catch (e) { show('smsg','err', e.message); }
+  $('mkstaff').disabled = false;
+});
+
+/* ⚠️ הסיסמה נקבעת ע"י העובד בלבד, דרך קישור שנשלח למייל שלו. היא אינה
+   עוברת דרך המסך הזה, דרך הפונקציות ודרך אף לוג. */
+$('sendpw').addEventListener('click', async function(){
+  var email = $('semail').value.trim();
+  if (!email) { show('smsg','err','הזינו קודם כתובת מייל'); return; }
+  $('sendpw').disabled = true;
+  try { await SolanAuth.resetPassword(email); } catch (e) {}
+  show('smsg','ok','אם הכתובת רשומה, נשלח אליה קישור לקביעת סיסמה.');
+  $('sendpw').disabled = false;
 });
 
 $('mkinv').addEventListener('click', async function(){
