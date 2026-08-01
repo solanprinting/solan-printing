@@ -34,6 +34,11 @@ window.addEventListener('appinstalled', function(){
 <script src="page-swap.js"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
+<!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
+     אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
+<script src="firebase-auth.bundle.js?v=1785575998"></script>
+<script src="auth-client.js?v=1785575998"></script>
+<script src="auth-guard.js?v=1785575998" data-page="proof-admin.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -363,30 +368,22 @@ window._appCheckToken = function(){
   };
 })();
 try { window._appCheckToken(); } catch(e){}
-let _fbTok = null, _fbTokExp = 0, _fbTokP = null;
+/* ── האסימון מגיע מהשומר (B+3) ────────────────────────────────────────────
+   כאן ישבה הזדהות אנונימית משלה. עכשיו auth-guard.js הוא המקור היחיד:
+   כשיש משתמש מחובר מוחזר האסימון **שלו**, ורק במצב-תצפית בלי משתמש נופלים
+   לאנונימי — וגם זה במקום אחד בקוד, כדי שמחיקתו ב-B+4 תהיה שורה אחת.
+   ⚠️ בלי נפילה-לאחור מקומית: אם השומר לא נטען זו תקלת-פריסה, והיא חייבת
+   להישמע. שתי מערכות-אסימון במקביל = שני משתמשים שונים לאותו אדם.
+   ⚠️ החתימה נשמרה (Promise<string|null>) — כל קורא קיים ממשיך לעבוד. */
 async function _fbAuthToken(){
-  if (_fbTok && Date.now() < _fbTokExp - 120000) return _fbTok;
-  if (_fbTokP) return _fbTokP;
-  _fbTokP = (async function(){
-    try {
-      let j = null, rt = null; try { rt = localStorage.getItem('solanFbAnonRT'); } catch(e){}
-      if (rt) {
-        const r = await fetch('https://securetoken.googleapis.com/v1/token?key='+_FB_APIKEY, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'grant_type=refresh_token&refresh_token='+encodeURIComponent(rt) });
-        if (r.ok) { const d = await r.json(); j = { token:d.id_token, rt:d.refresh_token, exp:Date.now()+(parseInt(d.expires_in)||3600)*1000 }; }
-      }
-      if (!j) {
-        const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_FB_APIKEY, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({returnSecureToken:true}) });
-        if (r.ok) { const d = await r.json(); j = { token:d.idToken, rt:d.refreshToken, exp:Date.now()+(parseInt(d.expiresIn)||3600)*1000 }; }
-      }
-      if (j) { _fbTok = j.token; _fbTokExp = j.exp; try { localStorage.setItem('solanFbAnonRT', j.rt); } catch(e){} _fbTokP = null; return _fbTok; }
-    } catch(e){}
-    _fbTokP = null; return null;
-  })();
-  return _fbTokP;
+  if (!window.SolanGuard) throw new Error('auth-guard.js לא נטען — אין מקור לאסימון');
+  return window.SolanGuard.token(false);
 }
 async function _au(url){ const t = await _fbAuthToken(); return t ? url + (url.indexOf('?')>=0?'&':'?') + 'auth=' + t : url; }
 async function _authHeaders(base){ const t = await _fbAuthToken(); const h = Object.assign({}, base||{}); if (t) h['Authorization'] = 'Firebase ' + t; return h; }
-_fbAuthToken();   // חימום מוקדם
+/* חימום מוקדם. ⚠️ עם catch: באכיפה בלי משתמש הבטחה זו נדחית בכוונה, והדף
+   ממילא כבר בדרך למסך-ההתחברות — דחייה לא-מטופלת רק הייתה מרעישה בקונסולה. */
+_fbAuthToken().catch(function(){});
 const $ = id => document.getElementById(id);
 const msg = m => $('msg').textContent = m;
 
