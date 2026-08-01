@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785579378';
+window.APP_VERSION = '1785580410';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1602,9 +1602,9 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
      אחרת מסך-העבודה היה מבקש אסימון לפני שיש מי שיענה.
      ⚠️ data-mode="observe" ולא "enforce": כרגע רק שני חשבונות נושאים claims,
      ואכיפה מיידית כאן הייתה נועלת את בית-הדפוס. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1785579378"></script>
-<script src="auth-client.js?v=1785579378"></script>
-<script src="auth-guard.js?v=1785579378" data-page="krtis-avoda.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1785580410"></script>
+<script src="auth-client.js?v=1785580410"></script>
+<script src="auth-guard.js?v=1785580410" data-page="krtis-avoda.html" data-mode="observe"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 try { if (window.LibLoader) LibLoader.autoFill(['xlsx','jspdf','html2canvas','pdfjs','qrcode','jsbarcode']); } catch(e){}
@@ -3790,18 +3790,55 @@ function applyPermissionsToUI() {
 }
 
 // ---- ניהול משתמשים (מהגדרות) ----
+/* העתקת מזהה-העובד בלחיצה. ⚠️ נופל-לאחור לבחירת-הטקסט כשאין הרשאת-לוח
+   (דפדפן ישן / הקשר לא-מאובטח) — כדי שתמיד תהיה דרך להעתיק. */
+function _umCopySid(el) {
+  var sid = el.dataset.sid || el.textContent;
+  var done = function(){ var o = el.textContent; el.textContent = '✓ הועתק';
+    setTimeout(function(){ el.textContent = o; }, 1200); };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      return navigator.clipboard.writeText(sid).then(done, function(){ _umSelect(el); });
+  } catch(e){}
+  _umSelect(el);
+}
+function _umSelect(el) {
+  try { var r = document.createRange(); r.selectNodeContents(el);
+    var s = getSelection(); s.removeAllRanges(); s.addRange(r); } catch(e){}
+}
+
+/* פתיחת חשבון-כניסה לעובד: מעביר את המזהה למסך ניהול-החשבונות, כדי שלא
+   יהיה צורך להעתיק אותו ביד ולא תהיה טעות-הקלדה בקישור.
+   ⚠️ המזהה בכתובת הוא **נוחות-מילוי בלבד**. מי שמאשר את הפעולה הוא השרת:
+   הפונקציה בודקת שהקורא מנהל, שהמזהה קיים ושאינו תפוס — פרמטר בכתובת
+   אינו מעניק דבר. */
+function _umOpenAccount(sid) {
+  window.open('portal-admin.html?staffId=' + encodeURIComponent(sid), '_blank');
+}
+
 function renderUsersManager() {
   var wrap = document.getElementById('users-manager-wrap');
   if (!wrap) return;
   var html = '';
   solanUsers.forEach(function(u) {
     var p = u.permissions || {};
+    /* ⚠️ מזהה-העובד (staffId) הוא החוליה שמחברת את הרשומה הזו לחשבון-הכניסה
+       ב-Firebase. עד עכשיו הוא היה קיים רק כמאפיין נסתר, ולכן מי שפתח עובד
+       חדש לא ידע מה לכתוב במסך חשבונות-העובדים. מוצג + העתקה בלחיצה. */
+    var sidChip = '<span class="um-sid" data-sid="' + u.id + '" onclick="_umCopySid(this)" ' +
+      'title="מזהה-העובד — לחצו להעתקה" style="font-family:ui-monospace,Consolas,monospace;' +
+      'font-size:.7rem;background:#f3f4f6;color:#4b5563;border:1px solid #e5e7eb;border-radius:6px;' +
+      'padding:2px 7px;cursor:pointer;direction:ltr;user-select:all">' + _esc(u.id) + '</span>';
+    var acctBtn = '<button class="btn btn-sm" data-sid="' + u.id + '" onclick="_umOpenAccount(this.dataset.sid)" ' +
+      'title="פתיחת חשבון כניסה (מייל וסיסמה) לעובד הזה" ' +
+      'style="font-size:.72rem;padding:2px 8px;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe">🔑 פתח חשבון כניסה</button>';
     if (u.isAdmin) {
       html += '<div style="background:#f0f4ff;border:1.5px solid #c0ccf0;border-radius:10px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px">' +
               '<div style="display:flex;align-items:center;gap:6px">👑 ' +
               '<input class="um-name-input" data-uid="' + u.id + '" value="' + _esc(u.name) + '" style="font-size:.95rem;font-weight:800;color:var(--press);border:1.5px solid #c0ccf0;border-radius:5px;padding:3px 6px;font-family:Heebo,sans-serif;width:120px;background:white">' +
-              '<span style="color:var(--press);font-weight:800">(מנהל)</span></div>' +
-              '<button class="btn btn-sm btn-tpl" onclick="changeAdminPin()">&#128273; שנה PIN</button></div>';
+              '<span style="color:var(--press);font-weight:800">(מנהל)</span>' + sidChip + '</div>' +
+              '<div style="display:flex;gap:7px;align-items:center">' + acctBtn +
+              '<button class="btn btn-sm btn-tpl" onclick="changeAdminPin()">&#128273; שנה PIN</button></div></div>';
       return;
     }
     var invSel     = _permSel(u.id, 'inventory',  [['full','עריכה מלאה'],['view','צפייה בלבד'],['none','אין גישה']], p.inventory||'view');
@@ -3820,8 +3857,10 @@ function renderUsersManager() {
       '</div>';
     html += '<div style="background:white;border:1.5px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:10px">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+            '<div style="display:flex;align-items:center;gap:7px">' +
             '<input class="um-name-input" data-uid="' + u.id + '" value="' + _esc(u.name) + '" style="font-size:.95rem;font-weight:800;border:1.5px solid #ddd;border-radius:5px;padding:3px 6px;font-family:Heebo,sans-serif;width:140px">' +
-            '<div style="display:flex;gap:7px">' +
+            sidChip + '</div>' +
+            '<div style="display:flex;gap:7px">' + acctBtn +
             '<button class="btn btn-sm btn-tpl" data-uid="' + u.id + '" onclick="changeUserPin(this.dataset.uid)">&#128273; PIN</button>' +
             '<button class="btn btn-sm btn-danger" data-uid="' + u.id + '" onclick="deleteUser(this.dataset.uid)">מחק</button>' +
             '</div></div>' +
