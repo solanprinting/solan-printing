@@ -14,8 +14,8 @@
      ⚠️ הכתובת אינה מעניקה הרשאה. מי שאינו מחובר מועבר להתחברות, ומי
      שמחובר רואה **רק** את הפורטל שב-claims שלו — גם אם ישנה את ?p= בכתובת.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785580724"></script>
-<script src="auth-client.js?v=1785580724"></script>
+<script src="firebase-auth.bundle.js?v=1785580959"></script>
+<script src="auth-client.js?v=1785580959"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -60,6 +60,10 @@
     <div class="card">
       <h2>📄 העבודות שלי</h2>
       <div id="jobs"><div class="empty">אין עדיין עבודות בפורטל הזה.</div></div>
+      <!-- ⚠️ תצוגת-הקבצים היא מסך נפרד (portal-view.html) שקורא portalFiles
+           בלבד. בלי הקישור הזה היא הייתה מסך שאי-אפשר להגיע אליו. -->
+      <a class="out" id="filesLink" href="portal-view.html"
+         style="display:inline-block;margin-top:10px;text-decoration:none;font-weight:700">📂 הקבצים שלי ←</a>
     </div>
 
     <div class="card" id="probeCard">
@@ -84,7 +88,7 @@ var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, func
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785580724';
+var _BAKED = '1785580959';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 var MY_PID = null, TOK = null;
@@ -146,6 +150,11 @@ SolanAuth.onAuthStateChanged(async function(user){
   $('out').classList.remove('hidden');
   $('gate').classList.add('hidden');
   $('app').classList.remove('hidden');
+
+  /* ⚠️ עובד שצופה בפורטל מסוים — הקישור חייב לשאת איתו את ?p=, אחרת הוא
+     ינחת בתצוגה בלי לדעת באיזה פורטל מדובר. ללקוח אין צורך: ה-portalId
+     שלו מגיע מה-claims. */
+  if (claims.accountType === 'staff') $('filesLink').href = 'portal-view.html?p=' + encodeURIComponent(MY_PID);
 
   var p = await dbGet('portals/' + MY_PID);
   if (p.ok && p.val && p.val.name) $('pname').textContent = p.val.name;
