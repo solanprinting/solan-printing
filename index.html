@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785608171';
+window.APP_VERSION = '1785610728';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1608,9 +1608,9 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
      ומחזיר אותו בדיוק לכתובת שממנה בא (returnTo).
      ⚠️ מסך ה-PIN נשאר כבחירת-זהות פנימית אחרי ההתחברות במייל — הוא אינו
      מעניק שום הרשאת Firebase. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1785608171"></script>
-<script src="auth-client.js?v=1785608171"></script>
-<script src="auth-guard.js?v=1785608171" data-page="krtis-avoda.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1785610728"></script>
+<script src="auth-client.js?v=1785610728"></script>
+<script src="auth-guard.js?v=1785610728" data-page="krtis-avoda.html" data-mode="enforce"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 try { if (window.LibLoader) LibLoader.autoFill(['xlsx','jspdf','html2canvas','pdfjs','qrcode','jsbarcode']); } catch(e){}
@@ -1625,11 +1625,12 @@ window._pdfEngineReady = (window.PdfEngine
 <!-- ⚠️ שכבת הגישה ל-Firebase — הוצאה מכאן ל-solan-data.js.
      טעינה **חוסמת** ולפני הבלוק הגדול: 279 מקומות במסך משתמשים
      ב-_fbGet / _fbPut / _fbSnapshot, ו-async או defer היו מפילים את כולם. -->
-<script src="solan-data.js?v=1785608171"></script>
+<script src="solan-data.js?v=1785610728"></script>
 <!-- ⚠️ מנגנון הסנכרון — צורך את _fbGet/_fbPut מ-solan-data.js,
      ולכן חייב לבוא **אחריו** ולפני הבלוק הגדול. -->
-<script src="solan-sync.js?v=1785608171"></script>
-<script src="solan-toast.js?v=1785608171"></script>
+<script src="solan-sync.js?v=1785610728"></script>
+<script src="solan-toast.js?v=1785610728"></script>
+<script src="solan-persist.js?v=1785610728"></script>
 </head>
 <body>
 
@@ -3984,96 +3985,6 @@ const AC_SEEDS = {
 
 
 
-function persist() {
-  // ניקוי תור-המכונות לפני כל שמירה — רשומות "הודפס" ישנות לא נדחפות/נשמרות
-  try { machineQueue = _pruneQueueDone(machineQueue); } catch(e){}
-  // Always write to localStorage (works offline too)
-  localStorage.setItem('solanHistory',             JSON.stringify(historyDB));
-  localStorage.setItem('solanPrintLog',            JSON.stringify(printLog));
-  localStorage.setItem('solanInventory',           JSON.stringify(inventory));
-  localStorage.setItem('solanDocumentPrices',      JSON.stringify(documentPrices));
-  localStorage.setItem('solanInventoryHistory',    JSON.stringify(inventoryHistory));
-  localStorage.setItem('solanInventoryPress',      JSON.stringify(inventoryPress));
-  localStorage.setItem('solanInventoryDeductions', JSON.stringify(inventoryDeductions));
-  localStorage.setItem('solanInvoiceLogs',         JSON.stringify(invoiceLogs));
-  localStorage.setItem('solanDeliveryNotes',       JSON.stringify(deliveryNotes));
-  localStorage.setItem('solanQuotes',              JSON.stringify(quotes));
-  localStorage.setItem('solanDeletedIds',          JSON.stringify(deletedIds));
-  localStorage.setItem('solanQuotePricing',        JSON.stringify(quotePricing));
-  localStorage.setItem('solanCustomers',           JSON.stringify(customers));
-  localStorage.setItem('solanOrders',            JSON.stringify(orders));
-  localStorage.setItem('solanCards',               JSON.stringify(cards));
-  localStorage.setItem('solanNewspapers',          JSON.stringify(newspapers));
-  localStorage.setItem('solanFlyers',             JSON.stringify(flyers));
-  localStorage.setItem('solanPrintFiles',          JSON.stringify(printFiles));
-  localStorage.setItem('solanWeeklyJobs',          JSON.stringify(weeklyJobs));
-  localStorage.setItem('solanFutureJobs',          JSON.stringify(futureJobs));
-  localStorage.setItem('solanRecurringJobs',       JSON.stringify(recurringJobs));
-  localStorage.setItem('solanMachineQueue',        JSON.stringify(machineQueue));
-  localStorage.setItem('solanProductMemory',       JSON.stringify(productMemory));
-  localStorage.setItem('solanSheetSizes',          JSON.stringify(sheetSizeMemory));
-  localStorage.setItem('solanCustomerStock',       JSON.stringify(customerStock));
-  localStorage.setItem('solanManagerTasks',        JSON.stringify(managerTasks));
-  localStorage.setItem('solanUsers',               JSON.stringify(solanUsers));
-  if (apiKey) localStorage.setItem('solanApiKey', apiKey);
-  updateBadge();
-  // סמן שבוצע כתיבה מקומית עכשיו — כדי שה-poll מה-Firebase לא ידרוס אותה
-  // ברגע שהיא עדיין לא הגיעה לשרת (למשל מחיקת כרטיס שמוחזרת ע"י נתון ישן)
-  window._lastLocalWriteAt = Date.now();
-  // Sync to Firebase via REST API — לא במסך הדפסים: אין לו סנכרון מלא/baseline,
-  // ודחיפה משם תדרוס אוספים ניהוליים (כרטיסים, הזמנות...) עם נתון מקומי ישן.
-  // מסך הדפסים דוחף את מה שמותר לו ישירות (machineQueue, printingState, cards ממוזג).
-  if (_fbConnected && !window._isMachineView) {
-    // כרטיסים נדחפים בנפרד דרך מיזוג חסין-דריסה (לא במערך הכללי שנדרס)
-    _pushCardsMerged();
-    // הזמנות/הצעות/יומן-שבועי/קבצי-הדפסה — גם הם דרך מיזוג לפי מזהה (לא דריסת מערך)
-    _MERGED_COLLS.forEach(function(cl){
-      var ref = _COLL_REF[cl];
-      var cur = JSON.stringify(_filterDeleted(cl, ref.get()));
-      if (window._fbSnapshot[cl] !== cur) _pushArrMerged(cl);
-    });
-    var _paths = {
-      inventory: inventory,   // newspapers עבר למיזוג-לפי-מזהה (_MERGED_COLLS) — לא נדחף כמערך שלם
-      inventoryPress: inventoryPress, inventoryDeductions: inventoryDeductions,
-      inventoryHistory: inventoryHistory, invoiceLogs: invoiceLogs,
-      customers: customers,
-      recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds,
-      machineQueue: machineQueue, productMemory: productMemory,
-      managerTasks: managerTasks, sheetSizeMemory: sheetSizeMemory
-    };
-    // מלאי-לקוחות — דחיפה ממוזגת לפי-לקוח (לא PUT של המפה כולה)
-    if (window._fbSnapshot.customerStock !== JSON.stringify(customerStock)) _pushMapMerged('customerStock');
-    window._fbPendingPuts = window._fbPendingPuts || {};
-    Object.keys(_paths).forEach(function(p) {
-      var _json = JSON.stringify(_paths[p]);
-      // אם ה-collection הזה לא השתנה אצלנו מאז הסנכרון האחרון מהשרת — לא דוחפים אותו.
-      // זה מונע ממסך/לשונית "תקוע" (שלא נגע ב-collection הזה) לדרוס בטעות מחיקה
-      // שבוצעה במקום אחר רק בגלל ש-persist() נקרא על שינוי בקולקציה אחרת.
-      if (window._fbSnapshot && window._fbSnapshot[p] === _json) return;
-      // הגנת מלאי: אם לטאב הזה אין עדיין baseline מהשרת עבור האוסף (למשל מסך הדפסים,
-      // שמריץ persist דרך טיימרים כמו _purgeCustomerCards אך לא סנכרן מלאי) — אל תדחוף
-      // אותו, כדי לא לדרוס מלאי/הורדות תקינים בנתון מקומי ישן/ריק.
-      // גם אוספים שממוזגים-בקריאה לפי updatedAt (מלאי-לקוחות, זיכרונות, משימות-מנהל):
-      // בלי baseline מהשרת דחיפה שלהם = דריסת המפה כולה בנתון מקומי ישן. זה מה שמחק
-      // עדכוני מלאי-לקוחות שנעשו במכשיר אחר (הטלפון) — 2026-07-30.
-      if (window._fbSnapshot[p] === undefined &&
-          (p==='inventory'||p==='inventoryDeductions'||p==='inventoryHistory'||p==='invoiceLogs'||p==='inventoryPress'
-           ||p==='customerStock'||p==='productMemory'||p==='sheetSizeMemory'||p==='managerTasks')) return;
-      // הגנת מחירון: אל תדחוף quotePricing עד שידוע שהוא אמין (נמשך מהשרת או נשמר ידנית),
-      // כדי שטאב עם ברירת-מחדל ריקה לא ידרוס את המחירון התקין בשרת.
-      if (p === 'quotePricing' && !window._quotePricingLoaded) return;
-      window._fbSnapshot[p] = _json;
-      // מסמנים "כתיבה בתהליך" כדי שה-poll (כל 15 שניות) לא ימשוך בטעות נתון ישן
-      // מהשרת בזמן שהכתיבה הזו עדיין באוויר, וידרוס איתו את העדכון המקומי שלנו
-      // (זה מה שגרם לתעודות משלוח/הורדות מלאי "להתאפס" בחזרה אחרי כמה שניות).
-      window._fbPendingPuts[p] = (window._fbPendingPuts[p] || 0) + 1;
-      window._fbPut(p, _paths[p]).then(function() {
-        window._fbPendingPuts[p] = Math.max(0, (window._fbPendingPuts[p] || 1) - 1);
-      });
-    });
-    updateFBStatus(true);
-  }
-}
 
 function addHistory(key, val) {
   if (!val || val.length < 2) return;
