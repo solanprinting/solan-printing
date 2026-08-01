@@ -169,6 +169,43 @@ window._fbPut = async (path, data) => {
     return true;
   } catch(e) { return false; }
 };
+/* ⚠️ הועברו לכאן מ-krtis-avoda.html (חילוץ 6A) — העברה מכנית בלבד.
+   אלה פונקציות גישה ל-Firebase, ולכן מקומן כאן ולא בשכבת ה-AI:
+   _fbPatchRaw נקראת גם מ-_uaAck (שמירת shopSeenAt תחת customerProofs),
+   ואישור "ראיתי" של פרופר-לקוח אינו אמור להיות תלוי בקובץ AI.
+   ההערה המקורית שמורה מטה כלשונה. */
+// ── עוזרי Firebase גולמיים לנתיב הענן (בלי מנגנון ה-rev) ──────────────
+// ⚠️ _fbPutRaw / _fbGetRaw / _fbDelRaw — כתיבה/קריאה "גולמית" שעוקפת בכוונה את שער-הגרסה (_rev).
+//    קיימות אך ורק ל-aiRelay (בקשות AI שלא צריכות פולינג ולא צריכות ש-collection יימשך מחדש).
+//    ❌ אין להשתמש בהן לאוספים רגילים (cards/orders/...) — כתיבה בלי _rev = מכשירים אחרים לא ימשכו את השינוי.
+function _fbPutRaw(path, data){
+  if (!window._fbWriteGuard('PUT-RAW ' + path)) return Promise.resolve(false);   // הגנת סביבה
+  return window._fbAuthToken().then(function(t){
+    return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)
+    }).then(function(r){ return r.ok; });
+  }).catch(function(){ return false; });
+}
+function _fbGetRaw(path){
+  return window._fbAuthToken().then(function(t){
+    return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : '')).then(function(r){ return r.ok ? r.json() : null; });
+  }).catch(function(){ return null; });
+}
+// PATCH ממוקד — מעדכן שדות בודדים בצומת בלי לדרוס את השאר (למשל shopSeenAt על ריצה)
+function _fbPatchRaw(path, obj){
+  if (!window._fbWriteGuard('PATCH-RAW ' + path)) return Promise.resolve(false);   // הגנת סביבה
+  return window._fbAuthToken().then(function(t){
+    return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(obj)
+    }).then(function(r){ return r.ok; });
+  }).catch(function(){ return false; });
+}
+function _fbDelRaw(path){
+  if (!window._fbWriteGuard('DEL-RAW ' + path)) return Promise.resolve();   // הגנת סביבה
+  return window._fbAuthToken().then(function(t){
+    return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), { method:'DELETE' }).catch(function(){});
+  }).catch(function(){});
+}
 window._fbInit = () => true;
 // תמונת-מצב אחרונה ידועה של כל collection כפי שהתקבלה מהשרת (poll) או נשלחה אליו (push).
 // משמש כדי שלא נדרוס את השרת עם נתון מקומי "תקוע" (לדוגמה: כרטיס שנפתח בלשונית B
