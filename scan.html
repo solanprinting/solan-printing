@@ -29,6 +29,11 @@
   <div id="body"><div class="spin"></div></div>
 </div>
 <script src="scan-complete.js"></script>
+<!-- ⚠️ שומר-הכניסה — סריקת QR היא שלב בייצור, ולכן מסך-עובד.
+     data-mode="observe" עד שכל העובדים יקבלו חשבון. ראה auth-guard.js. -->
+<script src="firebase-auth.bundle.js?v=1785578255"></script>
+<script src="auth-client.js?v=1785578255"></script>
+<script src="auth-guard.js?v=1785578255" data-page="scan.html" data-mode="observe"></script>
 <script>
 // דף סריקת QR מכרטיס עבודה מודפס: ?c=<מזהה כרטיס> [&r=<ריצה>]
 // סדר עדיפויות:
@@ -162,22 +167,16 @@ window._appCheckToken = function(){
 try { window._appCheckToken(); } catch(e){}
 var TOKEN = null;
 
+/* ── האסימון מגיע מהשומר (B+3.3) ────────────────────────────────────────
+   ⚠️ החלטת-הבעלים (01/08/2026): סריקת ה-QR היא **שלב בייצור** ולא מסך
+   ציבורי — היא קוראת כרטיסי-עבודה, מסמנת שלבי-גימור ומסמנת השלמה. ולכן
+   המסך הוא מסך-עובד לכל דבר, ובאכיפה הוא דורש accountType=staff.
+   ⚠️ החזרה לפעולה המקורית: השומר בונה את returnTo מהכתובת **על השאילתה
+   שלה**, ולכן ‎scan.html?c=123‎ חוזר לאותו כרטיס אחרי ההתחברות ולא לדף-הבית.
+   ⚠️ אין נפילה-לאחור: לא ל-PIN ולא לאנונימי. */
 function _tok(){
-  var rt = null; try { rt = localStorage.getItem('solanFbAnonRT'); } catch(e){}
-  var step = rt
-    ? fetch('https://securetoken.googleapis.com/v1/token?key=' + _FB_APIKEY, {
-        method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:'grant_type=refresh_token&refresh_token=' + encodeURIComponent(rt)
-      }).then(function(r){ return r.ok ? r.json() : Promise.reject(); })
-        .then(function(j){ return { t:j.id_token, rt:j.refresh_token }; })
-    : Promise.reject();
-  return step.catch(function(){
-    return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + _FB_APIKEY, {
-      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ returnSecureToken:true })
-    }).then(function(r){ return r.ok ? r.json() : Promise.reject(); })
-      .then(function(j){ return { t:j.idToken, rt:j.refreshToken }; });
-  }).then(function(a){ try { localStorage.setItem('solanFbAnonRT', a.rt); } catch(e){} return a.t; })
-    .catch(function(){ return null; });
+  if (!window.SolanGuard) return Promise.reject(new Error('auth-guard.js לא נטען — אין מקור לאסימון'));
+  return window.SolanGuard.token(false);
 }
 function fbGet(path){
   return fetch(_FBURL + '/' + path + '.json' + (TOKEN ? '?auth=' + TOKEN : '')).then(function(r){

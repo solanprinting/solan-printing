@@ -122,6 +122,44 @@
     return { action: 'allow', reason: 'ok' };
   }
 
+  /* ── מסכים מעורבים ────────────────────────────────────────────────────
+     אותו קובץ משרת היום שלושה קהלים: עובד שמייצר, לקוח-חדש עם claims,
+     וקישור-שיתוף ישן שאין מאחוריו התחברות בכלל.
+
+     ⚠️ הקהל נקבע **מה-claims בלבד**. אף פרמטר בכתובת אינו משתתף בהחלטה:
+     פרמטר הוא דבר שהמשתמש כותב, ו"מצב עובד לפי ?mode=staff" היה שער
+     שנפתח בהקלדה. זו הסיבה שהפונקציה אינה מקבלת את הכתובת בכלל.
+
+     ⚠️ SEPARATION_READY נשאר false עד שייבנה מסלול-לקוח ייעודי שקורא
+     portalFiles בלבד. כל עוד הוא false, שער-הבדיקות פוסל הצהרת enforce
+     על מסך מעורב — כדי שהמעבר לא ייעשה "בטעות" לפני שההפרדה נבדקה. */
+  var MIXED_PAGES = ['imposition-tool.html', 'customer-fold-preview.html'];
+  var SEPARATION_READY = false;
+
+  function isMixed(page) { return MIXED_PAGES.indexOf(AC.pageOf(page)) >= 0; }
+
+  function audienceFor(claims) {
+    var c = claims || {};
+    if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker') && c.staffId) return 'staff';
+    if (c.accountType === 'customer' && c.portalId) return 'customer';
+    return 'legacy';
+  }
+
+  /* מה מותר לכל קהל. ⚠️ ללקוח ולקישור-הישן אין ייצור, אין עריכה, ואין
+     נתונים פנימיים — גם לא "רק להצצה". */
+  var CAPS = {
+    staff:    { produce: true,  edit: true,  internalData: true  },
+    customer: { produce: false, edit: false, internalData: false },
+    legacy:   { produce: false, edit: false, internalData: false },
+  };
+  function capsFor(aud) { return CAPS[aud] || CAPS.legacy; }
+
+  /* ה-portalId מגיע מה-claims ותו לא — לא מ-?p=, לא מ-?cust=. */
+  function portalIdFor(claims) {
+    var c = claims || {};
+    return (c.accountType === 'customer' && c.portalId) ? c.portalId : null;
+  }
+
   /* מאיפה יבוא האסימון.
      ⚠️ enforce לעולם לא נופל לאנונימי — ראה כותרת הקובץ. */
   function tokenPolicy(mode, hasUser) {
@@ -171,6 +209,8 @@
     rank: rank, resolveMode: resolveMode, modeFromSearch: modeFromSearch,
     decide: decide, tokenPolicy: tokenPolicy, explain: explain,
     providerOf: providerOf, tokenOkFor: tokenOkFor,
+    MIXED_PAGES: MIXED_PAGES, SEPARATION_READY: SEPARATION_READY, isMixed: isMixed,
+    audienceFor: audienceFor, capsFor: capsFor, portalIdFor: portalIdFor,
   };
 
   /* ── מכאן ומטה: דפדפן בלבד ─────────────────────────────────────────── */
@@ -293,6 +333,13 @@
             if (d.action === 'blocked')   { overlay('<div>🚫 ' + explain(d) + '</div>'); return; }
 
             clearOverlay();
+            /* ⚠️ הקהל נחשף גם כמאפיין על body, כדי שמסך מעורב יוכל להסתיר
+               פעולות-ייצור בלי לקרוא claims בעצמו ובלי להמציא כלל משלו. */
+            try {
+              var aud = audienceFor(claims);
+              var mark = function () { document.body.setAttribute('data-solan-audience', aud); };
+              if (document.body) mark(); else document.addEventListener('DOMContentLoaded', mark);
+            } catch (e) {}
             if (mode === 'observe' && d.would && d.would.action !== 'allow') chip(explain(d.would));
             if (!settled) { settled = true; resolve(_state); }
           });
@@ -352,7 +399,13 @@
     rank: rank, resolveMode: resolveMode, modeFromSearch: modeFromSearch,
     decide: decide, tokenPolicy: tokenPolicy, explain: explain,
     providerOf: providerOf, tokenOkFor: tokenOkFor,
+    MIXED_PAGES: MIXED_PAGES, SEPARATION_READY: SEPARATION_READY, isMixed: isMixed,
+    audienceFor: audienceFor, capsFor: capsFor, portalIdFor: portalIdFor,
     protect: protect, ready: ready, token: token, staff: staff,
+    /* הקהל והיכולות של המשתמש הנוכחי — למסכים המעורבים */
+    audience: function () { return audienceFor(_state.claims); },
+    caps: function () { return capsFor(audienceFor(_state.claims)); },
+    portalId: function () { return portalIdFor(_state.claims); },
     state: function () { return _state; },
     signOut: function () {
       return SolanAuth.signOut()['catch'](function () {})
