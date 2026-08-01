@@ -22,9 +22,9 @@
 
      ⚠️ קריאה בלבד. אין העלאה, אין עריכה, ואין פעולת-ייצור.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785580959"></script>
-<script src="auth-client.js?v=1785580959"></script>
-<script src="auth-guard.js?v=1785580959" data-page="portal-view.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1785582121"></script>
+<script src="auth-client.js?v=1785582121"></script>
+<script src="auth-guard.js?v=1785582121" data-page="portal-view.html" data-mode="observe"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -45,8 +45,10 @@
   .meta{font-size:.78rem;color:#6b7280;margin-top:3px}
   .files{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}
   .file{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;padding:5px 10px;
-        font-size:.8rem;color:#2d3561;text-decoration:none;font-weight:700}
+        font-size:.8rem;color:#2d3561;text-decoration:none;font-weight:700;
+        font-family:inherit;cursor:pointer}
   .file:hover{background:#eef2ff}
+  .file:disabled{opacity:.6;cursor:default}
   .gate{text-align:center;padding:44px 20px;color:#6b7280}
   .note{background:#fffbeb;border:1.5px solid #fde68a;color:#92400e;border-radius:10px;
         padding:10px 12px;font-size:.8rem;margin-top:10px}
@@ -88,7 +90,7 @@ var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, func
 
 /* ⚠️ כל האתחול בתוך boot(): רישום onAuthStateChanged לפני ש-init() רץ נכשל
    בשקט והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785580959';
+var _BAKED = '1785582121';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 var MY_PID = null;
@@ -100,6 +102,35 @@ function myPath(kind, rest) {
   if (kind !== 'portals' && kind !== 'portalProofs') throw new Error('נתיב לא מורשה');
   return kind + '/' + MY_PID + (rest ? '/' + rest : '');
 }
+
+var BUCKET = 'solan-printing.firebasestorage.app';
+
+/* פתיחת קובץ בבקשה מאומתת.
+   ⚠️ אין כאן ‎?token=‎ ואין כתובת-שיתוף: הקובץ נמשך עם ה-ID Token, נפתח
+   כ-blob מקומי, וה-blob נמחק אחרי דקה. מי שיעתיק את הכתובת שנפתחה יקבל
+   כתובת מקומית חסרת-משמעות אצל כל אחד אחר.
+   ⚠️ הטוקן נמשך מחדש בכל פתיחה — לא נשמר בזיכרון המסך. */
+window._openFile = async function(btn){
+  var path = btn.dataset.path || '';
+  if (path.indexOf('portalFiles/' + MY_PID + '/') !== 0) return;
+  var old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'פותח…';
+  try {
+    var tok = await SolanAuth.idToken(false);
+    var r = await fetch('https://firebasestorage.googleapis.com/v0/b/' + BUCKET +
+                        '/o/' + encodeURIComponent(path) + '?alt=media',
+                        { headers: { 'Authorization': 'Firebase ' + tok } });
+    if (!r.ok) throw new Error(r.status === 403 ? 'אין הרשאה לקובץ הזה' : 'שגיאה ' + r.status);
+    var url = URL.createObjectURL(await r.blob());
+    window.open(url, '_blank');
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+    btn.textContent = old;
+  } catch (e) {
+    btn.textContent = '✗ ' + (e.message || 'שגיאה');
+    setTimeout(function(){ btn.textContent = old; }, 4000);
+  }
+  btn.disabled = false;
+};
 
 async function dbGet(path, tok) {
   var r = await fetch(DB + '/' + path + '.json?auth=' + encodeURIComponent(tok));
@@ -152,11 +183,13 @@ SolanAuth.onAuthStateChanged(async function(user){
     var files = (x.files && typeof x.files === 'object') ? x.files : {};
     var links = Object.keys(files).map(function(fid){
       var f = files[fid] || {};
-      /* ⚠️ רק כתובת של portalFiles מוצגת. קישור לענף אחר של Storage אינו
-         נפתח כאן — אין לו מה לעשות בתצוגת-לקוח. */
-      if (!f.url || String(f.url).indexOf('/portalFiles%2F') < 0) return '';
-      return '<a class="file" href="' + esc(f.url) + '" target="_blank" rel="noopener">📄 ' +
-             esc(f.name || 'קובץ') + '</a>';
+      /* ⚠️ נשמר **נתיב** ולא כתובת-הורדה. כתובת עם ‎token=‎ היא סוד נייד:
+         מי שמקבל אותה נכנס בלי זהות, וזה בדיוק מה שהמבנה החדש בא לבטל.
+         הקובץ נמשך בבקשה מאומתת (Authorization), ורק אז נפתח. */
+      var p = String(f.path || '');
+      if (p.indexOf('portalFiles/' + MY_PID + '/') !== 0) return '';
+      return '<button class="file" onclick="_openFile(this)" data-path="' + esc(p) + '">📄 ' +
+             esc(f.name || 'קובץ') + '</button>';
     }).join('');
     return '<div class="job"><b>' + esc(x.title || 'עבודה') + '</b>' +
            '<div class="meta">' + esc(x.status || '') +

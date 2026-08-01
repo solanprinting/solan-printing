@@ -14,8 +14,8 @@
      ⚠️ קישור-ההזמנה מוצג **פעם אחת בלבד** ואינו נשמר בשום מקום — לא במסד,
      לא בלוג, ולא כאן. אם נסגר החלון, מפיקים הזמנה חדשה.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785580959"></script>
-<script src="auth-client.js?v=1785580959"></script>
+<script src="firebase-auth.bundle.js?v=1785582121"></script>
+<script src="auth-client.js?v=1785582121"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -98,6 +98,24 @@
       <div class="timing" id="stime"></div>
     </div>
 
+
+    <!-- ⚠️ זריעת עבודת-בדיקה (B+3.6). הפעולה חייבת לרוץ מכאן ולא
+         מסקריפט: לפי חוקי portalFiles החדשים אסימון אנונימי מקבל 403,
+         ורק עובד מאומת יכול ליצור שם קובץ. -->
+    <div class="card">
+      <h2>🧪 עבודת בדיקה בפורטל</h2>
+      <div style="font-size:.82rem;color:#6b7280;margin-bottom:4px">
+        מעלה PDF סינתטי אחד (1.5KB, מסומן TEST) ויוצר רשומה אחת עם
+        <code>isTest:true</code>. אין כאן שום נתון של לקוח אמיתי.
+      </div>
+      <label for="seedpid">מזהה הפורטל</label>
+      <input id="seedpid" type="text" placeholder="pid_…" dir="ltr">
+      <button class="btn" id="seed">זרע עבודת בדיקה</button>
+      <button class="btn sec" id="verifyme">שלח לי אימות מייל</button>
+      <div class="msg" id="dmsg"></div>
+      <div class="timing" id="dtime"></div>
+    </div>
+
     <div class="card">
       <h2>✉️ הזמנה למשתמש</h2>
       <label for="ipid">מזהה הפורטל</label>
@@ -131,7 +149,7 @@ var $ = function(id){ return document.getElementById(id); };
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785580959';
+var _BAKED = '1785582121';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 function boot(){
@@ -235,6 +253,87 @@ $('sendpw').addEventListener('click', async function(){
   try { await SolanAuth.resetPassword(email); } catch (e) {}
   show('smsg','ok','אם הכתובת רשומה, נשלח אליה קישור לקביעת סיסמה.');
   $('sendpw').disabled = false;
+});
+
+/* ── זריעת עבודת-בדיקה ────────────────────────────────────
+   ⚠️ ה-PDF מוטבע כאן כ-base64 ואינו נמשך מהרשת: קובץ-בדיקה שתלוי
+   במקור חיצוני הוא עוד נקודת-כשל. 1.5KB — זניח. */
+var TEST_PDF_B64 =
+  'JVBERi0xLjcKJYGBgYEKCjcgMCBvYmoKPDwKL0ZpbHRlciAvRmxhdGVEZWNvZGUKL0xlbmd0aCA1NDEKPj4Kc3RyZWFtCnic' +
+  'lVTLjhMxELz7K3xG2mD3y7aEkDbZGThwAeaGOKB98FBWaBGC36fas1GyeQDRxD2247iqq6vzEHJMi1Y8xB+fQ4q/w4ePMcUb' +
+  '/wLPHK/v/7H0l0dtGtdBaHeW8P4S7sLb8BDSohqwGCNZfPcq8CFgrv75f0htAOAqO7MZ8n2HXE57qEjz+evb9a/bn1+vP10s' +
+  'v69vLkpqVWoqtcUicboLhPhmy4hTFIzpPrxQEVVWeRmnb2F6FoZpi6IKBHIUPobSipBVUkOC7RCl1MhtBpFBRoV2YngTJU1K' +
+  'MjqyAFoa5sMxAvyYJesePqWUatIGHXI+hFaKnB7zYxttZdkGhy1kzYYiHq1QoitKJdlYCHvZVliJaWFklsxwamV6FrFWFFk2' +
+  '3HOKGEGXmViZqVQAOiHeQhLIymAjdrh0OkjiCuegnYGok6XzFMM1pMx2WjEUshPb1YMvuz7NREcjzj4Y13DtJP1JVE8o2M4i' +
+  'WEVTrin/RTmWTtBagWs2ZWIvoQBezywVUmi15Ip6nALMtPFQRmm05zb2EqiXyTPFKne3wGGl9RPNS3W8PL2jetjvW60kBnm5' +
+  'xrrQo3SyzpYmFEXA3gh21gIbAzBjvtzY2hXy6KafHYbVJTxEM0GM1Uwd53esjtmAPaeP1jgvgYx/HHR1Lno6AZ6tj8tTN3WH' +
+  '79TFu1NErJMZvTF6CtzPoBVcY0+3/6I3whMJnqr9B/8aSaAKZW5kc3RyZWFtCmVuZG9iagoKOCAwIG9iago8PAovRmlsdGVy' +
+  'IC9GbGF0ZURlY29kZQovVHlwZSAvT2JqU3RtCi9OIDYKL0ZpcnN0IDM0Ci9MZW5ndGggNTQ4Cj4+CnN0cmVhbQp4nNVUS2sb' +
+  'MRC+76/QsT2E1ftRjMH2elsooSEJpKT0sPUKs8Wsii2X9N93RpLzsF0CuZVlWM3MN6N5aRihhBMpiSDGEkks1UQRxpkjmjAB' +
+  '3GRS1bd/fnlSX3Vrv6vqz0O/I98AS8k1+V7Vi7AfI2HVdFo9YRdd7DZhXWUjwhB8QFxtQ79f+S2ZtMu2pdRQSrUE0pTyBv4L' +
+  'IAfEgQcdt3AGMrIQyIygVMxA12bSJtugPmFVsV/CH7AaMU3GSpv5x3vxrmX2wV+Lx02r+jL0TRc9edd84JRrailjVDph7t9D' +
+  'Oba+i+H/TS7FP4Tx3xneDnHjD/kp8CUhHiXyOeXU5L+Ee2X7JJe68CV3RfMZZRIwCgSy+JGuyJcQ083+x0+/io93HnLG2FnO' +
+  'D/2l3DBHXmrFMibpkFe5tqbEgzVIuS+y7nnsqd4llud2oil94qUPavpy8nHgcey3Hl9Fmvv62u/CfruCh4C4NoAGD5/85reP' +
+  'w6q7mIdNf2Gos9A+Yx08wWR3BHBGcm250vYUgDFbqpzV8HCPdA4Cldpxak51RhmuhNDn7Cw0lkHrz9lZDXcZZmFrnOiU5VJr' +
+  'LsQZHYMUFZfMqKKD4tVfv5T+ThK7fIgfbyLOXxag7NL3QzcPD7B5KHySU6Kcwv0zG8cQcSOlXTRGqDtypuynF83B0qdxiolF' +
+  'IavqebfzqSlHBYdIxlXoh3FN6rthnI274SB4o9tXPP4FMZlZygplbmRzdHJlYW0KZW5kb2JqCgo5IDAgb2JqCjw8Ci9TaXpl' +
+  'IDEwCi9Sb290IDIgMCBSCi9JbmZvIDMgMCBSCi9GaWx0ZXIgL0ZsYXRlRGVjb2RlCi9UeXBlIC9YUmVmCi9MZW5ndGggNDAK' +
+  'L1cgWyAxIDIgMiBdCi9JbmRleCBbIDAgMTAgXQo+PgpzdHJlYW0KeJwVybENACAIAMEHJbF0WtdHvrnmgO7kgISkLNlSwWXm' +
+  'DQV8aisC2gplbmRzdHJlYW0KZW5kb2JqCgpzdGFydHhyZWYKMTI4MAolJUVPRg==';
+
+function _b64ToBytes(b64){
+  var bin = atob(b64), out = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+$('verifyme').addEventListener('click', async function(){
+  try { await SolanAuth.verifyEmail();
+        show('dmsg','ok','נשלח אליך מייל אימות. לחץ על הקישור ואז התחבר מחדש.'); }
+  catch (e) { show('dmsg','err','שליחה נכשלה'); }
+});
+
+$('seed').addEventListener('click', async function(){
+  var pid = $('seedpid').value.trim();
+  if (!/^pid_[0-9a-f]{32}$/.test(pid)) { show('dmsg','err','מזהה פורטל לא תקין'); return; }
+  var me = SolanAuth.auth().currentUser;
+  /* ⚠️ החוק דורש email_verified. אומרים את זה מראש וברור, במקום
+     לקבל 403 עמום מה-Storage ולנחש למה. */
+  if (!me.emailVerified) {
+    show('dmsg','err','המייל שלך טרם אומת — החוק החדש דורש זאת. לחץ "שלח לי אימות מייל".');
+    return;
+  }
+
+  $('seed').disabled = true; show('dmsg','','');
+  var t0 = performance.now();
+  try {
+    var tok = await SolanAuth.idToken(false);
+    var proofId = 'test_' + Date.now();
+    var name = 'TEST-לא-לייצור.pdf';
+    var path = 'portalFiles/' + pid + '/' + proofId + '/' + name;
+
+    var up = await fetch('https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o?name=' +
+      encodeURIComponent(path), { method:'POST',
+      headers:{ 'Content-Type':'application/pdf', 'Authorization':'Firebase ' + tok },
+      body: _b64ToBytes(TEST_PDF_B64) });
+    if (!up.ok) throw new Error('העלאה נכשלה (' + up.status + ')');
+
+    /* ⚠️ נשמר **נתיב** ולא כתובת-הורדה עם token=: כתובת כזו מעניקה
+       גישה לכל מי שמקבל אותה, וזה בדיוק מה שהמבנה החדש בא לבטל. */
+    var rec = { title: 'TEST – לא לייצור',
+                status: 'עבודת בדיקה — ניתן למחוק',
+                isTest: true, createdAt: Date.now(), updatedAt: Date.now(),
+                files: { f1: { name: name, path: path, isTest: true } } };
+    var db = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+    var w = await fetch(db + '/portalProofs/' + pid + '/' + proofId + '.json?auth=' + encodeURIComponent(tok),
+      { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(rec) });
+    if (!w.ok) throw new Error('כתיבת הרשומה נכשלה (' + w.status + ')');
+
+    $('dtime').textContent = 'seed — ' + Math.round(performance.now() - t0) + 'ms';
+    show('dmsg','ok','נזרעה עבודת בדיקה אחת.');
+    $('dmsg').innerHTML += '<div class="pid">' + proofId + '</div>';
+  } catch (e) { show('dmsg','err', e.message); }
+  $('seed').disabled = false;
 });
 
 $('mkinv').addEventListener('click', async function(){
