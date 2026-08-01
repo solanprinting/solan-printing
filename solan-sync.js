@@ -15,9 +15,25 @@
    הגדול הוצהר, תזרוק ReferenceError (TDZ). נבדק: אין קריאה כזו היום,
    וכל הקריאות מגיעות מ-persist() · מטיימרים · ומפעולות משתמש.
 
-   ⚠️ מה ש**לא** עבר: persist() — נקודת-הכניסה של המסך — וכן
-   deletedIds · _markDeleted · _filterDeleted, שיושבים לפני הבלוק הזה.
+   ⚠️ persist() — נקודת-הכניסה של המסך — נשארה ב-krtis-avoda.html.
    ═══════════════════════════════════════════════════════════════════════════ */
+/* ⚠️ tombstones — הועברו לכאן מ-krtis-avoda.html (חילוץ 3), כדי שהקובץ
+   הזה לא יישען על הגדרה שיושבת ב-HTML ונטענת **אחריו**. זה מסיר
+   את התלות המאוחרת ב-deletedIds וב-_filterDeleted בלבד; תלויות
+   מאוחרות אחרות (cards · orders · updateBadge · _logActivity) נשארו.
+   ⚠️ איחוד ה-tombstones מ-Firebase (_fbPollAll) **לא עבר** — הוא נשאר ב-HTML. */
+// מזהים שנמחקו לצמיתות — מסונכרן ל-Firebase כדי שמחיקה לא "תחזור" ע"י מכשיר/טאב אחר
+let deletedIds = JSON.parse(localStorage.getItem('solanDeletedIds') || '{}');
+function _markDeleted(coll, id){
+  if (!deletedIds[coll]) deletedIds[coll] = [];
+  if (deletedIds[coll].indexOf(id) === -1) deletedIds[coll].push(id);
+}
+function _filterDeleted(coll, arr){
+  var del = deletedIds[coll];
+  if (!del || !del.length || !Array.isArray(arr)) return arr;
+  return arr.filter(function(x){ return x && del.indexOf(x.id) === -1; });
+}
+
 // ========== STORAGE ==========
 // ═══════════════════════════════════════════════════════════════════
 // מיזוג כרטיסים חסין-דריסה — הלב של הסנכרון היציב
