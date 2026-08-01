@@ -76,7 +76,9 @@
      ⚠️ portal.html הוא הפורטל של המבנה החדש (לפי portalId ב-claims);
      customer-portal.html הוא הפורטל הישן של 44 הלקוחות עם ?cust=&k=.
      השניים חיים זה לצד זה עד שהמעבר יושלם — ולכן שניהם ברשימה. */
-  var CUSTOMER_PAGES = ['portal.html', 'customer-portal.html', 'proof-client.html', 'proof-upload.html'];
+  /* ⚠️ portal-view.html הוא תצוגת-הלקוח הייעודית (B+3.5) — קוראת
+     portalFiles/portalProofs בלבד, ובאה במקום "מצב לקוח" בתוך כלי-הייצור. */
+  var CUSTOMER_PAGES = ['portal.html', 'portal-view.html', 'customer-portal.html', 'proof-client.html', 'proof-upload.html'];
   var CUSTOMER_HOME = 'portal.html';
 
   /* סוג החשבון לפי ה-claims. ⚠️ חשבון שנוצר בלי הזמנה — 'pending':
