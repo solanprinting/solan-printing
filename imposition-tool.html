@@ -9,6 +9,11 @@
 <script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}</script>
 <!-- cdnjs נחסם אצל חלק מהמשתמשים (סינון-תוכן/פרוקסי/חוסם-פרסומות) → מראות-גיבוי + אזהרה ברורה -->
 <script src="lib-loader.js"></script>
+<!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
+     data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
+<script src="firebase-auth.bundle.js?v=__APP_VERSION__"></script>
+<script src="auth-client.js?v=__APP_VERSION__"></script>
+<script src="auth-guard.js?v=__APP_VERSION__" data-page="imposition-tool.html" data-mode="observe"></script>
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','pdfjs']); }catch(e){}</script>
 <style>
   :root{ --press:#2d3561; --press-d:#222a4d; --gold:#c9a84c; --gold-light:#e8d5a3; --line:#e2e2ea; }
@@ -1990,13 +1995,14 @@ async function _bkApprove(){
 }
 window._bkApprove = _bkApprove;
 var _FB_APIKEY_IT = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';   // מפתח Web ציבורי (לא סוד)
-var _itTok = { id:null, exp:0 };
+/* ── האסימון מגיע מהשומר (B+3.2) ────────────────────────────────────────
+   ⚠️ בלי נפילה-לאחור מקומית: שתי מערכות-אסימון במקביל = שתי זהויות שונות
+   לאותו אדם. אם השומר לא נטען זו תקלת-פריסה, והיא חייבת להישמע.
+   ⚠️ המסך משרת גם לקוחות (קישור-שיתוף לחוברת), ולכן הוא ב-observe: כרגע
+   הלקוח אינו נחסם, ואסימון אנונימי עדיין מונפק כשאין משתמש מחובר. */
 function _itAuth(){
-  if (_itTok.id && Date.now() < _itTok.exp - 120000) return Promise.resolve(_itTok.id);
-  return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + _FB_APIKEY_IT, {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ returnSecureToken:true })
-  }).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('auth ' + r.status)); })
-    .then(function(j){ _itTok = { id:j.idToken, exp: Date.now() + (parseInt(j.expiresIn)||3600)*1000 }; return _itTok.id; });
+  if (!window.SolanGuard) return Promise.reject(new Error('auth-guard.js לא נטען — אין מקור לאסימון'));
+  return window.SolanGuard.token(false);
 }
 window._itAuth = _itAuth;
 function _itUpload(path, bytes, onPct){

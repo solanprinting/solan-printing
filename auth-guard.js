@@ -105,6 +105,12 @@
     var kind = AC.kindOf(claims);
     if (kind === 'pending') return { action: 'blocked', reason: 'pending' };
 
+    /* ⚠️ עובד חייב קישור ל-staffId (B+3.2). חשבון-עובד בלי קישור אינו יודע
+       **מי** הוא ברשימת-העובדים, ולכן באכיפה הוא נעצר — בלי נפילה חזרה
+       ל-PIN ובלי נפילה לאנונימי. שתי הנפילות האלה היו מחזירות בדיוק את
+       המצב שהמעבר בא לסגור. */
+    if (kind === 'staff' && !claims.staffId) return { action: 'blocked', reason: 'no-staff-id' };
+
     /* ⚠️ אימות-מייל הוא תנאי ללקוח, ובעליו הוא portal.html — שם יושב מסך
        "שלח שוב / כבר אימתתי". מסך ותיק לא מנסה לשכפל אותו, הוא שולח לשם. */
     if (kind === 'customer' && s.emailVerified === false) {
@@ -124,11 +130,34 @@
     return 'anonymous';
   }
 
+  /* ── ספק-הכניסה שעל הטוקן ─────────────────────────────────────────────
+     ⚠️ זו **בדיקה-עצמית נגד באג שלנו**, לא גבול-אבטחה: החתימה מאומתת בשרת
+     ובחוקים, וכאן רק מפענחים את המטען כדי לוודא שלא החזרנו בטעות אסימון
+     אנונימי במסך שאמור לדרוש Email/Password. נכשלת "פנימה" — עוצרת אותנו. */
+  function providerOf(idToken) {
+    try {
+      var part = String(idToken || '').split('.')[1];
+      if (!part) return null;
+      var json = (typeof atob === 'function')
+        ? decodeURIComponent(escape(atob(part.replace(/-/g, '+').replace(/_/g, '/'))))
+        : Buffer.from(part, 'base64').toString('utf8');
+      var p = JSON.parse(json);
+      return ((p && p.firebase) || {}).sign_in_provider || null;
+    } catch (e) { return null; }
+  }
+
+  /* אילו אסימונים מתקבלים בכל מצב */
+  function tokenOkFor(mode, prov) {
+    if (mode !== 'enforce') return true;
+    return prov === 'password';
+  }
+
   /* ניסוח ההחלטה לבן-אדם (מוצג בשבב-התצפית וברישום) */
   function explain(d) {
     switch (d && d.reason) {
       case 'anonymous':      return 'לא מחובר — היה מועבר למסך ההתחברות';
       case 'pending':        return 'החשבון עדיין לא שויך — פנו לבית הדפוס';
+      case 'no-staff-id':    return 'חשבון העובד אינו מקושר לרשומת עובד (staffId)';
       case 'unverified':     return 'המייל טרם אומת';
       case 'wrong-audience': return 'החשבון אינו מורשה למסך הזה';
       case 'off':            return 'השומר כבוי במסך הזה';
@@ -141,6 +170,7 @@
     FB_CONFIG: FB_CONFIG, ANON_RT_KEY: ANON_RT_KEY, MODE_KEY: MODE_KEY,
     rank: rank, resolveMode: resolveMode, modeFromSearch: modeFromSearch,
     decide: decide, tokenPolicy: tokenPolicy, explain: explain,
+    providerOf: providerOf, tokenOkFor: tokenOkFor,
   };
 
   /* ── מכאן ומטה: דפדפן בלבד ─────────────────────────────────────────── */
@@ -278,17 +308,51 @@
   function token(force) {
     return ready().then(function (st) {
       var pol = tokenPolicy(st.mode, !!st.user);
-      if (pol === 'user')  return SolanAuth.idToken(!!force);
       if (pol === 'none')  return Promise.reject(new Error('אין משתמש מחובר — המסך במצב אכיפה'));
-      return anonToken();
+      if (pol !== 'user')  return anonToken();
+      return SolanAuth.idToken(!!force).then(function (t) {
+        /* ⚠️ בדיקה-עצמית: באכיפה האסימון חייב להיות של Email/Password.
+           אם אי-פעם נחזיר כאן אסימון אנונימי בגלל באג, עדיף שהמסך ייפול
+           ברעש מאשר שימשיך לעבוד "כאילו" עם זהות אנונימית. */
+        if (!tokenOkFor(st.mode, providerOf(t)))
+          return Promise.reject(new Error('האסימון אינו של Email/Password'));
+        return t;
+      });
     });
+  }
+
+  /* ── רשומת-העובד: שם-תצוגה והעדפות בלבד ───────────────────────────────
+     ⚠️ מקור-האמת להרשאה הוא ה-claims והחוקים, **לא** הרשומה הזו. תחת
+     החוקים החיים כל מחובר יכול לערוך את solanUsers, ולכן קריאת isAdmin
+     משם הייתה מאפשרת לכל אחד להעלות את עצמו לדרגת מנהל. הרשומה משמשת
+     לשם-תצוגה והעדפות קיימות, וזהו. */
+  var _staffP = null;
+  function staff() {
+    if (_staffP) return _staffP;
+    _staffP = ready().then(function (st) {
+      var sid = (st.claims || {}).staffId;
+      if (!sid) return null;
+      return token(false).then(function (t) {
+        return fetch(FB_CONFIG.databaseURL + '/solanUsers.json?auth=' + encodeURIComponent(t));
+      }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (val) {
+          if (!val) return { staffId: sid, name: null };
+          var list = Array.isArray(val) ? val : Object.keys(val).map(function (k) { return val[k]; });
+          var rec = null;
+          for (var i = 0; i < list.length; i++)
+            if (list[i] && String(list[i].id) === String(sid)) { rec = list[i]; break; }
+          return { staffId: sid, name: rec ? rec.name : null, record: rec };
+        })['catch'](function () { return { staffId: sid, name: null }; });
+    });
+    return _staffP;
   }
 
   var api = {
     FB_CONFIG: FB_CONFIG, ANON_RT_KEY: ANON_RT_KEY, MODE_KEY: MODE_KEY,
     rank: rank, resolveMode: resolveMode, modeFromSearch: modeFromSearch,
     decide: decide, tokenPolicy: tokenPolicy, explain: explain,
-    protect: protect, ready: ready, token: token,
+    providerOf: providerOf, tokenOkFor: tokenOkFor,
+    protect: protect, ready: ready, token: token, staff: staff,
     state: function () { return _state; },
     signOut: function () {
       return SolanAuth.signOut()['catch'](function () {})

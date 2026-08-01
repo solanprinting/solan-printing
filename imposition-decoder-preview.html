@@ -16,6 +16,11 @@
 <script src="imposition-template-import.js"></script>
 <script src="imposition-fold-adapter.js"></script>
 <script src="imposition-flipbook.js"></script>
+<!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
+     data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
+<script src="firebase-auth.bundle.js?v=__APP_VERSION__"></script>
+<script src="auth-client.js?v=__APP_VERSION__"></script>
+<script src="auth-guard.js?v=__APP_VERSION__" data-page="imposition-decoder-preview.html" data-mode="observe"></script>
 <script>
 // ── שומר-סביבה (זהה לשאר הדפים) — פתיחה מקומית לא כותבת ל-Firebase החי ──
 (function(){
@@ -573,10 +578,12 @@ async function dlSpreads(){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='חוברת — כפולות.pdf';
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
 }
+/* ── האסימון מגיע מהשומר (B+3.2) — ראה auth-guard.js ─────────────────────
+   ⚠️ בלי נפילה-לאחור מקומית: שתי מערכות-אסימון במקביל = שתי זהויות שונות
+   לאותו אדם. אם השומר לא נטען זו תקלת-פריסה, והיא חייבת להישמע. */
 function _itAuth(){
-  if(_itTok.id && Date.now()<_itTok.exp-120000) return Promise.resolve(_itTok.id);
-  return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_FB_APIKEY_IT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})})
-    .then(r=>r.ok?r.json():Promise.reject(new Error('auth '+r.status))).then(j=>{ _itTok={id:j.idToken,exp:Date.now()+(parseInt(j.expiresIn)||3600)*1000}; return _itTok.id; });
+  if(!window.SolanGuard) return Promise.reject(new Error('auth-guard.js לא נטען — אין מקור לאסימון'));
+  return window.SolanGuard.token(false);
 }
 function _itUpload(path,bytes,onPct){
   return _itAuth().then(tok=> new Promise((resolve,reject)=>{

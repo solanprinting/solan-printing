@@ -15,6 +15,11 @@
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdfjs','xlsx','jszip']); }catch(e){}</script>
 <script src="framework-orders.js"></script>
 <script src="framework-file-reader.js"></script>
+<!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
+     data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
+<script src="firebase-auth.bundle.js?v=__APP_VERSION__"></script>
+<script src="auth-client.js?v=__APP_VERSION__"></script>
+<script src="auth-guard.js?v=__APP_VERSION__" data-page="framework-orders.html" data-mode="observe"></script>
 <style>
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
         --ok:#16a34a;--bg:#e8e4dc;--card:#fff;--ink:#1a1a2e;--muted:#6b7280}
@@ -84,12 +89,12 @@ function _plu(w){
   const last=w.slice(-1);
   return (_FIN[last] ? w.slice(0,-1)+_FIN[last] : w)+'ים';
 }
+/* ── האסימון מגיע מהשומר (B+3.2) — ראה auth-guard.js ─────────────────────
+   ⚠️ בלי נפילה-לאחור מקומית: שתי מערכות-אסימון במקביל = שתי זהויות שונות
+   לאותו אדם. אם השומר לא נטען זו תקלת-פריסה, והיא חייבת להישמע. */
 function _auth(){
-  if(_tok.id && Date.now()<_tok.exp-120000) return Promise.resolve(_tok.id);
-  return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_APIKEY,
-    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})})
-    .then(r=>r.ok?r.json():Promise.reject(new Error('auth '+r.status)))
-    .then(j=>{ _tok={id:j.idToken,exp:Date.now()+(parseInt(j.expiresIn)||3600)*1000}; return j.idToken; });
+  if(!window.SolanGuard) return Promise.reject(new Error('auth-guard.js לא נטען — אין מקור לאסימון'));
+  return window.SolanGuard.token(false);
 }
 const _P='frameworkAgreements';
 function _get(p){ return _auth().then(t=>fetch(_FBURL+'/'+p+'.json?auth='+t).then(r=>r.ok?r.json():null)); }

@@ -17,6 +17,11 @@
 <script src="imposition-template-registry.js"></script>
 <script src="imposition-legacy-bridge.js"></script>
 <script src="customer-fold-versions.js"></script>
+<!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
+     data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
+<script src="firebase-auth.bundle.js?v=__APP_VERSION__"></script>
+<script src="auth-client.js?v=__APP_VERSION__"></script>
+<script src="auth-guard.js?v=__APP_VERSION__" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -105,9 +110,12 @@ function _ensureLibs(){
   return _libsP;
 }
 function _libsBlockedMsg(r){ return (r&&r.message) || (window.LibLoader?LibLoader.blockedMessage():'רכיבי הצפייה בקבצים לא נטענו.'); }
-function _auth(){ if(_tok.id&&Date.now()<_tok.exp-120000) return Promise.resolve(_tok.id);
-  return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+_APIKEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})})
-    .then(r=>r.ok?r.json():Promise.reject(new Error('auth '+r.status))).then(j=>{ _tok={id:j.idToken,exp:Date.now()+(parseInt(j.expiresIn)||3600)*1000}; return j.idToken; }); }
+/* ── האסימון מגיע מהשומר (B+3.2) — ראה auth-guard.js ─────────────────────
+   ⚠️ בלי נפילה-לאחור מקומית: שתי מערכות-אסימון במקביל = שתי זהויות שונות
+   לאותו אדם. ⚠️ המסך משרת גם לקוחות (קישור-גרסת-קיפול) ולכן הוא ב-observe. */
+function _auth(){
+  if(!window.SolanGuard) return Promise.reject(new Error('auth-guard.js לא נטען — אין מקור לאסימון'));
+  return window.SolanGuard.token(false); }
 function _uploadPdf(path,bytes,onPct){ return _auth().then(tok=> new Promise((res,rej)=>{ const x=new XMLHttpRequest();
   x.open('POST','https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o?name='+encodeURIComponent(path));
   x.setRequestHeader('Content-Type','application/pdf'); if(tok) x.setRequestHeader('Authorization','Firebase '+tok);
