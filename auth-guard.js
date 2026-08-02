@@ -98,7 +98,10 @@
   }
 
   function enforced(s) {
+    /* ⚠️ מסך-המכונה אינו שולח ל-login.html: אין שם מייל וסיסמה להזין.
+       הוא נשאר במקומו ומציג את מסך ה-PIN שלו. */
     if (!s.signedIn) {
+      if (AC.pageOf(s.page) === 'press4.html') return { action: 'allow', reason: 'machine-pin' };
       return { action: 'login', to: AC.loginUrlFor(s.here || s.page, s.origin), reason: 'anonymous' };
     }
     var claims = s.claims || {};
@@ -109,9 +112,7 @@
        **מי** הוא ברשימת-העובדים, ולכן באכיפה הוא נעצר — בלי נפילה חזרה
        ל-PIN ובלי נפילה לאנונימי. שתי הנפילות האלה היו מחזירות בדיוק את
        המצב שהמעבר בא לסגור. */
-    if ((kind === 'staff' || kind === 'press4') && !claims.staffId) {
-      return { action: 'blocked', reason: 'no-staff-id' };
-    }
+    if (kind === 'staff' && !claims.staffId) return { action: 'blocked', reason: 'no-staff-id' };
 
     /* ⚠️ אימות-מייל הוא תנאי ללקוח, ובעליו הוא portal.html — שם יושב מסך
        "שלח שוב / כבר אימתתי". מסך ותיק לא מנסה לשכפל אותו, הוא שולח לשם. */
@@ -145,7 +146,7 @@
     /* ⚠️ press4 הוא קהל משלו ולא staff: הוא מייצר, אבל אינו עורך ואינו
        רואה נתונים פנימיים. לו היה מסווג staff, הוא היה מקבל את יכולות
        העובד הגנריות בכל מסך מעורב. */
-    if (c.accountType === 'staff' && c.role === 'press4' && c.staffId) return 'press4';
+    if (c.accountType === 'machine' && c.role === 'press4' && c.machineId === 'press4') return 'press4';
     if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker') && c.staffId) return 'staff';
     if (c.accountType === 'customer' && c.portalId) return 'customer';
     return 'legacy';

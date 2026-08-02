@@ -96,7 +96,10 @@
     /* ⚠️ press4 מסווג בנפרד ולא כ-staff: לו הוא היה staff, mayOpen היה
        מחזיר true לכל מסכי בית-הדפוס. office עדיין אינו כאן — הוא נשאר
        pending וחסום עד השלב הבא, וזו החלטה ולא שכחה. */
-    if (c.accountType === 'staff' && c.role === 'press4') return 'press4';
+    /* ⚠️ מסך ארבעת הצבעים הוא **מכונה** ולא אדם: accountType='machine'
+       עם Custom Token, בלי מייל ובלי סיסמה. חשבון-עובד בתפקיד press4
+       כבר אינו מסלול קיים. */
+    if (c.accountType === 'machine' && c.role === 'press4') return 'press4';
     if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker')) return 'staff';
     if (c.accountType === 'customer' && c.portalId) return 'customer';
     return 'pending';

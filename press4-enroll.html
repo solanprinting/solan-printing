@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>רישום מחשב המכונה — סולן הדפסות</title>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     press4-enroll.html — הגדרה חד-פעמית של מחשב מכונת ארבעת הצבעים.
+
+     ⚠️ למה המסך הזה קיים: App Check היה מגן על כניסת-המכונה, אבל הוא
+     נשען על reCAPTCHA מ-google.com — ורשת כשרה חוסמת אותו, כלומר מסך
+     המכונה היה מת. מנגד, endpoint ציבורי שמוגן ב-PIN בן שש ספרות
+     בלבד ניתן לניחוש מהאינטרנט. הפתרון: סוד ארוך שנרשם כאן פעם אחת
+     ע"י מנהל, נשמר במחשב-המכונה, ונשלח בכל כניסה יחד עם ה-PIN.
+
+     ⚠️ המסך אינו מופיע בשום תפריט וזמין למנהל מאומת בלבד. אין ממנו
+     קישור למסכי המשרד, ואין דרך לבצע רישום מתוך מסך העובד.
+
+     ⚠️ המפתח הגולמי מוחזר מהשרת **פעם אחת** ונשמר כאן ב-localStorage.
+     בשרת יושב רק hash+salt. אין שחזור — מי שאיבד, רושם מחדש.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script src="firebase-auth.bundle.js?v=1785660300"></script>
+<script src="auth-client.js?v=1785660300"></script>
+<script src="auth-guard.js?v=1785660300" data-page="press4-enroll.html" data-mode="enforce"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
+       color:#1f2937;background:linear-gradient(180deg,#eef1f6 0%,#f5f6f9 100%);padding:20px}
+  .wrap{max-width:520px;margin:0 auto}
+  .top{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  .logo{width:46px;height:46px;border-radius:12px;background:#2d3561;color:#fff;display:flex;
+        align-items:center;justify-content:center;font-size:1.35rem}
+  h1{font-size:1.1rem;margin:0;color:#2d3561}
+  .sub{font-size:.8rem;color:#6b7280}
+  .card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 8px 26px rgba(45,53,97,.09);margin-bottom:12px}
+  .btn{border:0;border-radius:10px;padding:12px 20px;font-family:inherit;font-size:.92rem;
+       font-weight:700;cursor:pointer;background:#2d3561;color:#fff;width:100%}
+  .btn.warn{background:#b91c1c}
+  .btn.sec{background:#fff;color:#2d3561;border:1.5px solid #d8dce6}
+  .btn:disabled{opacity:.5;cursor:default}
+  .gate{text-align:center;padding:44px 20px;color:#6b7280}
+  .msg{margin-top:12px;font-size:.86rem;font-weight:700;border-radius:10px;padding:10px 12px}
+  .msg.ok{background:#ecfdf5;border:1.5px solid #a7f3d0;color:#15803d}
+  .msg.err{background:#fef2f2;border:1.5px solid #fecaca;color:#b91c1c}
+  .msg.warn{background:#fffbeb;border:1.5px solid #fde68a;color:#92400e}
+  .state{font-size:.85rem;color:#4b5563;margin-bottom:14px;line-height:1.7}
+  .state b{color:#1f2937}
+  .hidden{display:none}
+  hr{border:0;border-top:1px solid #e6e9f2;margin:18px 0}
+  label{display:block;font-size:.82rem;font-weight:700;color:#374151;margin:0 0 5px}
+  .pin{width:100%;padding:12px;border:1.5px solid #d8dce6;border-radius:10px;background:#fbfcfe;
+       font-family:inherit;font-size:1.25rem;font-weight:700;letter-spacing:.4em;text-align:center}
+  .pin:focus{outline:none;border-color:#2d3561;background:#fff}
+  .row{margin-bottom:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo">🖥️</div>
+    <div>
+      <h1>רישום מחשב המכונה</h1>
+      <div class="sub" id="who"></div>
+    </div>
+  </div>
+
+  <div id="gate" class="card gate">טוען…</div>
+
+  <div id="app" class="hidden">
+    <div class="card">
+      <div class="state" id="state">בודק…</div>
+
+      <!-- ⚠️ ה-PIN חי בשדות האלה בלבד, ונמחק מהם מיד אחרי השליחה.
+           הוא אינו נשמר ב-localStorage, ב-sessionStorage, בכתובת או בלוג. -->
+      <div class="row">
+        <label for="pin1">קוד כניסה למכונה (6 ספרות)</label>
+        <input id="pin1" class="pin" type="password" inputmode="numeric"
+               autocomplete="new-password" maxlength="6" placeholder="••••••" dir="ltr">
+      </div>
+      <div class="row">
+        <label for="pin2">אימות הקוד</label>
+        <input id="pin2" class="pin" type="password" inputmode="numeric"
+               autocomplete="new-password" maxlength="6" placeholder="••••••" dir="ltr">
+      </div>
+
+      <button class="btn" id="enroll">קבע קוד ורשום מחשב זה</button>
+      <button class="btn sec" id="changePin" style="margin-top:8px">החלף קוד</button>
+      <div id="msg" class="msg hidden"></div>
+      <hr>
+      <!-- ⚠️ מחיקת localStorage לבדה אינה מבטלת הרשאה בצד השרת. -->
+      <button class="btn warn" id="revoke">בטל את רישום מחשב המכונה</button>
+      <div class="sub" style="margin-top:8px">
+        הביטול מבטל את כל המכשירים הרשומים בשרת, גם אם המחשב עצמו כבר אינו בהישג יד.
+        הקוד עצמו אינו נמחק.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var FB_CONFIG = {
+  apiKey: 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg',
+  authDomain: 'solan-printing.firebaseapp.com',
+  projectId: 'solan-printing',
+  databaseURL: 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app',
+};
+var FN = 'https://europe-west1-solan-printing.cloudfunctions.net';
+/* ⚠️ אותם מפתחות בדיוק כמו ב-press4.html — מקור אחד לשמות. */
+var LS_ID = 'solanPress4DeviceId', LS_SECRET = 'solanPress4DeviceSecret';
+var $ = function(id){ return document.getElementById(id); };
+
+var _BAKED = '1785660300';
+AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
+
+function msg(kind, text){
+  var el = $('msg'); el.className = 'msg ' + kind; el.textContent = text;
+  el.classList.remove('hidden');
+}
+
+function showState(){
+  var id = null;
+  try { id = localStorage.getItem(LS_ID); } catch (e) {}
+  /* ⚠️ מוצג מזהה המכשיר בלבד — לעולם לא המפתח. */
+  $('state').innerHTML = id
+    ? 'מחשב זה <b>רשום</b>.<br>מזהה: <b>' + String(id).slice(0, 12) + '…</b>'
+    : 'מחשב זה <b>אינו רשום</b> כמכונת ארבעה צבעים.';
+}
+
+async function callFn(name, data){
+  var tok = await SolanAuth.idToken(false);
+  var r = await fetch(FN + '/' + name, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok },
+    body: JSON.stringify({ data: data || {} })
+  });
+  var j = null; try { j = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error((j && j.error && j.error.message) || ('HTTP ' + r.status));
+  return (j && j.result) || {};
+}
+
+/* ⚠️ הקוד נמחק מהשדות מיד — גם בהצלחה וגם בכשל. שדה סיסמה שנשאר מלא
+   על מסך של בית-דפוס הוא קוד שכל עובר-אורח יכול לחשוף ב-DevTools. */
+function clearPins(){ $('pin1').value = ''; $('pin2').value = ''; }
+
+function lockUi(on){
+  ['enroll', 'changePin', 'revoke'].forEach(function (id){ $(id).disabled = !!on; });
+}
+
+/* אימות בצד הדפדפן — נוחות בלבד. ה-Function אוכפת 6 ספרות בעצמה. */
+function readPins(){
+  var a = String($('pin1').value || '').trim(), b = String($('pin2').value || '').trim();
+  if (!/^[0-9]{6}$/.test(a)) { msg('err', 'הקוד חייב להיות בדיוק 6 ספרות.'); return null; }
+  if (a !== b) { msg('err', 'שני השדות אינם זהים.'); return null; }
+  return a;
+}
+
+async function doEnroll(){
+  var pin = readPins();
+  if (!pin) return;                       /* ⚠️ נעצר לפני כל בקשת-רשת */
+  lockUi(true);
+  var old = $('enroll').textContent; $('enroll').textContent = 'רושם…';
+  var pinSaved = false;
+  try {
+    /* ⚠️ הסדר מחייב: קודם הקוד, ורק אם הצליח — הרישום. מחשב רשום בלי
+       קוד הוא מסך שהעובד לא יכול להיכנס אליו בלי שאיש יודע למה. */
+    await callFn('setPress4MachinePin', { pin: pin });
+    pinSaved = true;
+    var res = await callFn('enrollPress4Device');
+    if (!res.deviceId || !res.deviceSecret) throw new Error('השרת לא החזיר פרטי מכשיר');
+    /* ⚠️ הפעם היחידה שהמפתח קיים בדפדפן. רק הוא וה-deviceId נשמרים —
+       ה-PIN לעולם לא. */
+    localStorage.setItem(LS_ID, res.deviceId);
+    localStorage.setItem(LS_SECRET, res.deviceSecret);
+    showState();
+    msg('ok', 'המחשב נרשם בהצלחה. העובדים יכולים להיכנס באמצעות הקוד.');
+  } catch (e) {
+    /* ⚠️ כשל חלקי נאמר במפורש: הקוד כבר הוחלף בשרת, ולכן "נסה שוב" כאן
+       אינו אותו דבר כמו "כלום לא קרה". */
+    msg('err', pinSaved
+      ? 'הקוד נשמר, אך רישום המחשב נכשל. נסו שוב לבצע רישום.'
+      : ('הגדרת הקוד נכשלה: ' + (e.message || 'שגיאה')));
+  }
+  clearPins();
+  $('enroll').textContent = old;
+  lockUi(false);
+}
+
+/* החלפת קוד בלבד — בלי לגעת ברישום המחשב. deviceVersion אינו משתנה,
+   ולכן אין צורך לרשום מחדש. */
+async function doChangePin(){
+  var pin = readPins();
+  if (!pin) return;
+  lockUi(true);
+  var old = $('changePin').textContent; $('changePin').textContent = 'מחליף…';
+  try {
+    await callFn('setPress4MachinePin', { pin: pin });
+    msg('ok', 'הקוד הוחלף. הסשנים הקיימים בוטלו — העובד יזין את הקוד החדש. ' +
+              'אין צורך לרשום את המחשב מחדש.');
+  } catch (e) {
+    msg('err', 'החלפת הקוד נכשלה: ' + (e.message || 'שגיאה'));
+  }
+  clearPins();
+  $('changePin').textContent = old;
+  lockUi(false);
+}
+
+async function doRevoke(){
+  if (!confirm('פעולה זו תנתק את מסך המכונה. ' +
+               'כדי להפעילו שוב מנהל יצטרך לרשום את המחשב מחדש.')) return;
+  lockUi(true);
+  var old = $('revoke').textContent; $('revoke').textContent = 'מבטל…';
+  try {
+    var res = await callFn('revokePress4Devices');
+    /* ⚠️ המחיקה המקומית **רק** אחרי שהשרת אישר. מחיקה מוקדמת הייתה
+       משאירה מכשיר פעיל בשרת בלי שאיש יוכל לבטלו מכאן. */
+    try { localStorage.removeItem(LS_ID); localStorage.removeItem(LS_SECRET); } catch (e) {}
+    showState();
+    /* ⚠️ ה-PIN אינו נמחק — ביטול רישום אינו בקשה להחליף קוד. */
+    msg('warn', 'המחשב בוטל (' + (res.revoked || 0) + ' מכשירים). ' +
+                'סשנים פתוחים ייעצרו בפעולה הבאה. הקוד עצמו לא שונה.');
+  } catch (e) {
+    msg('err', 'הביטול נכשל: ' + (e.message || 'שגיאה'));
+  }
+  $('revoke').textContent = old;
+  lockUi(false);
+}
+
+function boot(){
+SolanAuth.init(FB_CONFIG);
+SolanAuth.onAuthStateChanged(async function(user){
+  if (!user) { location.replace(AuthClient.loginUrlFor('press4-enroll.html', location.origin)); return; }
+  var claims = await SolanAuth.claims(false).catch(function(){ return {}; });
+  /* ⚠️ מנהל בלבד. הגבול האמיתי הוא ב-Function (requireAdmin); זה חוסך מסך ריק. */
+  if (!(claims.accountType === 'staff' && claims.role === 'admin')) {
+    $('gate').textContent = 'המסך הזה זמין למנהל בלבד.';
+    return;
+  }
+  $('who').textContent = user.email || '';
+  $('gate').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  showState();
+  $('enroll').addEventListener('click', doEnroll);
+  $('changePin').addEventListener('click', doChangePin);
+  $('revoke').addEventListener('click', doRevoke);
+});
+}   /* boot() */
+</script>
+</body>
+</html>

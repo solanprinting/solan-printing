@@ -16,16 +16,29 @@
      runIdx, qid, שם-מכונה או orgId, ואינו מחזיק כתובת-הורדה. הפרופר
      נמשך עם Authorization ונפתח כ-blob: מקומי.
 
-     ⚠️ data-mode="enforce" — בלי observe ובלי נפילה לאנונימי. מי שאינו
-     press4 או admin מנותב או נחסם ע"י auth-guard.
+     ⚠️ זהו מסך **מכונה משותפת**, לא חשבון של אדם: אין מייל, אין סיסמה
+     ואין email_verified. חשבון-מייל למכונה משותפת פירושו סיסמה שעוברת
+     בין מפעילים ונשארת אצל מי שעזב.
+
+     ⚠️ מה מגן על ה-endpoint: לא App Check — reCAPTCHA נטען מ-google.com
+     ורשת כשרה חוסמת אותו, כלומר המסך היה מת. במקומו **סוד-מכשיר**
+     ארוך שנרשם פעם אחת ע"י מנהל ב-press4-enroll.html ויושב כאן
+     ב-localStorage. הוא נשלח בכל כניסה יחד עם ה-PIN, ואינו מוצג
+     לעובד ואינו נרשם ללוג. PIN בן שש ספרות לבדו לא היה עומד מול
+     ניחוש מהאינטרנט.
+
+     ⚠️ המכונה אינה נבחרת במסך — היא נגזרת בשרת מהגדרת הארגון.
+
+     ⚠️ data-mode="enforce". משתמש לא-מחובר **אינו** מנותב ל-login.html
+     (אין שם מה להזין) — הוא נשאר כאן ורואה את מסך ה-PIN.
 
      ⚠️ אין כאן ניווט: לא לכרטיסים, לא ליומן, לא למשרד, לא לפורטלים,
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785656845"></script>
-<script src="auth-client.js?v=1785656845"></script>
-<script src="auth-guard.js?v=1785656845" data-page="press4.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1785660300"></script>
+<script src="auth-client.js?v=1785660300"></script>
+<script src="auth-guard.js?v=1785660300" data-page="press4.html" data-mode="enforce"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -65,6 +78,9 @@
   .msg{margin-top:10px;font-size:.85rem;font-weight:700;border-radius:9px;padding:9px 12px}
   .msg.err{background:#fef2f2;border:1.5px solid #fecaca;color:#b91c1c}
   .msg.ok{background:#ecfdf5;border:1.5px solid #a7f3d0;color:#15803d}
+  .pin{width:100%;padding:14px;border:1.5px solid #d8dce6;border-radius:11px;background:#fbfcfe;
+       font-family:inherit;font-size:1.6rem;font-weight:700;letter-spacing:.5em;text-align:center}
+  .pin:focus{outline:none;border-color:#2d3561;background:#fff}
   .hidden{display:none}
 </style>
 </head>
@@ -80,6 +96,26 @@
   </div>
 
   <div id="gate" class="card gate">טוען…</div>
+
+  <!-- ⚠️ מחשב שאינו רשום: לא מציגים שדה קוד שאינו יכול לעבוד. -->
+  <div id="noDev" class="card hidden" style="max-width:380px;margin:0 auto;text-align:center">
+    <div style="font-size:2rem;margin-bottom:8px">🖥️</div>
+    <div style="font-weight:800;color:#2d3561;margin-bottom:8px">מחשב זה עדיין לא נרשם</div>
+    <div class="sub" style="line-height:1.8">
+      מחשב זה עדיין לא נרשם כמכונת ארבעה צבעים.<br>
+      פנו למנהל לביצוע הגדרה חד-פעמית.
+    </div>
+  </div>
+
+  <!-- ⚠️ מסך ה-PIN. אין כאן שדה מייל ואין שדה סיסמה — במכוון. -->
+  <div id="pinCard" class="card hidden" style="max-width:340px;margin:0 auto;text-align:center">
+    <div style="font-size:2rem;margin-bottom:6px">🔒</div>
+    <div style="font-weight:800;color:#2d3561;margin-bottom:14px">קוד כניסה למכונה</div>
+    <input id="pin" class="pin" type="password" inputmode="numeric" autocomplete="off"
+           maxlength="6" placeholder="••••••" dir="ltr">
+    <button class="btn" id="pinBtn" style="width:100%;margin-top:12px">כניסה</button>
+    <div id="pinMsg" class="msg hidden"></div>
+  </div>
 
   <div id="app" class="hidden">
     <div class="bar">
@@ -106,10 +142,67 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1785656845';
+var _BAKED = '1785660300';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
+/* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
+var LS_ID = 'solanPress4DeviceId', LS_SECRET = 'solanPress4DeviceSecret';
+function deviceCreds(){
+  try {
+    var id = localStorage.getItem(LS_ID), sec = localStorage.getItem(LS_SECRET);
+    return (id && sec) ? { deviceId: id, deviceSecret: sec } : null;
+  } catch (e) { return null; }
+}
+
 var _busy = false, _timer = null;
+
+/* ⚠️ שגיאת-הכניסה אחידה בכוונה — היא מגיעה מהשרת ואינה מבדילה בין קוד
+   שגוי, מכונה חסרה, מושבתת או נעולה. הודעה מבדילה היא כלי-מיפוי. */
+function pinMsg(text){
+  var el = $('pinMsg');
+  el.className = 'msg err'; el.textContent = text; el.classList.remove('hidden');
+}
+
+/* ⚠️ אין כאן קישור למסכי המשרד ואין אפשרות לרשום מכשיר מתוך מסך העובד:
+   הרישום נעשה רק ב-press4-enroll.html, ורק ע"י מנהל מאומת. */
+function showUnenrolled(){
+  $('gate').classList.add('hidden');
+  $('app').classList.add('hidden');
+  $('pinCard').classList.add('hidden');
+  $('noDev').classList.remove('hidden');
+}
+
+async function doPinLogin(){
+  if (_busy) return;
+  var code = String($('pin').value || '').trim();
+  if (!/^[0-9]{6}$/.test(code)) { pinMsg('יש להזין קוד בן 6 ספרות.'); return; }
+  /* ⚠️ בלי רישום אין מה לשלוח — ולא מציגים PIN שלא יכול לעבוד. */
+  var dev = deviceCreds();
+  if (!dev) { showUnenrolled(); return; }
+  _busy = true; $('pinBtn').disabled = true; $('pin').disabled = true;
+  var old = $('pinBtn').textContent; $('pinBtn').textContent = 'רגע…';
+  try {
+    var r = await fetch(FN + '/press4MachineLogin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      /* ⚠️ שלושה ערכים בלבד. orgId, machineId ו-role נגזרים בשרת. */
+      body: JSON.stringify({ data: { deviceId: dev.deviceId,
+                                     deviceSecret: dev.deviceSecret, pin: code } })
+    });
+    var j = null; try { j = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error((j && j.error && j.error.message) || 'קוד שגוי או שהמכונה אינה פעילה');
+    var tok = j && j.result && j.result.token;
+    if (!tok) throw new Error('קוד שגוי או שהמכונה אינה פעילה');
+    $('pin').value = '';                       /* ⚠️ הקוד לא נשאר בשדה */
+    await SolanAuth.signInWithCustomToken(tok);
+    /* onAuthStateChanged יטפל בשאר — לא מרעננים את הדף. */
+  } catch (e) {
+    pinMsg(e.message || 'הכניסה נכשלה');
+    $('pin').value = '';
+  }
+  $('pinBtn').textContent = old;
+  $('pinBtn').disabled = false; $('pin').disabled = false;
+  _busy = false;
+}
 
 function msg(kind, text){
   var el = $('msg');
@@ -248,9 +341,19 @@ async function openProof(jobKey){
 }
 
 function boot(){
-SolanAuth.init(FB_CONFIG);
+/* ⚠️ persistence='session': ההתחברות שורדת רענון ומשמרת, ונמחקת כשסוגרים
+   את הסשן. מכונה משותפת לא נשארת מחוברת לנצח. */
+SolanAuth.init(FB_CONFIG, 'session');
 SolanAuth.onAuthStateChanged(async function(user){
-  if (!user) { location.replace(AuthClient.loginUrlFor('press4.html', location.origin)); return; }
+  /* ⚠️ אין ניתוב ל-login.html: אין למכונה מייל וסיסמה. */
+  if (!user) {
+    $('gate').classList.add('hidden');
+    $('app').classList.add('hidden');
+    if (!deviceCreds()) { showUnenrolled(); return; }
+    $('pinCard').classList.remove('hidden');
+    $('pin').focus();
+    return;
+  }
   var claims = await SolanAuth.claims(false).catch(function(){ return {}; });
 
   /* ⚠️ הבדיקה כאן היא נוחות בלבד. הגבול האמיתי הוא ה-Functions, שדוחות
@@ -262,7 +365,9 @@ SolanAuth.onAuthStateChanged(async function(user){
     return;
   }
 
-  $('who').textContent = (user.email || '') + (claims.role === 'admin' ? ' · מנהל (בדיקה)' : '');
+  $('pinCard').classList.add('hidden');
+  $('who').textContent = claims.accountType === 'machine'
+    ? 'מכונת ארבעה צבעים' : ((user.email || '') + ' · מנהל (בדיקה)');
   $('out').classList.remove('hidden');
   $('gate').classList.add('hidden');
   $('app').classList.remove('hidden');
@@ -280,11 +385,14 @@ SolanAuth.onAuthStateChanged(async function(user){
   }, 45000);
 });
 
+/* ⚠️ יציאה מחזירה למסך ה-PIN, לא ל-login.html. */
 $('out').addEventListener('click', async function(){
   if (_timer) clearInterval(_timer);
   await SolanAuth.signOut().catch(function(){});
-  location.replace('login.html');
+  location.reload();
 });
+$('pinBtn').addEventListener('click', doPinLogin);
+$('pin').addEventListener('keydown', function(ev){ if (ev.key === 'Enter') doPinLogin(); });
 }   /* boot() */
 </script>
 </body>
