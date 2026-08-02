@@ -109,7 +109,9 @@
        **מי** הוא ברשימת-העובדים, ולכן באכיפה הוא נעצר — בלי נפילה חזרה
        ל-PIN ובלי נפילה לאנונימי. שתי הנפילות האלה היו מחזירות בדיוק את
        המצב שהמעבר בא לסגור. */
-    if (kind === 'staff' && !claims.staffId) return { action: 'blocked', reason: 'no-staff-id' };
+    if ((kind === 'staff' || kind === 'press4') && !claims.staffId) {
+      return { action: 'blocked', reason: 'no-staff-id' };
+    }
 
     /* ⚠️ אימות-מייל הוא תנאי ללקוח, ובעליו הוא portal.html — שם יושב מסך
        "שלח שוב / כבר אימתתי". מסך ותיק לא מנסה לשכפל אותו, הוא שולח לשם. */
@@ -140,6 +142,10 @@
 
   function audienceFor(claims) {
     var c = claims || {};
+    /* ⚠️ press4 הוא קהל משלו ולא staff: הוא מייצר, אבל אינו עורך ואינו
+       רואה נתונים פנימיים. לו היה מסווג staff, הוא היה מקבל את יכולות
+       העובד הגנריות בכל מסך מעורב. */
+    if (c.accountType === 'staff' && c.role === 'press4' && c.staffId) return 'press4';
     if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker') && c.staffId) return 'staff';
     if (c.accountType === 'customer' && c.portalId) return 'customer';
     return 'legacy';
@@ -149,6 +155,8 @@
      נתונים פנימיים — גם לא "רק להצצה". */
   var CAPS = {
     staff:    { produce: true,  edit: true,  internalData: true  },
+    /* מפעיל המכונה: מדפיס — ותו לא. אין עריכה ואין נתונים פנימיים. */
+    press4:   { produce: true,  edit: false, internalData: false },
     customer: { produce: false, edit: false, internalData: false },
     legacy:   { produce: false, edit: false, internalData: false },
   };

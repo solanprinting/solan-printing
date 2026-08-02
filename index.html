@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785618712';
+window.APP_VERSION = '1785656845';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1608,9 +1608,9 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
      ומחזיר אותו בדיוק לכתובת שממנה בא (returnTo).
      ⚠️ מסך ה-PIN נשאר כבחירת-זהות פנימית אחרי ההתחברות במייל — הוא אינו
      מעניק שום הרשאת Firebase. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1785618712"></script>
-<script src="auth-client.js?v=1785618712"></script>
-<script src="auth-guard.js?v=1785618712" data-page="krtis-avoda.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1785656845"></script>
+<script src="auth-client.js?v=1785656845"></script>
+<script src="auth-guard.js?v=1785656845" data-page="krtis-avoda.html" data-mode="enforce"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 try { if (window.LibLoader) LibLoader.autoFill(['xlsx','jspdf','html2canvas','pdfjs','qrcode','jsbarcode']); } catch(e){}
@@ -1625,23 +1625,23 @@ window._pdfEngineReady = (window.PdfEngine
 <!-- ⚠️ שכבת הגישה ל-Firebase — הוצאה מכאן ל-solan-data.js.
      טעינה **חוסמת** ולפני הבלוק הגדול: 279 מקומות במסך משתמשים
      ב-_fbGet / _fbPut / _fbSnapshot, ו-async או defer היו מפילים את כולם. -->
-<script src="solan-data.js?v=1785618712"></script>
+<script src="solan-data.js?v=1785656845"></script>
 <!-- ⚠️ מנגנון הסנכרון — צורך את _fbGet/_fbPut מ-solan-data.js,
      ולכן חייב לבוא **אחריו** ולפני הבלוק הגדול. -->
-<script src="solan-sync.js?v=1785618712"></script>
-<script src="solan-toast.js?v=1785618712"></script>
-<script src="solan-persist.js?v=1785618712"></script>
+<script src="solan-sync.js?v=1785656845"></script>
+<script src="solan-toast.js?v=1785656845"></script>
+<script src="solan-persist.js?v=1785656845"></script>
 <!-- שכבת ה-AI (חילוץ 6B). צורכת את solan-data.js ואת showToast, ולכן אחריהם.
      ⚠️ חמש שורות האתחול של פרוקסי-הענן נשארו במיקומן המקורי בבלוק הגדול,
      כדי שקריאת-הרשת בזמן-הטעינה לא תוקדם לכאן. -->
-<script src="solan-ai.js?v=1785618712"></script>
+<script src="solan-ai.js?v=1785656845"></script>
 <!-- מנוע ההחלטות Prepress (חילוץ 7). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-prepress.js?v=1785618712"></script>
+<script src="solan-prepress.js?v=1785656845"></script>
 <!-- מנוע הלמידה (חילוץ 8). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-learn.js?v=1785618712"></script>
+<script src="solan-learn.js?v=1785656845"></script>
 <!-- השלמה-אוטומטית (חילוץ 9). אין לו תלות בשכבה מוקדמת;
      המיקום נקבע רק כדי שיהיה לפני הבלוק הגדול. -->
-<script src="solan-autocomplete.js?v=1785618712"></script>
+<script src="solan-autocomplete.js?v=1785656845"></script>
 </head>
 <body>
 
@@ -4029,7 +4029,10 @@ function switchTab(tab) {
   if (tab==='queue')     renderMachineQueue();
   if (tab==='recurring') renderRecurringJobs();
   if (tab==='templates') renderTemplates();
-  if (tab==='worklist')  renderWorkList();
+  /* ⚠️ מצב עבודות press4 נקרא לפני הרינדור, והרינדור חוזר כשהוא
+     הגיע. קריאה בלבד — אין persist ואין כתיבה חזרה ל-cards. */
+  if (tab==='worklist')  { renderWorkList();
+    if (typeof _p4Refresh === 'function') _p4Refresh().then(function(){ renderWorkList(); }); }
   if (tab==='printfiles') renderPrintFiles();
   if (tab==='agent')     renderAgentTab();
   // שמור את הטאב הפעיל כדי שריענון יחזיר לאותו מסך
@@ -12994,8 +12997,8 @@ function renderWorkList() {
   var availableCards = [], queueDoneCards = [];
   poolCards.forEach(function(c) {
     var allE = _queueEntriesForCard(c.id);
-    var doneE = allE.filter(function(e){ return e.done; });
-    var activeE = allE.filter(function(e){ return !e.done; });
+    var doneE = allE.filter(function(e){ return _wlEntryDone(e); });
+    var activeE = allE.filter(function(e){ return !_wlEntryDone(e); });
     // הושלם ידנית מהרשימה (_wlDone) או שכל הריצות בתור הודפסו
     if (c._wlDone || (doneE.length > 0 && activeE.length === 0)) { queueDoneCards.push(c); return; }
     var openUnits = _cardOpenUnits(c);
@@ -13106,9 +13109,9 @@ function renderWorkList() {
 
   MACHINES.forEach(function(machine, mi) {
     var bg = colorMap[machine] || '#f3f4f6';
-    var active = (machineQueue||[]).filter(function(e){ return e.machine === machine && !e.done; })
+    var active = (machineQueue||[]).filter(function(e){ return e.machine === machine && !_wlEntryDone(e); })
       .sort(function(a,b){ return a.order - b.order; });
-    var done = (machineQueue||[]).filter(function(e){ return e.machine === machine && e.done; })
+    var done = (machineQueue||[]).filter(function(e){ return e.machine === machine && _wlEntryDone(e); })
       .sort(function(a,b){ return new Date(b.doneAt||0) - new Date(a.doneAt||0); });
     // "בהדפסה" נקבע לפי המצב המשותף (printingState) — בדיוק כמו במסך הדפסים ובזרימת העבודה,
     // ולא לפי המיקום בתור. כך עבודה שהמפעיל סימן כהושלמה כבר לא תופיע כ"בהדפסה".
@@ -19169,6 +19172,87 @@ function importCustomersFromExcel(input) {
     input.value = '';
   };
   reader.readAsArrayBuffer(file);
+}
+
+/* ═══════════ מצב עבודות ממסך ארבעת הצבעים — קריאה בלבד ═══════════
+   ⚠️ מפעיל press4 מסיים עבודה דרך Function, וזו כותבת ל-
+   organizations/{orgId}/press4Jobs/{jobKey} — **ולא** ל-cards ולא
+   ל-machineQueue. בלי השכבה הזו המנהל היה ממשיך לראות במסך שלו עבודה
+   שכבר הסתיימה בפועל.
+
+   ⚠️ קריאה בלבד. אין persist(), אין כתיבה חזרה ל-cards או ל-machineQueue,
+   ואין "סנכרון סמוי" שמעתיק את התוצאה לכרטיס. התצוגה מאחדת את שני
+   המקורות, והנתונים נשארים מופרדים.
+
+   ⚠️ המפתח בתצוגה הוא השלישייה qid+cardId+runIdx מתוך **שדות הרשומה**,
+   ולא ה-jobKey — כך אין צורך לגזור sha256 בדפדפן, והתאמה שגויה בלתי
+   אפשרית: שלושת השדות נכתבו ע"י השרת מתוך רשומת-התור עצמה.
+
+   ⚠️ כשל-קריאה אינו מסמן עבודות כהושלמו. הוא מדליק דגל-אזהרה, והמסך
+   ממשיך להציג לפי המצב הישן בלבד. סימון-בטעות של עבודה כהושלמה גרוע
+   בהרבה מהצגת עבודה שכבר נגמרה. */
+window._p4Done = {};              // 'cardId|runIdx|qid' → true
+window._p4ReadFailed = false;
+
+function _p4Key(cardId, runIdx, qid) {
+  return String(cardId) + '|' + String(runIdx) + '|' + String(qid);
+}
+function _p4IsDone(entry) {
+  if (!entry) return false;
+  return window._p4Done[_p4Key(entry.cardId, entry.runIdx, entry.qid)] === true;
+}
+/* הושלם אפקטיבית = המצב הישן בתור, או רשומת press4Jobs במצב completed. */
+function _wlEntryDone(entry) {
+  return !!(entry && (entry.done || _p4IsDone(entry)));
+}
+
+/* אזהרה גלויה למנהל כשקריאת-המצב נכשלה — כדי שלא יסיק מהמסך שהתור
+   מעודכן. אין כאן סימון-בטעות: העבודות פשוט נשארות לפי המצב הישן. */
+function _p4Banner() {
+  var id = 'p4-warn', el = document.getElementById(id);
+  if (!window._p4ReadFailed) { if (el) el.remove(); return; }
+  if (el) return;
+  var host = document.getElementById('view-worklist') || document.body;
+  var d = document.createElement('div');
+  d.id = id;
+  d.style.cssText = 'background:#fffbeb;border:1.5px solid #fde68a;color:#92400e;' +
+    'border-radius:10px;padding:9px 12px;font-size:.82rem;font-weight:700;margin-bottom:10px';
+  d.textContent = '⚠️ לא ניתן לקרוא את מצב מסך ארבעת הצבעים. ' +
+    'עבודות שהמפעיל סיים עלולות עדיין להופיע כפעילות.';
+  host.insertBefore(d, host.firstChild);
+}
+
+async function _p4Refresh() {
+  try {
+    /* ה-claims של הטוקן המאומת, דרך השומר. אין כאן שום קריאה מהכתובת. */
+    var st = (window.SolanGuard && window.SolanGuard.state) ? window.SolanGuard.state() : null;
+    var claims = st && st.claims;
+    /* ⚠️ מנהל בלבד — חוקי B+4 מתירים קריאה של press4Jobs רק לו.
+       ה-orgId מגיע מה-claims של הטוקן המאומת, לעולם לא מהכתובת. */
+    if (!claims || claims.accountType !== 'staff' || claims.role !== 'admin') return;
+    var org = String(claims.orgId || '');
+    if (!/^org_[0-9a-f]{32}$/.test(org)) return;
+    /* ⚠️ _fbGet מחזירה null גם על צומת ריק וגם על כשל — ולכן לפני העבודה
+       הראשונה המנהל היה מקבל אזהרת-שווא. _fbGetChecked מבדילה. */
+    var res = await window._fbGetChecked('organizations/' + org + '/press4Jobs');
+    if (!res.ok) { window._p4ReadFailed = true; return; }        // כשל אמיתי — שומרים מפה קודמת
+    var val = res.value;
+    if (val === null || typeof val !== 'object') {               // צומת ריק ותקין
+      window._p4Done = {}; window._p4ReadFailed = false;
+      try { _p4Banner(); } catch (e) {}
+      return;
+    }
+    var map = {};
+    Object.keys(val).forEach(function (k) {
+      var r = val[k];
+      if (r && r.state === 'completed' && r.cardId != null && r.qid != null) {
+        map[_p4Key(r.cardId, r.runIdx, r.qid)] = true;
+      }
+    });
+    window._p4Done = map;
+    window._p4ReadFailed = false;
+  } catch (e) { window._p4ReadFailed = true; }
+  try { _p4Banner(); } catch (e) {}
 }
 
 // ========== FIREBASE LISTENERS ==========

@@ -81,10 +81,22 @@
   var CUSTOMER_PAGES = ['portal.html', 'portal-view.html', 'customer-portal.html', 'proof-client.html', 'proof-upload.html'];
   var CUSTOMER_HOME = 'portal.html';
 
+  /* ⚠️ press4 אינו "עובד רגיל עם פחות כפתורים" אלא סוג-חשבון משלו:
+     מסך אחד, ותו לא. הוא אינו מקבל את מסכי-העובד הגנריים, ולכן
+     mayOpen מחזיר לו true רק ל-press4.html. המנהל רשאי לפתוח את
+     המסך לצורכי בדיקה ותפעול — ולכן press4.html אינו ברשימה
+     שחוסמת אותו, אלא ברשימת-ההיתר של תפקידו-הוא. */
+  var PRESS4_HOME  = 'press4.html';
+  var PRESS4_PAGES = ['press4.html'];
+
   /* סוג החשבון לפי ה-claims. ⚠️ חשבון שנוצר בלי הזמנה — 'pending':
      לא נכשל בשקט ולא מגיע לשום מסך. */
   function kindOf(claims) {
     var c = claims || {};
+    /* ⚠️ press4 מסווג בנפרד ולא כ-staff: לו הוא היה staff, mayOpen היה
+       מחזיר true לכל מסכי בית-הדפוס. office עדיין אינו כאן — הוא נשאר
+       pending וחסום עד השלב הבא, וזו החלטה ולא שכחה. */
+    if (c.accountType === 'staff' && c.role === 'press4') return 'press4';
     if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker')) return 'staff';
     if (c.accountType === 'customer' && c.portalId) return 'customer';
     return 'pending';
@@ -103,6 +115,10 @@
     var k = kindOf(claims);
     if (k === 'pending') return false;
     if (k === 'customer') return CUSTOMER_PAGES.indexOf(pageOf(page)) >= 0;
+    if (k === 'press4')   return PRESS4_PAGES.indexOf(pageOf(page)) >= 0;
+    /* ⚠️ 'staff' כאן הוא admin או worker, ו-return true גורף היה נותן גם
+       ל-worker את מסך המכונה. המסך פתוח ל-press4 ול-admin בלבד. */
+    if (PRESS4_PAGES.indexOf(pageOf(page)) >= 0) return (claims || {}).role === 'admin';
     return true;
   }
 
@@ -114,7 +130,8 @@
   function routeFor(claims, requested) {
     var k = kindOf(claims);
     if (k === 'pending') return { kind: 'pending', to: null };
-    var home = (k === 'staff') ? STAFF_HOME
+    var home = (k === 'staff')  ? STAFF_HOME
+             : (k === 'press4') ? PRESS4_HOME
              : (CUSTOMER_HOME + '?p=' + encodeURIComponent((claims || {}).portalId));
     if (requested && mayOpen(claims, requested)) return { kind: k, to: requested };
     return { kind: k, to: home };

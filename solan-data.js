@@ -134,6 +134,23 @@ window._fbGet = async path => {
     return r.ok ? r.json() : null;
   } catch(e) { return null; }
 };
+/* ⚠️ _fbGet מחזירה null גם על צומת ריק-ותקין וגם על כשל HTTP או חריגה,
+   ואי-אפשר להבחין ביניהם. זה בסדר לרוב הקוראים — הם ממילא ממזגים —
+   אבל קורא שצריך לדעת "נכשל או פשוט ריק" יקבל אזהרת-שווא על צומת שעדיין
+   לא נוצר. הסמנטיקה הישנה **לא משתנה**; זה עוזר נוסף לצדה.
+
+   מחזיר { ok, value, status }: ok=false רק על כשל אמיתי. */
+window._fbGetChecked = async path => {
+  try {
+    var t = await window._fbAuthToken();
+    var ac = await window._appCheckToken();
+    const r = await fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''),
+                          ac ? { headers: { 'X-Firebase-AppCheck': ac } } : undefined);
+    if (!r.ok) return { ok: false, value: null, status: r.status };
+    return { ok: true, value: await r.json(), status: r.status };
+  } catch (e) { return { ok: false, value: null, status: 0 }; }
+};
+
 // ── "שער גרסה" לצמצום תעבורת הורדה (Downloads) ───────────────────────
 // כל כתיבה מעדכנת חותמת-זמן זעירה תחת _rev/<collection>. ה-poll מושך רק את
 // _rev (כמה מאות בייטים) ומוריד collection שלם רק אם החותמת שלו השתנתה —

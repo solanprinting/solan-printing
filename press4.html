@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מסך ארבעה צבעים — סולן הדפסות</title>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     press4.html — מסך מפעיל ארבעת הצבעים.
+
+     ⚠️ המסך הזה אינו קורא RTDB ואינו קורא Storage. אין בו firebase-database
+     ואין בו firebasestorage. כל מה שהוא רואה ועושה עובר בשלוש Functions
+     ובנקודת-קצה אחת לפרופר, שרצות ב-Admin SDK ואוכפות את ההרשאה בעצמן.
+     חוקי B+4 דוחים את press4 מכל נתיב — וזה מכוון.
+
+     ⚠️ הדפדפן שולח jobKey בלבד. הוא אינו מרכיב נתיב, אינו שולח cardId,
+     runIdx, qid, שם-מכונה או orgId, ואינו מחזיק כתובת-הורדה. הפרופר
+     נמשך עם Authorization ונפתח כ-blob: מקומי.
+
+     ⚠️ data-mode="enforce" — בלי observe ובלי נפילה לאנונימי. מי שאינו
+     press4 או admin מנותב או נחסם ע"י auth-guard.
+
+     ⚠️ אין כאן ניווט: לא לכרטיסים, לא ליומן, לא למשרד, לא לפורטלים,
+     לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
+     להציג — וזו ההגנה, לא הסתרת כפתורים.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script src="firebase-auth.bundle.js?v=1785656845"></script>
+<script src="auth-client.js?v=1785656845"></script>
+<script src="auth-guard.js?v=1785656845" data-page="press4.html" data-mode="enforce"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
+       color:#1f2937;background:linear-gradient(180deg,#eef1f6 0%,#f5f6f9 100%);padding:18px}
+  .wrap{max-width:760px;margin:0 auto}
+  .top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .logo{width:46px;height:46px;border-radius:12px;background:#2d3561;color:#fff;display:flex;
+        align-items:center;justify-content:center;font-size:1.35rem}
+  h1{font-size:1.12rem;margin:0;color:#2d3561}
+  .sub{font-size:.8rem;color:#6b7280}
+  .out{margin-inline-start:auto;background:none;border:0;color:#2d3561;font-family:inherit;
+       font-size:.82rem;font-weight:700;cursor:pointer;text-decoration:underline}
+  .bar{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .dot{width:9px;height:9px;border-radius:50%;background:#9ca3af}
+  .dot.on{background:#16a34a}
+  .refresh{background:#fff;border:1.5px solid #d8dce6;border-radius:9px;padding:7px 14px;
+           font-family:inherit;font-size:.82rem;font-weight:700;color:#2d3561;cursor:pointer}
+  .refresh:disabled{opacity:.55;cursor:default}
+  .card{background:#fff;border-radius:15px;padding:16px;box-shadow:0 8px 26px rgba(45,53,97,.09);margin-bottom:12px}
+  .job{border:1.5px solid #e6e9f2;border-radius:12px;padding:13px;margin-bottom:10px}
+  .job.run{border-color:#bbf7d0;background:#f0fdf4}
+  .jt{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .jt b{font-size:1rem;color:#1f2937}
+  .tag{font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:999px}
+  .tag.wait{background:#f3f4f6;color:#4b5563}
+  .tag.run{background:#dcfce7;color:#15803d}
+  .spec{display:flex;flex-wrap:wrap;gap:5px 14px;margin-top:8px;font-size:.83rem;color:#4b5563}
+  .spec span b{color:#1f2937}
+  .acts{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
+  .btn{border:0;border-radius:9px;padding:10px 16px;font-family:inherit;font-size:.87rem;
+       font-weight:700;cursor:pointer;background:#2d3561;color:#fff}
+  .btn.sec{background:#fff;color:#2d3561;border:1.5px solid #d8dce6}
+  .btn.done{background:#15803d}
+  .btn:disabled{opacity:.5;cursor:default}
+  .empty{text-align:center;color:#9099ab;padding:30px 10px;font-size:.92rem}
+  .gate{text-align:center;padding:44px 20px;color:#6b7280}
+  .msg{margin-top:10px;font-size:.85rem;font-weight:700;border-radius:9px;padding:9px 12px}
+  .msg.err{background:#fef2f2;border:1.5px solid #fecaca;color:#b91c1c}
+  .msg.ok{background:#ecfdf5;border:1.5px solid #a7f3d0;color:#15803d}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo">🖨️</div>
+    <div>
+      <h1>מסך ארבעה צבעים</h1>
+      <div class="sub" id="who"></div>
+    </div>
+    <button class="out hidden" id="out">יציאה</button>
+  </div>
+
+  <div id="gate" class="card gate">טוען…</div>
+
+  <div id="app" class="hidden">
+    <div class="bar">
+      <span class="dot" id="dot"></span>
+      <span class="sub" id="stamp">—</span>
+      <button class="refresh" id="refresh" style="margin-inline-start:auto">↻ רענן</button>
+    </div>
+    <div class="card">
+      <div id="jobs"><div class="empty">אין כרגע עבודות בתור.</div></div>
+      <div id="msg" class="msg hidden"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var FB_CONFIG = {
+  apiKey: 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg',
+  authDomain: 'solan-printing.firebaseapp.com',
+  projectId: 'solan-printing',
+  databaseURL: 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app',
+};
+var FN = 'https://europe-west1-solan-printing.cloudfunctions.net';
+var $ = function(id){ return document.getElementById(id); };
+var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+  return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
+
+var _BAKED = '1785656845';
+AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
+
+var _busy = false, _timer = null;
+
+function msg(kind, text){
+  var el = $('msg');
+  el.className = 'msg ' + kind;
+  el.textContent = text;
+  el.classList.remove('hidden');
+}
+function clearMsg(){ $('msg').classList.add('hidden'); }
+
+/* ⚠️ כל קריאה ל-Function עוברת כאן. כשל **תמיד** נראה: אין מסלול שבו
+   בקשה נופלת והמסך ממשיך כאילו כלום. זו תבנית הכשל-השקט שכבר עלתה
+   לנו כמה פעמים. */
+async function callFn(name, data){
+  var tok = await SolanAuth.idToken(false);
+  var r = await fetch(FN + '/' + name, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok },
+    body: JSON.stringify({ data: data || {} })
+  });
+  var j = null;
+  try { j = await r.json(); } catch (e) {}
+  if (!r.ok) {
+    var code = (j && j.error && (j.error.message || j.error.status)) || ('HTTP ' + r.status);
+    throw new Error(errText(code));
+  }
+  return (j && j.result) || {};
+}
+
+/* קודי-השרת → עברית. קוד לא מוכר מוצג כפי שהוא ולא נבלע. */
+function errText(code){
+  var c = String(code || '');
+  if (/press_machine_not_configured/.test(c)) return 'מכונת ארבעת הצבעים לא הוגדרה. פנו למנהל.';
+  if (/press_machine_disabled/.test(c))       return 'מסך המכונה מושבת כרגע. פנו למנהל.';
+  if (/press_job_not_found/.test(c))          return 'העבודה כבר אינה בתור. רעננו.';
+  if (/press_job_ambiguous/.test(c))          return 'נמצאו שתי רשומות זהות לעבודה — פנו למנהל.';
+  if (/press_job_already_completed/.test(c))  return 'העבודה כבר סומנה כהושלמה.';
+  if (/press_job_not_started/.test(c))        return 'העבודה עדיין לא התחילה.';
+  if (/press_proof_not_found/.test(c))        return 'אין פרופר לעבודה הזו.';
+  if (/cross_org|press_/.test(c))             return 'אין הרשאה לפעולה הזו.';
+  if (/החשבון אינו פעיל|הסשן בוטל/.test(c))   return c;
+  return 'הפעולה נכשלה (' + c + ').';
+}
+
+function jobHtml(j){
+  var running = j.state === 'started';
+  var spec = [];
+  if (j.customer) spec.push('<span>לקוח: <b>' + esc(j.customer) + '</b></span>');
+  if (j.copies)   spec.push('<span>כמות: <b>' + Number(j.copies).toLocaleString('he-IL') + '</b></span>');
+  if (j.size)     spec.push('<span>גודל: <b>' + esc(j.size) + '</b></span>');
+  if (j.paper)    spec.push('<span>נייר: <b>' + esc(j.paper) + '</b></span>');
+  if (j.color)    spec.push('<span>צבע: <b>' + esc(j.color) + '</b></span>');
+  if (j.pages)    spec.push('<span>עמודים: <b>' + esc(j.pages) + '</b></span>');
+  spec.push('<span>' + esc(j.runLabel || '') + '</span>');
+
+  var acts = [];
+  if (j.hasProof) acts.push('<button class="btn sec" data-act="proof" data-key="' + esc(j.jobKey) + '">📄 צפה בפרופר</button>');
+  if (!running)   acts.push('<button class="btn" data-act="start" data-key="' + esc(j.jobKey) + '">▶ התחל עבודה</button>');
+  else            acts.push('<button class="btn done" data-act="finish" data-key="' + esc(j.jobKey) + '">✓ סיים עבודה</button>');
+
+  return '<div class="job' + (running ? ' run' : '') + '">' +
+    '<div class="jt"><b>' + esc(j.name || 'עבודה') + '</b>' +
+    '<span class="tag ' + (running ? 'run">בעבודה' : 'wait">ממתינה') + '</span></div>' +
+    '<div class="spec">' + spec.join('') + '</div>' +
+    '<div class="acts">' + acts.join('') + '</div></div>';
+}
+
+async function load(silent){
+  if (!silent) { $('refresh').disabled = true; clearMsg(); }
+  try {
+    var res = await callFn('getPress4Queue');
+    var jobs = res.jobs || [];
+    $('jobs').innerHTML = jobs.length ? jobs.map(jobHtml).join('')
+                                      : '<div class="empty">אין כרגע עבודות בתור.</div>';
+    $('dot').classList.add('on');
+    $('stamp').textContent = jobs.length + ' עבודות · עודכן ' + new Date().toLocaleTimeString('he-IL');
+  } catch (e) {
+    $('dot').classList.remove('on');
+    msg('err', e.message || 'טעינת התור נכשלה');
+  }
+  $('refresh').disabled = false;
+}
+
+/* ⚠️ נעילה גלובלית לזמן בקשה: לחיצה כפולה על "התחל" הייתה שולחת שתי
+   בקשות. השרת ממילא אינו דורס, אבל אין סיבה לשלוח. */
+async function act(kind, jobKey, btn){
+  if (_busy) return;
+  _busy = true;
+  var all = document.querySelectorAll('.job button');
+  for (var i = 0; i < all.length; i++) all[i].disabled = true;
+  var old = btn.textContent; btn.textContent = 'רגע…';
+  clearMsg();
+  try {
+    if (kind === 'proof') await openProof(jobKey);
+    else {
+      var r = await callFn(kind === 'start' ? 'startPress4Job' : 'finishPress4Job', { jobKey: jobKey });
+      msg('ok', kind === 'start'
+        ? (r.already ? 'העבודה כבר בהדפסה.' : '▶ העבודה סומנה כמתחילה.')
+        : (r.already ? 'העבודה כבר סומנה כהושלמה.' : '✓ העבודה הושלמה.'));
+      await load(true);
+    }
+  } catch (e) {
+    msg('err', e.message || 'הפעולה נכשלה');
+  }
+  btn.textContent = old;
+  _busy = false;
+  var again = document.querySelectorAll('.job button');
+  for (var k = 0; k < again.length; k++) again[k].disabled = false;
+}
+
+/* ⚠️ הפרופר נמשך בבקשה מאומתת ונפתח כ-blob: מקומי. אין token= בכתובת,
+   אין Signed URL, ואין נתיב Storage שעובר בדפדפן.
+
+   ⚠️ החלון נפתח **סינכרונית**, לפני ה-await הראשון. window.open אחרי
+   await של טוקן + fetch + blob מאבד את "מחוות המשתמש" ונחסם ע"י חוסם
+   החלונות הקופצים — המפעיל היה לוחץ ולא קורה כלום. אם הפתיחה נחסמה
+   כבר עכשיו, אומרים זאת במפורש במקום להמשיך ולהיכשל בשקט. */
+async function openProof(jobKey){
+  var viewer = window.open('', '_blank');
+  if (!viewer) throw new Error('הדפדפן חסם את פתיחת החלון. אפשרו חלונות קופצים לאתר ונסו שוב.');
+  try {
+    var tok = await SolanAuth.idToken(false);
+    var r = await fetch(FN + '/press4Proof?jobKey=' + encodeURIComponent(jobKey),
+                        { headers: { 'Authorization': 'Bearer ' + tok } });
+    if (!r.ok) {
+      var j = null; try { j = await r.json(); } catch (e) {}
+      throw new Error(errText((j && j.error) || ('HTTP ' + r.status)));
+    }
+    var url = URL.createObjectURL(await r.blob());
+    viewer.location = url;
+    /* ⚠️ ה-revoke מאוחר בכוונה: ביטול מוקדם מדי מבטל את הטעינה עצמה. */
+    setTimeout(function(){ try { URL.revokeObjectURL(url); } catch (e) {} }, 120000);
+  } catch (e) {
+    try { viewer.close(); } catch (e2) {}
+    throw e;
+  }
+}
+
+function boot(){
+SolanAuth.init(FB_CONFIG);
+SolanAuth.onAuthStateChanged(async function(user){
+  if (!user) { location.replace(AuthClient.loginUrlFor('press4.html', location.origin)); return; }
+  var claims = await SolanAuth.claims(false).catch(function(){ return {}; });
+
+  /* ⚠️ הבדיקה כאן היא נוחות בלבד. הגבול האמיתי הוא ה-Functions, שדוחות
+     כל תפקיד אחר — וחוקי B+4, שדוחים את press4 מכל נתיב ישיר. */
+  if (!AuthClient.mayOpen(claims, 'press4.html')) {
+    var to = AuthClient.routeFor(claims, null).to;
+    if (to) location.replace(to);
+    else $('gate').textContent = 'החשבון אינו מורשה למסך הזה. פנו למנהל.';
+    return;
+  }
+
+  $('who').textContent = (user.email || '') + (claims.role === 'admin' ? ' · מנהל (בדיקה)' : '');
+  $('out').classList.remove('hidden');
+  $('gate').classList.add('hidden');
+  $('app').classList.remove('hidden');
+
+  $('refresh').addEventListener('click', function(){ load(false); });
+  $('jobs').addEventListener('click', function(ev){
+    var b = ev.target.closest ? ev.target.closest('button[data-act]') : null;
+    if (b) act(b.dataset.act, b.dataset.key, b);
+  });
+
+  await load(false);
+  /* רענון מתון — כל 45 שניות, ורק כשהלשונית גלויה ואין פעולה פתוחה. */
+  _timer = setInterval(function(){
+    if (!_busy && document.visibilityState === 'visible') load(true);
+  }, 45000);
+});
+
+$('out').addEventListener('click', async function(){
+  if (_timer) clearInterval(_timer);
+  await SolanAuth.signOut().catch(function(){});
+  location.replace('login.html');
+});
+}   /* boot() */
+</script>
+</body>
+</html>

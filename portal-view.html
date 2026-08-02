@@ -16,15 +16,19 @@
      ⚠️ ה-portalId מגיע מה-claims בלבד. ‎?p=‎ הוא נוחות-ניווט לעובד, ולקוח
      שישנה אותו לא יראה פורטל אחר — הערך שלו נדרס מה-claims.
 
-     ⚠️ מה המסך נוגע בו: portals/<pid> (שם) · portalProofs/<pid> (עבודות) ·
-     portalFiles/<pid>/… (קבצים). ותו לא. אין כאן cards, אין customerProofs,
-     ואין שום צומת של בית-הדפוס.
+     ⚠️ מה המסך נוגע בו — הכל תחת organizations/{orgId}/ בלבד:
+     portals/<pid> (שם) · portalProofs/<pid> (עבודות) · portalFiles/<pid>/…
+     (קבצים). ותו לא. אין כאן cards, אין customerProofs, ואין שום צומת של
+     בית-הדפוס. הנתיבים נבנים ב-portal-paths.js — מקור-אמת יחיד לשני המסכים.
 
-     ⚠️ קריאה בלבד. אין העלאה, אין עריכה, ואין פעולת-ייצור.
+     ⚠️ מותרת פעולה אחת שכותבת: העלאת PDF לפורטל של המשתמש עצמו. אין
+     עריכה, אין מחיקה, אין דריסה (כל העלאה מקבלת proofId ושם ייחודיים),
+     ואין פעולת-ייצור. ה-orgId וה-portalId מגיעים מה-claims בלבד.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785618712"></script>
-<script src="auth-client.js?v=1785618712"></script>
-<script src="auth-guard.js?v=1785618712" data-page="portal-view.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1785656845"></script>
+<script src="auth-client.js?v=1785656845"></script>
+<script src="auth-guard.js?v=1785656845" data-page="portal-view.html" data-mode="observe"></script>
+<script src="portal-paths.js?v=1785656845"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -53,6 +57,19 @@
   .note{background:#fffbeb;border:1.5px solid #fde68a;color:#92400e;border-radius:10px;
         padding:10px 12px;font-size:.8rem;margin-top:10px}
   .hidden{display:none}
+  label.fl{display:block;font-size:.82rem;font-weight:700;color:#374151;margin:0 0 5px}
+  .in{width:100%;padding:10px 11px;border:1.5px solid #d1d5db;border-radius:10px;
+      font-family:inherit;font-size:.9rem;background:#fff}
+  .in:focus{outline:none;border-color:#2d3561}
+  .btn{background:#2d3561;color:#fff;border:0;border-radius:10px;padding:11px 22px;
+       font-family:inherit;font-size:.9rem;font-weight:700;cursor:pointer}
+  .btn:disabled{opacity:.55;cursor:default}
+  .row{margin-bottom:12px}
+  .msg{margin-top:11px;font-size:.85rem;font-weight:700;border-radius:10px;padding:10px 12px}
+  .msg.ok{background:#ecfdf5;border:1.5px solid #a7f3d0;color:#15803d}
+  .msg.err{background:#fef2f2;border:1.5px solid #fecaca;color:#b91c1c}
+  .msg.work{background:#eff6ff;border:1.5px solid #bfdbfe;color:#1d4ed8}
+  .hint{font-size:.76rem;color:#6b7280;margin-top:5px}
 </style>
 </head>
 <body>
@@ -69,6 +86,22 @@
   <div id="gate" class="card gate">טוען…</div>
 
   <div id="app" class="hidden">
+    <div class="card hidden" id="upCard">
+      <h2>⬆️ העלאת קבצים לעבודה חדשה</h2>
+      <div class="row">
+        <label class="fl" for="up-title">שם העבודה</label>
+        <input class="in" type="text" id="up-title" maxlength="120"
+               placeholder="לדוגמה: עלון פסח 2026" autocomplete="off">
+      </div>
+      <div class="row">
+        <label class="fl" for="up-files">קובצי PDF</label>
+        <input class="in" type="file" id="up-files" accept="application/pdf,.pdf" multiple>
+        <div class="hint">אפשר לבחור כמה קבצים יחד. PDF בלבד, עד 200MB לקובץ.</div>
+      </div>
+      <button class="btn" id="up-btn">שלח לבית הדפוס</button>
+      <div id="up-msg" class="msg hidden"></div>
+    </div>
+
     <div class="card">
       <h2>📄 העבודות שלי</h2>
       <div id="jobs"><div class="empty">אין עדיין עבודות בפורטל הזה.</div></div>
@@ -90,17 +123,17 @@ var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, func
 
 /* ⚠️ כל האתחול בתוך boot(): רישום onAuthStateChanged לפני ש-init() רץ נכשל
    בשקט והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785618712';
+var _BAKED = '1785656845';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
-var MY_PID = null;
+var MY_PID = null, MY_ORG = null, MY_UID = null;
 
-/* ⚠️ הנתיבים היחידים שהמסך הזה יודע לבנות. פונקציה אחת, כדי שיהיה מקום
-   אחד לבדוק אם מישהו הוסיף כאן צומת שאינו של הלקוח. */
+/* ⚠️ הנתיבים היחידים שהמסך הזה יודע לבנות — כולם ארגוניים, וכולם דרך
+   PortalPaths (מקור-אמת יחיד עם portal.html). PortalPaths.db זורק על
+   כל צומת שאינו portals/portalProofs ועל מזהה בפורמט שגוי. */
 function myPath(kind, rest) {
-  if (!MY_PID) throw new Error('אין פורטל');
-  if (kind !== 'portals' && kind !== 'portalProofs') throw new Error('נתיב לא מורשה');
-  return kind + '/' + MY_PID + (rest ? '/' + rest : '');
+  if (!MY_ORG || !MY_PID) throw new Error('אין פורטל');
+  return PortalPaths.db(MY_ORG, kind, MY_PID, rest);
 }
 
 var BUCKET = 'solan-printing.firebasestorage.app';
@@ -112,7 +145,9 @@ var BUCKET = 'solan-printing.firebasestorage.app';
    ⚠️ הטוקן נמשך מחדש בכל פתיחה — לא נשמר בזיכרון המסך. */
 window._openFile = async function(btn){
   var path = btn.dataset.path || '';
-  if (path.indexOf('portalFiles/' + MY_PID + '/') !== 0) return;
+  /* ⚠️ שער-שייכות: רק נתיב שנמצא תחת הארגון **וגם** הפורטל שב-claims
+     נפתח. נתיב של פורטל אחר, נתיב legacy או נתיב עם ".." — לא ייפתח. */
+  if (!PortalPaths.ownsPath(MY_ORG, MY_PID, path)) return;
   var old = btn.textContent;
   btn.disabled = true; btn.textContent = 'פותח…';
   try {
@@ -163,6 +198,16 @@ SolanAuth.onAuthStateChanged(async function(user){
     return;
   }
 
+  /* ⚠️ ה-orgId מגיע מה-claims בלבד — גם לעובד. בלעדיו אין נתיב, ועדיף
+     לומר זאת מפורשות מאשר לבנות נתיב שגוי. */
+  MY_ORG = claims.orgId || null;
+  MY_UID = user.uid || null;
+  if (!PortalPaths.ORG_RE.test(String(MY_ORG || ''))) {
+    $('gate').textContent = 'החשבון עדיין לא שויך לעסק. פנו לבית הדפוס.';
+    $('gate').classList.remove('hidden');
+    return;
+  }
+
   var tok = await SolanAuth.idToken(false);
   $('who').textContent = user.email || '';
   $('out').classList.remove('hidden');
@@ -172,6 +217,21 @@ SolanAuth.onAuthStateChanged(async function(user){
   var p = await dbGet(myPath('portals'), tok);
   if (p && p.name) $('pname').textContent = p.name;
 
+  /* ⚠️ אזור ההעלאה — ללקוח בלבד. חוקי ה-RTDB וה-Storage מתירים כתיבה
+     רק ללקוח של הפורטל (ולמנהל), ולכן טופס שמוצג ל-office היה נכשל
+     אחרי לחיצה. עדיף שלא יופיע כלל מאשר כפתור שמבטיח ולא מקיים. */
+  if (claims.accountType === 'customer') {
+    $('upCard').classList.remove('hidden');
+    wireUpload();
+  } else {
+    $('upCard').remove();
+  }
+  await loadJobs();
+});
+
+/* טעינת העבודות — פונקציה נפרדת כדי שנוכל לרענן אחרי העלאה בלי רענון-דף. */
+async function loadJobs(){
+  var tok = await SolanAuth.idToken(false);
   var jobs = await dbGet(myPath('portalProofs'), tok) || {};
   var ids = Object.keys(jobs);
   if (!ids.length) return;
@@ -187,7 +247,7 @@ SolanAuth.onAuthStateChanged(async function(user){
          מי שמקבל אותה נכנס בלי זהות, וזה בדיוק מה שהמבנה החדש בא לבטל.
          הקובץ נמשך בבקשה מאומתת (Authorization), ורק אז נפתח. */
       var p = String(f.path || '');
-      if (p.indexOf('portalFiles/' + MY_PID + '/') !== 0) return '';
+      if (!PortalPaths.ownsPath(MY_ORG, MY_PID, p)) return '';
       return '<button class="file" onclick="_openFile(this)" data-path="' + esc(p) + '">📄 ' +
              esc(f.name || 'קובץ') + '</button>';
     }).join('');
@@ -196,7 +256,165 @@ SolanAuth.onAuthStateChanged(async function(user){
            (x.updatedAt ? ' · ' + new Date(x.updatedAt).toLocaleDateString('he-IL') : '') + '</div>' +
            (links ? '<div class="files">' + links + '</div>' : '') + '</div>';
   }).join('');
-});
+}
+
+/* ═══════════ העלאת קבצים ═══════════════════════════════════════════════
+   ⚠️ הכתיבה היחידה במסך. שלושה כללים שאסור לשבור:
+
+   1. orgId ו-portalId מגיעים מ-MY_ORG/MY_PID, שנקבעו מה-claims. שם-העבודה
+      הוא הקלט היחיד מהמשתמש, והוא נכנס לשדה title — לא לנתיב.
+   2. אין overwrite: כל שליחה מקבלת proofId חדש, וכל קובץ שם ייחודי.
+      חוקי ה-Storage מתירים create בלבד (resource == null) ואוכפים זאת.
+   3. אין "הצלחה" אם בקשה כלשהי נכשלה. כל תשובת HTTP נבדקת ב-r.ok,
+      והסטטוס משקף את המציאות: received / partial / upload_failed.
+      זו בדיוק תבנית הכשל-השקט שכבר עלתה לנו — לא חוזרים עליה. */
+function upMsg(kind, text){
+  var el = $('up-msg');
+  el.className = 'msg ' + kind;
+  el.textContent = text;
+  el.classList.remove('hidden');
+}
+
+async function dbPut(path, tok, value){
+  var r = await fetch(DB + '/' + path + '.json?auth=' + encodeURIComponent(tok), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value)
+  });
+  return r.ok;
+}
+
+/* העלאה ל-Storage בבקשה מאומתת. אין token= ואין כתובת-שיתוף — נשמר נתיב
+   בלבד, והפתיחה נעשית מאוחר יותר עם Authorization. */
+async function storagePut(path, tok, file){
+  var url = 'https://firebasestorage.googleapis.com/v0/b/' + BUCKET +
+            '/o?uploadType=media&name=' + encodeURIComponent(path);
+  var r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': 'Firebase ' + tok, 'Content-Type': 'application/pdf' },
+    body: file
+  });
+  return { ok: r.ok, status: r.status };
+}
+
+var _uploading = false;
+
+async function doUpload(){
+  if (_uploading) return;
+  var title = String(($('up-title').value || '')).trim();
+  var files = Array.prototype.slice.call($('up-files').files || []);
+
+  if (!title)        { upMsg('err', 'צריך להזין שם עבודה.'); return; }
+  if (!files.length) { upMsg('err', 'לא נבחר אף קובץ.'); return; }
+
+  /* ⚠️ פסילה לפני כל בקשת-רשת: קובץ שאינו PDF לא יוצא מהדפדפן בכלל. */
+  var bad = files.filter(function(f){ return !PortalPaths.isPdf(f); });
+  if (bad.length) {
+    upMsg('err', 'קובצי PDF בלבד. נדחו: ' + bad.map(function(f){ return f.name; }).join(', '));
+    return;
+  }
+  var MAX = 200 * 1024 * 1024;
+  var big = files.filter(function(f){ return f.size >= MAX; });
+  if (big.length) {
+    upMsg('err', 'קובץ גדול מ-200MB: ' + big.map(function(f){ return f.name; }).join(', '));
+    return;
+  }
+
+  _uploading = true;
+  $('up-btn').disabled = true;
+
+  var proofId = PortalPaths.newProofId();
+  var base    = myPath('portalProofs', proofId);
+  var now     = Date.now();
+  var okCount = 0, failed = [];
+
+  try {
+    var tok = await SolanAuth.idToken(false);
+
+    /* רשומת-עבודה במצב uploading — נוצרת לפני הקבצים, כדי שגם כשל באמצע
+       ישאיר עקבות ולא ייעלם בשקט. */
+    upMsg('work', 'יוצר עבודה…');
+    /* ⚠️ uploadedByUid — הבעלות על הרשומה. חוקי ה-RTDB משווים אותו
+       ל-auth.uid ביצירה ונועלים אותו אחריה, ולכן הערך שנשלח מכאן אינו
+       "נאמן": שליחת uid של מישהו אחר פשוט תידחה. הוא נשלח כדי שהכלל
+       יוכל לזהות מי יוצר הרשומה — לא כדי לקבוע זאת. */
+    if (!MY_UID) { upMsg('err', 'ההתחברות פגה. רעננו את הדף ונסו שוב.'); return; }
+    if (!await dbPut(base, tok, {
+      title: title, status: 'uploading', createdAt: now, updatedAt: now,
+      uploadedByUid: MY_UID
+    })) {
+      upMsg('err', 'יצירת העבודה נכשלה. לא הועלה שום קובץ.');
+      return;
+    }
+
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      upMsg('work', 'מעלה קובץ ' + (i + 1) + ' מתוך ' + files.length + '…');
+      var safeName = PortalPaths.uniqueFileName(f.name, i);
+      var fullPath = PortalPaths.filePath(MY_ORG, MY_PID, proofId, safeName);
+
+      var up = await storagePut(fullPath, tok, f);
+      if (!up.ok) { failed.push(f.name + ' (' + up.status + ')'); continue; }
+
+      /* רשומת-הקובץ נכתבת רק אחרי שההעלאה הצליחה בפועל. */
+      var fid  = 'f' + (i + 1) + '_' + String(now).slice(-6);
+      var meta = {
+        name: PortalPaths.sanitizeFileName(f.name),
+        path: fullPath,
+        size: f.size,
+        contentType: 'application/pdf',
+        uploadedAt: Date.now()
+      };
+      if (!await dbPut(base + '/files/' + fid, tok, meta)) {
+        failed.push(f.name + ' (רישום נכשל)');
+        continue;
+      }
+      okCount++;
+    }
+
+    var status = okCount === files.length ? 'received'
+               : okCount > 0             ? 'partial'
+               :                           'upload_failed';
+    /* ⚠️ גם כתיבות-הסיום הן בקשות HTTP שיכולות להיכשל. עד עכשיו התוצאה
+       שלהן נזרקה, והמסך היה מציג "נשלח" גם כשהסטטוס נשאר uploading —
+       בדיוק תבנית הכשל-השקט. הקבצים שכבר עלו נשארים במקומם: מחיקה
+       אינה אפשרית ללקוח, וגם לא רצויה — עדיף קבצים עם רישום חלקי
+       מאשר קבצים שנעלמו. */
+    /* ⚠️ הסדר מחייב: updatedAt נכתב **לפני** הסטטוס הסופי. החוק מתיר
+       ללקוח לגעת ב-updatedAt רק כל עוד הרשומה ב-uploading, ולכן כתיבה
+       בסדר ההפוך הייתה ננעלת על עצמה ונכשלת תמיד. */
+    var upOk = await dbPut(base + '/updatedAt', tok, Date.now());
+    var stOk = upOk && await dbPut(base + '/status', tok, status);
+    if (!stOk || !upOk) {
+      upMsg('err', 'הקבצים עלו (' + okCount + ' מתוך ' + files.length +
+                   '), אבל רישום הסיום נכשל. פנו לבית הדפוס וציינו: ' + proofId);
+      await loadJobs();
+      return;
+    }
+
+    if (status === 'received') {
+      upMsg('ok', '✓ נשלח לבית הדפוס — ' + okCount + ' קבצים.');
+      $('up-title').value = ''; $('up-files').value = '';
+    } else if (status === 'partial') {
+      upMsg('err', 'חלק מהקבצים לא עלו (' + okCount + ' מתוך ' + files.length +
+                   '). נכשלו: ' + failed.join(', '));
+    } else {
+      upMsg('err', 'ההעלאה נכשלה. ' + failed.join(', '));
+    }
+    await loadJobs();
+  } catch (e) {
+    /* ⚠️ גם חריגה היא כישלון מוצג. אין מסלול שבו המשתמש רואה הצלחה
+       בזמן שמשהו נפל. */
+    upMsg('err', 'ההעלאה נכשלה: ' + (e && e.message ? e.message : 'שגיאה'));
+  } finally {
+    _uploading = false;
+    $('up-btn').disabled = false;
+  }
+}
+
+function wireUpload(){
+  var b = $('up-btn');
+  if (b && !b._wired) { b._wired = true; b.addEventListener('click', doUpload); }
+}
 
 $('out').addEventListener('click', async function(){
   await SolanAuth.signOut().catch(function(){});

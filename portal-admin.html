@@ -14,8 +14,8 @@
      ⚠️ קישור-ההזמנה מוצג **פעם אחת בלבד** ואינו נשמר בשום מקום — לא במסד,
      לא בלוג, ולא כאן. אם נסגר החלון, מפיקים הזמנה חדשה.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785618712"></script>
-<script src="auth-client.js?v=1785618712"></script>
+<script src="firebase-auth.bundle.js?v=1785656845"></script>
+<script src="auth-client.js?v=1785656845"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -29,9 +29,9 @@
   .card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 8px 26px rgba(45,53,97,.1);margin-bottom:16px}
   h2{font-size:.95rem;margin:0 0 12px;color:#2d3561}
   label{display:block;font-size:.8rem;font-weight:700;color:#374151;margin:10px 0 5px}
-  input{width:100%;padding:11px 12px;border:1.5px solid #d8dce6;border-radius:10px;
+  input,select{width:100%;padding:11px 12px;border:1.5px solid #d8dce6;border-radius:10px;
         font-size:.95rem;font-family:inherit;background:#fbfcfe}
-  input:focus{outline:none;border-color:#2d3561;background:#fff}
+  input:focus,select:focus{outline:none;border-color:#2d3561;background:#fff}
   .btn{margin-top:14px;background:#2d3561;color:#fff;border:0;border-radius:10px;padding:11px 18px;
        font-weight:800;font-size:.9rem;font-family:inherit;cursor:pointer}
   .btn:disabled{opacity:.5;cursor:default}
@@ -91,7 +91,15 @@
       <label for="ssid">מזהה-העובד ב-solanUsers</label>
       <input id="ssid" type="text" placeholder="user_…" dir="ltr">
       <label for="srole">תפקיד</label>
-      <input id="srole" type="text" value="worker" dir="ltr">
+      <!-- ⚠️ רשימה סגורה ולא שדה חופשי: הקלדת role שגוי יצרה חשבון שנדחה
+           בשרת אחרי לחיצה, בלי שהמנהל ידע מה מותר. הערך עדיין עובר אימות
+           מחדש ב-Functions (assertRole) — ה-select הוא נוחות, לא גבול. -->
+      <select id="srole">
+        <option value="worker" selected>עובד רגיל — worker</option>
+        <option value="office">משרד — office</option>
+        <option value="press4">מפעיל ארבעה צבעים — press4</option>
+        <option value="admin">מנהל — admin</option>
+      </select>
       <button class="btn" id="mkstaff">פתח חשבון עובד</button>
       <button class="btn sec" id="sendpw">שלח קישור לקביעת סיסמה</button>
       <div class="msg" id="smsg"></div>
@@ -149,7 +157,7 @@ var $ = function(id){ return document.getElementById(id); };
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785618712';
+var _BAKED = '1785656845';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 function boot(){
@@ -233,7 +241,7 @@ $('linkme').addEventListener('click', async function(){
 });
 
 $('mkstaff').addEventListener('click', async function(){
-  var email = $('semail').value.trim(), sid = $('ssid').value.trim(), role = $('srole').value.trim();
+  var email = $('semail').value.trim(), sid = $('ssid').value.trim(), role = $('srole').value;
   if (!email || !sid) { show('smsg','err','נדרשים מייל ומזהה-עובד'); return; }
   $('mkstaff').disabled = true; show('smsg','','');
   try {

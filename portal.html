@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>הפורטל שלי — סולן הדפסות</title>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     portal.html — פורטל הלקוח של **המבנה החדש** (portals/portalProofs).
+     portal.html — פורטל הלקוח של **המבנה הארגוני**.
+
+     ⚠️ כל קריאה נבנית תחת organizations/{orgId}/… דרך PortalPaths.
+     ה-orgId וה-portalId מגיעים מה-claims בלבד; לעולם לא מ-?p=,
+     משדה-טופס או מגוף-בקשה.
 
      ⚠️ זה אינו customer-portal.html. הישן משרת 44 לקוחות חיים עם ?cust=&k=
      ואינו נוגע כאן; החדש עובד לפי portalId שב-claims, בלי שום סוד בכתובת.
@@ -14,8 +18,10 @@
      ⚠️ הכתובת אינה מעניקה הרשאה. מי שאינו מחובר מועבר להתחברות, ומי
      שמחובר רואה **רק** את הפורטל שב-claims שלו — גם אם ישנה את ?p= בכתובת.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785618712"></script>
-<script src="auth-client.js?v=1785618712"></script>
+<script src="firebase-auth.bundle.js?v=1785656845"></script>
+<script src="auth-client.js?v=1785656845"></script>
+<!-- מקור-האמת היחיד לנתיבי הפורטל הארגוני -->
+<script src="portal-paths.js?v=1785656845"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -88,10 +94,10 @@ var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, func
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785618712';
+var _BAKED = '1785656845';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
-var MY_PID = null, TOK = null;
+var MY_PID = null, MY_ORG = null, TOK = null;
 
 async function dbGet(path){
   var r = await fetch(DB + '/' + path + '.json?auth=' + encodeURIComponent(TOK));
@@ -145,6 +151,14 @@ SolanAuth.onAuthStateChanged(async function(user){
     return;
   }
 
+  /* ⚠️ ה-orgId מגיע מה-claims בלבד, בדיוק כמו ה-portalId. בלעדיו אי-אפשר
+     לבנות שום נתיב — ועדיף מסך שאומר זאת מפורשות על פני נתיב שגוי. */
+  MY_ORG = claims.orgId || null;
+  if (!PortalPaths.ORG_RE.test(String(MY_ORG || ''))) {
+    $('gate').textContent = 'החשבון עדיין לא שויך לעסק. פנו לבית הדפוס.';
+    return;
+  }
+
   TOK = await SolanAuth.idToken(false);
   $('who').textContent = user.email || '';
   $('out').classList.remove('hidden');
@@ -156,10 +170,10 @@ SolanAuth.onAuthStateChanged(async function(user){
      שלו מגיע מה-claims. */
   if (claims.accountType === 'staff') $('filesLink').href = 'portal-view.html?p=' + encodeURIComponent(MY_PID);
 
-  var p = await dbGet('portals/' + MY_PID);
+  var p = await dbGet(PortalPaths.db(MY_ORG, 'portals', MY_PID));
   if (p.ok && p.val && p.val.name) $('pname').textContent = p.val.name;
 
-  var j = await dbGet('portalProofs/' + MY_PID);
+  var j = await dbGet(PortalPaths.db(MY_ORG, 'portalProofs', MY_PID));
   var jobs = j.val || {};
   var ids = Object.keys(jobs);
   if (ids.length) {
@@ -183,11 +197,11 @@ async function runProbe(claims){
   var other = 'pid_' + '0'.repeat(32);          // פורטל שאינו קיים ואינו שלי
   var lines = [];
 
-  var mine = await dbGet('portalProofs/' + MY_PID);
+  var mine = await dbGet(PortalPaths.db(MY_ORG, 'portalProofs', MY_PID));
   lines.push(mine.ok ? '<span class="good">✓</span> קריאת הפורטל שלי — מותרת (כמצופה)'
                      : '<span class="bad">✗</span> קריאת הפורטל שלי נחסמה (' + mine.status + ')');
 
-  var foreign = await dbGet('portalProofs/' + other);
+  var foreign = await dbGet(PortalPaths.db(MY_ORG, 'portalProofs', other));
   lines.push(foreign.ok ? '<span class="bad">✗</span> קריאת פורטל אחר — <b>מותרת</b>. עדיין אין בידוד.'
                         : '<span class="good">✓</span> קריאת פורטל אחר — חסומה');
 
