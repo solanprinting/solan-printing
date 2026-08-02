@@ -36,10 +36,17 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785666060"></script>
-<script src="auth-client.js?v=1785666060"></script>
-<script src="auth-guard.js?v=1785666060" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1785666060"></script>
+<script src="firebase-auth.bundle.js?v=1785667159"></script>
+<script src="auth-client.js?v=1785667159"></script>
+<script src="auth-guard.js?v=1785667159" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1785667159"></script>
+<!-- ⚠️ אותה שורה בדיוק כמו במסך הראשי. בלעדיה המסך נפל לגופן-
+     המערכת, והמלל יצא דק ופחות ברור מהמסך שהמפעילים מכירים.
+     ⚠️ זו תלות **קוסמטית** בלבד: אם fonts.googleapis חסום, הגופן נופל
+     ל-Arial והמסך ממשיך לעבוד. אין כאן חזרה לתלות תפקודית ב-Google —
+     reCAPTCHA היה חוסם כניסה, גופן לא. display=swap כדי שהטקסט ייראה
+     מיד ולא ימתין להורדה. -->
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -53,7 +60,7 @@
      שמבצעת אותן. מוטב שלא יופיעו מאשר שיופיעו ולא יעבדו. */
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;height:100%}
-  body{background:#f1f5f9;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
+  body{background:#f1f5f9;font-family:'Heebo',sans-serif;
        direction:rtl;color:#1e293b;overflow:hidden}
   #screen{position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden}
   .hidden{display:none !important}
@@ -195,6 +202,8 @@
       <!-- ⚠️ ניווט באותו חלון. window.open היה נחסם בקיוסק, והחלון החדש
            היה מקבל פרופיל אחר — כלומר רישום שנשמר במקום הלא-נכון. -->
       <button class="b b-main" id="setupBtn">הגדרה ראשונית — מנהל בלבד</button>
+      <div id="diag" class="sub" style="display:none;margin-top:14px;text-align:right;
+           background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:10px 12px"></div>
     </div>
   </div>
 
@@ -227,7 +236,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1785666060';
+var _BAKED = '1785667159';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -255,6 +264,42 @@ function showUnenrolled(){
   $('app').classList.add('hidden');
   $('pinCard').classList.add('hidden');
   $('noDev').classList.remove('hidden');
+  storageDiag();
+}
+
+/* ⚠️ "המחשב נרשם, ואחרי כיבוי-והדלקה שוב מבקש רישום" הוא כמעט תמיד
+   הדפדפן ולא הקוד: אף שורה כאן אינה מוחקת את פרטי-המכשיר מלבד ביטול
+   מפורש. שתי סיבות אפשריות — הגדרה של "נקה נתוני גלישה בסגירה", או
+   פינוי-אחסון של הדפדפן. את השנייה אפשר למנוע; את הראשונה רק לזהות.
+   לכן מוצג כאן אבחון, כדי שלא ננחש בפעם הבאה. */
+function storageDiag(){
+  var el = $('diag');
+  if (!el) return;
+  var canWrite = false;
+  try { localStorage.setItem('_p4t', '1'); canWrite = localStorage.getItem('_p4t') === '1';
+        localStorage.removeItem('_p4t'); } catch (e) {}
+  if (!canWrite) {
+    el.textContent = '⚠️ הדפדפן אינו מאפשר שמירה מקומית (חלון פרטי / חסימת אחסון). ' +
+                     'רישום בחלון כזה יימחק בסגירה.';
+    el.style.display = '';
+    return;
+  }
+  if (navigator.storage && navigator.storage.persisted) {
+    navigator.storage.persisted().then(function(p){
+      if (p) return;
+      el.textContent = 'ℹ️ אם הרישום נמחק אחרי כיבוי המחשב — בדקו בהגדרות הדפדפן ' +
+                       'שאין "נקה נתוני גלישה בסגירה" לאתר הזה.';
+      el.style.display = '';
+    }).catch(function(){});
+  }
+}
+
+/* ⚠️ מבקש מהדפדפן לא לפנות את האחסון של האתר. אינו עוזר מול "נקה בסגירה"
+   — זו החלטה מפורשת של המשתמש — אבל כן מונע פינוי-אוטומטי, שהוא ההסבר
+   השני לרישום שנעלם. נקרא בכל טעינה, כי התשובה משתנה עם הרשאות. */
+function askPersist(){
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); }
+  catch (e) {}
 }
 
 async function doPinLogin(){
@@ -467,6 +512,10 @@ var _pv = null;
 function pvClose(){
   var ov = document.getElementById('ov');
   if (ov) ov.remove();
+  if (_noteTimer) { clearTimeout(_noteTimer); _noteTimer = null; }
+  /* ⚠️ _pv=null עוצר את לולאת-החידוד: היא בודקת alive() בכל סיבוב.
+     בלי זה היא הייתה ממשיכה לרנדר עשרות עמודים ברקע אחרי שסגרו. */
+  if (_pv && _pv.pdf) { try { _pv.pdf.cleanup(); } catch (e) {} }
   if (_pv && _pv.url) { try { URL.revokeObjectURL(_pv.url); } catch (e) {} }
   _pv = null;
   try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
@@ -508,6 +557,8 @@ function pvBuild(ov, label){
   bar.className = 'pvbar';
   bar.innerHTML =
       '<span class="ttl">' + esc(label || 'פרופר') + '</span>'
+    + '<span id="pv-note" style="display:none;background:#1d4ed8;color:#fff;border-radius:14px;'
+    + 'padding:4px 11px;font-size:.78rem;font-weight:800"></span>'
     + (multi ? '<button id="pv-prev" title="עמוד קודם">‹</button>' : '')
     + (multi ? '<select id="pv-sel"></select>'
              : '<span id="pv-label" style="color:#cbd5e1;font-size:.85rem;font-weight:700"></span>')
@@ -542,6 +593,19 @@ function pvBuild(ov, label){
 }
 
 function pvStatus(t){ var e = document.getElementById('pv-txt'); if (e) e.textContent = t; }
+
+/* תג קטן בסרגל: "מחדד…" בזמן שלב ב', ו"מהקובץ המקורי" בסיומו. בלי זה
+   המפעיל רואה תמונה שמתחלפת לבד ולא יודע למה. */
+var _noteTimer = null;
+function pvNote(t, hideAfter){
+  var e = document.getElementById('pv-note');
+  if (!e) return;
+  e.textContent = t; e.style.display = '';
+  if (_noteTimer) { clearTimeout(_noteTimer); _noteTimer = null; }
+  if (hideAfter) _noteTimer = setTimeout(function(){
+    var el = document.getElementById('pv-note'); if (el) el.style.display = 'none';
+  }, hideAfter);
+}
 
 async function openProof(jobKey){
   pvClose();
@@ -578,17 +642,23 @@ async function openProof(jobKey){
 
     var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     var n = pdf.numPages;
-    _pv = { imgs: [], idx: 0, zoom: 1, spread: false, total: n, url: null };
+    _pv = { imgs: [], idx: 0, zoom: 1, spread: false, total: n, url: null,
+            sharp: [], pdf: pdf };
     var built = false;
 
-    /* ⚠️ העמוד הראשון מוצג ברגע שהוא מוכן, והשאר ממשיכים ברקע. רינדור
-       של כל 32 העמודים לפני שמציגים משהו הוא דקה מול מסך שחור, והמפעיל
-       חושב שנתקע. */
-    for (var p = 1; p <= n; p++) {
-      if (!document.getElementById('ov')) { try { pdf.cleanup(); } catch (e) {} return; }
+    /* ⚠️ שני שלבים, וזה העיקר: רינדור ב-2900px לוקח שניות לעמוד, ופרופר
+       של גיליון-דפוס 70×100 הוא 145 מגה-פיקסל. לחכות לחדות לפני שמציגים
+       משהו זה מסך שחור ארוך, והמפעיל חושב שנתקע.
+       שלב א' — כל העמודים ב-{FAST}px, מהיר; העמוד הראשון על המסך מיד.
+       שלב ב' — אותם עמודים ב-{SHARP}px ברקע, מחליפים בשקט.
+       זה בדיוק מה שמסך הדפסים עושה עם הקאש ו-_opTruthUpgrade, רק שכאן
+       אין קאש מוכן ולכן השלב המהיר מיוצר מאותו קובץ. */
+    var FAST = 1100, SHARP = 2900;
+
+    async function renderAt(p, targetH) {
       var page = await pdf.getPage(p);
       var v1 = page.getViewport({ scale: 1 });
-      var vpt = page.getViewport({ scale: Math.min(4.0, 2900 / v1.height) });
+      var vpt = page.getViewport({ scale: Math.min(4.0, targetH / v1.height) });
       var c = document.createElement('canvas');
       c.width = Math.max(1, Math.floor(vpt.width));
       c.height = Math.max(1, Math.floor(vpt.height));
@@ -596,18 +666,55 @@ async function openProof(jobKey){
       try { cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high'; } catch (e) {}
       cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);   /* רקע לבן — JPEG בלי שקיפות */
       await page.render({ canvasContext: cx, viewport: vpt }).promise;
-      _pv.imgs.push(c.toDataURL('image/jpeg', 0.96));
       try { page.cleanup(); } catch (e) {}
+      return c.toDataURL('image/jpeg', 0.96);
+    }
+    var alive = function(){ return !!document.getElementById('ov') && !!_pv; };
+
+    /* ── שלב א' ── */
+    for (var p = 1; p <= n; p++) {
+      if (!alive()) { try { pdf.cleanup(); } catch (e) {} return; }
+      _pv.imgs.push(await renderAt(p, FAST));
+      _pv.sharp.push(false);
       if (!built) {
         built = true;
         var l = document.getElementById('pv-load'); if (l) l.remove();
         pvBuild(ov, label);
       }
       pvRender();
-      if (!built) pvStatus('⏳ מכין עמוד ' + p + ' מתוך ' + n + '…');
+      /* הפסקה קצרה: מחזירה שליטה לדפדפן כדי שהמסך יגיב ללחיצות
+         בזמן שהשאר נטען. */
+      await new Promise(function(r){ setTimeout(r, 0); });
     }
-    try { pdf.cleanup(); } catch (e) {}
     if (!_pv.imgs.length) throw new Error('לא ניתן להציג את הפרופר.');
+    if (n > 1) pvNote('⏳ מחדד…');
+
+    /* ── שלב ב' — חידוד ברקע, תמיד מהעמוד שעל המסך והלאה ──
+       ⚠️ לא לולאה קבועה: המפעיל מדפדף בזמן החידוד, ומה שהוא מסתכל עליו
+       עכשיו הוא מה שצריך להתחדד ראשון. */
+    (async function sharpen(){
+      while (alive()) {
+        var pick = -1, best = Infinity;
+        for (var i = 0; i < _pv.sharp.length; i++) {
+          if (_pv.sharp[i]) continue;
+          var d = Math.abs(i - _pv.idx);
+          if (d < best) { best = d; pick = i; }
+        }
+        if (pick < 0) break;
+        try {
+          var hi = await renderAt(pick + 1, SHARP);
+          if (!alive()) return;
+          _pv.imgs[pick] = hi;
+          _pv.sharp[pick] = true;
+          /* מציירים מחדש רק אם העמוד שהתחדד הוא זה שעל המסך */
+          if (pick === _pv.idx || (_pv.spread && pick === _pv.idx + 1)) pvRender();
+        } catch (e) {
+          _pv.sharp[pick] = true;                 /* עמוד שנכשל לא ינסה לנצח */
+        }
+        await new Promise(function(r){ setTimeout(r, 0); });
+      }
+      if (alive()) { pvNote('✓ מהקובץ המקורי', 3500); try { pdf.cleanup(); } catch (e) {} }
+    })();
   } catch (e) {
     pvClose();
     throw e;
@@ -618,6 +725,7 @@ function boot(){
 /* ⚠️ persistence='session': ההתחברות שורדת רענון ומשמרת, ונמחקת כשסוגרים
    את הסשן. מכונה משותפת לא נשארת מחוברת לנצח. */
 SolanAuth.init(FB_CONFIG, 'session');
+askPersist();
 SolanAuth.onAuthStateChanged(async function(user){
   /* ⚠️ אין ניתוב ל-login.html: אין למכונה מייל וסיסמה. */
   if (!user) {
