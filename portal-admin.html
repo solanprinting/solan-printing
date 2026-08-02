@@ -14,8 +14,8 @@
      ⚠️ קישור-ההזמנה מוצג **פעם אחת בלבד** ואינו נשמר בשום מקום — לא במסד,
      לא בלוג, ולא כאן. אם נסגר החלון, מפיקים הזמנה חדשה.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785684686"></script>
-<script src="auth-client.js?v=1785684686"></script>
+<script src="firebase-auth.bundle.js?v=1785694107"></script>
+<script src="auth-client.js?v=1785694107"></script>
 <style>
   .prow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #eef0f5}
   .prow:last-child{border-bottom:0}
@@ -132,7 +132,6 @@
       <select id="srole">
         <option value="worker" selected>עובד רגיל — worker</option>
         <option value="office">משרד — office</option>
-        <option value="press4">מפעיל ארבעה צבעים — press4</option>
         <option value="admin">מנהל — admin</option>
       </select>
       <button class="btn" id="mkstaff">פתח חשבון עובד</button>
@@ -141,6 +140,33 @@
       <div class="timing" id="stime"></div>
     </div>
 
+
+
+    <!-- ⚠️ טלפוני הסריקה. הטלפון הוא **מכונה** ולא עובד: זהות נפרדת לכל
+         מכשיר, אפס גישה ל-RTDB, וכל פעולה עוברת ב-Functions.
+         ראה functions/scan.js. -->
+    <div class="card">
+      <h2>📱 טלפוני סריקה</h2>
+      <div style="font-size:.82rem;color:#6b7280;margin-bottom:6px">
+        כל טלפון נרשם פעם אחת בקוד קצר-חיים ומקבל זהות משלו. אין חשבון
+        משותף ואין סיסמה בטלפון, וכל מכשיר ניתן לביטול בנפרד.
+      </div>
+      <label for="sclabel">שם המכשיר (לזיהוי ברשימה)</label>
+      <input id="sclabel" type="text" placeholder="טלפון כריכייה">
+      <button class="btn" id="mkscan">הפק קוד רישום</button>
+      <div class="msg" id="scmsg"></div>
+      <div class="timing" id="sctime"></div>
+      <div id="scbox" class="hidden">
+        <div class="warn">⚠️ הקוד מוצג <b>פעם אחת בלבד</b> ואינו נשמר בשום מקום.
+          הוא תקף 15 דקות ולשימוש יחיד. הקריאו אותו למי שמחזיק את הטלפון —
+          הוא מקליד אותו במסך הסריקה.</div>
+        <div class="pid" id="sccode" style="font-size:1.4rem;letter-spacing:.2em;font-weight:800"></div>
+      </div>
+
+      <hr style="border:0;border-top:1px solid #e6e9f2;margin:18px 0">
+      <button class="btn sec" id="scload">↻ רשימת המכשירים</button>
+      <div id="sclist" style="margin-top:10px"></div>
+    </div>
 
     <!-- ⚠️ זריעת עבודת-בדיקה (B+3.6). הפעולה חייבת לרוץ מכאן ולא
          מסקריפט: לפי חוקי portalFiles החדשים אסימון אנונימי מקבל 403,
@@ -192,7 +218,7 @@ var $ = function(id){ return document.getElementById(id); };
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785684686';
+var _BAKED = '1785694107';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 function boot(){
@@ -312,6 +338,54 @@ async function call(fn, data, timeEl){
   if (!r.ok) throw new Error((j.error && j.error.message) || 'שגיאה');
   return j.result;
 }
+
+
+/* ── טלפוני סריקה ──────────────────────────────────────────────────────────
+   ⚠️ המסך שולח בקשה בלבד. כל הכללים — תוקף הקוד, שימוש יחיד, מונה-כשלונות
+   וביטול מכשיר — נאכפים בשרת (functions/scan.js). */
+$('mkscan').addEventListener('click', async function(){
+  $('mkscan').disabled = true; show('scmsg','','');
+  $('scbox').classList.add('hidden');
+  try {
+    var r = await call('createScanEnrollCode', { label: $('sclabel').value.trim() }, 'sctime');
+    $('sccode').textContent = r.code;
+    $('scbox').classList.remove('hidden');
+    show('scmsg','ok','הקוד תקף 15 דקות ולשימוש יחיד.');
+  } catch (e) { show('scmsg','err', e.message); }
+  $('mkscan').disabled = false;
+});
+
+function scanWhen(ms){
+  if (!ms) return 'טרם';
+  try { return new Date(ms).toLocaleString('he-IL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }); }
+  catch (e) { return ''; }
+}
+async function loadScanDevices(){
+  $('sclist').innerHTML = '<div style="font-size:.82rem;color:#6b7280">טוען…</div>';
+  try {
+    var r = await call('listScanDevices', {}, 'sctime');
+    var list = (r && r.devices) || [];
+    if (!list.length) { $('sclist').innerHTML = '<div style="font-size:.82rem;color:#6b7280">אין מכשירים רשומים.</div>'; return; }
+    $('sclist').innerHTML = list.map(function(d){
+      return '<div class="prow">'
+        + '<div><div class="pname">' + esc(d.label || 'טלפון סריקה')
+        +   (d.enabled ? '' : ' <span class="off">בוטל</span>') + '</div>'
+        + '<div class="pwhen">נראה: ' + esc(scanWhen(d.lastSeenAt)) + ' · נרשם: ' + esc(scanWhen(d.enrolledAt)) + '</div></div>'
+        + '<div class="pacts">' + (d.enabled
+            ? '<button class="btn sec" data-revoke="' + esc(d.deviceId) + '">בטל</button>' : '')
+        + '</div></div>';
+    }).join('');
+    $('sclist').querySelectorAll('[data-revoke]').forEach(function(b){
+      b.addEventListener('click', async function(){
+        if (!confirm('לבטל את המכשיר? הוא ייעצר מיד ויחייב רישום מחדש.')) return;
+        b.disabled = true;
+        try { await call('revokeScanDevice', { deviceId: b.dataset.revoke }, 'sctime'); loadScanDevices(); }
+        catch (e) { show('scmsg','err', e.message); b.disabled = false; }
+      });
+    });
+  } catch (e) { $('sclist').innerHTML = ''; show('scmsg','err', e.message); }
+}
+$('scload').addEventListener('click', loadScanDevices);
 
 $('mk').addEventListener('click', async function(){
   var name = $('pname').value.trim();

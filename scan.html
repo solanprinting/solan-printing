@@ -20,6 +20,11 @@
   .btn.alt{background:rgba(255,255,255,.14);color:#fff;font-weight:700}
   .err{color:#fca5a5;font-weight:700;margin-top:10px;line-height:1.6}
   .wait{font-size:.92rem;line-height:1.8;color:rgba(255,255,255,.85)}
+  /* שדה-הקוד היחיד במסך. הערכים זהים ל-.btn.alt כדי שלא תיווצר שפה שנייה. */
+  .fld{display:block;width:100%;box-sizing:border-box;margin-top:10px;padding:13px;border:none;
+       border-radius:10px;background:rgba(255,255,255,.14);color:#fff;font-family:'Heebo',sans-serif;
+       font-size:1rem;font-weight:700;text-align:center;letter-spacing:.18em}
+  .fld::placeholder{color:rgba(255,255,255,.45);letter-spacing:normal;font-weight:400}
 </style>
 </head>
 <body>
@@ -29,11 +34,13 @@
   <div id="body"><div class="spin"></div></div>
 </div>
 <script src="scan-complete.js"></script>
-<!-- ⚠️ שומר-הכניסה — סריקת QR היא שלב בייצור, ולכן מסך-עובד.
-     data-mode="observe" עד שכל העובדים יקבלו חשבון. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1785684686"></script>
-<script src="auth-client.js?v=1785684686"></script>
-<script src="auth-guard.js?v=1785684686" data-page="scan.html" data-mode="observe"></script>
+<!-- ⚠️ אין כאן auth-guard, ובכוונה: טלפון הסריקה הוא **מכונה** ולא עובד.
+     השומר היה מעביר אותו ל-login.html ודורש חשבון-אדם — כלומר חשבון
+     משותף שסיסמתו עוברת בין עובדים. במקום זה: רישום חד-פעמי בקוד
+     קצר-חיים, Custom Token, וה-SDK מנהל את הסשן והרענון.
+     ⚠️ אפס גישה ל-RTDB. כל קריאה וכתיבה עוברות ב-Functions. -->
+<script src="firebase-auth.bundle.js?v=1785694107"></script>
+<script src="auth-client.js?v=1785694107"></script>
 <script>
 // דף סריקת QR מכרטיס עבודה מודפס: ?c=<מזהה כרטיס> [&r=<ריצה>]
 // סדר עדיפויות:
@@ -165,29 +172,32 @@ window._appCheckToken = function(){
   };
 })();
 try { window._appCheckToken(); } catch(e){}
-var TOKEN = null;
+var FN = 'https://europe-west1-solan-printing.cloudfunctions.net/';
 
-/* ── האסימון מגיע מהשומר (B+3.3) ────────────────────────────────────────
-   ⚠️ החלטת-הבעלים (01/08/2026): סריקת ה-QR היא **שלב בייצור** ולא מסך
-   ציבורי — היא קוראת כרטיסי-עבודה, מסמנת שלבי-גימור ומסמנת השלמה. ולכן
-   המסך הוא מסך-עובד לכל דבר, ובאכיפה הוא דורש accountType=staff.
-   ⚠️ החזרה לפעולה המקורית: השומר בונה את returnTo מהכתובת **על השאילתה
-   שלה**, ולכן ‎scan.html?c=123‎ חוזר לאותו כרטיס אחרי ההתחברות ולא לדף-הבית.
-   ⚠️ אין נפילה-לאחור: לא ל-PIN ולא לאנונימי. */
-function _tok(){
-  if (!window.SolanGuard) return Promise.reject(new Error('auth-guard.js לא נטען — אין מקור לאסימון'));
-  return window.SolanGuard.token(false);
-}
-function fbGet(path){
-  return fetch(_FBURL + '/' + path + '.json' + (TOKEN ? '?auth=' + TOKEN : '')).then(function(r){
-    if (!r.ok) throw new Error('http ' + r.status);
-    return r.json();
+/* ── זהות הטלפון ────────────────────────────────────────────────────────
+   ⚠️ הטלפון אינו קורא ואינו כותב ב-RTDB. עד עכשיו הוא משך את **כל** צומת
+   cards ואת **כל** צומת customerProofs כדי למצוא כרטיס אחד, וזו הייתה
+   הסיבה היחידה שהוא היה תלוי בהרשאה האנונימית הגורפת.
+
+   ⚠️ הזהות היא של **המכשיר**, לא של אדם: accountType='machine', role='scan',
+   ו-deviceId משלו. אין חשבון משותף ואין סיסמה בטלפון. מכשיר שאבד מבוטל
+   בנפרד, ומחיקת נתוני הדפדפן מחייבת רישום מחדש — וזה מכוון.
+
+   ⚠️ ה-QR לא השתנה. הוא נושא מזהה-כרטיס ותו לא, וכל המדבקות המודפסות
+   ממשיכות לעבוד. */
+function callFn(name, data){
+  return SolanAuth.idToken(false).then(function(t){
+    return fetch(FN + name, { method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + t },
+      body: JSON.stringify({ data: data || {} }) });
+  }).then(function(r){
+    return r.json().catch(function(){ return {}; }).then(function(j){
+      /* ⚠️ כשל אינו נבלע ואינו מוצג כהצלחה — סימון שנראה כאילו נשמר ולא
+         נשמר הוא בדיוק התבנית שחזרה כאן. */
+      if (!r.ok) { var e = new Error((j.error && j.error.message) || 'שגיאה'); e.code = (j.error && j.error.status) || ''; throw e; }
+      return j.result;
+    });
   });
-}
-function fbPut(path, val){
-  return fetch(_FBURL + '/' + path + '.json' + (TOKEN ? '?auth=' + TOKEN : ''),
-    { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(val) })
-    .then(function(r){ return r.ok; }).catch(function(){ return false; });
 }
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function norm(s){ return String(s||'').toLowerCase().replace(/[^0-9a-zא-ת ]+/g,' ').replace(/\s+/g,' ').trim(); }
@@ -202,23 +212,16 @@ function isBooklet(card){
   return false;   // ספק — לא מקפלים (פותחים ישירות); עדיף מלהפוך פוסטר לחוברת
 }
 
-// ── קבצי לקוח (מערכת האישורים): התאמה לפי שם העבודה מול לקוח/כותרת ──
-function customerMatches(card, proofsMap){
-  var cn = norm(card.name); if (!cn) return [];
-  var out = [];
-  Object.keys(proofsMap||{}).forEach(function(pid){
-    var rec = proofsMap[pid]; if (!rec) return;
-    var viewable = !!rec.fileUrl || (rec.parts && Object.keys(rec.parts).some(function(k){ return rec.parts[k] && rec.parts[k].fileUrl; }));
-    if (!viewable) return;
-    var fields = [rec.title, rec.customer, ((rec.customer||'') + ' ' + (rec.title||''))];
-    var hit = fields.some(function(f){ var fn = norm(f); return fn && fn.length >= 2 && (cn.indexOf(fn) >= 0 || fn.indexOf(cn) >= 0); });
-    if (!hit) return;
-    var when = rec.approvedAt || 0;
-    if (rec.parts) Object.keys(rec.parts).forEach(function(k){ var p=rec.parts[k]; if (p && p.approvedAt > when) when = p.approvedAt; });
-    out.push({ id: pid, rec: rec, when: when });
+/* ── קבצי לקוח ──────────────────────────────────────────────────────────
+   ⚠️ ההתאמה עברה לשרת (functions/scan.js · matchProofs), ואותה לוגיקה
+   בדיוק — נרמול והכלה דו-כיוונית. הסיבה אינה יופי: עד עכשיו הטלפון הוריד
+   את **כל** עבודות **כל** הלקוחות רק כדי לסנן אחת. עכשיו יוצאות מהשרת
+   ההתאמות של הכרטיס הזה בלבד, ובלי כתובות-קבצים.
+   ⚠️ החתימה נשמרה כדי שכל הקוראים למטה לא ישתנו. */
+function customerMatches(card, proofsList){
+  return (proofsList || []).map(function(m){
+    return { id: m.id, rec: { customer: m.customer, title: m.title }, when: m.approvedAt || 0 };
   });
-  out.sort(function(a,b){ return b.when - a.when; });
-  return out;
 }
 
 // ── פרופרים על הכרטיס ──
@@ -267,14 +270,15 @@ function proofTarget(card, entry){
     + '&name=' + encodeURIComponent(entry.name || card.name || 'פרופר');
 }
 
+var FB_CONFIG_SCAN = { apiKey:_FB_APIKEY, authDomain:'solan-printing.firebaseapp.com',
+  projectId:'solan-printing', databaseURL:_FBURL, appId:'1:1094826649317:web:bd5f5efdc1f8e3ab67160c' };
 var qs = new URLSearchParams(location.search);
 var cid = qs.get('c'), rk = qs.get('r');
 var sub = document.getElementById('sub'), body = document.getElementById('body');
 
-function findCard(v){
-  var cards = Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
-  return cards.find(function(x){ return x && String(x.id) === String(cid); });
-}
+/* ⚠️ findCard הוסרה: השרת מחזיר כרטיס אחד לפי מזהה, ומסרב אם יש שניים.
+   החיפוש-בצד-הלקוח היה מחייב להוריד את כל הכרטיסים. */
+function loadCard(){ return callFn('scanGetCard', { cardId: cid }); }
 function go(url, msg){
   body.innerHTML = '<div class="spin"></div><div style="font-size:.85rem;color:rgba(255,255,255,.65)">' + esc(msg||'פותח…') + '</div>';
   location.replace(url);
@@ -323,27 +327,17 @@ function waitForFiles(){
     + 'ברגע שיגיע קובץ (מהלקוח או פרופר) — הוא ייפתח כאן אוטומטית.<br>'
     + '<span style="font-size:.75rem;color:rgba(255,255,255,.55)">אפשר להשאיר את המסך פתוח או לסרוק שוב מאוחר יותר.</span></div>'
     + '<button class="btn alt" id="chk-now">🔄 בדוק עכשיו</button>';
-  var lastRev, ticks = 0, iv;
+  var ticks = 0, iv;
+  /* ⚠️ שער-הגרסה (_rev) הוסר: הוא נועד לחסוך הורדה של **כל** צומת cards,
+     וקריאה אחת שמחזירה כרטיס אחד אינה צריכה אותו. */
   function check(force){
-    // קבצי לקוח — צומת קטן, נבדק בכל סבב
-    fbGet('customerProofs').catch(function(){ return null; }).then(function(cp){
-      fetch(_FBURL + '/_rev/cards.json' + (TOKEN ? '?auth=' + TOKEN : ''))
-        .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; })
-        .then(function(rv){
-          var revChanged = force || lastRev === undefined || rv !== lastRev;
-          lastRev = rv;
-          if (!revChanged) {
-            // הכרטיס לא השתנה — בדוק רק התאמת קובץ לקוח מול הכרטיס שבידינו
-            if (window._scanCard && cp && resolveIfReady(window._scanCard, cp)) { if (iv) clearInterval(iv); }
-            return;
-          }
-          fbGet('cards').then(function(v){
-            var c = findCard(v); if (!c) return;
-            window._scanCard = c;
-            if (resolveIfReady(c, cp || {})) { if (iv) clearInterval(iv); }
-          }).catch(function(){});
-        });
-    });
+    loadCard().then(function(r){
+      if (!r || !r.card) return;
+      window._scanCard = r.card;
+      window._scanProofs = r.proofs || [];
+      if (r.stages && typeof r.stages === 'object') _scanStages = r.stages;
+      if (resolveIfReady(r.card, window._scanProofs)) { if (iv) clearInterval(iv); }
+    }).catch(function(){});
   }
   function resolveIfReady(card, proofsMap){
     var hasCustomer = isBooklet(card) && customerMatches(card, proofsMap).length > 0;
@@ -407,13 +401,25 @@ function _stampNow(){
   var d = new Date();
   return { at: d.getTime(), atText: d.toLocaleString('he-IL', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) };
 }
+/* ⚠️ החותמת נקבעת **בשרת**. עד עכשיו היא הגיעה מ-Date של הטלפון, וטלפון
+   עם שעון שגוי רשם סיום-עבודה בתאריך אחר.
+   ⚠️ תצוגה אופטימית נשארה — הכפתור הופך ל-✓ מיד — אבל כשל מחזיר אותה
+   לאחור ואומר זאת. סימון שנשאר ירוק בלי שנשמר הוא כשל שקט. */
 function _markStage(card, s){
   var by = _whoAmI(); if (!by) return;
-  var t = _stampNow();
-  var payload = { done:true, at: t.at, atText: t.atText, by: by };
-  _scanStages[s] = payload;
-  fbPut('scanStages/' + encodeURIComponent(String(card.id)) + '/' + s, payload);
-  showMenu(card);   // רענון → מציג ✓
+  var prev = _scanStages[s];
+  _scanStages[s] = { done:true, at: Date.now(), by: by };
+  showMenu(card);
+  callFn('scanMarkStage', { cardId: card.id, stage: s, by: by }).then(function(res){
+    if (res && res.record) _scanStages[s] = res.record;
+    showMenu(card);
+  }).catch(function(e){
+    _scanStages[s] = prev;
+    showMenu(card);
+    var el = document.createElement('div');
+    el.className = 'err'; el.textContent = 'הסימון לא נשמר: ' + ((e && e.message) || 'שגיאה');
+    body.appendChild(el);
+  });
 }
 
 /* ═══════════ סימון "העבודה הושלמה" + פרטים ═══════════
@@ -495,14 +501,22 @@ function _doneForm(card){
     var t = _stampNow();
     var vals = _collect();
     var res = SC ? SC.compute(kind, vals, ordered) : { total: vals.qty||0, packs:0, status:'none', shortfall:0 };
-    var payload = { done:true, at:t.at, atText:t.atText, by:by,
-      kind: kind, vals: vals,
+    var detail = { kind: kind, vals: vals,
       qty: res.total, packs: res.packs || 0,
       shortfall: res.shortfall || 0, statusStr: (SC ? SC.statusText(res) : ''),
-      note: (document.getElementById('d-note').value || '').trim() || null,
+      note: (document.getElementById('d-note').value || '').trim() || '',
       cardQty: ordered };
+    var payload = Object.assign({ done:true, at:t.at, atText:t.atText, by:by }, detail);
     _scanStages.done = payload;
-    fbPut('scanStages/' + encodeURIComponent(String(card.id)) + '/done', payload);
+    /* ⚠️ אין כאן catch שבולע: כשל מוצג למשתמש, כי "נרשם" שלא נרשם הוא
+       בדיוק מה שגורם לספור מלאי פעמיים. */
+    callFn('scanMarkStage', { cardId: card.id, stage: 'done', by: by, detail: detail })
+      .then(function(r){ if (r && r.record) _scanStages.done = r.record; })
+      .catch(function(e){
+        var el = document.createElement('div');
+        el.className = 'err'; el.textContent = 'הפרטים לא נשמרו: ' + ((e && e.message) || 'שגיאה');
+        body.appendChild(el);
+      });
     var sumLine = SC ? SC.summaryText(res) : (payload.qty.toLocaleString() + ' יח׳');
     body.innerHTML = '<div style="font-weight:900;font-size:1.05rem;color:#86efac">✓ נרשם</div>'
       + '<div class="wait" style="margin-top:8px;line-height:1.9">העבודה סומנה כהושלמה<br>'
@@ -562,31 +576,82 @@ function showMenu(card){
   if (db2) db2.onclick = function(){ _doneForm(card); };
 }
 
+/* ── מסך הרישום ─────────────────────────────────────────────────────────
+   ⚠️ מוצג **רק** למכשיר שאינו רשום. טלפון שכבר נרשם מגיע ישר לתפריט
+   הרגיל, בלי שום שלב חזותי חדש — זה הרוב המוחלט של הפתיחות.
+   ⚠️ משתמש באותם .box/.btn/.wait/.err של המסך. השדה היחיד שנוסף מעתיק
+   את .btn.alt. */
+function showEnroll(msg){
+  sub.textContent = 'רישום המכשיר';
+  body.innerHTML =
+      '<div class="wait">הטלפון הזה עדיין לא רשום.<br>בקשו מהמנהל קוד רישום והקלידו אותו כאן.<br>'
+    + '<span style="font-size:.75rem;color:rgba(255,255,255,.55)">פעם אחת בלבד — אחר כך הסריקה עובדת כרגיל.</span></div>'
+    + '<input class="fld" id="en-code" maxlength="9" autocomplete="off" autocapitalize="characters"'
+    + ' inputmode="text" placeholder="קוד רישום">'
+    + '<input class="fld" id="en-label" maxlength="30" autocomplete="off" placeholder="שם המכשיר (למשל: טלפון כריכייה)"'
+    + ' style="letter-spacing:normal;font-weight:400">'
+    + '<button class="btn" id="en-go">רישום המכשיר</button>'
+    + (msg ? '<div class="err">' + esc(msg) + '</div>' : '');
+  var go = document.getElementById('en-go');
+  go.onclick = function(){
+    var code = (document.getElementById('en-code').value || '').trim();
+    var label = (document.getElementById('en-label').value || '').trim();
+    if (!code) { showEnroll('חסר קוד רישום'); return; }
+    go.disabled = true; go.textContent = 'רושם…';
+    fetch(FN + 'enrollScanDevice', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ data: { code: code, label: label } }) })   /* ⚠️ מזהה-העסק אינו נשלח מכאן —
+         השרת גוזר אותו מהסוד עצמו. ראה functions/scan.js · enrollIndexPath. */
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){
+        if (!r.ok) throw new Error((j.error && j.error.message) || 'הרישום נכשל');
+        return j.result;
+      }); })
+      .then(function(res){ return SolanAuth.signInWithCustomToken(res.token); })
+      .then(function(){ start(); })
+      .catch(function(e){ showEnroll(String((e && e.message) || 'הרישום נכשל')); });
+  };
+}
+
+/* טעינת הכרטיס — בדיוק אותו זרם שהיה, בקריאה אחת במקום ארבע */
+function start(){
+  sub.textContent = 'טוען את פרטי העבודה…';
+  body.innerHTML = '<div class="spin"></div>';
+  loadCard().then(function(r){
+    var card = r.card;
+    /* ⚠️ כרטיס שהושלם עבר לארכיון ונעלם מ-cards, אבל ה-QR המודפס ממשיך
+       לחיות על הנייר. השרת מחפש גם שם ומסמן fromArchive. */
+    if (card.fromArchive) sub.textContent = 'מהארכיון';
+    window._scanCard = card;
+    window._scanProofs = r.proofs || [];
+    if (r.stages && typeof r.stages === 'object') _scanStages = r.stages;
+    if (!card.fromArchive) sub.textContent = card.name || '';
+    showMenu(card);
+  }).catch(function(e){
+    var code = (e && e.code) || '';
+    /* ⚠️ מכשיר שבוטל או שה-claims שלו התיישנו מקבל את מסך-הרישום ולא
+       שגיאה סתומה — זו הפעולה שאפשר לפעול לפיה. */
+    if (/unauthenticated/i.test(code) || /device/i.test(String(e && e.message))) {
+      SolanAuth.signOut().catch(function(){}).then(function(){ showEnroll('המכשיר בוטל — יש לרשום מחדש'); });
+      return;
+    }
+    if (/not-found/i.test(code)) {
+      sub.textContent = '';
+      body.innerHTML = '<div class="err">הכרטיס לא נמצא — ייתכן שהעבודה נמחקה לצמיתות.</div>';
+      return;
+    }
+    sub.textContent = '';
+    body.innerHTML = '<div class="err">שגיאה בטעינה — בדוק חיבור לאינטרנט ונסה שוב.</div>';
+  });
+}
+
 if (!cid) { sub.textContent = ''; body.innerHTML = '<div class="err">חסר מזהה כרטיס בקישור.</div>'; }
-else _tok().then(function(t){
-  TOKEN = t;
-  // ⚠️ כרטיס שהושלם מועבר לארכיון ונעלם מ-cards — אבל ה-QR המודפס ממשיך לחיות על
-  //    הכרטיס בדפוס. לכן מחפשים גם בארכיון (וגם בגיבוי הכרטיס הבודד) לפני שמוותרים.
-  return Promise.all([
-    fbGet('cards'),
-    fbGet('customerProofs').catch(function(){ return {}; }),
-    fbGet('scanStages/' + encodeURIComponent(String(cid))).catch(function(){ return null; }),
-    fbGet('cardsArchive/' + encodeURIComponent(String(cid))).catch(function(){ return null; })
-  ]);
-}).then(function(res){
-  var card = findCard(res[0]) || res[3] || null;
-  if (card && !findCard(res[0])) {
-    sub.textContent = 'מהארכיון';               // שקוף למשתמש — הכרטיס נמצא, רק לא ברשימה הפעילה
-  }
-  if (!card) { sub.textContent = ''; body.innerHTML = '<div class="err">הכרטיס לא נמצא — ייתכן שהעבודה נמחקה לצמיתות.</div>'; return; }
-  window._scanCard = card; window._scanProofs = res[1] || {};
-  if (res[2] && typeof res[2] === 'object') _scanStages = res[2];
-  sub.textContent = card.name || '';
-  showMenu(card);   // תפריט אפשרויות (במקום פתיחה אוטומטית איטית של הפרופר)
-}).catch(function(e){
-  sub.textContent = '';
-  body.innerHTML = '<div class="err">שגיאה בטעינה — בדוק חיבור לאינטרנט ונסה שוב.</div>';
-});
+else {
+  /* ⚠️ persistence מקומי: הרישום חייב לשרוד סגירת דפדפן וכיבוי מכשיר,
+     אחרת העובד היה מקליד קוד כל בוקר. */
+  SolanAuth.init(FB_CONFIG_SCAN, 'local');
+  SolanAuth.onAuthStateChanged(function(user){
+    if (user) start(); else showEnroll('');
+  });
+}
 </script>
 </body>
 </html>
