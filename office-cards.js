@@ -78,10 +78,10 @@
      ‎office: { produce, edit, internalData:false }‎ — כאן זה מתורגם
      לפעולות שהמסך באמת מציע, כדי ששתי הרשימות לא יסטו.
 
-     ⚠️ ‏deleteCard **אינו** כאן במקרה: אין פונקציה שרתית למחיקה, ולכן
-     אין גם כפתור. כפתור שקיים ונכשל גרוע מכפתור שאינו קיים. */
+     ⚠️ ‏'delete' **אינו** ברשימה יותר: יש מסלול שרתי מצומצם
+     (officeDeleteOwnCard) לביטול כרטיס שהעובד עצמו יצר בטעות. ההחלטה
+     אינה "מותר/אסור" אלא תלוית-כרטיס, ולכן היא ב-mayDeleteCard ולא כאן. */
   var UI_DENIED = [
-    'delete',        // מחיקת כרטיס — אין מסלול, לא ב-UI ולא בשרת
     'prices',        // מחירון, הצעות-מחיר, תמחור AI
     'quotes',
     'inventory',     // מלאי, תעודות-משלוח, חשבוניות
@@ -112,6 +112,51 @@
     if (!isOffice(claims)) return true;
     return UI_DENIED.indexOf(String(action)) < 0;
   }
+
+  /* ── מחיקת כרטיס שנוצר בטעות ────────────────────────────────────────────
+     ⚠️ **נוחות ולא אכיפה.** אותם תנאים בדיוק נבדקים בשרת מול הנתונים
+     (functions/office.js · assertDeletable), וכאן רק מוחלט אם להציג את
+     הכפתור. כפתור שמוצג ונכשל גרוע מכפתור שאינו מוצג — ולהפך, הסתרה
+     אינה חסימה.
+
+     ⚠️ מה שהלקוח **אינו** יכול לבדוק: תור-מכונות, סימוני-סריקה, גיליונות
+     אימפוזיציה, עבודות-מכונה וארכיון. הם נבדקים בשרת בלבד, ולכן כפתור
+     שמוצג עדיין עשוי להיענות בסירוב מנומק. זה הכיוון הבטוח. */
+  var DELETE_BLOCKING_FIELDS = [
+    'printedAt', 'printCount',
+    'hasProof', 'proofUrl', 'proofName', 'proofType', 'runProofs',
+    'bookletSheetUrl', 'bookletName',
+    'approvedBy', 'approvedAt',
+  ];
+
+  function _has(v) {
+    /* ⚠️ ‏0 הוא היעדר ולא ערך — ראה hasValue ב-functions/office.js */
+    if (v === null || v === undefined || v === '' || v === false || v === 0) return false;
+    if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === 'object') return Object.keys(v).length > 0;
+    return true;
+  }
+
+  /* האם office רשאי למחוק את הכרטיס הזה — לפי מה שידוע במסך */
+  function canDeleteOwn(claims, card) {
+    var c = claims || {}, k = card || null;
+    if (!isOffice(c) || !k) return false;
+    if (String(k.createdBy || '') !== String(c.staffId || '')) return false;
+    if (String(k.status || 'pending') !== 'pending') return false;
+    for (var i = 0; i < DELETE_BLOCKING_FIELDS.length; i++)
+      if (_has(k[DELETE_BLOCKING_FIELDS[i]])) return false;
+    return true;
+  }
+
+  /* ⚠️ מי שאינו office מקבל true תמיד — מסלול-המחיקה של המנהל לא נגע. */
+  function mayDeleteCard(claims, card) {
+    if (!isOffice(claims)) return true;
+    return canDeleteOwn(claims, card);
+  }
+
+  /* ההודעה כשהכרטיס כבר בתהליך. ⚠️ מנוסחת כפעולה שאפשר לעשות ("פנו
+     למנהל") ולא כ"אין הרשאה" — זו טעות-הקלדה, לא ניסיון-פריצה. */
+  var IN_PROGRESS_MSG = 'אי אפשר למחוק את הכרטיס כי העבודה כבר נכנסה לתהליך. פנו למנהל לביטול.';
 
   /* ── ניתוב שמירת-הכרטיס ─────────────────────────────────────────────────
      ⚠️ ההחלטה טהורה בכוונה — היא נבדקת ב-Node, והקריאה לרשת יושבת
@@ -157,6 +202,10 @@
     mayLoad: mayLoad,
     mayWriteDirect: mayWriteDirect,
     mayDo: mayDo,
+    DELETE_BLOCKING_FIELDS: DELETE_BLOCKING_FIELDS,
+    IN_PROGRESS_MSG: IN_PROGRESS_MSG,
+    canDeleteOwn: canDeleteOwn,
+    mayDeleteCard: mayDeleteCard,
     saveRouteFor: saveRouteFor,
     payloadFor: payloadFor,
   };

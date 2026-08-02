@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785694107';
+window.APP_VERSION = '1785695061';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1608,9 +1608,9 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
      ומחזיר אותו בדיוק לכתובת שממנה בא (returnTo).
      ⚠️ מסך ה-PIN נשאר כבחירת-זהות פנימית אחרי ההתחברות במייל — הוא אינו
      מעניק שום הרשאת Firebase. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1785694107"></script>
-<script src="auth-client.js?v=1785694107"></script>
-<script src="auth-guard.js?v=1785694107" data-page="krtis-avoda.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1785695061"></script>
+<script src="auth-client.js?v=1785695061"></script>
+<script src="auth-guard.js?v=1785695061" data-page="krtis-avoda.html" data-mode="enforce"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 try { if (window.LibLoader) LibLoader.autoFill(['xlsx','jspdf','html2canvas','pdfjs','qrcode','jsbarcode']); } catch(e){}
@@ -1627,24 +1627,24 @@ window._pdfEngineReady = (window.PdfEngine
      ב-_fbGet / _fbPut / _fbSnapshot, ו-async או defer היו מפילים את כולם. -->
 <!-- שער-התפקיד של המשרד. ⚠️ **לפני** solan-data.js: ‏_fbGet/_fbPut שם
      קוראים ל-OfficeCards, ולכן הוא חייב להיות מוגדר קודם. -->
-<script src="office-cards.js?v=1785694107"></script>
-<script src="solan-data.js?v=1785694107"></script>
+<script src="office-cards.js?v=1785695061"></script>
+<script src="solan-data.js?v=1785695061"></script>
 <!-- ⚠️ מנגנון הסנכרון — צורך את _fbGet/_fbPut מ-solan-data.js,
      ולכן חייב לבוא **אחריו** ולפני הבלוק הגדול. -->
-<script src="solan-sync.js?v=1785694107"></script>
-<script src="solan-toast.js?v=1785694107"></script>
-<script src="solan-persist.js?v=1785694107"></script>
+<script src="solan-sync.js?v=1785695061"></script>
+<script src="solan-toast.js?v=1785695061"></script>
+<script src="solan-persist.js?v=1785695061"></script>
 <!-- שכבת ה-AI (חילוץ 6B). צורכת את solan-data.js ואת showToast, ולכן אחריהם.
      ⚠️ חמש שורות האתחול של פרוקסי-הענן נשארו במיקומן המקורי בבלוק הגדול,
      כדי שקריאת-הרשת בזמן-הטעינה לא תוקדם לכאן. -->
-<script src="solan-ai.js?v=1785694107"></script>
+<script src="solan-ai.js?v=1785695061"></script>
 <!-- מנוע ההחלטות Prepress (חילוץ 7). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-prepress.js?v=1785694107"></script>
+<script src="solan-prepress.js?v=1785695061"></script>
 <!-- מנוע הלמידה (חילוץ 8). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-learn.js?v=1785694107"></script>
+<script src="solan-learn.js?v=1785695061"></script>
 <!-- השלמה-אוטומטית (חילוץ 9). אין לו תלות בשכבה מוקדמת;
      המיקום נקבע רק כדי שיהיה לפני הבלוק הגדול. -->
-<script src="solan-autocomplete.js?v=1785694107"></script>
+<script src="solan-autocomplete.js?v=1785695061"></script>
 </head>
 <body>
 
@@ -14867,17 +14867,24 @@ function restoreCard(id) {
   showToast('↩ כרטיס שוחזר');
 }
 
+/* האם להציג את כפתור-המחיקה. ⚠️ עבור admin/worker מחזיר תמיד true,
+   ולכן הכפתור, המחלקות והמיקום שלו זהים בדיוק למה שהיו. */
+function _mayDeleteBtn(c){
+  if (!window.OfficeCards) return true;
+  return OfficeCards.mayDeleteCard(window._officeClaims, c);
+}
+
 function deleteCard(id) {
-  /* ⚠️ שער-התפקיד. אין פונקציה שרתית למחיקה, ואין ל-office כתיבה ל-cards
-     בחוקים — כלומר המחיקה הייתה נכשלת מקומית-בלבד: הכרטיס נעלם מהמסך,
-     חוזר בסבב-הפולינג הבא, והמשתמש בטוח שמחק. זהו הכשל-השקט עצמו.
-     נחסם כאן בקול, והכפתור ממילא מוסתר ב-_officeApplyUi. */
-  if (window.OfficeCards && !OfficeCards.mayDo(window._officeClaims, 'delete')) {
-    showToast('⛔ מחיקת כרטיס אינה בהרשאת המשרד — פנו למנהל');
-    return;
-  }
   const item = cards.find(c=>c.id===id);
   if (!item) return;
+  /* ⚠️ ניתוב לפי התפקיד. ‏office אינו כותב ל-RTDB, ולכן מחיקה מקומית
+     הייתה "מצליחה" ואז הכרטיס היה חוזר בסבב-הפולינג הבא — כשל שקט.
+     המסלול שלו עובר ב-officeDeleteOwnCard, שבודקת בשרת בעלות, סטטוס
+     ותלויות בארבעה צמתים נוספים. admin/worker — המסלול הקיים, בלי שינוי. */
+  if (window.OfficeCards && OfficeCards.isOffice(window._officeClaims)) {
+    _officeDeleteCard(item);
+    return;
+  }
   const snap = [...cards];
   _markDeleted('cards', id);
   cards = cards.filter(c=>c.id!==id);
@@ -15154,7 +15161,7 @@ function _jobCardHtml(c) {
         <button class="btn btn-sm" style="background:#f1f5f9;color:#334155;border:1.5px solid #cbd5e1" onclick="downloadCardPdf(${c.id})">⬇️ הורדה</button>
         <button class="btn btn-sm" style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0" onclick="duplicateCard(${c.id})">📋 שכפל</button>
         <button class="btn btn-sm" style="background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa" onclick="makeCardWeekly(${c.id})" title="העבודה תיכנס לרשימה הקבועה לפי סוגה (עיתון→עיתונים · עלון→עלונים) ותופיע כל שבוע">📌 הפוך לקבוע</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteCard(${c.id})">מחק</button>
+        ${_mayDeleteBtn(c) ? `<button class="btn btn-sm btn-danger" onclick="deleteCard(${c.id})">מחק</button>` : ''}
       </div>
     </div>`;
 }
@@ -19681,6 +19688,36 @@ function setupFBListeners() {
     window._fbPollInterval = setInterval(_fbPollAll, 30 * 1000);   // 30ש' — ריענון מהיר; החיסכון מגיע מהשהיית פולינג של משתמש לא-פעיל (ראה _pausePolling)
     try { _uaStart(); } catch(e){}                                  // התראה חוזרת על קבצים שהלקוח שלח
   });
+}
+
+/* ── מחיקת כרטיס שנוצר בטעות (משרד) ──────────────────────────────────────
+   ⚠️ אותו confirm ואותו showToast של המסלול הקיים — אין כאן חלון חדש.
+   ⚠️ אין showUndoToast: הביטול שם משחזר מקומית בלבד, וכאן המחיקה כבר
+   נעשתה בשרת ועם מצבה. "בטל" שאינו מבטל גרוע מהיעדר כפתור. */
+async function _officeDeleteCard(item){
+  if (!OfficeCards.canDeleteOwn(window._officeClaims, item)) {
+    showToast('⛔ ' + OfficeCards.IN_PROGRESS_MSG);
+    return;
+  }
+  if (!confirm('למחוק את כרטיס העבודה "' + (item.name||'ללא שם') + '"?' + String.fromCharCode(10,10)
+    + 'המחיקה מיועדת לכרטיס שנוצר בטעות, והיא סופית.')) return;
+  showToast('🗑 מוחק…');
+  try {
+    await OfficeCards.callSave('officeDeleteOwnCard', { id: item.id });
+  } catch (e) {
+    /* ⚠️ הסירוב מהשרת מנוסח כפעולה שאפשר לעשות. התלויות שהוא בדק —
+       תור-מכונות, סריקה, אימפוזיציה, ארכיון — אינן ידועות למסך. */
+    var m = String((e && e.message) || '');
+    showToast('⛔ ' + (/in_progress|has_activity|archived|not_owner/.test(m)
+      ? OfficeCards.IN_PROGRESS_MSG : ('המחיקה נכשלה: ' + (m || 'שגיאה'))));
+    return;
+  }
+  /* מושכים מהשרת במקום להסיר מקומית — מקור-האמת הוא מה שנמחק שם */
+  try { window._revSynced['cards'] = false; } catch (e) {}
+  try { await _fbPollAll(); } catch (e) {}
+  cards = cards.filter(function(c){ return c && String(c.id) !== String(item.id); });
+  renderCards();
+  showToast('✅ הכרטיס נמחק');
 }
 
 /* ── שמירת כרטיס בתפקיד המשרד ─────────────────────────────────────────────
