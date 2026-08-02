@@ -14,9 +14,16 @@
      ⚠️ קישור-ההזמנה מוצג **פעם אחת בלבד** ואינו נשמר בשום מקום — לא במסד,
      לא בלוג, ולא כאן. אם נסגר החלון, מפיקים הזמנה חדשה.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785670279"></script>
-<script src="auth-client.js?v=1785670279"></script>
+<script src="firebase-auth.bundle.js?v=1785673225"></script>
+<script src="auth-client.js?v=1785673225"></script>
 <style>
+  .prow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #eef0f5}
+  .prow:last-child{border-bottom:0}
+  .prow .pname{font-weight:800;font-size:.95rem;color:#1f2937}
+  .prow .pwhen{font-size:.72rem;color:#9099ab}
+  .prow .off{font-size:.68rem;background:#fef2f2;color:#b91c1c;border-radius:5px;padding:1px 6px}
+  .prow .pacts{display:flex;gap:6px;flex-shrink:0}
+  .prow .pacts .btn{padding:7px 12px;font-size:.8rem;text-decoration:none;display:inline-block}
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
        color:#1f2937;background:linear-gradient(180deg,#eef1f6 0%,#f5f6f9 100%);padding:20px}
@@ -67,6 +74,16 @@
       <button class="btn" id="mk">צור פורטל</button>
       <div class="msg" id="pmsg"></div>
       <div class="timing" id="ptime"></div>
+    </div>
+
+    <!-- ⚠️ בלי הרשימה הזו אי-אפשר היה למצוא פורטל אחרי סגירת החלון:
+         המזהה הוצג פעם אחת בלבד בהודעת-ההצלחה. כך נוצרו חמישה
+         פורטלי-בדיקה כפולים. -->
+    <div class="card">
+      <h2>📋 הפורטלים שלי</h2>
+      <button class="btn sec" id="reload">↻ רענן רשימה</button>
+      <div id="plist" style="margin-top:10px"></div>
+      <div class="timing" id="ltime"></div>
     </div>
 
     <!-- ⚠️ B+3.2: קישור חשבון-עובד ל-staffId. המייל נשאר ב-Firebase Auth
@@ -157,7 +174,7 @@ var $ = function(id){ return document.getElementById(id); };
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785670279';
+var _BAKED = '1785673225';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 function boot(){
@@ -177,6 +194,8 @@ SolanAuth.onAuthStateChanged(async function(user){
   $('myclaims').textContent = 'role=' + (claims.role || '—') + ' · staffId=' + (claims.staffId || 'חסר');
   $('gate').classList.add('hidden');
   $('app').classList.remove('hidden');
+  loadPortals();
+  $('reload').addEventListener('click', loadPortals);
 
   /* מילוי-מראש ממסך ניהול-המשתמשים (‎?staffId=‎).
      ⚠️ נוחות בלבד — הפרמטר אינו מעניק הרשאה ואינו מדלג על שום בדיקה:
@@ -195,6 +214,61 @@ function show(el, kind, text){ var m = $(el); m.className = 'msg ' + kind; m.tex
 
 /* קריאה לפונקציה + מדידת זמן. ⚠️ הקריאה הראשונה אחרי תקופת שקט היא
    cold start — הזמן מוצג כדי שאפשר יהיה למדוד ולא לנחש. */
+/* ⚠️ הרשימה מגיעה מ-Function ולא מקריאה ישירה: חוק ה-read יושב על
+   portals/$pid, כלומר על הילד. אין הרשאה לצומת האב — list על צומת שלם
+   הוא בדיוק מה שנמנע בכוונה. */
+/* ⚠️ שם הפורטל הוא קלט חופשי של מנהל. בלי בריחה, שם עם < היה נשתל
+   כ-HTML במסך הניהול. */
+function esc(v){
+  return String(v == null ? '' : v).replace(/[&<>"]/g, function(c){
+    return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; });
+}
+
+async function loadPortals(){
+  var el = $('plist');
+  el.innerHTML = '<div style="color:#6b7280;font-size:.85rem">טוען…</div>';
+  try {
+    var res = await call('listPortals', {}, 'ltime');
+    var list = (res && res.portals) || [];
+    if (!list.length) {
+      el.innerHTML = '<div style="color:#6b7280;font-size:.85rem">אין עדיין פורטלים.</div>';
+      return;
+    }
+    el.innerHTML = list.map(function(p){
+      var when = p.createdAt
+        ? new Date(p.createdAt).toLocaleString('he-IL',
+            { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' })
+        : '';
+      return '<div class="prow">'
+        + '<div style="flex:1;min-width:0">'
+        + '<div class="pname">' + esc(p.name || '(ללא שם)')
+        + (p.active ? '' : ' <span class="off">מושבת</span>') + '</div>'
+        + '<div class="pid" style="margin:3px 0">' + esc(p.portalId) + '</div>'
+        + (when ? '<div class="pwhen">נוצר ' + esc(when) + '</div>' : '')
+        + '</div>'
+        + '<div class="pacts">'
+        /* ⚠️ ‎?p=‎ הוא נוחות-ניווט לעובד בלבד. לקוח שישנה אותו לא יראה
+           פורטל אחר — הערך נדרס מה-claims שלו. */
+        + '<a class="btn sec" href="portal-view.html?p=' + encodeURIComponent(p.portalId) + '">👁 צפה</a>'
+        + '<button class="btn sec" data-pid="' + esc(p.portalId) + '">📋 מלא בטפסים</button>'
+        + '</div></div>';
+    }).join('');
+    /* מילוי שדות-המזהה בכל הטפסים שבמסך — הדבקה ידנית של pid_ בן 32 תווים
+       היא בדיוק המקום שבו נופלת טעות. */
+    el.querySelectorAll('button[data-pid]').forEach(function(b){
+      b.onclick = function(){
+        var pid = b.dataset.pid;
+        ['ipid', 'seedpid'].forEach(function(id){ if ($(id)) $(id).value = pid; });
+        b.textContent = '✓ הודבק';
+        setTimeout(function(){ b.textContent = '📋 מלא בטפסים'; }, 1500);
+      };
+    });
+  } catch (e) {
+    el.innerHTML = '<div style="color:#b91c1c;font-size:.85rem">טעינת הרשימה נכשלה: '
+                 + esc(e.message || 'שגיאה') + '</div>';
+  }
+}
+
 async function call(fn, data, timeEl){
   var t = await SolanAuth.idToken(false);
   var t0 = performance.now();
@@ -217,6 +291,8 @@ $('mk').addEventListener('click', async function(){
     show('pmsg','ok','הפורטל נוצר.');
     $('pmsg').innerHTML += '<div class="pid">' + res.portalId + '</div>';
     $('ipid').value = res.portalId;          // ממלא אוטומטית לשלב הבא
+    loadPortals();                           // ⚠️ הרשימה מתעדכנת מיד — בלי זה
+                                             //    המזהה שוב מוצג פעם אחת בלבד
   } catch (e) { show('pmsg','err', e.message); }
   $('mk').disabled = false;
 });

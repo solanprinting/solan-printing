@@ -36,16 +36,16 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785670279"></script>
-<script src="auth-client.js?v=1785670279"></script>
-<script src="auth-guard.js?v=1785670279" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1785670279"></script>
+<script src="firebase-auth.bundle.js?v=1785673225"></script>
+<script src="auth-client.js?v=1785673225"></script>
+<script src="auth-guard.js?v=1785673225" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1785673225"></script>
 <!-- ⚠️ הגופן מתארח **אצלנו**, לא ב-Google. קישור ל-fonts.googleapis לא
      הספיק: גיליון-הסגנון מגיע משם, אבל קובצי הגופן עצמם מגיעים
      מ-fonts.gstatic.com — ומספיק שאחד מהשניים חסום ברשת המסוננת
      כדי שהמסך ייפול לגופן-מערכת, והמלל ייצא דק ושונה ממה
      שהמפעילים מכירים. עכשיו אין תלות ברשת חיצונית בכלל. -->
-<link href="heebo.css?v=1785670279" rel="stylesheet">
+<link href="heebo.css?v=1785673225" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -106,8 +106,12 @@
   .q-num{font-size:.8rem;font-weight:700;color:#94a3b8;min-width:18px}
   .q-name{font-size:.9rem;font-weight:800;color:#1e293b;white-space:nowrap;
           overflow:hidden;text-overflow:ellipsis}
-  .q-name .r{font-size:.72rem;color:#94a3b8;font-weight:700}
-  .q-sub{font-size:.72rem;color:#94a3b8;margin-top:2px}
+  /* ⚠️ אפור-על-לבן נקרא גרוע ממטר-שניים ליד המכונה. גודל-הנייר, הריצה
+     והכמות בשחור, וסוג-הנייר עבה יותר — הוא מה שהדפס מחפש ראשון
+     כשהוא ניגש לעבודה. */
+  .q-name .r{font-size:.78rem;color:#1e293b;font-weight:800}
+  .q-sub{font-size:.8rem;color:#1e293b;margin-top:3px;font-weight:600}
+  .q-sub b{font-weight:900}
   .q-empty{text-align:center;padding:24px 0;color:#94a3b8;font-size:.85rem}
 
   /* ── כפתורי פעולה — אותם צבעים ואותם נוסחים ─────────────────────── */
@@ -247,7 +251,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1785670279';
+var _BAKED = '1785673225';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -446,7 +450,7 @@ function queueHtml(items, printing){
         + '<div style="flex:1;min-width:0">'
         + '<div class="q-name">' + esc(j.name || 'עבודה')
         + (j.runLabel ? ' <span class="r">· ' + esc(j.runLabel) + '</span>' : '') + '</div>'
-        + '<div class="q-sub">' + esc(j.paper || '')
+        + '<div class="q-sub"><b>' + esc(j.paper || '') + '</b>'
         + (j.copies ? ' · ' + _fmt(j.copies) + ' גיל\'' : '') + '</div>'
         + '</div></div>'
         + (j.hasProof ? '<button class="b b-proof" data-act="proof" data-key="'
@@ -842,6 +846,19 @@ SolanAuth.onAuthStateChanged(async function(user){
   _timer = setInterval(function(){
     if (!_busy && document.visibilityState === 'visible') load(true);
   }, 45000);
+
+  /* ⚠️ מסך קיוסק נשאר פתוח ימים. guardVersion רץ בטעינה בלבד, ולכן מסך
+     שנפתח בבוקר המשיך להריץ קוד ישן אחרי פריסה. זה מה שקרה בפועל:
+     השרת כבר החזיר גם עבודות שהושלמו, המסך הישן לא ידע להציג אותן
+     בנפרד והכניס אותן לתור-ההדפסה עם כפתור "התחל", והשרת ענה
+     "העבודה כבר סומנה כהושלמה". גרסת-שרת חדשה מול מסך ישן היא באג
+     שלנו, לא של המפעיל.
+     ⚠️ לא באמצע פעולה ולא כשהפרופר פתוח — רענון כזה מוחק עבודה. */
+  setInterval(function(){
+    if (_busy || document.getElementById('ov')) return;
+    if (document.visibilityState !== 'visible') return;
+    AuthClient.guardVersion(_BAKED);
+  }, 5 * 60 * 1000);
 });
 
 /* ⚠️ יציאה מחזירה למסך ה-PIN, לא ל-login.html. */
