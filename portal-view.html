@@ -25,10 +25,10 @@
      עריכה, אין מחיקה, אין דריסה (כל העלאה מקבלת proofId ושם ייחודיים),
      ואין פעולת-ייצור. ה-orgId וה-portalId מגיעים מה-claims בלבד.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785673225"></script>
-<script src="auth-client.js?v=1785673225"></script>
-<script src="auth-guard.js?v=1785673225" data-page="portal-view.html" data-mode="observe"></script>
-<script src="portal-paths.js?v=1785673225"></script>
+<script src="firebase-auth.bundle.js?v=1785675835"></script>
+<script src="auth-client.js?v=1785675835"></script>
+<script src="auth-guard.js?v=1785675835" data-page="portal-view.html" data-mode="observe"></script>
+<script src="portal-paths.js?v=1785675835"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
@@ -123,7 +123,7 @@ var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, func
 
 /* ⚠️ כל האתחול בתוך boot(): רישום onAuthStateChanged לפני ש-init() רץ נכשל
    בשקט והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785673225';
+var _BAKED = '1785675835';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 var MY_PID = null, MY_ORG = null, MY_UID = null;
@@ -176,11 +176,20 @@ function boot(){
 SolanAuth.init(FB_CONFIG);
 SolanAuth.onAuthStateChanged(async function(user){
   if (!user) { location.replace(AuthClient.loginUrlFor('portal-view.html', location.origin)); return; }
-  var claims = await SolanAuth.claims(false).catch(function(){ return {}; });
+
+  /* ⚠️ הסיבה שהעלאות נכשלו: אימות-מייל והוספת claim **אינם** מרעננים
+     טוקן קיים — הוא נשאר תקף עד שעה. לקוח שאישר מייל וחזר למסך המשיך
+     לשלוח email_verified:false, המסך הציג לו טופס העלאה, והשרת דחה.
+     reload() מושך את מצב המשתמש מהשרת, ו-claims(true) מכריח טוקן חדש.
+     שניהם לפני כל החלטה שנשענת עליהם. */
+  try { await SolanAuth.reload(); } catch (e) {}
+  var claims = await SolanAuth.claims(true).catch(function(){ return {}; });
 
   /* ⚠️ אימות-מייל: ההזמנה מוכיחה שמישהו קיבל את הקישור, לא שהוא בעל
-     התיבה. מסך-האימות עצמו יושב ב-portal.html — לא משכפלים אותו כאן. */
-  if (claims.accountType === 'customer' && !user.emailVerified) {
+     התיבה. מסך-האימות עצמו יושב ב-portal.html — לא משכפלים אותו כאן.
+     ⚠️ נבדק מה-claim ולא מ-user.emailVerified: ה-claim הוא בדיוק מה
+     שחוקי ה-RTDB בודקים, ורק הוא מעיד מה השרת יראה. */
+  if (claims.accountType === 'customer' && claims.email_verified !== true) {
     location.replace('portal.html');
     return;
   }
@@ -221,13 +230,39 @@ SolanAuth.onAuthStateChanged(async function(user){
      רק ללקוח של הפורטל (ולמנהל), ולכן טופס שמוצג ל-office היה נכשל
      אחרי לחיצה. עדיף שלא יופיע כלל מאשר כפתור שמבטיח ולא מקיים. */
   if (claims.accountType === 'customer') {
-    $('upCard').classList.remove('hidden');
-    wireUpload();
+    /* ⚠️ טופס העלאה שהשרת ידחה הוא הבטחה שלא תקוים. בודקים כאן **בדיוק**
+       את מה שחוק ה-.write דורש, ואם משהו חסר — מציגים מה חסר במקום
+       כפתור. הבדיקה היא נוחות: הגבול האמיתי נשאר החוק. */
+    var missing = uploadBlockers(claims);
+    if (missing.length) {
+      $('upCard').innerHTML =
+        '<h2>⬆️ העלאת קבצים</h2>' +
+        '<div class="note">לא ניתן להעלות קבצים כרגע:<ul style="margin:6px 0 0;' +
+        'padding-inline-start:20px">' +
+        missing.map(function(m){ return '<li>' + esc(m) + '</li>'; }).join('') +
+        '</ul></div>';
+      $('upCard').classList.remove('hidden');
+    } else {
+      $('upCard').classList.remove('hidden');
+      wireUpload();
+    }
   } else {
     $('upCard').remove();
   }
   await loadJobs();
 });
+
+/* ⚠️ אותם חמישה תנאים בדיוק שחוק ה-.write של portalProofs/$pid/$proofId
+   דורש מלקוח. אם תשתנה שם דרישה — היא חייבת להשתנות גם כאן, אחרת נחזור
+   בדיוק לבאג הזה: מסך שמבטיח מה שהשרת לא מקיים. */
+function uploadBlockers(claims){
+  var c = claims || {}, out = [];
+  if (c.email_verified !== true) out.push('כתובת המייל עדיין לא אומתה. פתחו את מייל האימות ולחצו על הקישור.');
+  if (!PortalPaths.ORG_RE.test(String(c.orgId || ''))) out.push('החשבון עדיין לא שויך לעסק. פנו לבית הדפוס.');
+  if (!PortalPaths.PID_RE.test(String(c.portalId || ''))) out.push('החשבון עדיין לא שויך לפורטל. פנו לבית הדפוס.');
+  if (((c.firebase || {}).sign_in_provider) !== 'password') out.push('יש להתחבר עם מייל וסיסמה.');
+  return out;
+}
 
 /* טעינת העבודות — פונקציה נפרדת כדי שנוכל לרענן אחרי העלאה בלי רענון-דף. */
 async function loadJobs(){
@@ -275,12 +310,47 @@ function upMsg(kind, text){
   el.classList.remove('hidden');
 }
 
+/* ⚠️ עד 02/08/2026 הפונקציה החזירה r.ok בלבד, והכשל האמיתי נזרק:
+   ההעלאה נכשלה ולא היה שום מידע למה. עכשיו מוחזרים גם הסטטוס וגם גוף
+   התשובה של Firebase, ושניהם נשמרים לאבחון.
+
+   ⚠️ מה **לא** נשמר: הטוקן. הוא יושב במחרוזת-השאילתה של ה-URL, ולכן
+   נשמר path בלבד ולעולם לא ה-URL המלא. סוד בלוג הוא סוד שדלף. */
+var _lastFail = null;
+
 async function dbPut(path, tok, value){
-  var r = await fetch(DB + '/' + path + '.json?auth=' + encodeURIComponent(tok), {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(value)
-  });
-  return r.ok;
+  var r, body = '';
+  try {
+    r = await fetch(DB + '/' + path + '.json?auth=' + encodeURIComponent(tok), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(value)
+    });
+  } catch (e) {
+    _lastFail = { path: path, status: 0, body: 'network' };
+    return { ok: false, status: 0, body: 'network' };
+  }
+  if (!r.ok) {
+    try { body = (await r.text() || '').slice(0, 300); } catch (e) {}
+    _lastFail = { path: path, status: r.status, body: body };
+  }
+  return { ok: r.ok, status: r.status, body: body };
+}
+
+/* הודעה ידידותית לפי הסטטוס — ולא "ההעלאה נכשלה" על הכול.
+   ⚠️ 401 מ-RTDB על דחיית-חוקים אינו "תקלה": הוא אומר שהטוקן אינו נושא
+   את מה שהחוק דורש. זה מידע שימושי, ולכן הוא נאמר. */
+function putErrText(res){
+  if (!res) return 'הפעולה נכשלה.';
+  if (res.status === 0)   return 'אין חיבור לרשת. בדקו את החיבור ונסו שוב.';
+  if (res.status === 401) return 'אין הרשאה לשמור בפורטל הזה. התנתקו והתחברו מחדש, ואם זה חוזר — פנו לבית הדפוס.';
+  if (res.status === 403) return 'הפעולה נדחתה. פנו לבית הדפוס.';
+  return 'שמירה נכשלה (שגיאה ' + res.status + '). נסו שוב.';
+}
+
+/* שורת-אבחון מסוננת, לתמיכה. בלי טוקן ובלי URL מלא. */
+function failDetail(){
+  if (!_lastFail) return '';
+  return 'פרטים לתמיכה: ' + _lastFail.status + ' · ' + _lastFail.path;
 }
 
 /* העלאה ל-Storage בבקשה מאומתת. אין token= ואין כתובת-שיתוף — נשמר נתיב
@@ -328,7 +398,9 @@ async function doUpload(){
   var okCount = 0, failed = [];
 
   try {
-    var tok = await SolanAuth.idToken(false);
+    /* ⚠️ טוקן טרי גם כאן: המסך יכול לעמוד פתוח שעה, וטוקן שפג הוא
+       בדיוק אותו כשל שוב. force=true. */
+    var tok = await SolanAuth.idToken(true);
 
     /* רשומת-עבודה במצב uploading — נוצרת לפני הקבצים, כדי שגם כשל באמצע
        ישאיר עקבות ולא ייעלם בשקט. */
@@ -338,11 +410,13 @@ async function doUpload(){
        "נאמן": שליחת uid של מישהו אחר פשוט תידחה. הוא נשלח כדי שהכלל
        יוכל לזהות מי יוצר הרשומה — לא כדי לקבוע זאת. */
     if (!MY_UID) { upMsg('err', 'ההתחברות פגה. רעננו את הדף ונסו שוב.'); return; }
-    if (!await dbPut(base, tok, {
+    var mk = await dbPut(base, tok, {
       title: title, status: 'uploading', createdAt: now, updatedAt: now,
       uploadedByUid: MY_UID
-    })) {
-      upMsg('err', 'יצירת העבודה נכשלה. לא הועלה שום קובץ.');
+    });
+    if (!mk.ok) {
+      /* ⚠️ הסיבה נאמרת, ולא "נכשל". זה בדיוק המידע שחסר באבחון הקודם. */
+      upMsg('err', putErrText(mk) + ' ' + failDetail());
       return;
     }
 
@@ -364,8 +438,9 @@ async function doUpload(){
         contentType: 'application/pdf',
         uploadedAt: Date.now()
       };
-      if (!await dbPut(base + '/files/' + fid, tok, meta)) {
-        failed.push(f.name + ' (רישום נכשל)');
+      var fm = await dbPut(base + '/files/' + fid, tok, meta);
+      if (!fm.ok) {
+        failed.push(f.name + ' (רישום נכשל · ' + fm.status + ')');
         continue;
       }
       okCount++;
@@ -382,8 +457,8 @@ async function doUpload(){
     /* ⚠️ הסדר מחייב: updatedAt נכתב **לפני** הסטטוס הסופי. החוק מתיר
        ללקוח לגעת ב-updatedAt רק כל עוד הרשומה ב-uploading, ולכן כתיבה
        בסדר ההפוך הייתה ננעלת על עצמה ונכשלת תמיד. */
-    var upOk = await dbPut(base + '/updatedAt', tok, Date.now());
-    var stOk = upOk && await dbPut(base + '/status', tok, status);
+    var upOk = (await dbPut(base + '/updatedAt', tok, Date.now())).ok;
+    var stOk = upOk && (await dbPut(base + '/status', tok, status)).ok;
     if (!stOk || !upOk) {
       upMsg('err', 'הקבצים עלו (' + okCount + ' מתוך ' + files.length +
                    '), אבל רישום הסיום נכשל. פנו לבית הדפוס וציינו: ' + proofId);

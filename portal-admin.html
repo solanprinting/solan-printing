@@ -14,8 +14,8 @@
      ⚠️ קישור-ההזמנה מוצג **פעם אחת בלבד** ואינו נשמר בשום מקום — לא במסד,
      לא בלוג, ולא כאן. אם נסגר החלון, מפיקים הזמנה חדשה.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785673225"></script>
-<script src="auth-client.js?v=1785673225"></script>
+<script src="firebase-auth.bundle.js?v=1785675835"></script>
+<script src="auth-client.js?v=1785675835"></script>
 <style>
   .prow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #eef0f5}
   .prow:last-child{border-bottom:0}
@@ -79,6 +79,24 @@
     <!-- ⚠️ בלי הרשימה הזו אי-אפשר היה למצוא פורטל אחרי סגירת החלון:
          המזהה הוצג פעם אחת בלבד בהודעת-ההצלחה. כך נוצרו חמישה
          פורטלי-בדיקה כפולים. -->
+    <!-- ⚠️ ל-setCustomerOrg לא היה שום ממשק, ולכן חשבונות-לקוח שנוצרו
+         לפני שה-orgId נכנס ל-claims נשארו תקועים: הם נכנסים,
+         וכל כתיבה שלהם נדחית כי החוק דורש orgId. הפונקציה עצמה
+         אינה משתנה — היא מסרבת לחשבון שאינו לקוח, לחשבון בלי
+         portalId ולחשבון של עסק אחר. -->
+    <div class="card">
+      <h2>🔗 שיוך לקוח לעסק</h2>
+      <div style="font-size:.82rem;color:#6b7280;margin-bottom:6px">
+        לחשבון-לקוח שנוצר לפני שה-orgId נכנס ל-claims. השיוך מנתק
+        את הסשן — הלקוח יתחבר מחדש ויקבל טוקן עם orgId.
+      </div>
+      <label for="couid">מזהה המשתמש (uid)</label>
+      <input id="couid" type="text" placeholder="uid…" dir="ltr">
+      <button class="btn" id="colink">שייך לעסק שלי</button>
+      <div class="msg" id="comsg"></div>
+      <div class="timing" id="cotime"></div>
+    </div>
+
     <div class="card">
       <h2>📋 הפורטלים שלי</h2>
       <button class="btn sec" id="reload">↻ רענן רשימה</button>
@@ -174,7 +192,7 @@ var $ = function(id){ return document.getElementById(id); };
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785673225';
+var _BAKED = '1785675835';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 function boot(){
@@ -196,6 +214,19 @@ SolanAuth.onAuthStateChanged(async function(user){
   $('app').classList.remove('hidden');
   loadPortals();
   $('reload').addEventListener('click', loadPortals);
+  $('colink').addEventListener('click', async function(){
+    var uid = $('couid').value.trim();
+    if (!uid) { show('comsg','err','הזינו מזהה משתמש'); return; }
+    $('colink').disabled = true;
+    try {
+      var r = await call('setCustomerOrg', { uid: uid }, 'cotime');
+      show('comsg','ok', r && r.changed ? 'הלקוח שויך לעסק. הסשן שלו נותק — הוא יתחבר מחדש.'
+                                          : 'הלקוח כבר שויך לעסק הזה. לא שונה דבר.');
+    } catch (e) {
+      show('comsg','err','השיוך נכשל: ' + (e.message || 'שגיאה'));
+    }
+    $('colink').disabled = false;
+  });
 
   /* מילוי-מראש ממסך ניהול-המשתמשים (‎?staffId=‎).
      ⚠️ נוחות בלבד — הפרמטר אינו מעניק הרשאה ואינו מדלג על שום בדיקה:
