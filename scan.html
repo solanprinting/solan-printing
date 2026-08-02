@@ -39,8 +39,8 @@
      משותף שסיסמתו עוברת בין עובדים. במקום זה: רישום חד-פעמי בקוד
      קצר-חיים, Custom Token, וה-SDK מנהל את הסשן והרענון.
      ⚠️ אפס גישה ל-RTDB. כל קריאה וכתיבה עוברות ב-Functions. -->
-<script src="firebase-auth.bundle.js?v=1785695061"></script>
-<script src="auth-client.js?v=1785695061"></script>
+<script src="firebase-auth.bundle.js?v=1785696599"></script>
+<script src="auth-client.js?v=1785696599"></script>
 <script>
 // דף סריקת QR מכרטיס עבודה מודפס: ?c=<מזהה כרטיס> [&r=<ריצה>]
 // סדר עדיפויות:
@@ -194,7 +194,13 @@ function callFn(name, data){
     return r.json().catch(function(){ return {}; }).then(function(j){
       /* ⚠️ כשל אינו נבלע ואינו מוצג כהצלחה — סימון שנראה כאילו נשמר ולא
          נשמר הוא בדיוק התבנית שחזרה כאן. */
-      if (!r.ok) { var e = new Error((j.error && j.error.message) || 'שגיאה'); e.code = (j.error && j.error.status) || ''; throw e; }
+      if (!r.ok) {
+        var e = new Error((j.error && j.error.message) || 'שגיאה');
+        e.status = (j.error && j.error.status) || '';
+        /* ⚠️ הקוד המכונתי לזיהוי-מצב; המשתמש רואה את ההודעה בעברית בלבד */
+        e.code = (j.error && j.error.details && j.error.details.code) || '';
+        throw e;
+      }
       return j.result;
     });
   });
@@ -602,6 +608,8 @@ function showEnroll(msg){
       body: JSON.stringify({ data: { code: code, label: label } }) })   /* ⚠️ מזהה-העסק אינו נשלח מכאן —
          השרת גוזר אותו מהסוד עצמו. ראה functions/scan.js · enrollIndexPath. */
       .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){
+        /* ⚠️ ההודעה מגיעה מהשרת בעברית ומנוסחת כפעולה ("בקשו קוד חדש"),
+           ולא כקוד-שגיאה. זה נתפס בשטח: המסך הציג scan_code_unknown. */
         if (!r.ok) throw new Error((j.error && j.error.message) || 'הרישום נכשל');
         return j.result;
       }); })
@@ -629,11 +637,11 @@ function start(){
     var code = (e && e.code) || '';
     /* ⚠️ מכשיר שבוטל או שה-claims שלו התיישנו מקבל את מסך-הרישום ולא
        שגיאה סתומה — זו הפעולה שאפשר לפעול לפיה. */
-    if (/unauthenticated/i.test(code) || /device/i.test(String(e && e.message))) {
-      SolanAuth.signOut().catch(function(){}).then(function(){ showEnroll('המכשיר בוטל — יש לרשום מחדש'); });
+    if (/unauthenticated/i.test(String((e && e.status) || '')) || /^scan_device_/.test(code)) {
+      SolanAuth.signOut().catch(function(){}).then(function(){ showEnroll((e && e.message) || 'המכשיר בוטל — יש לרשום מחדש'); });
       return;
     }
-    if (/not-found/i.test(code)) {
+    if (/not-found/i.test(String((e && e.status) || ''))) {
       sub.textContent = '';
       body.innerHTML = '<div class="err">הכרטיס לא נמצא — ייתכן שהעבודה נמחקה לצמיתות.</div>';
       return;
