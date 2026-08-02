@@ -89,6 +89,15 @@
   var PRESS4_HOME  = 'press4.html';
   var PRESS4_PAGES = ['press4.html'];
 
+  /* ⚠️ office אינו "עובד עם פחות כפתורים" אלא קהל משלו, בדיוק כמו press4.
+     מסך אחד: כרטיסי העבודה. כל השאר — הצעות, מחירונים, מלאי, דוחות,
+     ניהול-עובדים, פורטלים, מסכי-מכונה ואימפוזיציה — אינם ברשימה, ולכן
+     כתובת ישירה אליהם מחזירה אותו הביתה.
+     ⚠️ הרשימה היא **מסך אחד** ולא "הכול חוץ מ-". רשימת-איסור הייתה
+     מחייבת לזכור כל מסך חדש; רשימת-היתר נכשלת לכיוון הבטוח. */
+  var OFFICE_HOME  = STAFF_HOME;
+  var OFFICE_PAGES = [STAFF_HOME];
+
   /* סוג החשבון לפי ה-claims. ⚠️ חשבון שנוצר בלי הזמנה — 'pending':
      לא נכשל בשקט ולא מגיע לשום מסך. */
   function kindOf(claims) {
@@ -100,6 +109,10 @@
        עם Custom Token, בלי מייל ובלי סיסמה. חשבון-עובד בתפקיד press4
        כבר אינו מסלול קיים. */
     if (c.accountType === 'machine' && c.role === 'press4') return 'press4';
+    /* ⚠️ office **חייב** staffId: בלעדיו החשבון אינו יודע מי הוא ברשימת
+       העובדים, וכל פעולה שלו הייתה נרשמת בלי בעלים. בלי staffId הוא
+       נשאר pending — כלומר חסום, ולא "עובד עם פחות". */
+    if (c.accountType === 'staff' && c.role === 'office') return c.staffId ? 'office' : 'pending';
     if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker')) return 'staff';
     if (c.accountType === 'customer' && c.portalId) return 'customer';
     return 'pending';
@@ -119,6 +132,7 @@
     if (k === 'pending') return false;
     if (k === 'customer') return CUSTOMER_PAGES.indexOf(pageOf(page)) >= 0;
     if (k === 'press4')   return PRESS4_PAGES.indexOf(pageOf(page)) >= 0;
+    if (k === 'office')   return OFFICE_PAGES.indexOf(pageOf(page)) >= 0;
     /* ⚠️ 'staff' כאן הוא admin או worker, ו-return true גורף היה נותן גם
        ל-worker את מסך המכונה. המסך פתוח ל-press4 ול-admin בלבד. */
     if (PRESS4_PAGES.indexOf(pageOf(page)) >= 0) return (claims || {}).role === 'admin';
@@ -134,6 +148,7 @@
     var k = kindOf(claims);
     if (k === 'pending') return { kind: 'pending', to: null };
     var home = (k === 'staff')  ? STAFF_HOME
+             : (k === 'office') ? OFFICE_HOME
              : (k === 'press4') ? PRESS4_HOME
              : (CUSTOMER_HOME + '?p=' + encodeURIComponent((claims || {}).portalId));
     if (requested && mayOpen(claims, requested)) return { kind: k, to: requested };

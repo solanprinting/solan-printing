@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785675835';
+window.APP_VERSION = '1785684686';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1608,9 +1608,9 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
      ומחזיר אותו בדיוק לכתובת שממנה בא (returnTo).
      ⚠️ מסך ה-PIN נשאר כבחירת-זהות פנימית אחרי ההתחברות במייל — הוא אינו
      מעניק שום הרשאת Firebase. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1785675835"></script>
-<script src="auth-client.js?v=1785675835"></script>
-<script src="auth-guard.js?v=1785675835" data-page="krtis-avoda.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1785684686"></script>
+<script src="auth-client.js?v=1785684686"></script>
+<script src="auth-guard.js?v=1785684686" data-page="krtis-avoda.html" data-mode="enforce"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 try { if (window.LibLoader) LibLoader.autoFill(['xlsx','jspdf','html2canvas','pdfjs','qrcode','jsbarcode']); } catch(e){}
@@ -1625,23 +1625,26 @@ window._pdfEngineReady = (window.PdfEngine
 <!-- ⚠️ שכבת הגישה ל-Firebase — הוצאה מכאן ל-solan-data.js.
      טעינה **חוסמת** ולפני הבלוק הגדול: 279 מקומות במסך משתמשים
      ב-_fbGet / _fbPut / _fbSnapshot, ו-async או defer היו מפילים את כולם. -->
-<script src="solan-data.js?v=1785675835"></script>
+<!-- שער-התפקיד של המשרד. ⚠️ **לפני** solan-data.js: ‏_fbGet/_fbPut שם
+     קוראים ל-OfficeCards, ולכן הוא חייב להיות מוגדר קודם. -->
+<script src="office-cards.js?v=1785684686"></script>
+<script src="solan-data.js?v=1785684686"></script>
 <!-- ⚠️ מנגנון הסנכרון — צורך את _fbGet/_fbPut מ-solan-data.js,
      ולכן חייב לבוא **אחריו** ולפני הבלוק הגדול. -->
-<script src="solan-sync.js?v=1785675835"></script>
-<script src="solan-toast.js?v=1785675835"></script>
-<script src="solan-persist.js?v=1785675835"></script>
+<script src="solan-sync.js?v=1785684686"></script>
+<script src="solan-toast.js?v=1785684686"></script>
+<script src="solan-persist.js?v=1785684686"></script>
 <!-- שכבת ה-AI (חילוץ 6B). צורכת את solan-data.js ואת showToast, ולכן אחריהם.
      ⚠️ חמש שורות האתחול של פרוקסי-הענן נשארו במיקומן המקורי בבלוק הגדול,
      כדי שקריאת-הרשת בזמן-הטעינה לא תוקדם לכאן. -->
-<script src="solan-ai.js?v=1785675835"></script>
+<script src="solan-ai.js?v=1785684686"></script>
 <!-- מנוע ההחלטות Prepress (חילוץ 7). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-prepress.js?v=1785675835"></script>
+<script src="solan-prepress.js?v=1785684686"></script>
 <!-- מנוע הלמידה (חילוץ 8). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-learn.js?v=1785675835"></script>
+<script src="solan-learn.js?v=1785684686"></script>
 <!-- השלמה-אוטומטית (חילוץ 9). אין לו תלות בשכבה מוקדמת;
      המיקום נקבע רק כדי שיהיה לפני הבלוק הגדול. -->
-<script src="solan-autocomplete.js?v=1785675835"></script>
+<script src="solan-autocomplete.js?v=1785684686"></script>
 </head>
 <body>
 
@@ -4013,6 +4016,12 @@ function updateBadge() {
 
 // ========== TABS ==========
 function switchTab(tab) {
+  /* ⚠️ שער-התפקיד לפני כל השאר. הכפתורים מוסתרים ב-_officeApplyUi, אבל
+     הסתרה אינה חסימה: switchTab נקראת גם מקוד ומ-localStorage. */
+  if (window.OfficeCards && !OfficeCards.mayTab(window._officeClaims, tab)) {
+    showToast('🔒 המסך הזה אינו בהרשאת המשרד');
+    return;
+  }
   if(currentUser&&!currentUser.isAdmin){var p=currentUser.permissions||{};if(tab==='inventory'&&p.inventory==='none'){showToast('🔒 אין הרשאה למלאי');return;}if(tab==='quotes'&&p.quotes==='none'){showToast('🔒 אין הרשאה להצעות מחיר');return;}if(tab==='papers'&&p.papers==='none'){showToast('🔒 אין הרשאה לניהול עיתונים');return;}if(tab==='new'&&p.createCard===false){showToast('🔒 אין הרשאה ליצירת כרטיס חדש');return;}if(tab==='week'&&p.weekView===false){showToast('🔒 אין הרשאה ליומן שבועי');return;}}
   ['dashboard','week','new','recurring','saved','papers','inventory','quotes','orders','queue','templates','worklist','printfiles','agent'].forEach(t => {
     const v = document.getElementById('view-'+t); if (v) v.style.display = t===tab ? '' : 'none';
@@ -8827,6 +8836,13 @@ function _pmDismissReminder(){
 }
 
 function saveCard() {
+  /* ⚠️ ניתוב לפי ה-claims ולא לפי הכתובת או לפי currentUser: תפקיד המשרד
+     אינו כותב ל-RTDB, וכל שמירה שלו עוברת בפונקציה שרתית. admin ו-worker
+     ממשיכים במסלול הקיים, בלי שינוי — ראה office-cards.js. */
+  var _route = window.OfficeCards
+    ? OfficeCards.saveRouteFor(window._officeClaims, !!window._editingCardId)
+    : { via: 'direct' };
+  if (_route.via === 'function') { _officeSaveCard(_route.fn); return; }
   // if editing an existing card — update it instead of creating new
   if (window._editingCardId) {
     var existing = cards.find(function(c){ return c.id === window._editingCardId; });
@@ -14852,6 +14868,14 @@ function restoreCard(id) {
 }
 
 function deleteCard(id) {
+  /* ⚠️ שער-התפקיד. אין פונקציה שרתית למחיקה, ואין ל-office כתיבה ל-cards
+     בחוקים — כלומר המחיקה הייתה נכשלת מקומית-בלבד: הכרטיס נעלם מהמסך,
+     חוזר בסבב-הפולינג הבא, והמשתמש בטוח שמחק. זהו הכשל-השקט עצמו.
+     נחסם כאן בקול, והכפתור ממילא מוסתר ב-_officeApplyUi. */
+  if (window.OfficeCards && !OfficeCards.mayDo(window._officeClaims, 'delete')) {
+    showToast('⛔ מחיקת כרטיס אינה בהרשאת המשרד — פנו למנהל');
+    return;
+  }
   const item = cards.find(c=>c.id===id);
   if (!item) return;
   const snap = [...cards];
@@ -19609,11 +19633,94 @@ function downloadUpdate() {
   showToast('✅ מוריד — עיין בהתראת ההורדה');
 }
 
+/* ── שער-התפקיד: מאיפה מגיעות ה-claims ────────────────────────────────────
+   ⚠️ מהשומר ותו לא. אף פרמטר בכתובת אינו משתתף — פרמטר הוא דבר שהמשתמש
+   כותב, ו"מצב מנהל לפי ?role=admin" הוא שער שנפתח בהקלדה.
+   ⚠️ נכשל **פנימה**: בלי שומר (הרצה מקומית, מסך ותיק) _officeClaims נשאר
+   null, ‏isOffice מחזיר false, והכול מתנהג בדיוק כמו לפני השינוי. */
+function _officeClaimsReady() {
+  try {
+    if (!window.SolanGuard) return Promise.resolve(null);
+    var st0 = window.SolanGuard.state && window.SolanGuard.state();
+    if (st0 && st0.claims) window._officeClaims = st0.claims;      // כבר ידוע — בלי המתנה
+    return window.SolanGuard.ready().then(function (st) {
+      window._officeClaims = (st && st.claims) || null;
+      try { _officeApplyUi(); } catch (e) {}
+      return window._officeClaims;
+    })['catch'](function () { return null; });
+  } catch (e) { return Promise.resolve(null); }
+}
+
+/* מדיניות המסך. ⚠️ נוחות ולא אכיפה — האכיפה היא בחוקים ובפונקציות.
+   הכפתורים מוסתרים כדי שלא ילחצו על מה שייכשל, ובראשם המחיקה: אין לה
+   מסלול שרתי, ולכן אין גם כפתור. */
+function _officeApplyUi() {
+  if (!window.OfficeCards || !OfficeCards.isOffice(window._officeClaims)) return;
+  document.body.setAttribute('data-role', 'office');
+  var hideId = function (id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; };
+  /* ⚠️ מוסתר לפי רשימת-ההיתר ולא לפי רשימת-איסור: מי שאינו ב-OFFICE_TABS
+     נעלם, כולל לשונית שתיווצר מחר. */
+  ['dashboard','week','new','recurring','saved','papers','inventory','quotes',
+   'orders','queue','templates','worklist','printfiles','agent'].forEach(function (t) {
+    if (!OfficeCards.mayTab(window._officeClaims, t)) hideId('tab-' + t);
+  });
+  /* ⚠️ אם הלשונית השמורה מ-localStorage אינה בתחום התפקיד — חוזרים הביתה,
+     ולא נשארים על מסך ריק שנראה כתקלה. */
+  if (!OfficeCards.mayTab(window._officeClaims, window._activeTab || '')) {
+    try { switchTab(OfficeCards.OFFICE_TAB_HOME); } catch (e) {}
+  }
+}
+
 function setupFBListeners() {
   if (window._fbPollInterval) clearInterval(window._fbPollInterval);
-  _fbPollAll();
-  window._fbPollInterval = setInterval(_fbPollAll, 30 * 1000);   // 30ש' — ריענון מהיר; החיסכון מגיע מהשהיית פולינג של משתמש לא-פעיל (ראה _pausePolling)
-  try { _uaStart(); } catch(e){}                                  // התראה חוזרת על קבצים שהלקוח שלח
+  /* ⚠️ הפולינג ממתין ל-claims. בלי זה הסבב הראשון היה רץ לפני שידוע
+     התפקיד, ומשתמש office היה מבקש 20 צמתים חסומים ומקבל 403 — שנבלע
+     ב-try של _fbPollAll, כלומר בדיוק תבנית הכשל-השקט. */
+  _officeClaimsReady().then(function () {
+    _fbPollAll();
+    window._fbPollInterval = setInterval(_fbPollAll, 30 * 1000);   // 30ש' — ריענון מהיר; החיסכון מגיע מהשהיית פולינג של משתמש לא-פעיל (ראה _pausePolling)
+    try { _uaStart(); } catch(e){}                                  // התראה חוזרת על קבצים שהלקוח שלח
+  });
+}
+
+/* ── שמירת כרטיס בתפקיד המשרד ─────────────────────────────────────────────
+   ⚠️ אין כאן cards.unshift ואין persist מול הענן: הכרטיס נשמר **בשרת**,
+   והמסך מאמץ את מה שהשרת החזיר. ‏office אינו כותב ל-RTDB בכלל — ראה
+   functions/office.js.
+   ⚠️ כשל אינו נבלע ואינו מוצג כהצלחה. */
+async function _officeSaveCard(fn) {
+  var name = document.getElementById('f-name').value.trim();
+  if (!name) { showToast('⚠️ חסר שם עבודה'); return; }
+  if (!_confirmSheetsDeviation()) return;
+  var draft = buildTempCard();
+  var body = { card: OfficeCards.payloadFor(draft) };
+  var editing = window._editingCardId;
+  if (editing) body.id = editing;
+
+  var btnMsg = editing ? '💾 שומר…' : '💾 יוצר…';
+  showToast(btnMsg);
+  var res;
+  try {
+    res = await OfficeCards.callSave(fn, body);
+  } catch (e) {
+    /* ⚠️ ההודעה מציינת שהכרטיס **לא** נשמר. "נסה שוב" בלי זה היה משאיר
+       את המשתמש בטוח שהוא שמור. */
+    showToast('❌ הכרטיס לא נשמר: ' + ((e && e.message) || 'שגיאה'));
+    return;
+  }
+
+  /* ⚠️ מושכים מהשרת במקום לנחש: הכרטיס שנשמר עבר רשימת-היתר, השרת קבע
+     בו שדות, ו"בנייה מקומית של מה שכנראה נשמר" היא בדיוק המקום שבו
+     התצוגה וההדפסה מתפצלות. מאפסים את שער-הגרסה כדי שהסבב הבא ירד. */
+  try { window._revSynced['cards'] = false; } catch (e) {}
+  try { await _fbPollAll(); } catch (e) {}
+
+  window._editingCardId = null;
+  clearForm();
+  showToast(editing ? '✅ כרטיס עודכן!' : '✅ כרטיס נשמר!');
+  var saved = (cards || []).find(function (c) { return c && String(c.id) === String(res && res.id); });
+  if (!editing && saved) showPrintModal(saved);
+  setTimeout(function(){ switchTab('saved'); }, 500);
 }
 
 // ── השהיית פולינג למשתמש לא-פעיל (~שעתיים) — חוסך Downloads מטאבים שנשארו פתוחים ──
@@ -19943,6 +20050,10 @@ function _isUserEditing() {
 // מושך collection רק אם ה-rev שלו השתנה בשרת מאז הפעם האחרונה. אחרת מחזיר null
 // (וכל בלוקי ה-poll ממילא מדלגים על null → שומרים את הנתון המקומי) — זה החיסכון.
 async function _pollGet(coll){
+  /* ⚠️ שער-התפקיד **לפני** שער-הגרסה: אוסף שאינו בתחום התפקיד אינו נמשך,
+     ואינו מסומן כמסונכרן. ‏_fbGet חוסם אותו ממילא (solan-data.js) — כאן
+     נחסכת גם בקשת-הרשת, וגם רישום rev שקרי לאוסף שלא הגיע. */
+  if (!window._officeMayLoad(coll)) return null;
   var sr = window._pollRev ? window._pollRev[coll] : undefined;
   if (window._revSynced[coll] && sr === window._lastRev[coll]) return null;   // ללא שינוי → דלג
   var v = await window._fbGet(coll);

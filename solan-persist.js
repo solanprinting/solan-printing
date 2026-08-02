@@ -54,7 +54,13 @@ function persist() {
   // Sync to Firebase via REST API — לא במסך הדפסים: אין לו סנכרון מלא/baseline,
   // ודחיפה משם תדרוס אוספים ניהוליים (כרטיסים, הזמנות...) עם נתון מקומי ישן.
   // מסך הדפסים דוחף את מה שמותר לו ישירות (machineQueue, printingState, cards ממוזג).
-  if (_fbConnected && !window._isMachineView) {
+  /* ⚠️ תפקיד המשרד אינו דוחף כלום ל-Firebase. persist() דוחף 20 אוספים
+     במכה אחת — מלאי, מחירון, משתמשים — ו-office אינו רשאי לאף אחד מהם;
+     הדחיפות היו נחסמות אחת-אחת ב-_officeMayWrite ומייצרות רעש בלי סיבה.
+     הכרטיסים שלו נשמרים ב-officeCreateCard/officeUpdateCard, ו-localStorage
+     למעלה נכתב כרגיל כדי שהמסך ימשיך לעבוד. */
+  var _isOfficeView = !!(window.OfficeCards && window.OfficeCards.isOffice(window._officeClaims));
+  if (_fbConnected && !window._isMachineView && !_isOfficeView) {
     // כרטיסים נדחפים בנפרד דרך מיזוג חסין-דריסה (לא במערך הכללי שנדרס)
     _pushCardsMerged();
     // הזמנות/הצעות/יומן-שבועי/קבצי-הדפסה — גם הם דרך מיזוג לפי מזהה (לא דריסת מערך)

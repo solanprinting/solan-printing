@@ -126,7 +126,34 @@ window._appCheckToken = function(){
 };
 try { window._appCheckToken(); } catch(e){}   // חימום — טוען SDK ומייצר טוקן ראשון מוקדם
 
+/* ── שער-התפקיד ───────────────────────────────────────────────────────────
+   ⚠️ נקודה אחת ולא 279: כל קריאה וכתיבה במסך עוברות ב-_fbGet/_fbPut, ולכן
+   רשימת-ההיתר של תפקיד המשרד נאכפת כאן. פיזור הבדיקה בין הקוראים היה
+   מבטיח שהקורא ה-280 יישכח.
+
+   ⚠️ **דילוג ולא try/catch**: קריאה לצומת חסום מחזירה 403, ו-403 בתוך
+   ‎_fbPollAll‎ נבלע ב-try — כלומר בדיוק תבנית הכשל-השקט שחזרה כאן שלוש
+   פעמים. מדלגים מראש, ומחזירים null כמו "אין נתון" — מצב שכל הקוראים
+   כבר יודעים לטפל בו.
+
+   ⚠️ זו **נוחות ולא גבול-אבטחה.** הגבול הוא חוקי ה-RTDB. מי שיעקוף את
+   השורות האלה בקונסולה יקבל 403 מהשרת.
+
+   ⚠️ הצומת הוא המקטע הראשון בנתיב: 'weekMarks/ג' שייך ל-weekMarks. */
+window._officeClaims = window._officeClaims || null;      // נקבע ע"י auth-guard/המסך
+window._officeMayLoad = function (path) {
+  var OC = window.OfficeCards;
+  if (!OC || !OC.isOffice(window._officeClaims)) return true;
+  return OC.mayLoad(window._officeClaims, String(path || '').split('/')[0]);
+};
+window._officeMayWrite = function (path) {
+  var OC = window.OfficeCards;
+  if (!OC || !OC.isOffice(window._officeClaims)) return true;
+  return OC.mayWriteDirect(window._officeClaims, String(path || '').split('/')[0]);
+};
+
 window._fbGet = async path => {
+  if (!window._officeMayLoad(path)) return null;      // לא בתחום התפקיד — לא מנסים
   try {
     var t = await window._fbAuthToken();
     var ac = await window._appCheckToken();
@@ -141,6 +168,7 @@ window._fbGet = async path => {
 
    מחזיר { ok, value, status }: ok=false רק על כשל אמיתי. */
 window._fbGetChecked = async path => {
+  if (!window._officeMayLoad(path)) return { ok: true, value: null, status: 0 };   // שער-התפקיד
   try {
     var t = await window._fbAuthToken();
     var ac = await window._appCheckToken();
@@ -160,6 +188,7 @@ window._revSynced = window._revSynced || {};   // collection שכבר נמשך �
 window._pollRev   = window._pollRev   || {};   // snapshot של _rev בסבב ה-poll הנוכחי
 window._fbBumpRev = function(coll, tok){
   if (!window._fbWriteGuard('BUMP-REV ' + coll)) return;               // הגנת סביבה — לא כותבים ל-Firebase החי בפיתוח
+  if (!window._officeMayWrite(coll)) return;                           // שער-התפקיד — ראה _officeMayWrite
   if (!coll || coll === '_rev' || coll === 'customerProofs') return; // customerProofs נקרא תמיד (נכתב גם מדפי הלקוח)
   var doPut = function(t){
     window._appCheckToken().then(function(ac){
@@ -173,6 +202,11 @@ window._fbBumpRev = function(coll, tok){
 };
 window._fbPut = async (path, data) => {
   if (!window._fbWriteGuard('PUT ' + path)) return false;             // הגנת סביבה — כשל אמיתי, בלי להעמיד פנים שנשמר
+  /* ⚠️ תפקיד המשרד אינו כותב ל-RTDB בכלל — גם לא לצמתים שהוא קורא.
+     הצומת cards נכתב כמערך שלם, ולכן הרשאת-כתיבה עליו היא גם הרשאה
+     למחוק את כולו. מסלול-הכתיבה שלו הוא officeCreateCard/officeUpdateCard.
+     ⚠️ מחזיר false ולא "מצליח בשקט" — כשל שנראה כהצלחה הוא הבאג. */
+  if (!window._officeMayWrite(path)) return false;
   try {
     var t = await window._fbAuthToken();
     var ac = await window._appCheckToken();
@@ -197,6 +231,7 @@ window._fbPut = async (path, data) => {
 //    ❌ אין להשתמש בהן לאוספים רגילים (cards/orders/...) — כתיבה בלי _rev = מכשירים אחרים לא ימשכו את השינוי.
 function _fbPutRaw(path, data){
   if (!window._fbWriteGuard('PUT-RAW ' + path)) return Promise.resolve(false);   // הגנת סביבה
+  if (!window._officeMayWrite(path)) return Promise.resolve(false);              // שער-התפקיד
   return window._fbAuthToken().then(function(t){
     return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
       method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)
@@ -204,12 +239,14 @@ function _fbPutRaw(path, data){
   }).catch(function(){ return false; });
 }
 function _fbGetRaw(path){
+  if (!window._officeMayLoad(path)) return Promise.resolve(null);                  // שער-התפקיד
   return window._fbAuthToken().then(function(t){
     return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : '')).then(function(r){ return r.ok ? r.json() : null; });
   }).catch(function(){ return null; });
 }
 // PATCH ממוקד — מעדכן שדות בודדים בצומת בלי לדרוס את השאר (למשל shopSeenAt על ריצה)
 function _fbPatchRaw(path, obj){
+  if (!window._officeMayWrite(path)) return Promise.resolve(false);              // שער-התפקיד
   if (!window._fbWriteGuard('PATCH-RAW ' + path)) return Promise.resolve(false);   // הגנת סביבה
   return window._fbAuthToken().then(function(t){
     return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
@@ -218,6 +255,7 @@ function _fbPatchRaw(path, obj){
   }).catch(function(){ return false; });
 }
 function _fbDelRaw(path){
+  if (!window._officeMayWrite(path)) return Promise.resolve(false);              // שער-התפקיד
   if (!window._fbWriteGuard('DEL-RAW ' + path)) return Promise.resolve();   // הגנת סביבה
   return window._fbAuthToken().then(function(t){
     return fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), { method:'DELETE' }).catch(function(){});

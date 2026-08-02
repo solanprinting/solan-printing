@@ -106,6 +106,13 @@
     }
     var claims = s.claims || {};
     var kind = AC.kindOf(claims);
+    /* ⚠️ **לפני** בדיקת pending, ובכוונה: office בלי staffId מסווג
+       pending ע"י kindOf — וזו התוצאה הנכונה — אבל "החשבון ממתין" אינה
+       הודעה שאפשר לפעול לפיה, ו"אינו מקושר לרשומת עובד" כן. אותה
+       חסימה בדיוק, ניסוח מדויק יותר. */
+    if (claims.accountType === 'staff' && claims.role === 'office' && !claims.staffId) {
+      return { action: 'blocked', reason: 'no-staff-id' };
+    }
     if (kind === 'pending') return { action: 'blocked', reason: 'pending' };
 
     /* ⚠️ עובד חייב קישור ל-staffId (B+3.2). חשבון-עובד בלי קישור אינו יודע
@@ -148,6 +155,10 @@
        העובד הגנריות בכל מסך מעורב. */
     if (c.accountType === 'machine' && c.role === 'press4' && c.machineId === 'press4') return 'press4';
     if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker') && c.staffId) return 'staff';
+    /* ⚠️ office הוא קהל-עובד לכל דבר במסכים המעורבים: הוא מייצר ועורך
+       כרטיסים. ההבדל בינו לבין staff אינו כאן אלא ברשימת-המסכים
+       וב-UI, ובעיקר בחוקי ה-RTDB. */
+    if (c.accountType === 'staff' && c.role === 'office' && c.staffId) return 'office';
     if (c.accountType === 'customer' && c.portalId) return 'customer';
     return 'legacy';
   }
@@ -156,6 +167,9 @@
      נתונים פנימיים — גם לא "רק להצצה". */
   var CAPS = {
     staff:    { produce: true,  edit: true,  internalData: true  },
+    /* ⚠️ office מייצר ועורך כרטיסים, אבל internalData=false: מחירים,
+       עלויות ונתונים כספיים אינם בתחום התפקיד — גם לא "רק להצצה". */
+    office:   { produce: true,  edit: true,  internalData: false },
     /* מפעיל המכונה: מדפיס — ותו לא. אין עריכה ואין נתונים פנימיים. */
     press4:   { produce: true,  edit: false, internalData: false },
     customer: { produce: false, edit: false, internalData: false },
