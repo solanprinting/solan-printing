@@ -36,113 +36,147 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785664582"></script>
-<script src="auth-client.js?v=1785664582"></script>
-<script src="auth-guard.js?v=1785664582" data-page="press4.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1785666060"></script>
+<script src="auth-client.js?v=1785666060"></script>
+<script src="auth-guard.js?v=1785666060" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1785666060"></script>
 <style>
-  /* ⚠️ שפת-העיצוב כאן אינה חדשה — היא של לשונית "רשימת עבודות" בכרטיסי
-     העבודה: אותו נייר מסורגל #e8e4dc, אותה כותרת כחול-כהה #1a1a4e, אותם
-     כרטיסי-מכונה מסגרת-מקווקוות עם פס-צבע #dbeafe למכונת ארבעת הצבעים,
-     ואותם תגי-סטטוס. ההבדל היחיד הוא הגודל: המסך הזה עומד על 1920×1080
-     במצב קיוסק ונקרא ממטר-שניים, ולכן הכול גדול יותר ומבוסס-מגע.
-     ⚠️ העתקנו **עיצוב בלבד**. שום לוגיקת-כתיבה מהמסך הישן לא הועתקה. */
+  /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
+     במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
+     איתו. אותו רקע #f1f5f9, אותה כותרת לבנה, אותו גריד "בהדפסה | תור
+     עבודות", אותו פאנל-הדפסה עם קופסאות #1a1a4e, אותו כפתור-פרופר סגול
+     #7c3aed ואותו "התחל הדפסה" #1a1a4e.
+
+     ⚠️ מה **לא** הועתק, ולמה: החלפת סוג-נייר, "החזר לתור", "הושלמו היום"
+     ו"היסטוריית עבודות" הן פעולות כתיבה ל-machineQueue ולכרטיס. המסך הזה
+     אינו נוגע ב-RTDB בכלל — כל פעולה עוברת ב-Function, ואין Function
+     שמבצעת אותן. מוטב שלא יופיעו מאשר שיופיעו ולא יעבדו. */
   *{box-sizing:border-box}
-  body{margin:0;min-height:100vh;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
-       color:#1a1a2e;background:#e8e4dc;
-       background-image:repeating-linear-gradient(0deg,transparent,transparent 28px,
-                        rgba(0,0,0,.04) 28px,rgba(0,0,0,.04) 29px);
-       /* ⚠️ אף פעם לא גלילה אופקית — במסך קיוסק אין סרגל להחזיר אותה. */
-       overflow-x:hidden}
-  .wrap{max-width:1780px;margin:0 auto;padding:0 20px 28px}
+  html,body{margin:0;padding:0;height:100%}
+  body{background:#f1f5f9;font-family:'Heebo',system-ui,"Segoe UI",Arial,sans-serif;
+       direction:rtl;color:#1e293b;overflow:hidden}
+  #screen{position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden}
+  .hidden{display:none !important}
 
-  /* ── כותרת ─────────────────────────────────────────────────────── */
-  .top{background:#1a1a4e;color:#fff;display:flex;align-items:center;gap:15px;
-       padding:14px 26px;margin:0 -20px 16px;box-shadow:0 3px 14px rgba(0,0,0,.2)}
-  .logo{width:56px;height:56px;border-radius:14px;background:rgba(255,255,255,.13);
-        display:flex;align-items:center;justify-content:center;font-size:1.8rem;flex-shrink:0}
-  h1{font-size:1.5rem;margin:0;font-weight:900}
-  .top .sub{font-size:.95rem;color:rgba(255,255,255,.72);font-weight:600}
-  .out{margin-inline-start:auto;background:rgba(255,255,255,.12);border:0;color:#fff;
-       font-family:inherit;font-size:1rem;font-weight:800;cursor:pointer;
-       border-radius:10px;padding:12px 22px}
-  .out:hover{background:rgba(255,255,255,.22)}
+  /* ── כותרת — הפס הלבן של מסך הדפסים ─────────────────────────────── */
+  .top{background:#fff;padding:12px 18px;display:flex;justify-content:space-between;
+       align-items:center;flex-shrink:0;box-shadow:0 1px 6px #0000001a;border-bottom:2px solid #e2e8f0}
+  .top h1{color:#1e293b;font-size:1.15rem;font-weight:900;margin:0}
+  .top .sub{color:#94a3b8;font-size:.73rem;margin-top:2px}
+  .out{font-size:.62rem;padding:3px 8px;border:1px solid #e2e8f0;background:transparent;
+       color:#94a3b8;border-radius:4px;cursor:pointer;font-family:inherit}
 
-  /* ── פס-מצב ────────────────────────────────────────────────────── */
-  .bar{display:flex;align-items:center;gap:12px;margin-bottom:14px;
-       background:#1a1a4e;color:#fff;border-radius:10px;padding:10px 18px}
-  .dot{width:12px;height:12px;border-radius:50%;background:#9ca3af;flex-shrink:0}
-  .dot.on{background:#4ade80}
-  .bar .sub{font-size:1rem;font-weight:700;color:rgba(255,255,255,.85)}
-  .refresh{background:rgba(255,255,255,.14);border:0;border-radius:10px;padding:11px 22px;
-           font-family:inherit;font-size:1rem;font-weight:800;color:#fff;cursor:pointer}
-  .refresh:hover{background:rgba(255,255,255,.24)}
-  .refresh:disabled{opacity:.45;cursor:default}
+  /* ── אזור הגלילה ────────────────────────────────────────────────── */
+  .body{flex:1;overflow-y:auto;padding:14px 16px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+  @media (max-width:1100px){ .grid{grid-template-columns:1fr} }
 
-  /* ── כרטיס עבודה — מבנה כרטיסי-המכונה של רשימת העבודות ─────────── */
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(540px,1fr));
-        gap:16px;align-items:start}
-  .job{background:#fff;border:2px dashed #cbd5e1;border-radius:13px;overflow:hidden;
-       box-shadow:0 3px 12px rgba(26,26,78,.07)}
-  .job.run {border-style:solid;border-color:#1a1a4e;box-shadow:0 5px 20px rgba(26,26,78,.18)}
-  .job.done{border-style:solid;border-color:#16a34a;opacity:.72}
-  /* פס-הצבע של מכונת ארבעת הצבעים — אותו #dbeafe כמו ברשימת העבודות */
-  .jt{background:#dbeafe;padding:13px 18px;display:flex;align-items:center;gap:11px;flex-wrap:wrap}
-  .job.run  .jt{background:#1a1a4e;color:#fff}
-  .job.done .jt{background:#dcfce7}
-  .jt b{font-size:1.3rem;font-weight:900;min-width:0;overflow-wrap:anywhere}
-  .tag{font-size:.85rem;font-weight:800;padding:5px 13px;border-radius:999px;
-       white-space:nowrap;flex-shrink:0}
-  .tag.wait{background:rgba(26,26,78,.1);color:#1a1a4e}
-  .tag.run {background:#f0c040;color:#1a1a2e}
-  .tag.done{background:#16a34a;color:#fff}
-  .jb{padding:15px 18px}
-  .spec{display:flex;flex-wrap:wrap;gap:7px}
-  .spec span{font-size:.95rem;color:#475569;background:#f1f5f9;border:1px solid #e5e7eb;
-             border-radius:7px;padding:5px 11px;white-space:nowrap}
-  .spec span b{color:#1a1a2e;font-weight:800}
-  .spec span.run-label{background:#ede9fe;border-color:#ddd6fe;color:#5b21b6;font-weight:800}
-  /* ⚠️ כפתורי-מגע: 62px גובה ורוחב-מינימום, כדי שאפשר יהיה ללחוץ עם
-     כפפות ובלי לכוון. הם תמיד גלויים — אין גלילה בתוך הכרטיס. */
-  .acts{display:flex;gap:11px;margin-top:14px;flex-wrap:wrap}
-  .btn{border:0;border-radius:11px;padding:0 26px;min-height:62px;min-width:180px;flex:1 1 auto;
-       font-family:inherit;font-size:1.1rem;font-weight:800;cursor:pointer;
-       background:#1a1a4e;color:#fff}
-  .btn.sec{background:#fff;color:#1a1a4e;border:2px solid #1a1a4e}
-  .btn.done{background:#16a34a}
-  .btn:disabled{opacity:.45;cursor:default}
-  /* grid-column: אחרת ההודעה תופסת עמודה אחת ונראית כמו עבודה */
-  .empty{grid-column:1/-1;text-align:center;color:#8a8578;padding:64px 16px;font-size:1.2rem;
-         font-weight:700;background:#fff;border:2px dashed #cbd5e1;border-radius:13px}
+  /* ── פאנל "בהדפסה" ──────────────────────────────────────────────── */
+  .pane-now{background:#fff;border-radius:14px;border:2px solid #1a1a4e;overflow:hidden}
+  .pane-now .ph{background:#1e3a5f;color:#fff;padding:10px 16px;display:flex;align-items:center;gap:8px}
+  .pane-now .ph span.d{width:8px;height:8px;background:#4ade80;border-radius:50%;
+                       display:inline-block;animation:opPulse 2s infinite}
+  .pane-now .ph span.t{font-size:.8rem;font-weight:700}
+  @keyframes opPulse{0%,100%{opacity:1}50%{opacity:.3}}
+  .now-body{padding:20px 18px}
+  .now-name{font-size:1.5rem;font-weight:900;color:#1e293b;line-height:1.2}
+  .now-run{color:#2563eb;font-size:.88rem;font-weight:700;margin-top:4px}
+  .boxes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+  .box{background:#1a1a4e;border-radius:10px;padding:14px 16px}
+  .box .k{font-size:.7rem;color:rgba(255,255,255,.55);font-weight:600;letter-spacing:.04em}
+  .box .v{font-size:1.1rem;font-weight:700;color:#fff;margin-top:4px;line-height:1.2}
+  .idle{padding:30px 18px;text-align:center;color:#94a3b8}
+  .idle .big{font-size:2rem;margin-bottom:8px}
+  .idle .txt{font-size:.9rem;line-height:1.6}
 
-  /* ── מסכי-ביניים ───────────────────────────────────────────────── */
-  .card{background:#fff;border-radius:15px;padding:24px;box-shadow:0 6px 22px rgba(26,26,78,.1)}
-  .card .sub{font-size:.95rem;color:#6b7280}
-  .gate{text-align:center;padding:60px 20px;color:#6b7280;font-size:1.1rem;max-width:520px;margin:0 auto}
-  .msg{margin-top:14px;font-size:1.05rem;font-weight:800;border-radius:10px;padding:13px 16px}
-  .msg.err{background:#fef2f2;border:2px solid #fecaca;color:#b91c1c}
-  .msg.ok{background:#ecfdf5;border:2px solid #a7f3d0;color:#15803d}
-  .pin{width:100%;padding:16px;border:2px solid #cbd5e1;border-radius:11px;background:#fbfcfe;
-       font-family:inherit;font-size:1.8rem;font-weight:800;letter-spacing:.5em;text-align:center}
+  /* ── פאנל "תור עבודות" ──────────────────────────────────────────── */
+  .pane-q{background:#fff;border-radius:14px;border:1.5px solid #e2e8f0;overflow:hidden}
+  .pane-q .ph{background:#f8fafc;color:#475569;padding:10px 16px;font-size:.8rem;
+              font-weight:700;border-bottom:1px solid #e2e8f0}
+  .q-body{padding:10px 12px}
+  .q-item{padding:10px 12px;border-radius:10px;margin-bottom:8px;border:1px solid #e2e8f0}
+  .q-item.first{border:2px solid #1a1a4e}
+  .q-head{display:flex;align-items:center;gap:8px}
+  .q-num{font-size:.8rem;font-weight:700;color:#94a3b8;min-width:18px}
+  .q-name{font-size:.9rem;font-weight:800;color:#1e293b;white-space:nowrap;
+          overflow:hidden;text-overflow:ellipsis}
+  .q-name .r{font-size:.72rem;color:#94a3b8;font-weight:700}
+  .q-sub{font-size:.72rem;color:#94a3b8;margin-top:2px}
+  .q-empty{text-align:center;padding:24px 0;color:#94a3b8;font-size:.85rem}
+
+  /* ── כפתורי פעולה — אותם צבעים ואותם נוסחים ─────────────────────── */
+  .b{width:100%;border:none;border-radius:8px;cursor:pointer;font-family:inherit;
+     -webkit-tap-highlight-color:transparent}
+  .b:disabled{opacity:.5;cursor:default}
+  .b-proof{background:#7c3aed;color:#fff;margin-top:6px;padding:8px;font-size:.82rem;font-weight:800}
+  .b-proof.big{margin-top:12px;padding:13px;border-radius:10px;font-size:.95rem;font-weight:900}
+  .b-start{background:#1a1a4e;color:#fff;margin-top:8px;padding:9px;font-size:.85rem;font-weight:700}
+  .b-switch{background:#fff;color:#1a1a4e;border:1.5px solid #1a1a4e;margin-top:6px;
+            padding:7px;border-radius:7px;font-size:.78rem;font-weight:700}
+  .b-done{background:#16a34a;color:#fff;margin-top:8px;padding:14px;border-radius:10px;
+          font-size:1rem;font-weight:900}
+
+  .none{text-align:center;color:#94a3b8;font-size:1.1rem;padding:60px 20px;line-height:2}
+  .msg{margin:0 0 12px;font-size:.9rem;font-weight:700;border-radius:9px;padding:10px 14px}
+  .msg.err{background:#fef2f2;border:1.5px solid #fecaca;color:#b91c1c}
+  .msg.ok{background:#ecfdf5;border:1.5px solid #a7f3d0;color:#15803d}
+
+  /* ── מסכי-ביניים ────────────────────────────────────────────────── */
+  .mid{flex:1;overflow-y:auto;padding:24px 16px}
+  .card{background:#fff;border-radius:14px;padding:24px;max-width:440px;margin:40px auto;
+        text-align:center;box-shadow:0 4px 18px rgba(15,23,42,.08)}
+  .card .ttl{font-weight:900;color:#1e293b;font-size:1.2rem;margin-bottom:10px}
+  .card .sub{color:#94a3b8;font-size:.88rem;line-height:1.8}
+  .gate{text-align:center;padding:60px 20px;color:#94a3b8}
+  .pin{width:100%;padding:14px;border:1.5px solid #e2e8f0;border-radius:10px;background:#f8fafc;
+       font-family:inherit;font-size:1.6rem;font-weight:800;letter-spacing:.5em;text-align:center}
   .pin:focus{outline:none;border-color:#1a1a4e;background:#fff}
-  .hidden{display:none}
-  @media (max-width:900px){
-    .grid{grid-template-columns:1fr}
-    .btn{min-width:100%}
-  }
+  .b-main{background:#1a1a4e;color:#fff;padding:13px;border-radius:10px;font-size:.95rem;
+          font-weight:800;margin-top:12px}
+
+  /* ── מציג הפרופר — אותו סרגל כהה #0f172a של מסך הדפסים ──────────── */
+  @keyframes opspin{to{transform:rotate(360deg)}}
+  #ov{position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:99999;display:flex;flex-direction:column}
+  #ov .pvbar{display:flex;align-items:center;gap:7px;padding:9px 12px;flex-shrink:0;
+             flex-wrap:wrap;background:#0f172a}
+  #ov .pvbar .ttl{color:#fff;font-size:.85rem;font-weight:800;margin-left:auto}
+  #ov .pvbar button{background:#1e3a5f;color:#fff;border:none;border-radius:8px;min-width:40px;
+                    height:38px;padding:0 12px;font-size:1rem;font-weight:800;cursor:pointer;
+                    font-family:inherit}
+  #ov .pvbar button#pv-close{background:#b91c1c}
+  #ov select{height:38px;border:none;border-radius:8px;padding:0 8px;font-family:inherit;
+             font-size:.9rem;font-weight:700;cursor:pointer}
+  #pv-vp{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;
+         -webkit-overflow-scrolling:touch;padding:12px}
+  .pv-stage{display:flex;gap:12px;align-items:center;justify-content:center}
+  .pv-img{background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.6);max-width:100%;
+          max-height:calc(100vh - 90px);object-fit:contain}
+  /* מסך מלא: הפרופר ממלא את כל המסך — עיוות קל מקובל, כמו במסך הדפסים */
+  #ov:fullscreen{background:#000}
+  #ov:fullscreen #pv-vp{padding:0}
+  #ov:fullscreen .pv-stage{gap:0;width:100%;height:100%}
+  #ov:fullscreen .pv-img{box-shadow:none}
+  #ov:fullscreen .pv-img:only-child{width:100%;height:100%;max-width:none;max-height:none;object-fit:fill}
+  #pv-load{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+           justify-content:center;gap:14px;color:#fff}
+  #pv-load .sp{width:48px;height:48px;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;
+               border-radius:50%;animation:opspin 1s linear infinite}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div id="screen">
   <div class="top">
-    <div class="logo">🖨️</div>
     <div>
-      <h1>מסך ארבעה צבעים</h1>
+      <h1>🏭 <span id="mName">מכונה 4 צבעים</span></h1>
       <div class="sub" id="who"></div>
     </div>
-    <button class="out hidden" id="out">יציאה</button>
+    <div style="display:flex;gap:5px;align-items:center">
+      <button class="out hidden" id="refresh">↻ רענן</button>
+      <button class="out hidden" id="out">יציאה</button>
+    </div>
   </div>
 
-  <div id="gate" class="card gate">טוען…</div>
+  <div id="gate" class="mid"><div class="gate">טוען…</div></div>
 
   <!-- ⚠️ מחשב שאינו רשום: לא מציגים שדה קוד שאינו יכול לעבוד.
 
@@ -150,47 +184,37 @@
        המחשב אינו רשום. אחרי הרישום הוא נעלם ואין מהמסך הזה שום קישור
        למסך ניהול. הסיבה שהוא נחוץ: מצב קיוסק פותח פרופיל-דפדפן נפרד עם
        localStorage משלו, ולכן רישום שבוצע בדפדפן הרגיל פשוט אינו קיים שם. -->
-  <div id="noDev" class="card hidden" style="max-width:560px;margin:40px auto;text-align:center">
-    <div style="font-size:3rem;margin-bottom:10px">🖥️</div>
-    <div style="font-weight:900;color:#1a1a4e;font-size:1.35rem;margin-bottom:10px">
-      מחשב זה עדיין לא נרשם
+  <div id="noDev" class="mid hidden">
+    <div class="card">
+      <div style="font-size:3rem;margin-bottom:10px">🖥️</div>
+      <div class="ttl">מחשב זה עדיין לא נרשם</div>
+      <div class="sub">
+        מחשב זה עדיין לא נרשם כמכונת ארבעה צבעים.<br>
+        ההגדרה נעשית פעם אחת בלבד, ע"י מנהל.
+      </div>
+      <!-- ⚠️ ניווט באותו חלון. window.open היה נחסם בקיוסק, והחלון החדש
+           היה מקבל פרופיל אחר — כלומר רישום שנשמר במקום הלא-נכון. -->
+      <button class="b b-main" id="setupBtn">הגדרה ראשונית — מנהל בלבד</button>
     </div>
-    <div class="sub" style="line-height:1.9;font-size:1.05rem">
-      מחשב זה עדיין לא נרשם כמכונת ארבעה צבעים.<br>
-      ההגדרה נעשית פעם אחת בלבד, ע"י מנהל.
-    </div>
-    <!-- ⚠️ ניווט באותו חלון. window.open היה נחסם בקיוסק, והחלון החדש
-         היה מקבל פרופיל אחר — כלומר רישום שנשמר במקום הלא-נכון. -->
-    <button class="btn" id="setupBtn" style="width:100%;margin-top:20px">
-      הגדרה ראשונית — מנהל בלבד
-    </button>
   </div>
 
   <!-- ⚠️ מסך ה-PIN. אין כאן שדה מייל ואין שדה סיסמה — במכוון. -->
-  <div id="pinCard" class="card hidden" style="max-width:440px;margin:40px auto;text-align:center">
-    <div style="font-size:3rem;margin-bottom:8px">🔒</div>
-    <div style="font-weight:900;color:#1a1a4e;font-size:1.35rem;margin-bottom:18px">
-      קוד כניסה למכונה
+  <div id="pinCard" class="mid hidden">
+    <div class="card">
+      <div style="font-size:3rem;margin-bottom:8px">🔒</div>
+      <div class="ttl">קוד כניסה למכונה</div>
+      <input id="pin" class="pin" type="password" inputmode="numeric" autocomplete="off"
+             maxlength="6" placeholder="••••••" dir="ltr">
+      <button class="b b-main" id="pinBtn">כניסה</button>
+      <div id="pinMsg" class="msg hidden"></div>
     </div>
-    <input id="pin" class="pin" type="password" inputmode="numeric" autocomplete="off"
-           maxlength="6" placeholder="••••••" dir="ltr">
-    <button class="btn" id="pinBtn" style="width:100%;margin-top:14px">כניסה</button>
-    <div id="pinMsg" class="msg hidden"></div>
   </div>
 
-  <div id="app" class="hidden">
-    <div class="bar">
-      <span class="dot" id="dot"></span>
-      <span class="sub" id="stamp">—</span>
-      <button class="refresh" id="refresh" style="margin-inline-start:auto">↻ רענן</button>
-    </div>
+  <div id="app" class="body hidden">
     <div id="msg" class="msg hidden"></div>
-    <div id="jobs" class="grid" style="margin-top:14px">
-      <div class="empty">אין כרגע עבודות בתור.</div>
-    </div>
+    <div id="board"></div>
   </div>
 </div>
-
 <script>
 var FB_CONFIG = {
   apiKey: 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg',
@@ -203,7 +227,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1785664582';
+var _BAKED = '1785666060';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -307,43 +331,83 @@ function errText(code){
   return 'הפעולה נכשלה (' + c + ').';
 }
 
-/* ⚠️ שלושה מצבים חזותיים, ולא רק שניים: ממתינה (מסגרת מקווקוות, פס
-   #dbeafe), בהדפסה (מסגרת מלאה כחול-כהה, פס כחול-כהה עם תג זהב) והושלמה
-   (מסגרת ירוקה, פס ירוק, עמעום). המצב נגזר מ-state שהשרת החזיר בלבד. */
-function jobHtml(j){
-  var state = j.state === 'started' ? 'run' : j.state === 'completed' ? 'done' : 'wait';
-  var label = { run: '🖨️ בהדפסה', done: '✓ הושלמה', wait: 'ממתינה' }[state];
+/* ⚠️ המבנה זהה ל-_renderOperatorScreen: גריד של שני פאנלים — "בהדפסה"
+   משמאל ו"תור עבודות" מימין. העבודה שבהדפסה יוצאת מרשימת התור ומקבלת
+   את הפאנל הגדול, בדיוק כמו במסך הדפסים. */
+var _jobs = [];
+function _fmt(n){ return Number(n).toLocaleString('he-IL'); }
 
-  /* ⚠️ אך ורק מה שהשרת כבר שולח. אין מחיר, אין עלות, אין הערות פנימיות
-     ואין נתיב Storage — לא כאן ולא במקום אחר במסך. */
-  var spec = [];
-  if (j.runLabel) spec.push('<span class="run-label">' + esc(j.runLabel) + '</span>');
-  if (j.customer) spec.push('<span>לקוח: <b>' + esc(j.customer) + '</b></span>');
-  if (j.copies)   spec.push('<span>🖨️ כמות: <b>' + Number(j.copies).toLocaleString('he-IL') + '</b></span>');
-  if (j.size)     spec.push('<span>גודל: <b>' + esc(j.size) + '</b></span>');
-  if (j.paper)    spec.push('<span>📄 נייר: <b>' + esc(j.paper) + '</b></span>');
-  if (j.color)    spec.push('<span>צבע: <b>' + esc(j.color) + '</b></span>');
-  if (j.pages)    spec.push('<span>עמודים: <b>' + esc(j.pages) + '</b></span>');
-
-  var acts = [];
-  if (j.hasProof) acts.push('<button class="btn sec" data-act="proof" data-key="' + esc(j.jobKey) + '">📄 פתח פרופר</button>');
-  if (state === 'wait') acts.push('<button class="btn" data-act="start" data-key="' + esc(j.jobKey) + '">▶ התחל עבודה</button>');
-  else if (state === 'run') acts.push('<button class="btn done" data-act="finish" data-key="' + esc(j.jobKey) + '">✓ סיום עבודה</button>');
-
-  return '<div class="job ' + state + '" data-key="' + esc(j.jobKey) + '">' +
-    '<div class="jt"><b>' + esc(j.name || 'עבודה') + '</b>' +
-    '<span class="tag ' + state + '">' + label + '</span></div>' +
-    '<div class="jb"><div class="spec">' + spec.join('') + '</div>' +
-    (acts.length ? '<div class="acts">' + acts.join('') + '</div>' : '') +
-    '</div></div>';
+/* הפאנל הגדול — העבודה שבהדפסה. הקופסאות הכהות הן סוג-נייר וכמות
+   גיליונות, כמו במקור; כאן הן קריאה-בלבד, כי החלפת נייר היא כתיבה
+   לכרטיס והמסך הזה אינו כותב לשום מקום מלבד שלוש ה-Functions. */
+function nowHtml(j){
+  var h = '<div class="pane-now"><div class="ph"><span class="d"></span>'
+        + '<span class="t">בהדפסה</span></div>';
+  if (!j) {
+    h += _jobs.length
+      ? '<div class="idle"><div class="big">⏳</div>'
+        + '<div class="txt">לחץ "התחל הדפסה"<br>על העבודה הראשונה בתור</div></div>'
+      : '<div class="idle"><div class="big">✅</div><div class="txt">כל העבודות הושלמו</div></div>';
+    return h + '</div>';
+  }
+  h += '<div class="now-body">'
+    + '<div class="now-name">' + esc(j.name || 'עבודה') + '</div>'
+    + (j.runLabel ? '<div class="now-run">' + esc(j.runLabel) + '</div>' : '')
+    + '<div class="boxes">'
+    + '<div class="box"><div class="k">סוג נייר</div><div class="v">' + esc(j.paper || '—') + '</div></div>'
+    + '<div class="box"><div class="k">כמות גיליונות</div><div class="v">'
+    + (j.copies ? _fmt(j.copies) : '—') + '</div></div>'
+    + '</div>';
+  /* שאר הפרטים שהשרת שולח — שורה אחת, בלי להמציא שדות חדשים */
+  var extra = [];
+  if (j.customer) extra.push('לקוח: ' + esc(j.customer));
+  if (j.size)     extra.push(esc(j.size));
+  if (j.color)    extra.push(esc(j.color));
+  if (j.pages)    extra.push(esc(j.pages) + ' עמ\'');
+  if (extra.length) h += '<div class="q-sub" style="margin-top:10px">' + extra.join(' · ') + '</div>';
+  if (j.hasProof) h += '<button class="b b-proof big" data-act="proof" data-key="'
+                     + esc(j.jobKey) + '">📄 פרופר</button>';
+  h += '<button class="b b-done" data-act="finish" data-key="' + esc(j.jobKey)
+     + '">✓ סיים עבודה</button>';
+  return h + '</div></div>';
 }
 
-/* ⚠️ התור מוחזק כאובייקטים ולא כ-HTML, כדי שאפשר יהיה לצייר מחדש בלי
-   עוד קריאת-שרת. הוא **תמיד** מה שהשרת החזיר — אין כאן מקור-אמת מקומי. */
-var _jobs = [];
+/* פאנל התור. הכפתור משתנה בדיוק כמו במקור: "▶ התחל הדפסה" כשאין עבודה
+   בהדפסה, ו"▶ עבור לזה" כשיש. */
+function queueHtml(items, printing){
+  var h = '<div class="pane-q"><div class="ph">תור עבודות</div><div class="q-body">';
+  if (!items.length) {
+    h += '<div class="q-empty">אין עבודות נוספות</div>';
+  } else {
+    items.forEach(function(j, idx){
+      var first = idx === 0 && !printing;
+      h += '<div class="q-item' + (first ? ' first' : '') + '">'
+        + '<div class="q-head"><span class="q-num">' + (idx + 1) + '</span>'
+        + '<div style="flex:1;min-width:0">'
+        + '<div class="q-name">' + esc(j.name || 'עבודה')
+        + (j.runLabel ? ' <span class="r">· ' + esc(j.runLabel) + '</span>' : '') + '</div>'
+        + '<div class="q-sub">' + esc(j.paper || '')
+        + (j.copies ? ' · ' + _fmt(j.copies) + ' גיל\'' : '') + '</div>'
+        + '</div></div>'
+        + (j.hasProof ? '<button class="b b-proof" data-act="proof" data-key="'
+                        + esc(j.jobKey) + '">📄 פרופר</button>' : '')
+        + '<button class="b ' + (printing ? 'b-switch' : 'b-start') + '" data-act="start" data-key="'
+        + esc(j.jobKey) + '">▶ ' + (printing ? 'עבור לזה' : 'התחל הדפסה') + '</button>'
+        + '</div>';
+    });
+  }
+  return h + '</div></div>';
+}
+
 function paint(){
-  $('jobs').innerHTML = _jobs.length ? _jobs.map(jobHtml).join('')
-                                     : '<div class="empty">אין כרגע עבודות בתור.</div>';
+  if (!_jobs.length) {
+    $('board').innerHTML = '<div class="none">✓<br>אין עבודות בתור</div>';
+    return;
+  }
+  var printing = null;
+  for (var i = 0; i < _jobs.length; i++) if (_jobs[i].state === 'started') { printing = _jobs[i]; break; }
+  var rest = _jobs.filter(function(j){ return !printing || j.jobKey !== printing.jobKey; });
+  $('board').innerHTML = '<div class="grid">' + nowHtml(printing) + queueHtml(rest, printing) + '</div>';
 }
 
 async function load(silent){
@@ -352,10 +416,9 @@ async function load(silent){
     var res = await callFn('getPress4Queue');
     _jobs = res.jobs || [];
     paint();
-    $('dot').classList.add('on');
-    $('stamp').textContent = _jobs.length + ' עבודות · עודכן ' + new Date().toLocaleTimeString('he-IL');
+    $('who').textContent = _jobs.length + ' בתור · ' +
+      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
   } catch (e) {
-    $('dot').classList.remove('on');
     msg('err', e.message || 'טעינת התור נכשלה');
   }
   $('refresh').disabled = false;
@@ -366,7 +429,7 @@ async function load(silent){
 async function act(kind, jobKey, btn){
   if (_busy) return;
   _busy = true;
-  var all = document.querySelectorAll('.job button');
+  var all = $('board').querySelectorAll('button');
   for (var i = 0; i < all.length; i++) all[i].disabled = true;
   var old = btn.textContent; btn.textContent = 'רגע…';
   clearMsg();
@@ -377,50 +440,176 @@ async function act(kind, jobKey, btn){
       msg('ok', kind === 'start'
         ? (r.already ? 'העבודה כבר בהדפסה.' : '▶ העבודה סומנה כמתחילה.')
         : (r.already ? 'העבודה כבר סומנה כהושלמה.' : '✓ העבודה הושלמה.'));
-      if (kind === 'finish') {
-        /* ⚠️ התור מסנן עבודות שהושלמו, ולכן רענון מיידי היה מעלים את
-           הכרטיס לפני שהמפעיל ראה שהפעולה נקלטה. מציגים אותו ירוק
-           לכמה שניות — סימון מקומי-חזותי בלבד, המצב מגיע מהשרת. */
-        _jobs.forEach(function(x){ if (x.jobKey === jobKey) x.state = r.state || 'completed'; });
-        paint();
-        setTimeout(function(){ if (!_busy) load(true); }, 6000);
-      } else {
-        await load(true);
-      }
+      await load(true);
     }
   } catch (e) {
     msg('err', e.message || 'הפעולה נכשלה');
   }
   btn.textContent = old;
   _busy = false;
-  var again = document.querySelectorAll('.job button');
+  var again = $('board').querySelectorAll('button');
   for (var k = 0; k < again.length; k++) again[k].disabled = false;
 }
 
-/* ⚠️ הפרופר נמשך בבקשה מאומתת ונפתח כ-blob: מקומי. אין token= בכתובת,
-   אין Signed URL, ואין נתיב Storage שעובר בדפדפן.
+/* ── מציג הפרופר ──────────────────────────────────────────────────────
+   ⚠️ הפרופר נפתח **בתוך המסך**, כמו במסך הדפסים — לא בלשונית-דפדפן עם
+   PDF. בקיוסק אין סרגל-כתובת ואין לשוניות, ולשונית חדשה שם היא מסך
+   שהמפעיל לא יודע איך לסגור.
 
-   ⚠️ החלון נפתח **סינכרונית**, לפני ה-await הראשון. window.open אחרי
-   await של טוקן + fetch + blob מאבד את "מחוות המשתמש" ונחסם ע"י חוסם
-   החלונות הקופצים — המפעיל היה לוחץ ולא קורה כלום. אם הפתיחה נחסמה
-   כבר עכשיו, אומרים זאת במפורש במקום להמשיך ולהיכשל בשקט. */
+   ⚠️ הקובץ נמשך בבקשה מאומתת ומרונדר מקומית. אין token= בכתובת, אין
+   Signed URL ואין נתיב Storage שעובר בדפדפן.
+
+   ⚠️ מה שאין כאן מהמציג של מסך הדפסים: ברזי צבע, גווני צבע, נייר חום
+   וסימולציית הדפסה. כולם נשענים על נתוני הכרטיס, והמסך הזה מקבל
+   מהשרת רשימת-שדות סגורה שאינה כוללת אותם. */
+var _pv = null;
+
+function pvClose(){
+  var ov = document.getElementById('ov');
+  if (ov) ov.remove();
+  if (_pv && _pv.url) { try { URL.revokeObjectURL(_pv.url); } catch (e) {} }
+  _pv = null;
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
+}
+
+function pvRender(){
+  if (!_pv) return;
+  var vp = document.getElementById('pv-vp');
+  if (!vp) return;
+  var idx = _pv.idx, imgs = _pv.imgs;
+  /* כפולה: שני עמודים זה-לצד-זה, כמו במסך הדפסים */
+  var show = _pv.spread && imgs.length > 1
+    ? [imgs[idx], imgs[idx + 1]].filter(Boolean) : [imgs[idx]];
+  vp.innerHTML = '<div class="pv-stage" style="transform:scale(' + _pv.zoom + ')">'
+    + show.map(function(src){ return '<img class="pv-img" src="' + src + '">'; }).join('') + '</div>';
+  var sel = document.getElementById('pv-sel');
+  if (sel) {
+    var opts = '';
+    for (var i = 0; i < imgs.length; i++) {
+      opts += '<option value="' + i + '"' + (i === idx ? ' selected' : '') + '>עמוד ' + (i + 1)
+            + ' מתוך ' + _pv.total + '</option>';
+    }
+    sel.innerHTML = opts;
+  }
+  var lbl = document.getElementById('pv-label');
+  if (lbl) lbl.textContent = imgs.length ? ('עמוד ' + (idx + 1) + ' מתוך ' + _pv.total) : '';
+}
+
+function pvGo(d){
+  if (!_pv || !_pv.imgs.length) return;
+  var step = _pv.spread ? 2 : 1;
+  _pv.idx = Math.max(0, Math.min(_pv.imgs.length - 1, _pv.idx + d * step));
+  pvRender();
+}
+
+function pvBuild(ov, label){
+  var multi = _pv.total > 1;
+  var bar = document.createElement('div');
+  bar.className = 'pvbar';
+  bar.innerHTML =
+      '<span class="ttl">' + esc(label || 'פרופר') + '</span>'
+    + (multi ? '<button id="pv-prev" title="עמוד קודם">‹</button>' : '')
+    + (multi ? '<select id="pv-sel"></select>'
+             : '<span id="pv-label" style="color:#cbd5e1;font-size:.85rem;font-weight:700"></span>')
+    + (multi ? '<button id="pv-next" title="עמוד הבא">›</button>' : '')
+    + '<span style="width:10px"></span>'
+    + '<button id="pv-zout" title="הקטן">🔍➖</button>'
+    + '<button id="pv-fit" title="התאם למסך">⤢ התאם</button>'
+    + '<button id="pv-zin" title="הגדל">🔍➕</button>'
+    + (multi ? '<button id="pv-spread" title="הצג שני עמודים">⊞ כפולה</button>' : '')
+    + '<button id="pv-fs" title="מסך מלא">⛶</button>'
+    + '<button id="pv-close" title="סגור">✕</button>';
+  ov.insertBefore(bar, ov.firstChild);
+  var vp = document.createElement('div'); vp.id = 'pv-vp';
+  ov.appendChild(vp);
+
+  var on = function(id, fn){ var b = document.getElementById(id); if (b) b.onclick = fn; };
+  on('pv-prev', function(){ pvGo(-1); });
+  on('pv-next', function(){ pvGo(1); });
+  on('pv-zin',  function(){ _pv.zoom = Math.min(6, _pv.zoom * 1.25); pvRender(); });
+  on('pv-zout', function(){ _pv.zoom = Math.max(.2, _pv.zoom / 1.25); pvRender(); });
+  on('pv-fit',  function(){ _pv.zoom = 1; pvRender(); });
+  on('pv-spread', function(){ _pv.spread = !_pv.spread; pvRender(); });
+  on('pv-fs', function(){
+    try {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else ov.requestFullscreen();
+    } catch (e) {}
+  });
+  on('pv-close', pvClose);
+  var sel = document.getElementById('pv-sel');
+  if (sel) sel.onchange = function(){ _pv.idx = parseInt(this.value, 10) || 0; pvRender(); };
+}
+
+function pvStatus(t){ var e = document.getElementById('pv-txt'); if (e) e.textContent = t; }
+
 async function openProof(jobKey){
-  var viewer = window.open('', '_blank');
-  if (!viewer) throw new Error('הדפדפן חסם את פתיחת החלון. אפשרו חלונות קופצים לאתר ונסו שוב.');
+  pvClose();
+  var ov = document.createElement('div'); ov.id = 'ov';
+  ov.innerHTML = '<div id="pv-load"><div class="sp"></div>'
+    + '<div id="pv-txt" style="font-size:1rem;font-weight:700">⏳ טוען פרופר…</div>'
+    + '<button id="pv-cancel" style="margin-top:6px;padding:11px 26px;border-radius:10px;'
+    + 'border:1.5px solid rgba(255,255,255,.5);background:transparent;color:#fff;'
+    + 'font-family:inherit;font-size:.95rem;font-weight:800;cursor:pointer">✕ סגור</button></div>';
+  document.body.appendChild(ov);
+  document.getElementById('pv-cancel').onclick = pvClose;
+
+  var j = null;
+  for (var i = 0; i < _jobs.length; i++) if (_jobs[i].jobKey === jobKey) j = _jobs[i];
+  var label = (j && (j.runLabel || j.name)) || 'פרופר';
+
   try {
+    pvStatus('⏳ מוריד את הקובץ…');
     var tok = await SolanAuth.idToken(false);
     var r = await fetch(FN + '/press4Proof?jobKey=' + encodeURIComponent(jobKey),
                         { headers: { 'Authorization': 'Bearer ' + tok } });
     if (!r.ok) {
-      var j = null; try { j = await r.json(); } catch (e) {}
-      throw new Error(errText((j && j.error) || ('HTTP ' + r.status)));
+      var e1 = null; try { e1 = await r.json(); } catch (e) {}
+      throw new Error(errText((e1 && e1.error) || ('HTTP ' + r.status)));
     }
-    var url = URL.createObjectURL(await r.blob());
-    viewer.location = url;
-    /* ⚠️ ה-revoke מאוחר בכוונה: ביטול מוקדם מדי מבטל את הטעינה עצמה. */
-    setTimeout(function(){ try { URL.revokeObjectURL(url); } catch (e) {} }, 120000);
+    var buf = await r.arrayBuffer();
+    if (!document.getElementById('ov')) return;      /* המפעיל סגר בינתיים */
+
+    pvStatus('⏳ פותח את הקובץ…');
+    /* ⚠️ pdf.js נטען דרך PdfEngine — אותו מנוע ואותן מראות כמו בכל מסלולי
+       האישור, כי חלק מהמראות חסומות ברשת כשרה. */
+    await PdfEngine.ensure({ win: window }).catch(function(){});
+    if (!window.pdfjsLib) throw new Error('מנוע התצוגה נחסם ברשת. פנו למנהל.');
+
+    var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    var n = pdf.numPages;
+    _pv = { imgs: [], idx: 0, zoom: 1, spread: false, total: n, url: null };
+    var built = false;
+
+    /* ⚠️ העמוד הראשון מוצג ברגע שהוא מוכן, והשאר ממשיכים ברקע. רינדור
+       של כל 32 העמודים לפני שמציגים משהו הוא דקה מול מסך שחור, והמפעיל
+       חושב שנתקע. */
+    for (var p = 1; p <= n; p++) {
+      if (!document.getElementById('ov')) { try { pdf.cleanup(); } catch (e) {} return; }
+      var page = await pdf.getPage(p);
+      var v1 = page.getViewport({ scale: 1 });
+      var vpt = page.getViewport({ scale: Math.min(4.0, 2900 / v1.height) });
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.floor(vpt.width));
+      c.height = Math.max(1, Math.floor(vpt.height));
+      var cx = c.getContext('2d');
+      try { cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high'; } catch (e) {}
+      cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);   /* רקע לבן — JPEG בלי שקיפות */
+      await page.render({ canvasContext: cx, viewport: vpt }).promise;
+      _pv.imgs.push(c.toDataURL('image/jpeg', 0.96));
+      try { page.cleanup(); } catch (e) {}
+      if (!built) {
+        built = true;
+        var l = document.getElementById('pv-load'); if (l) l.remove();
+        pvBuild(ov, label);
+      }
+      pvRender();
+      if (!built) pvStatus('⏳ מכין עמוד ' + p + ' מתוך ' + n + '…');
+    }
+    try { pdf.cleanup(); } catch (e) {}
+    if (!_pv.imgs.length) throw new Error('לא ניתן להציג את הפרופר.');
   } catch (e) {
-    try { viewer.close(); } catch (e2) {}
+    pvClose();
     throw e;
   }
 }
@@ -451,14 +640,15 @@ SolanAuth.onAuthStateChanged(async function(user){
   }
 
   $('pinCard').classList.add('hidden');
-  $('who').textContent = claims.accountType === 'machine'
-    ? 'מכונת ארבעה צבעים' : ((user.email || '') + ' · מנהל (בדיקה)');
+  $('noDev').classList.add('hidden');
+  if (claims.accountType !== 'machine') $('mName').textContent += ' · מנהל (בדיקה)';
   $('out').classList.remove('hidden');
+  $('refresh').classList.remove('hidden');
   $('gate').classList.add('hidden');
   $('app').classList.remove('hidden');
 
   $('refresh').addEventListener('click', function(){ load(false); });
-  $('jobs').addEventListener('click', function(ev){
+  $('board').addEventListener('click', function(ev){
     var b = ev.target.closest ? ev.target.closest('button[data-act]') : null;
     if (b) act(b.dataset.act, b.dataset.key, b);
   });
