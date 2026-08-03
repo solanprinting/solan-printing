@@ -36,16 +36,16 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785738697"></script>
-<script src="auth-client.js?v=1785738697"></script>
-<script src="auth-guard.js?v=1785738697" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1785738697"></script>
+<script src="firebase-auth.bundle.js?v=1785740168"></script>
+<script src="auth-client.js?v=1785740168"></script>
+<script src="auth-guard.js?v=1785740168" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1785740168"></script>
 <!-- ⚠️ הגופן מתארח **אצלנו**, לא ב-Google. קישור ל-fonts.googleapis לא
      הספיק: גיליון-הסגנון מגיע משם, אבל קובצי הגופן עצמם מגיעים
      מ-fonts.gstatic.com — ומספיק שאחד מהשניים חסום ברשת המסוננת
      כדי שהמסך ייפול לגופן-מערכת, והמלל ייצא דק ושונה ממה
      שהמפעילים מכירים. עכשיו אין תלות ברשת חיצונית בכלל. -->
-<link href="heebo.css?v=1785738697" rel="stylesheet">
+<link href="heebo.css?v=1785740168" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -264,7 +264,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1785738697';
+var _BAKED = '1785740168';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -388,7 +388,11 @@ async function doStaffLogin(){
     $('spin').value = '';                      /* ⚠️ הקוד לא נשאר בשדה */
     window._opName = (j.result && j.result.name) || '';
     await SolanAuth.signInWithCustomToken(tok);
-    /* onAuthStateChanged יטפל בשאר. */
+    /* ⚠️ **קריאה מפורשת, ולא הסתמכות על onAuthStateChanged**: הכניסה היא
+       Custom Token חדש לאותו uid, ולכן מבחינת Firebase המשתמש לא השתנה
+       וההנדלר אינו נורה. זה מה שהשאיר את המסך על כרטיס ה-PIN אחרי כניסה
+       שהצליחה בשרת. */
+    await applyAuth(SolanAuth.auth().currentUser);
   } catch (e) {
     staffMsg(e.message || 'הכניסה נכשלה');
     $('spin').value = '';
@@ -859,7 +863,14 @@ function boot(){
    את הסשן. מכונה משותפת לא נשארת מחוברת לנצח. */
 SolanAuth.init(FB_CONFIG, 'session');
 askPersist();
-SolanAuth.onAuthStateChanged(async function(user){
+/* ⚠️ **הבאג שנמדד בשטח (03/08/2026).** ‏onAuthStateChanged אינו נורה
+   שוב אחרי כניסת-העובד: היא Custom Token חדש לאותו uid, ומבחינת Firebase
+   המשתמש לא השתנה — רק האסימון שלו. כל שכבת-ההחלטה ישבה בתוך ההנדלר,
+   ולכן היא פשוט לא רצה, והמסך נשאר על כרטיס ה-PIN.
+   מהיומן: חמש כניסות **מוצלחות** של אותו עובד בשתי דקות, אפס כשלונות.
+   השרת ענה "כן" בכל פעם, והמסך לא הקשיב.
+   ⚠️ לכן ההחלטה יושבת בפונקציה, ו-doStaffLogin קורא לה במפורש. */
+async function applyAuth(user){
   /* ⚠️ אין ניתוב ל-login.html: אין למכונה מייל וסיסמה. */
   if (!user) {
     $('gate').classList.add('hidden');
@@ -905,21 +916,32 @@ SolanAuth.onAuthStateChanged(async function(user){
     return;
   }
   $('staffCard').classList.add('hidden');
-  if (claims.accountType !== 'machine') $('mName').textContent += ' · מנהל (בדיקה)';
-  else if (claims.staffId) { try { $('mName').textContent += ' · ' + (window._opName || ''); } catch(e){} }
+  /* ⚠️ הצבה ולא הוספה: ‏applyAuth רצה שוב בכל החלפת מפעיל, ו-‎+=‎ היה
+     משרשר את השמות זה לזה עד שהכותרת נשברת. */
+  var baseName = (window._p4BaseName === undefined)
+    ? (window._p4BaseName = $('mName').textContent) : window._p4BaseName;
+  if (claims.accountType !== 'machine') $('mName').textContent = baseName + ' · מנהל (בדיקה)';
+  else if (claims.staffId) $('mName').textContent = baseName + ' · ' + (window._opName || '');
   $('out').classList.remove('hidden');
   $('refresh').classList.remove('hidden');
   $('gate').classList.add('hidden');
   $('app').classList.remove('hidden');
 
-  $('refresh').addEventListener('click', function(){ load(false); });
-  $('board').addEventListener('click', function(ev){
-    var b = ev.target.closest ? ev.target.closest('button[data-act]') : null;
-    if (b) act(b.dataset.act, b.dataset.key, b);
-  });
+  /* ⚠️ ‏applyAuth רצה יותר מפעם אחת (כניסת-מכונה ואז כניסת-עובד, וגם
+     בהחלפת מפעיל). רישום כפול של מאזין היה מריץ כל פעולה פעמיים —
+     "התחל הדפסה" שנשלח פעמיים. השומר הזה הוא הסיבה שהפיצול בטוח. */
+  if (!window._p4Wired) {
+    window._p4Wired = true;
+    $('refresh').addEventListener('click', function(){ load(false); });
+    $('board').addEventListener('click', function(ev){
+      var b = ev.target.closest ? ev.target.closest('button[data-act]') : null;
+      if (b) act(b.dataset.act, b.dataset.key, b);
+    });
+  }
 
   await load(false);
   /* רענון מתון — כל 45 שניות, ורק כשהלשונית גלויה ואין פעולה פתוחה. */
+  if (_timer) clearInterval(_timer);          /* ⚠️ בלי זה נצבר טיימר בכל ריצה */
   _timer = setInterval(function(){
     if (!_busy && document.visibilityState === 'visible') load(true);
   }, 45000);
@@ -936,7 +958,9 @@ SolanAuth.onAuthStateChanged(async function(user){
     if (document.visibilityState !== 'visible') return;
     AuthClient.guardVersion(_BAKED);
   }, 5 * 60 * 1000);
-});
+}
+
+SolanAuth.onAuthStateChanged(function(user){ applyAuth(user); });
 
 /* ⚠️ יציאה מחזירה למסך ה-PIN, לא ל-login.html. */
 $('out').addEventListener('click', async function(){
