@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1785741306';
+window.APP_VERSION = '1785753257';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1608,9 +1608,9 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
      ומחזיר אותו בדיוק לכתובת שממנה בא (returnTo).
      ⚠️ מסך ה-PIN נשאר כבחירת-זהות פנימית אחרי ההתחברות במייל — הוא אינו
      מעניק שום הרשאת Firebase. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1785741306"></script>
-<script src="auth-client.js?v=1785741306"></script>
-<script src="auth-guard.js?v=1785741306" data-page="krtis-avoda.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1785753257"></script>
+<script src="auth-client.js?v=1785753257"></script>
+<script src="auth-guard.js?v=1785753257" data-page="krtis-avoda.html" data-mode="enforce"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 try { if (window.LibLoader) LibLoader.autoFill(['xlsx','jspdf','html2canvas','pdfjs','qrcode','jsbarcode']); } catch(e){}
@@ -1627,24 +1627,26 @@ window._pdfEngineReady = (window.PdfEngine
      ב-_fbGet / _fbPut / _fbSnapshot, ו-async או defer היו מפילים את כולם. -->
 <!-- שער-התפקיד של המשרד. ⚠️ **לפני** solan-data.js: ‏_fbGet/_fbPut שם
      קוראים ל-OfficeCards, ולכן הוא חייב להיות מוגדר קודם. -->
-<script src="office-cards.js?v=1785741306"></script>
-<script src="solan-data.js?v=1785741306"></script>
+<script src="office-cards.js?v=1785753257"></script>
+<!-- ⚠️ הדרך היחידה שבה המסך נוגע בתור המכונות. אין כתיבה ישירה. -->
+<script src="queue-client.js?v=1785753257"></script>
+<script src="solan-data.js?v=1785753257"></script>
 <!-- ⚠️ מנגנון הסנכרון — צורך את _fbGet/_fbPut מ-solan-data.js,
      ולכן חייב לבוא **אחריו** ולפני הבלוק הגדול. -->
-<script src="solan-sync.js?v=1785741306"></script>
-<script src="solan-toast.js?v=1785741306"></script>
-<script src="solan-persist.js?v=1785741306"></script>
+<script src="solan-sync.js?v=1785753257"></script>
+<script src="solan-toast.js?v=1785753257"></script>
+<script src="solan-persist.js?v=1785753257"></script>
 <!-- שכבת ה-AI (חילוץ 6B). צורכת את solan-data.js ואת showToast, ולכן אחריהם.
      ⚠️ חמש שורות האתחול של פרוקסי-הענן נשארו במיקומן המקורי בבלוק הגדול,
      כדי שקריאת-הרשת בזמן-הטעינה לא תוקדם לכאן. -->
-<script src="solan-ai.js?v=1785741306"></script>
+<script src="solan-ai.js?v=1785753257"></script>
 <!-- מנוע ההחלטות Prepress (חילוץ 7). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-prepress.js?v=1785741306"></script>
+<script src="solan-prepress.js?v=1785753257"></script>
 <!-- מנוע הלמידה (חילוץ 8). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-learn.js?v=1785741306"></script>
+<script src="solan-learn.js?v=1785753257"></script>
 <!-- השלמה-אוטומטית (חילוץ 9). אין לו תלות בשכבה מוקדמת;
      המיקום נקבע רק כדי שיהיה לפני הבלוק הגדול. -->
-<script src="solan-autocomplete.js?v=1785741306"></script>
+<script src="solan-autocomplete.js?v=1785753257"></script>
 </head>
 <body>
 
@@ -7506,24 +7508,29 @@ function confirmRunsAndSave() {
   if (_warns.length > 0) {
     showCardValidationModal(_warns, function() {
       cards.unshift(card);
-      _autoQueueAssignedRuns(card); // ריצות עם מכונה → לתור המכונה
-      persist();
+      persist();                       // הכרטיס נשמר בכל מקרה — מסלול נפרד מהתור
       _logCardCreated(card);
       closeRunsModal();
       clearForm();
-      showPrintModal(card);
-      window._pendingDeduct = card;
+      /* ⚠️ ההשלמה ממתינה לתוצאת התור. עד עכשיו הקריאה לא הוחזרה ולא
+         הומתן לה, והמסך המשיך ל-persist, לסגירת-החלון ולמודל-ההדפסה
+         בזמן שהכנסת העבודה לתור עדיין באוויר. */
+      _autoQueueSync(card, 'העבודה: ' + (card.name||'')).then(function(){
+        showPrintModal(card);
+        window._pendingDeduct = card;
+      });
     });
     return;
   }
   cards.unshift(card);
-  _autoQueueAssignedRuns(card);
   persist();
   _logCardCreated(card);
   closeRunsModal();
   clearForm();
-  showPrintModal(card);
-  window._pendingDeduct = card;
+  return _autoQueueSync(card, 'העבודה: ' + (card.name||'')).then(function(){
+    showPrintModal(card);
+    window._pendingDeduct = card;
+  });
 }
 
 // ── נייר לפי ריצות ───────────────────────────────────────────────────────
@@ -8877,15 +8884,19 @@ function saveCard() {
         if (_workOrderExcluded[m]) _workOrderExcluded[m] = _workOrderExcluded[m].filter(function(id){ return id !== existing.id; });
       });
       _saveWorkOrder();
-      _autoQueueAssignedRuns(existing); // ריצות ששויכו למכונה — הכנס אוטומטית לתור המכונה
       _productMemoryLearn(existing);    // עדכן זיכרון דרישות מוצר
       persist();
       _logActivity('✏️', 'עבודה "' + (existing.name||'') + '" נערכה', existing.id);
       renderCards();
       window._editingCardId = null;
       clearForm();
-      showToast('✅ כרטיס עודכן!');
-      setTimeout(function(){ switchTab('saved'); }, 500);
+      /* ⚠️ "✅ כרטיס עודכן!" **אחרי** תוצאת התור. ריצה ששויכה למכונה
+         בעריכה ולא נכנסה לתור היא בדיוק המקרה שבו ההודעה משקרת. */
+      _autoQueueSync(existing, 'העבודה: ' + (existing.name||'')).then(function(r){
+        if (r && r.ok === false) return;      // ‏_autoQueueSync כבר הודיע בחלון חוסם
+        showToast('✅ כרטיס עודכן!');
+        setTimeout(function(){ switchTab('saved'); }, 500);
+      });
       return;
     }
   }
@@ -8977,30 +8988,32 @@ function _saveCardNew() {
       _attachPendingProof(card);
       cards.unshift(card);
       _stampWeekDone(card.name);   // חיווי ירוק קבוע ביומן — שורד גם מחיקת הכרטיס
-      _autoQueueAssignedRuns(card);
       _productMemoryLearn(card);
       _sheetSizeLearn(card.size, card.sheetPages);   // זכור גודל-חריג → עמודים-בגיליון (הצעה בעתיד)
       persist();
       _logActivity('🆕', 'עבודה "'+card.name+'" נוצרה', card.id);
-      showPrintModal(card);
       clearForm();
-      window._pendingDeduct = card;
-      try { _mtEnqueueFromCard(card); } catch(e){}          // #4: משימת-אישור מנהל (הכנסה למלאי לקוח) אם השם תואם
+      _autoQueueSync(card, 'העבודה: ' + (card.name||'')).then(function(){
+        showPrintModal(card);
+        window._pendingDeduct = card;
+        try { _mtEnqueueFromCard(card); } catch(e){}        // #4: משימת-אישור מנהל (הכנסה למלאי לקוח) אם השם תואם
+      });
     });
     return;
   }
   _attachPendingProof(card);
   cards.unshift(card);
   _stampWeekDone(card.name);   // חיווי ירוק קבוע ביומן — שורד גם מחיקת הכרטיס
-  _autoQueueAssignedRuns(card);
   _productMemoryLearn(card);
   persist();
   _logActivity('🆕', 'עבודה "'+card.name+'" נוצרה', card.id);
-  showPrintModal(card);
   clearForm();
-  // שאל על מלאי לאחר סגירת מודל ההדפסה
-  window._pendingDeduct = card;
-  setTimeout(function(){ _csCardHook(card); }, 700);   // הצע הוספת ייצור למלאי הלקוח אם השם תואם
+  return _autoQueueSync(card, 'העבודה: ' + (card.name||'')).then(function(){
+    showPrintModal(card);
+    // שאל על מלאי לאחר סגירת מודל ההדפסה
+    window._pendingDeduct = card;
+    setTimeout(function(){ _csCardHook(card); }, 700);   // הצע הוספת ייצור למלאי הלקוח אם השם תואם
+  });
 }
 
 // ========== PREVIEW ==========
@@ -11576,10 +11589,15 @@ function removeCustomerPurgeRule(i) {
 }
 
 // מחיקה לצמיתות של כרטיס מכל מקום שמור (cards, תור מכונות, סידור מחלקות, רשימות מכונה, פרופר, Firebase)
+/* ⚠️ מחזירה את ה-qid שהוסרו מקומית, כדי שהקורא יסיר אותם **גם בשרת**.
+   בלי זה הרשומות נעלמו מהמסך ונשארו בתור: ההערה בקוד אמרה שהן מוסרות
+   ב-queuePurge, ולא הייתה שום קריאה כזו. */
 function _hardPurgeCard(id) {
   if (typeof _markDeleted === 'function') _markDeleted('cards', id);
   cards = (cards||[]).filter(function(c){ return c.id !== id; });
-  (machineQueue||[]).forEach(function(e){ if (String(e.cardId) === String(id) && e.qid) _markDeleted('machineQueue', String(e.qid)); });   // tombstone רשומות התור של הכרטיס
+  var qids = (machineQueue||[]).filter(function(e){ return String(e.cardId) === String(id) && e.qid; })
+                               .map(function(e){ return String(e.qid); });
+  qids.forEach(function(q){ _markDeleted('machineQueue', q); });   // tombstone רשומות התור של הכרטיס
   machineQueue = (machineQueue||[]).filter(function(e){ return String(e.cardId) !== String(id); });
   DEPARTMENTS.forEach(function(d){
     if (_deptOrder[d]) _deptOrder[d] = _deptOrder[d].filter(function(e){ return !(e.type==='card' && e.cardId===id); });
@@ -11591,6 +11609,7 @@ function _hardPurgeCard(id) {
   });
   (weeklyJobs||[]).forEach(function(w){ if (String(w.cardCreated) === String(id)) delete w.cardCreated; });
   if (window._fbPut) window._fbPut('proofs/' + id, null);
+  return qids;
 }
 
 // סורק את כל הכרטיסים ומוחק לצמיתות עבודות מלקוחות בכלל המחיקה שעברו את מספר הימים
@@ -11638,14 +11657,50 @@ function _purgeCustomerCards() {
     if (now - created >= ruleByCust[cust] * 86400000) toPurge.push(c.id);
   });
   if (!toPurge.length) return;
-  toPurge.forEach(_hardPurgeCard);
-  if (typeof _saveWorkOrder === 'function') _saveWorkOrder();
-  if (typeof _saveDeptOrder === 'function') _saveDeptOrder();
-  persist();
-  if (window._fbPut) { window._fbPut('machineQueue', machineQueue); window._fbPut('weeklyJobs', weeklyJobs); }
-  if (typeof renderCards === 'function') renderCards();
-  if (typeof _queueRender === 'function') _queueRender();
-  console.log('[purge] נמחקו לצמיתות ' + toPurge.length + ' עבודות לפי כלל לקוח');
+
+  /* ⚠️ **אוספים בלי לשנות דבר.** הסדר הקודם היה הפוך: _hardPurgeCard מחקה
+     את הכרטיס ואת רשומת-התור, persist() שמר את המחיקה, ורק אז נקראה
+     queuePurge. כשהיא נכשלה — הכרטיס כבר נמחק לצמיתות ורשומת-התור נשארה
+     בשרת. עבודה שאין לה כרטיס ויש לה מקום בתור. */
+  var qids = [];
+  toPurge.forEach(function(id){
+    (machineQueue||[]).forEach(function(e){
+      if (String(e.cardId) === String(id) && e.qid) qids.push(String(e.qid));
+    });
+  });
+
+  var finish = function(){
+    toPurge.forEach(_hardPurgeCard);
+    if (typeof _saveWorkOrder === 'function') _saveWorkOrder();
+    if (typeof _saveDeptOrder === 'function') _saveDeptOrder();
+    persist();
+    if (window._fbPut) { window._fbPut('weeklyJobs', weeklyJobs); }
+    if (typeof renderCards === 'function') renderCards();
+    if (typeof _queueRender === 'function') _queueRender();
+    console.log('[purge] נמחקו לצמיתות ' + toPurge.length + ' עבודות לפי כלל לקוח'
+              + (qids.length ? (' (' + qids.length + ' רשומות תור)') : ''));
+  };
+
+  if (!qids.length) { finish(); return; }
+
+  /* ⚠️ **בדיקת-תפקיד לפני שנוגעים במשהו.** ‏queuePurge מותרת למנהל בלבד,
+     והפונקציה הזו רצה מטיימר — כלומר אצל worker היא הייתה מוחקת את
+     הכרטיס ואז נכשלת בהסרת התור, בלי שאיש לחץ על דבר. הבדיקה כאן אינה
+     גבול-אבטחה (השרת הוא הגבול); היא מונעת מחיקה שאי-אפשר להשלים. */
+  var role = (window._officeClaims && window._officeClaims.role)
+          || (window._authClaims && window._authClaims.role) || '';
+  if (role && role !== 'admin') {
+    console.warn('[purge] דילוג — ניקוי התור מותר למנהל בלבד');
+    return;
+  }
+
+  /* ⚠️ ‏await, ורק אחרי אישור השרת נוגעים בכרטיסים. בכשל — **הכול נשאר
+     כפי שהוא**: גם הכרטיס וגם רשומת-התור. */
+  return _queuePurgeEntries(qids, 'ניקוי אוטומטי לפי כלל-לקוח')
+    .then(finish)
+    .catch(function(){
+      console.error('[purge] נעצר — ' + qids.length + ' רשומות תור לא הוסרו; הכרטיסים לא נמחקו');
+    });
 }
 
 function _loadWorkOrder() {
@@ -13876,25 +13931,173 @@ function _mergeMachineQueue(server, local){
   return _pruneQueueDone(Object.keys(byId).map(function(k){ return byId[k]; }))
     .sort(function(a,b){ return String(a.machine||'')===String(b.machine||'') ? ((a.order||0)-(b.order||0)) : String(a.machine||'').localeCompare(String(b.machine||'')); });
 }
+/* ── תור המכונות: הדרך היחידה לכתוב ─────────────────────────────────────
+   ⚠️ הוכח דטרמיניסטית (03/08/2026) שכתיבת המערך מהדפדפן דורסת סימון-סיום
+   שנכתב ע"י ה-Function. שלוש רשומות בייצור נשארו done:false בעוד
+   press4Jobs אמר completed. מעכשיו אפס כתיבות ישירות.
+   ⚠️ כשל **מוצג ואינו נבלע** — "נשמר" שאינו נשמר הוא התבנית שחזרה כאן. */
+/* ⚠️ ‏Promise **דחויה** כשאין מודול-תור, ולא Promise.resolve(). הגרסה
+   הראשונה החזירה הצלחה — כלומר "נשמר" כשלא נשלח דבר. */
+function _queueNoClient() {
+  return Promise.reject(new Error('התור אינו זמין במסך הזה'));
+}
+/* ⚠️ טעינה-מחדש מהשרת אחרי כשל. השרת הוא מקור-האמת, ולכן אחרי כשל
+   המצב המקומי **נזרק** ונקרא מחדש — ולא "מתוקן" בניחוש. */
+function _queueReload() {
+  if (!window._fbGet) return Promise.resolve(false);
+  return window._fbGet('machineQueue').then(function(sv){
+    var server = Array.isArray(sv) ? sv : (sv && typeof sv === 'object' ? Object.values(sv) : null);
+    if (!server) return false;
+    machineQueue = server.filter(function(e){ return e && e.qid; });
+    try { localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue)); } catch(x){}
+    try { window._fbSnapshot.machineQueue = JSON.stringify(machineQueue); } catch(x){}
+    if (typeof _queueRender === 'function') _queueRender();
+    if (window._isMachineView && typeof _renderOperatorScreen === 'function') _renderOperatorScreen();
+    return true;
+  }).catch(function(){ return false; });
+}
+function _queueFailed(e, what) {
+  try { showToast('⛔ ' + what + ': ' + ((e && e.message) || 'שגיאה')); } catch(x){}
+  return _queueReload().then(function(){ throw e; });
+}
+function _queueSaveEntries(entries) {
+  if (!window.QueueClient) return _queueNoClient();
+  return QueueClient.write(entries).then(function(r){
+    /* ⚠️ הפעולה נשמרה, אבל שורת-היומן לא. לא מפילים ייצור על יומן —
+       ומצד שני לא מתיימרים שהיומן מובטח. נרשם ללוג כדי שיהיה אפשר לדעת. */
+    if (r && r.auditOk === false) console.error('[queue] נשמר, אך שורת-היומן לא נכתבה');
+    return r;
+  }).catch(function(e){ return _queueFailed(e, 'התור לא נשמר'); });
+}
+function _queuePurgeEntries(qids, reason) {
+  if (!window.QueueClient) return _queueNoClient();
+  return QueueClient.purge(qids, reason).then(function(r){
+    if (r && r.auditOk === false) console.error('[queue] הוסר, אך שורת-היומן לא נכתבה');
+    return r;
+  }).catch(function(e){ return _queueFailed(e, 'ההסרה לא נשמרה'); });
+}
+/* ⚠️ שינוי סדר/מכונה/זמן: **נשלח קודם, מוחל אחר-כך.** הפוך מהקוד שהיה
+   כאן — שהחיל מקומית, קרא ל-persist(), ובזה נגמר העניין. מאז שהתור יצא
+   מ-persist() המשמעות הייתה שהשינוי כלל לא הגיע לשרת: על המסך הוא נראה,
+   ובסבב-הפולינג הבא נעלם. */
+/* ⚠️ **זורקת מחדש.** ‏catch שבלע כאן היה הופך את ה-Promise למקוימת, ולכן
+   ה-then של הקורא רץ כאילו הצליח — בדיוק המצב ש-_dashSetRunMachine נפל
+   בו: הכרטיס נשמר עם המכונה החדשה, התור נשאר עם הישנה, ואיש לא ידע.
+   ההודעה והטעינה-מחדש נעשו כבר ב-_queueFailed; הקורא **חייב** לתפוס. */
+function _queueApply(changes, what) {
+  if (!changes || !changes.length) return Promise.resolve();
+  return _queueSaveEntries(changes).then(function(r){
+    changes.forEach(function(ch){
+      var e = (machineQueue || []).find(function(x){ return String(x.qid) === String(ch.qid); });
+      if (!e) return;
+      Object.keys(ch).forEach(function(k){ if (k !== 'qid') e[k] = ch[k]; });
+      e._upd = Date.now();
+    });
+    try { localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue)); } catch(x){}
+    if (typeof _queueRender === 'function') _queueRender();
+    return r;
+  });
+}
+/* עטיפה לקוראים שאין להם מה לעשות בכשל מלבד להישאר במקום. ⚠️ קיימת כדי
+   שהבליעה תהיה **מפורשת ובנקודה אחת**, ולא מפוזרת ב-catch ריקים. */
+function _queueApplyQuiet(changes, what) {
+  return _queueApply(changes, what).catch(function(){ /* ‏_queueFailed הודיע וטען מחדש */ });
+}
+/* ⚠️ סימון "הודפס" — בשרת בלבד. הלקוח אינו קובע done, doneAt, מי סימן
+   **ולא את השם**: השם נגזר בשרת מרשומת-העובד לפי ה-staffId שבטוקן.
+   ‏byName נשלח מכאן עד 03/08/2026 — מזהה אמין ושם שאפשר להמציא. */
+function _queueMarkDoneServer(qid, durationSec) {
+  if (!window.QueueClient) return _queueNoClient();
+  var body = { qid: String(qid), expectedState: 'open',
+               operationId: QueueClient.newOperationId() };
+  if (typeof durationSec === 'number' && durationSec > 0 && durationSec < 48 * 3600) {
+    body.printDurationSec = Math.floor(durationSec);
+  }
+  return QueueClient.call('queueMarkDone', body).then(function(r){
+    if (r && r.auditOk === false) console.error('[queue] סומן, אך שורת-היומן לא נכתבה');
+    return r;
+  }).catch(function(e){ return _queueFailed(e, 'הסימון לא נשמר'); });
+}
+/* ⚠️ החזרה-לתור: אך ורק דרך reopenPress4Job, שיש מאחוריה רשומת-עבודה
+   שרתית. עבודה בלי press4Jobs — נחסמת בהודעה ברורה, בלי נפילה-לאחור
+   לכתיבה ישירה. מסך 8 הצבעים עדיין אינו פעיל, וזה מכוון. */
+function _queueReopenServer(qid) {
+  try { showToast('↩ החזרה לתור נעשית ממסך המכונה בלבד'); } catch(e){}
+  return Promise.reject(new Error('reopen_not_available'));
+}
+
+/* ⚠️ **מחזירה Promise בכל מסלול, ללא יוצא מן הכלל.** ארבעה מסלולים
+   חוקיים החזירו undefined — כרטיס שלא נמצא, רשומה שכבר בתור, ביטול
+   ב-confirm, ואין-מה-לעשות — ולכן ‏.then()‎ אצל הקורא קרס:
+   "Cannot read properties of undefined (reading 'then')". לחיצה שנייה
+   על "הוסף לתור" הספיקה. קורא אינו אמור לנחש אם חזר Promise. */
 function _queueAddEntry(cardId, runIdx, machine) {
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
-  if (!c) return;
-  var already = (machineQueue||[]).some(function(e){
-    return String(e.cardId)===String(cardId) && e.runIdx===runIdx && !e.done;
-  });
-  if (already) { showToast('⚠️ כבר בתור'); return; }
-  // אם העבודה/ריצה כבר משויכת למכונה אחרת — בקש אישור והחלף את המכונה בכרטיס
+  if (!c) return Promise.resolve({ ok: false, missing: true });
+
   var run = (runIdx >= 0 && c.runs && c.runs[runIdx]) ? c.runs[runIdx] : null;
-  var assigned = run ? run.machine : c.machine;
-  if (assigned && assigned !== machine) {
-    var what = run ? ('הריצה "' + (run.label || ('ריצה ' + (run.num || (runIdx+1)))) + '"') : 'העבודה';
-    if (!confirm(what + ' משויכת ל־' + assigned + '.\nלשלוח ל־' + machine + ' במקום?\n\nאישור יעדכן גם את המכונה בכרטיס העבודה.')) return;
+  var label = run ? (run.label || ('ריצה ' + (runIdx+1))) : (c.name||'');
+
+  /* ⚠️ שמירת ערכי-המכונה הקודמים **לפני** כל שינוי. שינוי-המכונה בכרטיס
+     הוחל מיד, ו-_queueRollbackAdded הסירה רק את רשומת-התור: בכשל נשאר
+     כרטיס משויך למכונה החדשה בלי שום רשומה בתור — ו-persist עתידי היה
+     מסנכרן את השיוך הזה לכולם. */
+  var prevRunMachine = run ? run.machine : undefined;
+  var prevCardMachine = c.machine;
+  var prevLastBy = c.lastUpdatedBy;
+  var restoreCard = function(){
+    if (run) run.machine = prevRunMachine; else c.machine = prevCardMachine;
+    if (prevLastBy === undefined) delete c.lastUpdatedBy; else c.lastUpdatedBy = prevLastBy;
+  };
+  var setCardMachine = function(){
     if (run) run.machine = machine; else c.machine = machine;
     c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+  };
+
+  /* ⚠️ "כבר בתור" הוא הצלחה **רק כשהרשומה הפתוחה באותה מכונה**. הבדיקה
+     התעלמה מהמכונה, ולכן בקשה למכונה 8 על עבודה שפתוחה במכונה 4 חזרה
+     ‏{ok:true, already:true}‎ — כלומר "בוצע" בלי שדבר בוצע, והעבודה
+     נשארה בתור הלא-נכון בלי שאיש הותרע.
+     ⚠️ רשומות ‏done:true היסטוריות אינן "כבר בתור" ואינן חוסמות. */
+  var open = (machineQueue||[]).find(function(e){
+    return String(e.cardId)===String(cardId) && e.runIdx===runIdx && !e.done;
+  });
+  if (open) {
+    if (String(open.machine||'') === String(machine||'')) {
+      showToast('⚠️ כבר בתור');
+      return Promise.resolve({ ok: true, already: true, qid: String(open.qid) });
+    }
+    /* פתוחה במכונה אחרת — **מעבר שרתי מפורש**, ולא "כבר בתור". */
+    if (!confirm('"' + label + '" נמצאת כבר בתור ' + (open.machine||'—') + '.\nלהעביר ל־' + machine + '?')) {
+      return Promise.resolve({ ok: false, cancelled: true });
+    }
+    var moveOrder = (machineQueue||[]).filter(function(e){
+      return e.machine===machine && !e.done && String(e.qid)!==String(open.qid);
+    }).length;
+    return _queueApply([{ qid: String(open.qid), machine: machine, order: moveOrder }], 'העברה בין מכונות')
+      .then(function(){
+        setCardMachine();                       // הכרטיס — **אחרי** אישור התור
+        persist();
+        showToast('✅ "' + label + '" הועברה לתור ' + machine);
+        return { ok: true, moved: true, qid: String(open.qid) };
+      })
+      .catch(function(){ return { ok: false, failed: true }; });
+  }
+
+  // אם העבודה/ריצה כבר משויכת למכונה אחרת — בקש אישור והחלף את המכונה בכרטיס
+  var assigned = run ? run.machine : c.machine;
+  var changedCard = false;
+  if (assigned && assigned !== machine) {
+    var what = run ? ('הריצה "' + (run.label || ('ריצה ' + (run.num || (runIdx+1)))) + '"') : 'העבודה';
+    if (!confirm(what + ' משויכת ל־' + assigned + '.\nלשלוח ל־' + machine + ' במקום?\n\nאישור יעדכן גם את המכונה בכרטיס העבודה.')) {
+      return Promise.resolve({ ok: false, cancelled: true });
+    }
+    setCardMachine();
+    changedCard = true;
   }
   var order = (machineQueue||[]).filter(function(e){ return e.machine===machine && !e.done; }).length;
-  machineQueue.push({
-    qid: String(Date.now()) + String(Math.floor(Math.random()*9999)),
+  var entry = {
+    qid: _newQid(),
     cardId: String(cardId),
     runIdx: runIdx,
     machine: machine,
@@ -13905,33 +14108,93 @@ function _queueAddEntry(cardId, runIdx, machine) {
     doneBy: null,
     doneByName: null,
     _upd: Date.now(),
-    addedAt: new Date().toISOString(),
-    addedBy: currentUser ? currentUser.id : null
-  });
+    addedAt: new Date().toISOString()
+    /* ⚠️ ‏addedBy **אינו נשלח**: הוא שדה-ביקורת, והשרת גוזר אותו
+       מה-staffId שבטוקן. שדה-ביקורת שמקבל כל מחרוזת מהדפדפן אינו
+       שדה-ביקורת. */
+  };
+  machineQueue.push(entry);
   persist();
   _queueRender();
-  var label = runIdx >= 0 && c.runs && c.runs[runIdx] ? (c.runs[runIdx].label||('ריצה '+(runIdx+1))) : (c.name||'');
-  showToast('✅ "' + label + '" נוסף לתור ' + machine);
+  /* ⚠️ ההודעה **אחרי** אישור השרת. הגרסה הראשונה קראה בלי await והציגה
+     "✅ נוסף לתור" מיד — כלומר גם כשהשרת דחה, וגם כשלא הייתה רשת. */
+  return _queueSaveEntries([entry]).then(function(){
+    showToast('✅ "' + label + '" נוסף לתור ' + machine);
+    return { ok: true, added: 1, qid: entry.qid };
+  }).catch(function(){
+    _queueRollbackAdded([entry.qid]);
+    if (changedCard) { restoreCard(); persist(); }    // ⚠️ גם שיוך-המכונה חוזר
+    return { ok: false, failed: true };
+  });
+}
+
+/* ── מזהה-רשומה ──────────────────────────────────────────────────────────
+   ⚠️ ‏Date.now() + ארבע ספרות אקראיות היה מרחב של 10,000 בלבד בתוך אותה
+   מילישנייה — ושתי לחיצות בו-זמנית משני מכשירים אינן נדירות. ההתנגשות
+   כאן אינה תיאורטית: היא כבר תועדה בפרויקט עם מזהים מבוססי-זמן.
+   ⚠️ למה זה מסוכן דווקא עכשיו: ‏planQueueWrite מזהה qid קיים כ**עדכון**,
+   ולכן qid מתנגש היה משכתב בשקט את הרשומה של כרטיס אחר — עבודה שמחליפה
+   זהות בלי שאיש נגע בה. השרת חוסם את זה מאז (‏queue_qid_identity_conflict),
+   וזו ההגנה השנייה; זו כאן היא הראשונה.
+   ⚠️ אותה תבנית של newOperationId, כולל דגל-המילוי: ‏Uint8Array נולד
+   מאופס, ולכן בדיקת-אורך על התוצאה הייתה עוברת גם בלי crypto. */
+function _newQid() {
+  var r = '', filled = false;
+  try {
+    var c = (typeof window !== 'undefined' && window.crypto) || null;
+    if (c && c.getRandomValues) {
+      var b = new Uint8Array(10);
+      c.getRandomValues(b);
+      for (var i = 0; i < b.length; i++) r += ('0' + b[i].toString(16)).slice(-2);
+      filled = true;
+    }
+  } catch (e) { filled = false; }
+  if (!filled) {
+    r = String(Math.random()).slice(2) + String(Math.random()).slice(2) + String(Math.random()).slice(2);
+  }
+  return 'q' + Date.now().toString(36) + r.slice(0, 20);
+}
+
+/* ⚠️ ביטול הוספה מקומית שלא נקלטה בשרת. רשומה שקיימת רק על המסך היא
+   בדיוק המצב שהמנהל רואה והמפעיל לא — עבודה שלכאורה נשלחה ואיש אינו
+   מדפיס. ‏_queueReload כבר עשה את העבודה אם הייתה רשת; זה מטפל במקרה
+   שגם הטעינה-מחדש נכשלה. */
+function _queueRollbackAdded(qids) {
+  var drop = (qids || []).map(String);
+  if (!drop.length) return;
+  machineQueue = (machineQueue || []).filter(function(e){ return drop.indexOf(String(e.qid)) < 0; });
+  try { localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue)); } catch(x){}
+  if (typeof _queueRender === 'function') _queueRender();
+  if (typeof renderDashboard === 'function' && document.getElementById('dash-today-weekly')) {
+    try { renderDashboard(); } catch(x){}
+  }
 }
 
 // הוספה אוטומטית ושקטה לתור המכונות לכל ריצה ששויכה למכונה (ללא טוסט/אישור).
 // נקרא בשמירת/יצירת כרטיס — כך שעבודה שנבחרה לה מכונה לכל ריצה נכנסת לבד לרשימת המכונה.
+/* ⚠️ מחזירה את **הרשומות שנוספו**, לא boolean. שמונה מסלולים קוראים לה
+   — יצירת כרטיס, עריכה, שכפול, שיוך מהדאשבורד — ואף אחד מהם לא ידע
+   אילו רשומות נוצרו, ולכן לא היה מה לשלוח לשרת. כל עוד persist() דחף את
+   התור זה עבד במקרה; מהרגע שהוא הפסיק, שמונת המסלולים יצרו רשומות
+   שקיימות רק על המסך. הקורא חייב לשלוח את מה שחוזר — דרך _autoQueueSync. */
 function _autoQueueAssignedRuns(card) {
-  if (!card || card.status === 'done' || card.status === 'trash') return false;
-  var changed = false;
+  if (!card || card.status === 'done' || card.status === 'trash') return [];
+  var added = [];
   function addIfNeeded(runIdx, machine) {
     if (!machine) return;
     // אל תוסיף אם כבר קיים רישום (פעיל או שהושלם) לאותה עבודה+ריצה — מונע כפילויות והחזרה של עבודות שהוסרו/הושלמו
     var exists = (machineQueue||[]).some(function(e){ return String(e.cardId)===String(card.id) && e.runIdx===runIdx; });
     if (exists) return;
     var order = (machineQueue||[]).filter(function(e){ return e.machine===machine && !e.done; }).length;
-    machineQueue.push({
-      qid: String(Date.now()) + String(Math.floor(Math.random()*9999)),
+    var entry = {
+      qid: _newQid(),
       cardId: String(card.id), runIdx: runIdx, machine: machine, order: order,
       estMinutes: null, done: false, doneAt: null, doneBy: null, doneByName: null,
-      addedAt: new Date().toISOString(), addedBy: (currentUser ? currentUser.id : null)
-    });
-    changed = true;
+      addedAt: new Date().toISOString()
+      /* ⚠️ ‏addedBy נקבע בשרת מה-staffId שבטוקן — ראה functions/queue.js */
+    };
+    machineQueue.push(entry);
+    added.push(entry);
   }
   var anyRun = false;
   if (card.runs && card.runs.length) {
@@ -13940,16 +14203,44 @@ function _autoQueueAssignedRuns(card) {
   // באג: כרטיס עם ריצות מחושבות שבו נבחרה מכונה *ברמת הכרטיס* בלבד לא נכנס לשום תור
   // ונשאר תקוע ב"עבודות זמינות". הנפילה-לאחור מכניסה את העבודה כולה לתור המכונה.
   if (!anyRun && card.machine) addIfNeeded(-1, card.machine);
-  return changed;
+  return added;
+}
+
+/* ⚠️ שמונת המסלולים עוברים כאן. אוסף את הרשומות **המדויקות** שנוספו
+   ושולח אותן ב-queueWrite.
+
+   ⚠️ למה הכרטיס נשמר גם כשהתור נכשל: שמירת-הכרטיס ושמירת-התור הן שתי
+   פעולות נפרדות בשני צמתים. חסימת הכרטיס בגלל התור הייתה מאבדת עבודה
+   שהמשתמש הקליד. לכן: הכרטיס נשמר, רשומת-התור **מוסרת** כדי שלא יישאר
+   "בתור" מדומה, והמשתמש מקבל הודעה חוסמת עם מה לעשות — ולא טוסט שנעלם. */
+function _autoQueueSync(card, what) {
+  var added = _autoQueueAssignedRuns(card);
+  if (!added.length) return Promise.resolve({ ok: true, added: 0 });
+  var qids = added.map(function(e){ return String(e.qid); });
+  return _queueSaveEntries(added).catch(function(e){
+    _queueRollbackAdded(qids);
+    try {
+      alert('⛔ הכרטיס נשמר, אבל לא נכנס לתור המכונה.\n\n'
+          + (what ? (what + '\n') : '')
+          + 'שלחו אותו לתור ידנית מלוח "עבודות להיום".');
+    } catch(x){}
+    return { ok: false, added: 0 };
+  });
 }
 
 function _queueRemoveEntry(qid) {
   var idx = (machineQueue||[]).findIndex(function(e){ return String(e.qid) === String(qid); });
   if (idx < 0) return;
-  _markDeleted('machineQueue', String(qid));   // tombstone — שהסרה לא "תקום לתחייה" במיזוג ממכשיר אחר
-  machineQueue.splice(idx, 1);
-  persist();
-  _queueRender();
+  /* ⚠️ **קודם השרת, אחר-כך מקומית.** הגרסה הראשונה מחקה מקומית וקראה
+     ל-queuePurge בלי להמתין: השרת דוחה (רשומה אחרונה בתור, למשל)
+     והרשומה כבר נעלמה מהמסך — עבודה שהמנהל בטוח שהסיר, ושהמפעיל עדיין
+     רואה. ה-tombstone נשאר לתאימות עם מכשירים שמחזיקים אותה מקומית. */
+  return _queuePurgeEntries([qid], 'הוסר מהתור ידנית').then(function(){
+    _markDeleted('machineQueue', String(qid));
+    machineQueue = (machineQueue||[]).filter(function(e){ return String(e.qid) !== String(qid); });
+    persist();
+    _queueRender();
+  }).catch(function(){ _queueRender(); });
 }
 
 // סנכרון סטטוס הכרטיס (ללוח הייצור) לפי מצב הריצות בתור המכונות.
@@ -13984,41 +14275,40 @@ function _syncCardStatusFromQueue(cardId) {
   return changed;
 }
 
+/* ⚠️ הסימון עובר ב-queueMarkDone, והסטטוס נגזר **אחרי** שהתור נטען
+   מהשרת. הגרסה הראשונה הציבה done מקומית וקראה ל-persist() — שכבר אינו
+   שומר את התור, ולכן הסימון היה נעלם בסבב-הפולינג הבא. */
 function _queueMarkDone(qid) {
   var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
   if (!e) return;
-  e.done = true; e._upd = Date.now();
-  e.doneAt = new Date().toISOString();
-  e.doneBy = currentUser ? currentUser.id : null;
-  e.doneByName = currentUser ? (currentUser.name || _userName(currentUser.id) || 'לא ידוע') : 'לא ידוע';
-  _syncCardStatusFromQueue(e.cardId);
-  persist();
-  _queueRender();
-  showToast('✅ הודפס!');
+  var cardId = e.cardId;
+  return _queueMarkDoneServer(qid).then(_queueReload).then(function(){
+    if (_syncCardStatusFromQueue(cardId)) persist();
+    _queueRender();
+    showToast('✅ הודפס!');
+  }).catch(function(){ _queueRender(); });
 }
 
+/* ⚠️ החזרה-לתור אינה עוברת כאן ולא תעבור: היחיד שרשאי להחזיר done
+   ל-false הוא reopenPress4Job, שיש מאחוריה רשומת-עבודה שרתית. אין
+   נפילה-לאחור לכתיבה ישירה — יש הודעה ברורה איפה עושים את זה. */
 function _queueUnmarkDone(qid) {
   var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
   if (!e) return;
-  e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null; e._upd = Date.now();
-  _syncCardStatusFromQueue(e.cardId);
-  persist();
-  _queueRender();
-  showToast('↩ הוחזר לתור');
+  return _queueReopenServer(qid).catch(function(){});
 }
 
 function _queueUnmarkDoneAll(cardId) {
-  var changed = false;
-  (machineQueue||[]).forEach(function(e) {
-    if (String(e.cardId) === String(cardId) && e.done) {
-      e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null; e._upd = Date.now();
-      changed = true;
-    }
+  var doneEntries = (machineQueue||[]).filter(function(e){
+    return String(e.cardId) === String(cardId) && e.done;
   });
-  // נקה גם סימון "הושלם ידנית" מהרשימה
+  /* ⚠️ יש רשומות מסומנות → חסום. ביטול מקומי היה "מצליח" על המסך
+     ונעלם בפולינג, וזה בדיוק הכשל-השקט שאנחנו סוגרים. */
+  if (doneEntries.length) return _queueReopenServer(doneEntries[0].qid).catch(function(){});
+  // אין רשומות בתור — נשאר רק סימון "הושלם ידנית", שהוא שדה של הכרטיס
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
-  if (c && c._wlDone) { delete c._wlDone; delete c._wlDoneAt; delete c._wlDoneByName; changed = true; }
-  if (!changed) return;
+  if (!c || !c._wlDone) return;
+  delete c._wlDone; delete c._wlDoneAt; delete c._wlDoneByName;
   _syncCardStatusFromQueue(cardId);
   persist();
   _queueRender();
@@ -14026,25 +14316,25 @@ function _queueUnmarkDoneAll(cardId) {
 }
 
 // סמן עבודה זמינה כהושלמה והעבר לאזור "✓ הושלמו" (גם אם אינה בתור)
+/* ⚠️ כל רשומה פתוחה מסומנת דרך queueMarkDone, בזו-אחר-זו. סימון מקומי
+   של כולן ואז persist() לא הגיע לשרת מאז שהתור יצא משם. */
 function _queueCompleteCard(cardId) {
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
   if (!c) return;
-  // אם יש ריצות פעילות בתור — סמן אותן כהודפסו
-  (machineQueue||[]).forEach(function(e) {
-    if (String(e.cardId) === String(cardId) && !e.done) {
-      e.done = true; e._upd = Date.now();
-      e.doneAt = new Date().toISOString();
-      e.doneBy = currentUser ? currentUser.id : null;
-      e.doneByName = currentUser ? (currentUser.name || _userName(currentUser.id) || 'לא ידוע') : 'לא ידוע';
-    }
+  var open = (machineQueue||[]).filter(function(e){
+    return String(e.cardId) === String(cardId) && !e.done;
   });
-  c._wlDone = true;
-  c._wlDoneAt = new Date().toISOString();
-  c._wlDoneByName = currentUser ? (currentUser.name || _userName(currentUser.id) || '') : '';
-  _syncCardStatusFromQueue(cardId);
-  persist();
-  _queueRender();
-  showToast('✓ הועבר להושלמו');
+  var chain = Promise.resolve();
+  open.forEach(function(e){ chain = chain.then(function(){ return _queueMarkDoneServer(e.qid); }); });
+  return chain.then(_queueReload).then(function(){
+    c._wlDone = true;
+    c._wlDoneAt = new Date().toISOString();
+    c._wlDoneByName = currentUser ? (currentUser.name || _userName(currentUser.id) || '') : '';
+    _syncCardStatusFromQueue(cardId);
+    persist();
+    _queueRender();
+    showToast('✓ הועבר להושלמו');
+  }).catch(function(){ _queueRender(); });
 }
 
 function _queueSetEstTime(qid) {
@@ -14054,9 +14344,10 @@ function _queueSetEstTime(qid) {
   var val = prompt('זמן משוער (דקות):', cur);
   if (val === null) return;
   var n = parseInt(val, 10);
-  e.estMinutes = (isNaN(n) || n <= 0) ? null : n;
-  persist();
-  _queueRender();
+  /* ⚠️ ‏null מפורש כדי לרוקן. השרת מקבל null רק על שדות ברשימת-הריקון —
+     השמטה אינה מחיקה, ובלי החריג הזה אי-אפשר היה לבטל זמן שהוזן בטעות. */
+  var v = (isNaN(n) || n <= 0) ? null : n;
+  return _queueApplyQuiet([{ qid: String(qid), estMinutes: v }], 'זמן משוער');
 }
 
 function _queueMove(qid, dir) {
@@ -14067,9 +14358,12 @@ function _queueMove(qid, dir) {
   var idx = peers.findIndex(function(x){ return String(x.qid) === String(qid); });
   var swapIdx = dir === 'up' ? idx - 1 : idx + 1;
   if (swapIdx < 0 || swapIdx >= peers.length) return;
-  var tmp = peers[idx].order; peers[idx].order = peers[swapIdx].order; peers[swapIdx].order = tmp;
-  persist();
-  _queueRender();
+  /* ⚠️ הסדר נשלח לשרת ומוחל רק אחרי אישור. החלפה מקומית + persist() לא
+     הגיעה לשרת, ולכן הסידור "קפץ חזרה" בסבב-הפולינג הבא. */
+  return _queueApply([
+    { qid: String(peers[idx].qid),     order: peers[swapIdx].order },
+    { qid: String(peers[swapIdx].qid), order: peers[idx].order },
+  ], 'סידור התור').catch(function(){});
 }
 
 function _queueMoveToTop(qid) {
@@ -14078,10 +14372,7 @@ function _queueMoveToTop(qid) {
   var peers = (machineQueue||[]).filter(function(x){ return x.machine === e.machine && !x.done; })
     .sort(function(a,b){ return a.order - b.order; });
   if (!peers.length || String(peers[0].qid) === String(qid)) return;
-  var minOrder = peers[0].order;
-  e.order = minOrder - 1;
-  persist();
-  _queueRender();
+  return _queueApplyQuiet([{ qid: String(qid), order: peers[0].order - 1 }], 'הקפצה לראש התור');
 }
 
 function _queueDragStart(ev, cardId, runIdx) {
@@ -14132,10 +14423,8 @@ function _queueMoveToMachine(qid, machine) {
   var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
   if (!e || e.done) return;
   if (e.machine === machine) return;
-  e.machine = machine;
-  e.order = (machineQueue||[]).filter(function(x){ return x.machine === machine && !x.done && String(x.qid) !== String(qid); }).length;
-  persist();
-  _queueRender();
+  var order = (machineQueue||[]).filter(function(x){ return x.machine === machine && !x.done && String(x.qid) !== String(qid); }).length;
+  return _queueApplyQuiet([{ qid: String(qid), machine: machine, order: order }], 'העברה בין מכונות');
 }
 
 // סידור מחדש: הכנס את הפריט הנגרר לפני פריט היעד (גם מעביר מכונה אם צריך)
@@ -14143,15 +14432,20 @@ function _queueReorder(draggedQid, targetQid) {
   var dragged = (machineQueue||[]).find(function(x){ return String(x.qid) === String(draggedQid); });
   var target  = (machineQueue||[]).find(function(x){ return String(x.qid) === String(targetQid); });
   if (!dragged || !target) return;
-  dragged.machine = target.machine;
-  var peers = (machineQueue||[]).filter(function(x){ return x.machine === target.machine && !x.done && String(x.qid) !== String(draggedQid); })
+  var machine = target.machine;
+  var peers = (machineQueue||[]).filter(function(x){ return x.machine === machine && !x.done && String(x.qid) !== String(draggedQid); })
     .sort(function(a,b){ return a.order - b.order; });
   var ti = peers.findIndex(function(x){ return String(x.qid) === String(targetQid); });
   if (ti < 0) ti = peers.length;
   peers.splice(ti, 0, dragged);
-  peers.forEach(function(p, i){ p.order = i; });
-  persist();
-  _queueRender();
+  /* ⚠️ כל הסדר החדש נשלח כ-upserts אחד, ומוחל מקומית רק אחרי אישור.
+     ‏peers.forEach(p.order=i) + persist() לא הגיע לשרת מאז שהתור יצא משם. */
+  var changes = peers.map(function(p, i){
+    var ch = { qid: String(p.qid), order: i };
+    if (String(p.qid) === String(draggedQid)) ch.machine = machine;
+    return ch;
+  });
+  return _queueApplyQuiet(changes, 'סידור התור');
 }
 
 function _fmtMins(m) {
@@ -14846,14 +15140,17 @@ function duplicateCard(id) {
   // איפוס סטטוס/חותמות הדפסה בריצות (אם קיימות) כדי שהעותק יהיה זמין מחדש
   if (Array.isArray(copy.runs)) copy.runs.forEach(function(r){ delete r.done; delete r.doneAt; delete r.printDurationSec; });
   cards.unshift(copy);
-  if (typeof _autoQueueAssignedRuns === 'function') _autoQueueAssignedRuns(copy); // ריצות עם מכונה → לתור; אחרת זמין
   persist();
   _logActivity && _logActivity('📑', 'כרטיס "' + (copy.name||'') + '" שוכפל', copy.id);
   closePrintModal();
-  switchTab('saved');
-  if (typeof renderCards === 'function') renderCards();
-  if (typeof renderWorkList === 'function') renderWorkList();
-  showToast('📑 הכרטיס שוכפל — מופיע בעבודות הזמינות');
+  /* ⚠️ ההודעה והמעבר-ללשונית אחרי תוצאת התור. */
+  return _autoQueueSync(copy, 'הכרטיס המשוכפל: ' + (copy.name||'')).then(function(r){
+    switchTab('saved');
+    if (typeof renderCards === 'function') renderCards();
+    if (typeof renderWorkList === 'function') renderWorkList();
+    if (r && r.ok === false) return;
+    showToast('📑 הכרטיס שוכפל — מופיע בעבודות הזמינות');
+  });
 }
 
 function restoreCard(id) {
@@ -20571,7 +20868,9 @@ async function _fbPollAll() {
       machineQueue = _mergeMachineQueue(mqv, machineQueue);   // מיזוג (לא דריסה) — מונע היעלמות/תחייה של עבודות בתור
       localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
       window._fbSnapshot.machineQueue = JSON.stringify(machineQueue);
-      if (JSON.stringify(machineQueue) !== JSON.stringify(mqv) && window._fbPut) window._fbPut('machineQueue', machineQueue);   // דחיפת המיזוג חזרה
+      /* ⚠️ דחיפת-המיזוג חזרה **הוסרה**: היא כתבה את המערך כולו וכך דרסה
+         סימוני-סיום. המיזוג נעשה עכשיו בשרת בכל queueWrite, ולכן הלקוח
+         אינו צריך להחזיר דבר. */
       if (document.getElementById('queue-content') && document.getElementById('tab-queue') && document.getElementById('tab-queue').classList.contains('active')) renderMachineQueue();
       // גזירת סטטוס כרטיסים מהתור: המפעיל כותב רק את machineQueue — צד המשרד גוזר מכאן.
       // כשכל ריצות הכרטיס (למשל 4 צבעים + 8 צבעים) סומנו הודפסו → הכרטיס עובר ל"הושלם"
@@ -21201,9 +21500,22 @@ function _dashAddJobToMachine(kind, id, machine) {
   if (!it) return;
   var card = _dashEnsureCardForItem(it);
   if (!card) return;
-  if (!card.machine) card.machine = machine;
-  _queueAddEntry(card.id, -1, machine);
-  renderDashboard();
+  /* ⚠️ **שיוך-המכונה בכרטיס אחרי אישור השרת, לא לפניו.** הקוד הציב
+     ‏card.machine = machine‎ מיד, ולכן כשל ב-queueWrite השאיר כרטיס
+     משויך למכונה שאין לו בה רשומה — ו-persist עתידי היה מסנכרן את
+     השיוך הזה לכל המסכים.
+     ⚠️ הרינדור גם הוא אחרי התוצאה: רינדור מיידי הראה את העבודה בתור
+     בזמן שההוספה עדיין באוויר. */
+  var hadMachine = !!card.machine;
+  return _queueAddEntry(card.id, -1, machine).then(function(r){
+    if (!hadMachine && r && r.ok === true) {
+      card.machine = machine;
+      card.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+      persist();
+    }
+    renderDashboard();
+    return r;
+  }, function(){ renderDashboard(); return { ok: false, failed: true }; });
 }
 
 // שיוך ריצה (או כרטיס שלם) למכונה מתוך רשימת "עבודות להיום" — מעדכן את הכרטיס
@@ -21211,19 +21523,57 @@ function _dashAddJobToMachine(kind, id, machine) {
 function _dashSetRunMachine(cardId, runIdx, machine) {
   var c = (cards||[]).find(function(x){ return String(x.id) === String(cardId); });
   if (!c) return;
-  if (runIdx >= 0 && c.runs && c.runs[runIdx]) c.runs[runIdx].machine = machine;
-  else c.machine = machine;
-  c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
   var entry = (machineQueue||[]).find(function(e){ return String(e.cardId)===String(cardId) && e.runIdx===runIdx && !e.done; });
+
+  /* ⚠️ **התור קודם, הכרטיס אחריו.** הגרסה הקודמת שינתה את המכונה בכרטיס,
+     קראה ל-persist(), ורק אז ניגשה לתור — וכיוון ש-_queueApply בלעה את
+     הכשל, הכרטיס נשאר עם המכונה החדשה והתור עם הישנה. שתי מכונות לאותה
+     עבודה, בלי ולו הודעה אחת.
+     ⚠️ הערך הקודם נשמר, ומוחזר בכשל: כאן אין "חצי-שיוך" הגיוני. */
+  var prevRun = (runIdx >= 0 && c.runs && c.runs[runIdx]) ? c.runs[runIdx].machine : undefined;
+  var prevCard = c.machine;
+  var setMachine = function(m){
+    if (runIdx >= 0 && c.runs && c.runs[runIdx]) c.runs[runIdx].machine = m;
+    else c.machine = m;
+  };
+  var rollback = function(){
+    if (runIdx >= 0 && c.runs && c.runs[runIdx]) c.runs[runIdx].machine = prevRun;
+    else c.machine = prevCard;
+    persist();
+    renderDashboard();
+  };
+  var commitCard = function(){
+    c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+    persist();
+    renderDashboard();
+  };
+
   if (machine) {
-    if (entry) entry.machine = machine;
-    else _autoQueueAssignedRuns(c);
-  } else if (entry) {
-    if (entry.qid) _markDeleted('machineQueue', String(entry.qid));   // tombstone — לא לחזור במיזוג
-    machineQueue = machineQueue.filter(function(e){ return e !== entry; });
+    if (entry) {
+      return _queueApply([{ qid: String(entry.qid), machine: machine }], 'שיוך מכונה')
+        .then(function(){ setMachine(machine); commitCard(); })
+        .catch(function(){ renderDashboard(); });
+    }
+    /* אין רשומה — צריך ליצור אותה, ו-_autoQueueSync נגזרת מהכרטיס.
+       לכן כאן הכרטיס משתנה קודם, ובכשל מוחזר לקדמותו. */
+    setMachine(machine);
+    return _autoQueueSync(c, 'העבודה: ' + (c.name||'')).then(function(r){
+      if (r && r.ok === false) { rollback(); return; }
+      commitCard();
+    });
   }
-  persist();
-  renderDashboard();
+
+  if (entry) {
+    var _q = String(entry.qid);
+    return _queuePurgeEntries([_q], 'בוטל שיוך המכונה מלוח העבודות').then(function(){
+      _markDeleted('machineQueue', _q);        // tombstone — לא לחזור במיזוג
+      machineQueue = machineQueue.filter(function(e){ return String(e.qid) !== _q; });
+      setMachine(machine);
+      commitCard();
+    }).catch(function(){ renderDashboard(); });
+  }
+  setMachine(machine);
+  commitCard();
 }
 
 // שליחה ישירה של ריצה (שכבר נבחרה לה מכונה) לתור המכונה — מתוך "עבודות להיום"
@@ -21232,10 +21582,12 @@ function _dashSendRunToMachine(cardId, runIdx) {
   if (!c) return;
   var machine = (runIdx >= 0 && c.runs && c.runs[runIdx]) ? c.runs[runIdx].machine : c.machine;
   if (!machine) { showToast('בחר מכונה תחילה'); return; }
-  _autoQueueAssignedRuns(c);
-  persist();
-  renderDashboard();
-  showToast('✅ נשלח לתור ' + machine);
+  /* ⚠️ ההודעה אחרי אישור השרת, לא לפניו. */
+  return _autoQueueSync(c, 'העבודה: ' + (c.name||'')).then(function(r){
+    persist();
+    renderDashboard();
+    if (r && r.ok !== false) showToast('✅ נשלח לתור ' + machine);
+  });
 }
 
 function renderDashTodayWeekly() {
@@ -21612,19 +21964,54 @@ function _pipeMoveStage(cardId, toStage){
   if (!c) return;
   var from = _pipelineStageOf(c);
   if (from === toStage) return;
-  // גרירה אחורה מ"הושלם" = פתיחה-מחדש מכוונת; מסמנים כדי שהמיזוג לא יחזיר את ההשלמה
-  if (from === 'done' && toStage !== 'done'){ c.reopenedAt = new Date().toISOString(); }
+  /* ⚠️ ‏reopenedAt **אינו נכתב כאן.** הוא נכתב ב-_pipeCommitStage, כלומר
+     רק אחרי שכל פעולת-שרת נדרשת הצליחה. כשהוא נכתב בפתיחה, מעבר ל"נוצר"
+     שנכשל ב-queuePurge השאיר את הכרטיס בסטטוס הישן אבל **עם** החותמת —
+     ו-persist עתידי כלשהו היה שומר אותה, והמיזוג היה מתייחס לכרטיס
+     כאילו נפתח-מחדש בכוונה ודורס השלמה אמיתית. */
+  var reopen = (from === 'done' && toStage !== 'done');
+  var resetPrint = function(){
+    c.status='pending'; delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
+    (c.runs||[]).forEach(function(r){ r.done=false; });
+  };
+
   if (toStage === 'created'){
-    c.status='pending'; delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
-    (c.runs||[]).forEach(function(r){ r.done=false; });
-    (machineQueue||[]).forEach(function(e){ if (String(e.cardId)===String(cardId) && e.qid) _markDeleted('machineQueue', String(e.qid)); });
-    machineQueue = (machineQueue||[]).filter(function(e){ return String(e.cardId)!==String(cardId); });
-  } else if (toStage === 'sent'){
-    c.status='pending'; delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
-    (c.runs||[]).forEach(function(r){ r.done=false; });
-    if (!(machineQueue||[]).some(function(e){ return String(e.cardId)===String(cardId); })){
-      if (typeof _queueAddEntry==='function') _queueAddEntry(c.id, -1, c.machine || 'מכונה 4 צבעים');
+    /* ⚠️ מסלול תשיעי מאותה משפחה — לא נמנה בביקורת אבל זהה במהותה:
+       הרשומות הוסרו מהמערך המקומי ותו לא. גרירה אחורה ל"נוצר" הייתה
+       מוציאה את העבודה מהתור על המסך, ומשאירה אותה בתור אצל המפעיל. */
+    /* ⚠️ **הסרת התור מאושרת לפני שהשלב נשמר.** אחרת כשל בהסרה היה משאיר
+       כרטיס בשלב "נוצר" ורשומות פעילות בתור — שני מצבים סותרים. */
+    var _pq = (machineQueue||[]).filter(function(e){ return String(e.cardId)===String(cardId) && e.qid; })
+                                .map(function(e){ return String(e.qid); });
+    if (_pq.length) {
+      return _queuePurgeEntries(_pq, 'הוחזר לשלב "נוצר" בלוח הזרימה').then(function(){
+        _pq.forEach(function(q){ _markDeleted('machineQueue', q); });
+        machineQueue = (machineQueue||[]).filter(function(e){ return String(e.cardId)!==String(cardId); });
+        resetPrint();
+        _pipeCommitStage(c, toStage, reopen);
+      }).catch(function(){ /* ‏_queueFailed הודיע; הכרטיס לא זז ולא סומן */ });
     }
+    resetPrint();
+  } else if (toStage === 'sent'){
+    /* ⚠️ **ההוספה לתור מאושרת לפני שהשלב נשמר.** הקריאה לא הומתן לה,
+       והכרטיס עבר ל"נשלח להדפסה" והציג הצלחה גם כשההוספה נדחתה — כלומר
+       עבודה שמסומנת "נשלחה" ואינה בתור של אף מכונה.
+       ⚠️ ‏cancelled — המשתמש ביטל ב-confirm; זו אינה שגיאה, וגם אינה
+       סיבה להזיז את הכרטיס. */
+    /* ⚠️ **רשומה פתוחה בלבד.** הבדיקה הייתה על קיום רשומה כלשהי, ולכן
+       רשומה היסטורית עם ‏done:true‎ — שנשארת בתור אחרי הדפסה — מנעה
+       יצירת רשומה פתוחה חדשה, והכרטיס בכל זאת עבר ל"נשלח להדפסה":
+       עבודה שמסומנת כנשלחה ואינה בתור של אף מכונה.
+       ⚠️ הרשומות ההיסטוריות **אינן נמחקות** — הן ההיסטוריה. */
+    if (!(machineQueue||[]).some(function(e){ return String(e.cardId)===String(cardId) && !e.done; })){
+      if (typeof _queueAddEntry !== 'function') return;
+      return _queueAddEntry(c.id, -1, c.machine || 'מכונה 4 צבעים').then(function(r){
+        if (!r || r.ok !== true) return;          // נכשל או בוטל — הכרטיס נשאר בשלב הקודם
+        resetPrint();
+        _pipeCommitStage(c, toStage, reopen);
+      });
+    }
+    resetPrint();
   } else if (toStage === 'printing'){
     c.status='inprogress'; delete c.printedAt; delete c.finishStartAt; delete c.finishedAt;
   } else if (toStage === 'finishing'){
@@ -21636,6 +22023,14 @@ function _pipeMoveStage(cardId, toStage){
     c.status='done';
     if (typeof _csApplyRefillOnDone==='function') _csApplyRefillOnDone(c);
   }
+  _pipeCommitStage(c, toStage, reopen);
+}
+/* ⚠️ זנב-הסיום של _pipeMoveStage, מופרד כדי שהענפים שדורשים פעולת-שרת
+   יוכלו לקרוא לו **אחרי** שהיא אושרה ולא לפניה.
+   ⚠️ ‏reopenedAt נכתב **כאן בלבד**: הוא חותמת "פתיחה-מחדש מכוונת" שגוברת
+   על השלמה במיזוג, ולכן כתיבתו על מעבר שלא קרה היא דריסת-השלמה. */
+function _pipeCommitStage(c, toStage, reopen){
+  if (reopen) c.reopenedAt = new Date().toISOString();
   c.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
   c._upd = Date.now();
   persist();
@@ -22381,48 +22776,58 @@ function _opPushCardsMerged(changedId) {
   }).catch(function(){ /* אם ההבאה נכשלה — לא דוחפים כלל, כדי לא לדרוס */ });
 }
 
+/* ⚠️ **סדר הפעולות התהפך.** קודם המסך עבר לעבודה החדשה, סימן את הכרטיס
+   שלה כ"בהדפסה", ורק אז — בלי להמתין — שלח את סיום העבודה הקודמת. כשל
+   בסיום השאיר את הקודמת פתוחה בשרת בזמן שהמפעיל כבר מדפיס את הבאה: שתי
+   עבודות "פעילות", ואף לא רמז על המסך.
+   עכשיו: הסיום מאושר → ורק אז מחליפים. בכשל הקודמת נשארת פעילה. */
 function _opStartPrinting(qid) {
   var machine = _machineViewMachine;
   var cur = _opGetPrinting(machine);
-  _opSetPrinting(machine, qid);
-  // סמן את הכרטיס שמתחיל להדפיס כ"בהדפסה" — כך פס הזרימה בדאשבורד מסונכרן עם מסך הדפס
-  var _newE = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
-  if (_newE) {
-    var _nc = (cards||[]).find(function(x){ return String(x.id) === String(_newE.cardId); });
-    if (_nc && _nc.status !== 'inprogress' && _nc.status !== 'done' && _nc.status !== 'finishing') {
-      _nc.status = 'inprogress';
-      _nc.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
-      try { localStorage.setItem('solanCards', JSON.stringify(cards)); } catch(e){}
-      _opPushCardsMerged(_nc.id);
+
+  var switchTo = function(){
+    _opSetPrinting(machine, qid);
+    // סמן את הכרטיס שמתחיל להדפיס כ"בהדפסה" — כך פס הזרימה בדאשבורד מסונכרן עם מסך הדפס
+    var _newE = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
+    if (_newE) {
+      var _nc = (cards||[]).find(function(x){ return String(x.id) === String(_newE.cardId); });
+      if (_nc && _nc.status !== 'inprogress' && _nc.status !== 'done' && _nc.status !== 'finishing') {
+        _nc.status = 'inprogress';
+        _nc.lastUpdatedBy = currentUser ? currentUser.id : 'admin';
+        try { localStorage.setItem('solanCards', JSON.stringify(cards)); } catch(e){}
+        _opPushCardsMerged(_nc.id);
+      }
     }
-  }
-  if (cur && cur.qid) {
-    var curStartAt = cur.startAt;
-    // סימון העבודה הקודמת כהודפסה — דרך עדכון ממוזג (לא דורסים תור ישן)
-    _opQueuePatch(cur.qid, function(e){
-      if (e.done) return;
-      e.done = true; e._upd = Date.now();
-      e.doneAt = new Date().toISOString();
-      if (curStartAt) {
-        e.printDurationSec = Math.floor((Date.now() - curStartAt) / 1000);
-        // צבירה על הכרטיס — שורד גם אחרי שהתור מתנקה; משמש לדוח "שעות בפועל"
-        var _cc = (cards||[]).find(function(x){ return String(x.id) === String(e.cardId); });
-        if (_cc && e.printDurationSec > 0 && e.printDurationSec < 48*3600) {
-          _cc.actualPrintSec = (_cc.actualPrintSec||0) + e.printDurationSec;
-          if (machine) _cc.printMachine = machine;
-        }
+    _renderOperatorScreen();
+  };
+
+  var curE = cur && cur.qid
+    ? (machineQueue||[]).find(function(x){ return String(x.qid) === String(cur.qid); })
+    : null;
+  if (!curE || curE.done) { switchTo(); return Promise.resolve(); }
+
+  /* ⚠️ משך-ההדפסה נשלח כפרמטר ונבדק בשרת; ‏done עצמו נקבע שם. */
+  var durSec = cur.startAt ? Math.floor((Date.now() - cur.startAt) / 1000) : 0;
+  return _queueMarkDoneServer(cur.qid, durSec).then(_opQueueRefresh).then(function(){
+    // צבירה על הכרטיס — שורד גם אחרי שהתור מתנקה; משמש לדוח "שעות בפועל"
+    var oldE = (machineQueue||[]).find(function(x){ return String(x.qid) === String(cur.qid); });
+    if (oldE) {
+      var _cc = (cards||[]).find(function(x){ return String(x.id) === String(oldE.cardId); });
+      if (_cc && durSec > 0 && durSec < 48*3600) {
+        _cc.actualPrintSec = (_cc.actualPrintSec||0) + durSec;
+        if (machine) _cc.printMachine = machine;
       }
-    }).then(function(){
       // סנכרן את סטטוס הכרטיס ללוח הייצור (אם כל הריצות הודפסו → הושלם)
-      var oldE = (machineQueue||[]).find(function(x){ return String(x.qid) === String(cur.qid); });
-      if (oldE && typeof _syncCardStatusFromQueue === 'function' && _syncCardStatusFromQueue(oldE.cardId)) {
-        localStorage.setItem('solanCards', JSON.stringify(cards));
-        _opPushCardsMerged(oldE.cardId);   // מיזוג עם השרת — לא דורס כרטיסים חדשים
-      }
-      _renderOperatorScreen();
-    });
-  }
-  _renderOperatorScreen();
+      if (typeof _syncCardStatusFromQueue === 'function') _syncCardStatusFromQueue(oldE.cardId);
+      localStorage.setItem('solanCards', JSON.stringify(cards));
+      _opPushCardsMerged(oldE.cardId);   // מיזוג עם השרת — לא דורס כרטיסים חדשים
+    }
+    switchTo();
+  }).catch(function(){
+    /* ⚠️ הקודמת **נשארת פעילה**. ‏_queueMarkDoneServer כבר הציג את השגיאה. */
+    try { showToast('⛔ העבודה הקודמת לא סומנה — היא נשארת פעילה'); } catch(x){}
+    _renderOperatorScreen();
+  });
 }
 
 function _renderOperatorScreen() {
@@ -22718,31 +23123,34 @@ function _operatorShowDetail(qid) {
 // עדכון בטוח של רשומת תור ממסך הדפסים: מביאים קודם את התור העדכני מהשרת,
 // מחילים רק את השינוי הספציפי (לפי qid), ואז דוחפים. בלי זה — מסך דפסים שהוקפא
 // (למשל בזמן צפייה בפרופר) דוחף תור ישן של שעות ודורס סידור/מחיקות שנעשו באדמין.
-function _opQueuePatch(qid, mutFn) {
-  var apply = function(){
-    var e = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
-    if (e) mutFn(e);
-    localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue));
-  };
-  apply();                       // עדכון מקומי מיידי — הדפס רואה את השינוי מיד
-  _renderOperatorScreen();
+/* ⚠️ **רענון בלבד, בלי mutFn.** הפונקציה קיבלה פעם פונקציית-שינוי,
+   החילה אותה מקומית, ודחפה את המערך כולו — אחת מארבע נקודות-הדריסה.
+   אחר-כך היא הפסיקה לדחוף אבל המשיכה להחיל מקומית, כלומר סימנה על המסך
+   משהו שאיש לא שמר. עכשיו: מושכת מהשרת ומציגה את מה שבאמת שם.
+   ⚠️ כשל **אינו נבלע** — מסך שמציג נתון ישן בלי לומר זאת הוא בדיוק מה
+   שגרם למפעיל להדפיס עבודה שכבר הודפסה. */
+function _opQueueRefresh() {
   return window._fbGet('machineQueue').then(function(sv){
     var server = Array.isArray(sv) ? sv : (sv && typeof sv === 'object' ? Object.values(sv) : []);
-    if (server.length) { machineQueue = _mergeMachineQueue(server, machineQueue); apply(); }   // מיזוג (לא דריסה) + השינוי שלנו
-    if (window._fbPut) return window._fbPut('machineQueue', machineQueue);
-  }).then(function(){ _renderOperatorScreen(); })
-    .catch(function(){ /* אין רשת — נשאר מקומי, בלי דחיפה (לא דורסים) */ });
+    if (server.length) { machineQueue = _mergeMachineQueue(server, machineQueue); }
+    try { localStorage.setItem('solanMachineQueue', JSON.stringify(machineQueue)); } catch(x){}
+    _renderOperatorScreen();
+    return true;
+  }).catch(function(e){
+    _renderOperatorScreen();
+    try { showToast('⚠️ התור לא רוענן מהשרת — ייתכן שהמוצג אינו עדכני'); } catch(x){}
+    return false;
+  });
 }
 
 function _operatorMarkDone(qid) {
   var _e0 = (machineQueue||[]).find(function(x){ return String(x.qid) === String(qid); });
   var _c0 = _e0 ? (cards||[]).find(function(x){ return String(x.id) === String(_e0.cardId); }) : null;
-  _opQueuePatch(qid, function(e){
-    e.done = true; e._upd = Date.now();
-    e.doneAt = new Date().toISOString();
-    e.doneBy = _machineViewOpName;
-    e.doneByName = _machineViewOpName;
-  });
+  /* ⚠️ הסימון נעשה **בשרת**: הזמן, ה-staffId והשם נקבעים שם.
+     ⚠️ הכול — הרענון, שורת-הפעילות ו"הושלמה" — **אחרי** אישור השרת.
+     הגרסה הראשונה קראה בלי await, סימנה מקומית ורשמה פעילות מיד: יומן
+     שמתעד סימון שנדחה, ומסך שמראה "הודפס" על עבודה שנשארה בתור. */
+  return _queueMarkDoneServer(qid).then(_opQueueRefresh).then(function(){
   try { _logActivity('🖨️', 'עבודה "' + ((_c0 && _c0.name)||'') + '" סומנה הודפסה (' + (_machineViewMachine||'') + ')', (_c0 && _c0.id)); } catch(e){}
   // אם זו הריצה האחרונה — כל הריצות של העבודה הודפסו — רשום גם "הושלמה" (מופיע בהתראות)
   try {
@@ -22760,6 +23168,7 @@ function _operatorMarkDone(qid) {
       if (_allDone) _logActivity('✅', 'עבודה "' + (_c0.name||'') + '" הושלמה', _c0.id);
     }
   } catch(e){}
+  }).catch(function(){ /* ‏_queueFailed כבר הודיע וטען מחדש */ });
 }
 
 function _opSpinStyle() {
@@ -23635,10 +24044,11 @@ function _opReturnToPrintQueue() {
   _renderOperatorScreen();
 }
 
+/* ⚠️ החזרה-לתור: reopenPress4Job בלבד, ואין נפילה-לאחור. הסרת-הסימון
+   שהייתה כאן שינתה עותק מקומי ותו לא — על המסך העבודה חזרה לתור, ובשרת
+   נשארה "הודפס". */
 function _operatorUnmarkDone(qid) {
-  _opQueuePatch(qid, function(e){
-    e.done = false; e.doneAt = null; e.doneBy = null; e.doneByName = null; e._upd = Date.now();
-  });
+  return _queueReopenServer(qid).catch(function(){});
 }
 
 // ═══════════════════════════════════════════════════════

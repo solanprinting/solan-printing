@@ -16,8 +16,11 @@
    וארבעת הקבצים שנטענים לפניו אינם קוראים לה.
    ═══════════════════════════════════════════════════════════════════════════ */
 function persist() {
-  // ניקוי תור-המכונות לפני כל שמירה — רשומות "הודפס" ישנות לא נדחפות/נשמרות
-  try { machineQueue = _pruneQueueDone(machineQueue); } catch(e){}
+  /* ⚠️ ‏_pruneQueueDone **הוסר מכאן** (03/08/2026). הוא רץ בכל שמירה, שינה
+     את המערך, וכך גרם ל-persist לדחוף את machineQueue כמעט תמיד — ובכל
+     דחיפה כזו נדרס סימון-סיום שנכתב ע"י ה-Function. הוכח דטרמיניסטית
+     ב-queue-overwrite-tests.js.
+     ניקוי הוא מעכשיו פעולה מפורשת (queuePurge) עם סיבה ו-Audit. */
   // Always write to localStorage (works offline too)
   localStorage.setItem('solanHistory',             JSON.stringify(historyDB));
   localStorage.setItem('solanPrintLog',            JSON.stringify(printLog));
@@ -75,7 +78,10 @@ function persist() {
       inventoryHistory: inventoryHistory, invoiceLogs: invoiceLogs,
       customers: customers,
       recurringJobs: recurringJobs, quotePricing: quotePricing, documentPrices: documentPrices, deletedIds: deletedIds,
-      machineQueue: machineQueue, productMemory: productMemory,
+      /* ⚠️ ‏machineQueue **אינו כאן יותר**: הוא נכתב אך ורק דרך
+         queueWrite/queueMarkDone/queuePurge, שממזגות בשרת לפי qid
+         ושומרות את שדות-הסיום. דחיפת המערך מכאן היא הבאג עצמו. */
+      productMemory: productMemory,
       managerTasks: managerTasks, sheetSizeMemory: sheetSizeMemory
     };
     // מלאי-לקוחות — דחיפה ממוזגת לפי-לקוח (לא PUT של המפה כולה)
