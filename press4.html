@@ -36,16 +36,16 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785696599"></script>
-<script src="auth-client.js?v=1785696599"></script>
-<script src="auth-guard.js?v=1785696599" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1785696599"></script>
+<script src="firebase-auth.bundle.js?v=1785737329"></script>
+<script src="auth-client.js?v=1785737329"></script>
+<script src="auth-guard.js?v=1785737329" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1785737329"></script>
 <!-- ⚠️ הגופן מתארח **אצלנו**, לא ב-Google. קישור ל-fonts.googleapis לא
      הספיק: גיליון-הסגנון מגיע משם, אבל קובצי הגופן עצמם מגיעים
      מ-fonts.gstatic.com — ומספיק שאחד מהשניים חסום ברשת המסוננת
      כדי שהמסך ייפול לגופן-מערכת, והמלל ייצא דק ושונה ממה
      שהמפעילים מכירים. עכשיו אין תלות ברשת חיצונית בכלל. -->
-<link href="heebo.css?v=1785696599" rel="stylesheet">
+<link href="heebo.css?v=1785737329" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -234,6 +234,19 @@
     </div>
   </div>
 
+  <!-- ⚠️ שלב שני. מבנה זהה לחלוטין ל-pinCard שמעליו — אותן מחלקות בדיוק,
+       אפס CSS חדש. ההבדל היחיד הוא הכותרת ואורך השדה. -->
+  <div id="staffCard" class="mid hidden">
+    <div class="card">
+      <div style="font-size:3rem;margin-bottom:8px">👤</div>
+      <div class="ttl">קוד עובד אישי</div>
+      <input id="spin" class="pin" type="password" inputmode="numeric" autocomplete="off"
+             maxlength="8" placeholder="••••" dir="ltr">
+      <button class="b b-main" id="spinBtn">כניסה</button>
+      <div id="spinMsg" class="msg hidden"></div>
+    </div>
+  </div>
+
   <div id="app" class="body hidden">
     <div id="msg" class="msg hidden"></div>
     <div id="board"></div>
@@ -251,7 +264,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1785696599';
+var _BAKED = '1785737329';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -321,17 +334,20 @@ async function doPinLogin(){
   if (_busy) return;
   var code = String($('pin').value || '').trim();
   if (!/^[0-9]{6}$/.test(code)) { pinMsg('יש להזין קוד בן 6 ספרות.'); return; }
-  /* ⚠️ בלי רישום אין מה לשלוח — ולא מציגים PIN שלא יכול לעבוד. */
+  /* ⚠️ המכשיר נשלח **אם הוא קיים** ואינו נדרש: בקיוסק של Windows הוא
+     לעולם לא יהיה, כי מצב הקיוסק מוחק את נתוני האתר בכל סיום סשן.
+     במחשב שכן רשום הוא עדיין נשלח ונבדק — כדי שדגל-החירום
+     requireDevice=true יוכל להחזיר את הדרישה בלי פריסה. */
   var dev = deviceCreds();
-  if (!dev) { showUnenrolled(); return; }
   _busy = true; $('pinBtn').disabled = true; $('pin').disabled = true;
   var old = $('pinBtn').textContent; $('pinBtn').textContent = 'רגע…';
   try {
     var r = await fetch(FN + '/press4MachineLogin', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       /* ⚠️ שלושה ערכים בלבד. orgId, machineId ו-role נגזרים בשרת. */
-      body: JSON.stringify({ data: { deviceId: dev.deviceId,
-                                     deviceSecret: dev.deviceSecret, pin: code } })
+      body: JSON.stringify({ data: dev
+        ? { deviceId: dev.deviceId, deviceSecret: dev.deviceSecret, pin: code }
+        : { pin: code } })
     });
     var j = null; try { j = await r.json(); } catch (e) {}
     if (!r.ok) throw new Error((j && j.error && j.error.message) || 'קוד שגוי או שהמכונה אינה פעילה');
@@ -347,6 +363,43 @@ async function doPinLogin(){
   $('pinBtn').textContent = old;
   $('pinBtn').disabled = false; $('pin').disabled = false;
   _busy = false;
+}
+
+/* ⚠️ שלב שני. מבנה זהה ל-doPinLogin שמעליו, ובכוונה: אותו טיפול בשגיאה,
+   אותו ניקוי-שדה, ואותה הסתמכות על onAuthStateChanged.
+   ⚠️ הקריאה נושאת את אסימון-המכונה — בלי קוד-מכונה תקף היא נדחית בשרת. */
+async function doStaffLogin(){
+  if (_busy) return;
+  var code = String($('spin').value || '').trim();
+  if (!/^[0-9]{4,8}$/.test(code)) { staffMsg('יש להזין את קוד העובד האישי.'); return; }
+  _busy = true; $('spinBtn').disabled = true; $('spin').disabled = true;
+  var old = $('spinBtn').textContent; $('spinBtn').textContent = 'רגע…';
+  try {
+    var t = await SolanAuth.idToken(false);
+    var r = await fetch(FN + '/press4StaffLogin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t },
+      body: JSON.stringify({ data: { pin: code } })
+    });
+    var j = null; try { j = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error((j && j.error && j.error.message) || 'קוד עובד שגוי');
+    var tok = j && j.result && j.result.token;
+    if (!tok) throw new Error('קוד עובד שגוי');
+    $('spin').value = '';                      /* ⚠️ הקוד לא נשאר בשדה */
+    window._opName = (j.result && j.result.name) || '';
+    await SolanAuth.signInWithCustomToken(tok);
+    /* onAuthStateChanged יטפל בשאר. */
+  } catch (e) {
+    staffMsg(e.message || 'הכניסה נכשלה');
+    $('spin').value = '';
+  }
+  $('spinBtn').textContent = old;
+  $('spinBtn').disabled = false; $('spin').disabled = false;
+  _busy = false;
+}
+function staffMsg(text){
+  var el = $('spinMsg');
+  el.className = 'msg err'; el.textContent = text; el.classList.remove('hidden');
 }
 
 function msg(kind, text){
@@ -811,7 +864,11 @@ SolanAuth.onAuthStateChanged(async function(user){
   if (!user) {
     $('gate').classList.add('hidden');
     $('app').classList.add('hidden');
-    if (!deviceCreds()) { showUnenrolled(); return; }
+    /* ⚠️ אין יותר "המחשב לא נרשם": מצב הקיוסק של Windows מוחק את נתוני
+       האתר בכל סיום סשן, ולכן רישום ב-localStorage לא יכול לשרוד שם.
+       במקומו — קוד-מכונה בכל הפעלה. ‏deviceCreds נשאר לתאימות עם מחשב
+       שכן רשום (הוא נשלח אם קיים), אבל היעדרו אינו חוסם. */
+    $('staffCard').classList.add('hidden');
     $('pinCard').classList.remove('hidden');
     $('pin').focus();
     return;
@@ -829,7 +886,20 @@ SolanAuth.onAuthStateChanged(async function(user){
 
   $('pinCard').classList.add('hidden');
   $('noDev').classList.add('hidden');
+
+  /* ⚠️ קוד-המכונה פתח את המסך ותו לא. בלי עובד מזוהה כל פעולה תידחה
+     בשרת ב-press_no_operator, ולכן עוצרים כאן ומבקשים PIN אישי.
+     ⚠️ מנהל שנכנס לבדיקה אינו עובר כאן — אין לו אסימון-מכונה. */
+  if (claims.accountType === 'machine' && !claims.staffId) {
+    $('gate').classList.add('hidden');
+    $('app').classList.add('hidden');
+    $('staffCard').classList.remove('hidden');
+    $('spin').focus();
+    return;
+  }
+  $('staffCard').classList.add('hidden');
   if (claims.accountType !== 'machine') $('mName').textContent += ' · מנהל (בדיקה)';
+  else if (claims.staffId) { try { $('mName').textContent += ' · ' + (window._opName || ''); } catch(e){} }
   $('out').classList.remove('hidden');
   $('refresh').classList.remove('hidden');
   $('gate').classList.add('hidden');
@@ -875,6 +945,8 @@ $('setupBtn').addEventListener('click', function(){
 });
 $('pinBtn').addEventListener('click', doPinLogin);
 $('pin').addEventListener('keydown', function(ev){ if (ev.key === 'Enter') doPinLogin(); });
+$('spinBtn').addEventListener('click', doStaffLogin);
+$('spin').addEventListener('keydown', function(ev){ if (ev.key === 'Enter') doStaffLogin(); });
 }   /* boot() */
 </script>
 </body>
