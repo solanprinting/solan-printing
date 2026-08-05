@@ -1290,7 +1290,27 @@ async function approvalsScreen(){
     else { color='#f59e0b'; label=(r&&r.sentAt)?'📤 נשלח · ממתין לאישור':'⏳ טרם נשלח'; }
     return '<span style="background:'+color+';color:#fff;padding:2px 8px;border-radius:10px;font-size:.78rem;white-space:nowrap">'+label+'</span>'; }
   async function load(){ $('aList').innerHTML='<div class="card muted">טוען…</div>';
-    let obj=null; try{ obj=await _dbGet('customerFoldVersions'); }catch(e){}
+    // ⚠️ שלב-0 מעבר-עובדים: **לא** _dbGet (שממסך non-ok ל-null → "סה״כ 0"
+    //    מזויף למשתמש-PIN בלי claims). _dbGetOrFail דוחה על non-ok, כדי
+    //    להבחין: 401/403 = אין זהות-צוות · כשל-רשת = זמני · 200+null =
+    //    ריק-אמיתי · 200+נתונים = רשימה. אין fallback אנונימי ואין עקיפה.
+    let obj;
+    try{ obj=await _dbGetOrFail('customerFoldVersions'); }
+    catch(e){
+      const msg=String((e&&e.message)||'');
+      if(/\b(401|403)\b/.test(msg)){   // הרשאה — משתמש-PIN/אנונימי בלי claims של צוות
+        const back=(window.AuthClient?AuthClient.loginUrlFor('customer-fold-preview.html?approvals=1', location.origin):'login.html');
+        $('aList').innerHTML='<div class="card bad" style="line-height:1.7">'
+          +'נדרשת התחברות עם חשבון עובד כדי לצפות באישורי הלקוחות. הכניסה באמצעות PIN אינה מספיקה למסך המאובטח הזה.'
+          +'<div style="margin-top:12px"><a href="'+_esc(back)+'" target="_top" '
+          +'style="display:inline-block;padding:9px 16px;border-radius:8px;background:var(--gold,#b8860b);color:#fff;font-weight:700;text-decoration:none">כניסה עם חשבון עובד</a></div></div>';
+        $('aCounts').textContent=''; return;
+      }
+      // כשל-רשת/שרת זמני — לא "0", אלא הודעה + רענון
+      $('aList').innerHTML='<div class="card bad">שגיאה זמנית בטעינת האישורים. <button id="aRetry">רענן</button></div>';
+      $('aCounts').textContent=''; const rb=$('aRetry'); if(rb) rb.onclick=load; return;
+    }
+    // HTTP 200: null/אובייקט-ריק = "אין עדיין אישורים" אמיתי; אחרת — רשימה
     _all = obj && typeof obj==='object' ? Object.values(obj).filter(r=>r&&r.versionId&&r.share) : [];
     _all.sort((a,b)=> String(b.createdAt||'').localeCompare(String(a.createdAt||''))); render(); }
   function render(){
