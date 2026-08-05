@@ -2240,6 +2240,13 @@ window._pdfEngineReady = (window.PdfEngine
           <div><label style="font-size:.7rem;color:#777">אימייל</label><input class="fi" id="cf-email" type="email" placeholder="email@example.com" style="margin-top:3px"></div>
           <div><label style="font-size:.7rem;color:#777">טלפון</label><input class="fi" id="cf-phone" placeholder="050-0000000" style="margin-top:3px"></div>
           <div><label style="font-size:.7rem;color:#777">כתובת</label><input class="fi" id="cf-address" placeholder="רחוב, עיר" style="margin-top:3px"></div>
+          <!-- כיוון-דפדוף ברירת-מחדל ללקוח: נטען לעבודה חדשה בלבד; שינוי כאן
+               אינו משנה עבודות קיימות. חסר → מימין-לשמאל. -->
+          <div><label style="font-size:.7rem;color:#777">כיוון עיתון (ברירת מחדל)</label>
+            <select class="fi" id="cf-readdir" style="margin-top:3px">
+              <option value="rtl">מימין לשמאל (עברית)</option>
+              <option value="ltr">משמאל לימין (אנגלית / צרפתית / רוסית)</option>
+            </select></div>
         </div>
         <input type="hidden" id="cf-id">
         <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end">
@@ -18588,11 +18595,14 @@ function openAddCustomerForm(id) {
       document.getElementById('cf-email').value = c.email || '';
       document.getElementById('cf-phone').value = c.phone || '';
       document.getElementById('cf-address').value = c.address || '';
+      // חסר → 'rtl' (ברירת-מחדל היסטורית; אין migration)
+      document.getElementById('cf-readdir').value = (c.defaultReadingDirection === 'ltr') ? 'ltr' : 'rtl';
       document.getElementById('cf-id').value = c.id;
       title.textContent = 'עריכת לקוח';
     }
   } else {
     ['cf-name','cf-email','cf-phone','cf-address'].forEach(f => document.getElementById(f).value = '');
+    document.getElementById('cf-readdir').value = 'rtl';
     document.getElementById('cf-id').value = '';
     title.textContent = 'לקוח חדש';
   }
@@ -18604,14 +18614,20 @@ function saveCustomer() {
   const name = document.getElementById('cf-name').value.trim();
   if (!name) { alert('חסר שם לקוח'); return; }
   const id = document.getElementById('cf-id').value || ('c_' + Date.now());
-  const data = {
+  const fields = {
     id, name,
     email: document.getElementById('cf-email').value.trim(),
     phone: document.getElementById('cf-phone').value.trim(),
-    address: document.getElementById('cf-address').value.trim()
+    address: document.getElementById('cf-address').value.trim(),
+    // כיוון-דפדוף ברירת-מחדל ללקוח (נטען לעבודה חדשה בלבד)
+    defaultReadingDirection: (document.getElementById('cf-readdir').value === 'ltr') ? 'ltr' : 'rtl'
   };
   const idx = customers.findIndex(c => c.id === id);
-  if (idx >= 0) customers[idx] = data; else customers.push(data);
+  /* ⚠️ מיזוג, לא דריסה: הטופס מציג רק חלק מהשדות. עד 08/2026 השמירה עשתה
+     customers[idx] = data — וכל שדה שאינו בטופס (אנשי-קשר, הערות, הגדרות)
+     נמחק בשקט בכל עריכה. מעכשיו מעדכנים רק את שדות-הטופס. */
+  if (idx >= 0) customers[idx] = Object.assign({}, customers[idx], fields);
+  else customers.push(fields);
   persist();
   document.getElementById('customer-form').style.display = 'none';
   renderCustomersList();
