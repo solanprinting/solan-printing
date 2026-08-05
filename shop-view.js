@@ -174,10 +174,110 @@
     return { today: today, due: due, sent: sent, missing: missing };
   }
 
+  /* ── 6. תיבת-"חדש מהלקוחות" (עיצוב-מחדש 2026-08-06, אישור-בעלים) ────────
+     סיווג עסקי טהור של כל גיליון, בקריאה בלבד — אפס שדות חדשים ב-schema.
+
+     ⚠️ העיקרון המרכזי: **"הועלה" נקבע רק לפי הפניית-קובץ אמיתית** —
+     fileUrl/filePath/apogeeUrl על הרשומה, או רשומת-files/parts עם
+     fileUrl/filePath. רשומת-stub (למשל status='awaiting' שהפורטל יוצר
+     כשהלקוח פותח עורך ועוד לא העלה כלום — תקרית 05/08/2026) לעולם אינה
+     "עיתון שהגיע"; היא מוצגת במפורש כ"הלקוח לא סיים את ההעלאה". */
+  function hasRealFiles(p){
+    if (!p) return false;
+    if (p.fileUrl || p.filePath || p.apogeeUrl) return true;
+    var files = p.files || {};
+    for (var k in files){ var f = files[k]; if (f && (f.fileUrl || f.filePath)) return true; }
+    var parts = p.parts || {};
+    for (var j in parts){ var pt = parts[j]; if (pt && (pt.fileUrl || pt.filePath)) return true; }
+    return false;
+  }
+  // כמה קבצים בפועל (לא סומכים על fileCount המוצהר — סופרים הפניות אמיתיות)
+  function realFileCount(p){
+    if (!p) return 0;
+    var n = 0;
+    if (p.fileUrl || p.filePath || p.apogeeUrl) n++;
+    var files = p.files || {};
+    for (var k in files){ var f = files[k]; if (f && (f.fileUrl || f.filePath)) n++; }
+    var parts = p.parts || {};
+    for (var j in parts){ var pt = parts[j]; if (pt && (pt.fileUrl || pt.filePath)) n++; }
+    return n;
+  }
+  /* סוג-ההעלאה, לתצוגת-הכרטיס:
+       'full'      — עיתון מלא (fileUrl/apogeeUrl יחיד, או כמה קבצים מהפורטל)
+       'file'      — קובץ בודד חדש
+       'parts-add' — קבצים/קונטרסים נוספים לעבודה קיימת (parts)
+       'stub'      — הלקוח התחיל תהליך ולא הגיע קובץ */
+  function uploadKind(p){
+    if (!hasRealFiles(p)) return 'stub';
+    var parts = p.parts || {}, hasParts = false;
+    for (var j in parts){ if (parts[j] && (parts[j].fileUrl || parts[j].filePath)) { hasParts = true; break; } }
+    if (hasParts && !(p.fileUrl || p.apogeeUrl)) return 'parts-add';
+    var files = p.files || {}, nf = 0;
+    for (var k in files){ if (files[k] && (files[k].fileUrl || files[k].filePath)) nf++; }
+    if (nf === 1 && !(p.fileUrl || p.apogeeUrl)) return 'file';
+    return 'full';
+  }
+  var KIND_LABELS = { full: 'עיתון מלא', file: 'קובץ חדש', 'parts-add': 'קבצים נוספים לעבודה קיימת', stub: 'העלאה לא הושלמה' };
+
+  /* הסטטוס-העסקי של גיליון בודד. ⚠️ 'failed' רק בהוכחה אמיתית (רשומת-קובץ
+     עם fileSize===0) — לעולם לא מהיעדר-רשומה. סדר-הקדימויות: טופל →
+     כשל-מוכח → לא-הושלם → נצפה → חדש. 'inwork' נקבע ברמת-הלוח (כרטיס פעיל). */
+  function bizStatus(p){
+    if (!p) return 'stub';
+    if (p.completedAt || p.closedAt) return 'done';
+    var files = p.files || {};
+    for (var k in files){ var f = files[k]; if (f && (f.fileUrl || f.filePath) && f.fileSize === 0) return 'failed'; }
+    if (!hasRealFiles(p)) return 'stub';
+    return anySeen(p) ? 'seen' : 'new';
+  }
+  var BIZ_LABELS = {
+    'new':    { icon: '🔴', label: 'חדש — טרם נפתח' },
+    seen:     { icon: '🟡', label: 'נצפה — ממתין לטיפול' },
+    inwork:   { icon: '🔵', label: 'בטיפול' },
+    done:     { icon: '🟢', label: 'טופל' },
+    stub:     { icon: '⚪', label: 'הלקוח לא סיים את ההעלאה' },
+    failed:   { icon: '🔴', label: 'העלאה נכשלה' }
+  };
+
+  /* הלוח העליון: customers=[{name, proofs, hasActiveCard}] →
+       inbox   — חדש/כשל/לא-הושלם (מה שדורש עין מיד), חדש-קודם ואז לפי זמן יורד
+       waiting — נצפה וטרם טופל
+       inwork  — יש כרטיס-עבודה פעיל (ברמת-לקוח)
+     ⚠️ כל גיליון מסווג פעם אחת בדיוק → אין מונים כפולים (נבדק). */
+  function inboxBoard(customers, now){
+    var inbox = [], waiting = [], inwork = [];
+    (customers || []).forEach(function(c){
+      if (!c || !c.name) return;
+      (c.proofs || []).forEach(function(p){
+        if (!p) return;
+        var st = bizStatus(p);
+        if (st === 'done') return;                       // היסטוריה — לא בלוח העליון
+        if (c.hasActiveCard && st !== 'stub' && st !== 'failed') st = 'inwork';
+        var item = { customer: c.name, p: p, kind: uploadKind(p), status: st,
+                     at: _i(p.createdAt) || _i(p.approvedAt) || 0, files: realFileCount(p) };
+        if (st === 'new' || st === 'stub' || st === 'failed') inbox.push(item);
+        else if (st === 'seen') waiting.push(item);
+        else inwork.push(item);
+      });
+    });
+    var rank = { 'new': 0, failed: 1, stub: 2 };
+    inbox.sort(function(a,b){ return (rank[a.status]-rank[b.status]) || (b.at-a.at); });
+    waiting.sort(function(a,b){ return b.at-a.at; });
+    inwork.sort(function(a,b){ return b.at-a.at; });
+    /* מונה-"חדש": העלאות-אמיתיות שטרם נפתחו בלבד — stubs אינם נספרים בו */
+    var newCount = 0;
+    inbox.forEach(function(x){ if (x.status === 'new') newCount++; });
+    return { inbox: inbox, waiting: waiting, inwork: inwork,
+             counts: { newReal: newCount, inboxAll: inbox.length, waiting: waiting.length, inwork: inwork.length } };
+  }
+
   return { DAYS: DAYS, STAGES: STAGES,
            normName: normName, nameInside: nameInside, customerDay: customerDay,
            stageOf: stageOf, stageIndex: stageIndex, anySeen: anySeen,
            newFiles: newFiles, pendingPages: pendingPages,
            customerSummary: customerSummary,
-           sentOn: sentOn, startOfDay: startOfDay, dayNameOf: dayNameOf, todayBoard: todayBoard };
+           sentOn: sentOn, startOfDay: startOfDay, dayNameOf: dayNameOf, todayBoard: todayBoard,
+           hasRealFiles: hasRealFiles, realFileCount: realFileCount, uploadKind: uploadKind,
+           bizStatus: bizStatus, inboxBoard: inboxBoard,
+           KIND_LABELS: KIND_LABELS, BIZ_LABELS: BIZ_LABELS };
 });

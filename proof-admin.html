@@ -218,6 +218,31 @@ window.addEventListener('appinstalled', function(){
   .folder > summary::-webkit-details-marker { display:none; }
   .folder > summary .count { color:#6b7280; font-weight:600; font-size:.82rem; }
   .folder table { box-shadow:none; border-radius:0; }
+  /* ── עיצוב-מחדש 2026-08-06: תיבת "חדש מהלקוחות" + תפריט-פעולות ─────────── */
+  .ibxCount { background:#dc2626; color:#fff; border-radius:12px; padding:2px 10px; font-size:.8rem; font-weight:800; vertical-align:middle; }
+  .moreMenu { position:absolute; top:100%; left:0; z-index:60; background:#fff; border:1px solid var(--line);
+    border-radius:10px; box-shadow:0 8px 22px rgba(0,0,0,.14); padding:8px; display:flex; flex-direction:column; gap:6px; min-width:190px; }
+  .ibxWrap { background:#fff; border:1.5px solid var(--gold,#b8860b); border-radius:12px; margin-bottom:12px; overflow:hidden; }
+  .ibxHd { background:#2d3561; color:#fff; font-weight:900; padding:9px 14px; display:flex; align-items:center; gap:8px; }
+  .ibxHd .n { background:#dc2626; border-radius:11px; padding:1px 9px; font-size:.82rem; }
+  .ibxCards { display:flex; flex-wrap:wrap; gap:10px; padding:12px; }
+  .ibxCard { flex:1 1 300px; max-width:430px; border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+    display:flex; flex-direction:column; gap:5px; background:#fafbff; }
+  .ibxCard.stNew { border-color:#fca5a5; background:#fff5f5; }
+  .ibxCard.stStub { border-color:#d1d5db; background:#f9fafb; color:#4b5563; }
+  .ibxCard.stFailed { border-color:#dc2626; background:#fef2f2; }
+  .ibxSt { font-weight:800; font-size:.86rem; }
+  .ibxMeta { font-size:.8rem; color:#6b7280; }
+  .ibxOpen { align-self:flex-start; background:#2d3561; color:#fff; border:none; border-radius:8px;
+    padding:7px 16px; font-weight:800; cursor:pointer; font-family:inherit; }
+  .ibxOpen:hover { background:#3b4680; }
+  .ibxSec { padding:0 12px 10px; }
+  .ibxSec summary { cursor:pointer; font-weight:800; color:#2d3561; padding:6px 0; }
+  .ibxRow { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 8px;
+    border-bottom:1px dashed var(--line); font-size:.86rem; }
+  .ibxToast { position:fixed; bottom:18px; right:18px; z-index:99; background:#2d3561; color:#fff;
+    padding:12px 18px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.25); font-weight:700; max-width:320px; }
+  @media (max-width:640px){ .ibxCards{flex-direction:column} .ibxCard{max-width:none} .ibxToast{left:12px;right:12px;max-width:none} }
 </style>
 </head>
 <body>
@@ -229,15 +254,21 @@ window.addEventListener('appinstalled', function(){
   </div>
 </div>
 <div class="wrap">
+  <!-- עיצוב-מחדש (אישור-בעלים 2026-08-06): כותרת ראשית אחת + מונה "חדש
+       מהלקוחות"; פעולות-משניות עברו לתפריט "⋮ פעולות נוספות". ⚠️ כל
+       הכפתורים נשמרו באותם מזהים — המטפלים הקיימים נקשרים כרגיל. -->
   <div class="top">
-    <h2>📋 עבודות לקוחות</h2>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <h2>📥 לקוחות ועבודות <span id="inboxCount" class="ibxCount" style="display:none"></span></h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;position:relative">
       <button class="btn ghost" id="invite">+ לקוח / עבודה חדשה</button>
-      <button class="btn ghost" id="installBtn" style="display:none" title="התקנת המסך הזה כאפליקציה על שולחן העבודה">📥 התקן כאפליקציה</button>
-      <button class="btn ghost" id="portalsBtn" title="פתיחת פורטל אישי לכל לקוח שמופיע ביומן השבועי">🏢 פורטלים ליומן</button>
-      <button class="btn ghost" id="usageBtn">💾 ניצול אחסון</button>
-      <button class="btn ghost" id="trashBtn" title="קבצים שהוסרו — ניתן לשחזר">🗑 סל מיחזור</button>
       <button class="btn" id="refresh">↻ רענן</button>
+      <button class="btn ghost" id="moreBtn" title="פעולות נוספות">⋮ פעולות נוספות</button>
+      <div id="moreMenu" class="moreMenu" style="display:none">
+        <button class="btn ghost" id="installBtn" style="display:none" title="התקנת המסך הזה כאפליקציה על שולחן העבודה">📥 התקן כאפליקציה</button>
+        <button class="btn ghost" id="portalsBtn" title="פתיחת פורטל אישי לכל לקוח שמופיע ביומן השבועי">🏢 פורטלים ליומן</button>
+        <button class="btn ghost" id="usageBtn">💾 ניצול אחסון</button>
+        <button class="btn ghost" id="trashBtn" title="קבצים שהוסרו — ניתן לשחזר">🗑 סל מיחזור</button>
+      </div>
     </div>
   </div>
   <div id="usage"></div>
@@ -854,6 +885,48 @@ function render(rows) {
         : '<div style="padding:14px;color:#9ca3af;font-size:.82rem">אין כרטיסים פעילים</div>')
     + `</aside>`;
 
+  /* ── תיבת "חדש מהלקוחות" (עיצוב-מחדש 2026-08-06, אישור-בעלים) ────────────
+     הסיווג כולו ב-ShopView.inboxBoard (טהור, נבדק ב-shop-inbox-tests.js).
+     ⚠️ "הועלה" = הפניית-קובץ אמיתית בלבד; stub מוצג במפורש כ"לא סיים
+     העלאה" ולעולם אינו נספר כעיתון שהגיע ואינו מפעיל התראה. */
+  let inboxHtml = '';
+  if (window.ShopView && ShopView.inboxBoard) {
+    const _bCust = custNames.map(c => ({ name: c, proofs: byCustomer.get(c) || [], hasActiveCard: _hasCard(c) }));
+    const bd = ShopView.inboxBoard(_bCust, Date.now());
+    window._ibxBoard = bd;   // לשכבת-ההתראות + מונה-הכותרת (מחוץ ל-render)
+    const _ibxCard = (it) => {
+      const bl = ShopView.BIZ_LABELS[it.status] || ShopView.BIZ_LABELS.stub;
+      const kind = ShopView.KIND_LABELS[it.kind] || '';
+      const ttl = [it.p.title, it.p.issue ? ('גיליון ' + it.p.issue) : ''].filter(Boolean).join(' · ');
+      const meta = [
+        it.status === 'stub' ? '' : (it.files + ' קבצים'),
+        it.p.pageCount ? (it.p.pageCount + ' עמ׳') : '',
+        fmt(it.at)
+      ].filter(Boolean).join(' · ');
+      const stubNote = it.status === 'stub'
+        ? '<div class="ibxMeta">הלקוח התחיל תהליך העלאה אך עדיין לא הגיע קובץ</div>' : '';
+      const act = it.status === 'stub'
+        ? `<button class="ibxOpen" data-portal="${escapeHtml(it.customer)}" style="background:#6b7280">🔗 צור קשר / קישור-פורטל</button>`
+        : `<button class="ibxOpen" data-opencust="${escapeHtml(it.customer)}">פתח ובדוק</button>`;
+      const cls = it.status === 'new' ? ' stNew' : it.status === 'stub' ? ' stStub' : it.status === 'failed' ? ' stFailed' : '';
+      return `<div class="ibxCard${cls}">
+        <div class="ibxSt">${bl.icon} ${bl.label}</div>
+        <div><b>${escapeHtml(it.customer)}</b> · ${escapeHtml(kind)}</div>
+        ${ttl ? `<div class="ibxMeta">${escapeHtml(ttl)}</div>` : ''}${stubNote}
+        <div class="ibxMeta">${meta}</div>${act}</div>`;
+    };
+    const _ibxRow = (it) => `<div class="ibxRow"><span><b>${escapeHtml(it.customer)}</b>${it.p.title ? (' · ' + escapeHtml(it.p.title)) : ''}
+        <span class="ibxMeta">${fmt(it.at)}</span></span>
+        <button class="ibxOpen" style="padding:4px 12px" data-opencust="${escapeHtml(it.customer)}">פתח</button></div>`;
+    inboxHtml = `<div class="ibxWrap">
+        <div class="ibxHd">⭐ חדש מהלקוחות <span class="n">${bd.counts.inboxAll}</span></div>
+        ${bd.inbox.length ? `<div class="ibxCards">${bd.inbox.map(_ibxCard).join('')}</div>`
+                          : '<div style="padding:14px;color:#9ca3af">אין העלאות חדשות מהלקוחות 🎉</div>'}
+        ${bd.waiting.length ? `<details class="ibxSec"><summary>🟡 ממתין לטיפול (${bd.waiting.length})</summary>${bd.waiting.map(_ibxRow).join('')}</details>` : ''}
+        ${bd.inwork.length ? `<details class="ibxSec"><summary>🔵 בטיפול (${bd.inwork.length})</summary>${bd.inwork.map(_ibxRow).join('')}</details>` : ''}
+      </div>`;
+  }
+
   const selAll = (_selCust && _selCust !== '__today__') ? byCustomer.get(_selCust) : null;
   // פיצול לפעילות / הושלמו — "עיתונים שהושלמו" נשמרים בקטגוריה נפרדת לכל לקוח
   const sel  = selAll ? selAll.filter(p => !p.completedAt) : null;
@@ -975,14 +1048,16 @@ function render(rows) {
      הרשימה מכילה את *כל* הלקוחות, ולכן קפיצה-לראש באמצע חיפוש-ויזואלי מרגישה
      כמו תקלה. שומרים ומחזירים. */
   const _prevScroll = (function(){ const e = document.querySelector('.pvSide, .mdSide'); return e ? e.scrollTop : 0; })();
-  $('tableWrap').innerHTML = _uiPortal ? portalHtml : `<div class="mdWrap">
+  /* תיבת-"חדש מהלקוחות" קודמת לשני המבנים (פורטל/קלאסי) — היררכיה: חדש →
+     ממתין → בטיפול → ואז אזור-הלקוחות/ימים/היסטוריה הקיים כאזור-משני. */
+  $('tableWrap').innerHTML = inboxHtml + (_uiPortal ? portalHtml : `<div class="mdWrap">
       <aside class="mdSide"><div class="mdSideTitle">לקוחות (${custNames.length})
           <button class="pvSwitch" id="uiPortal" title="מעבר לתצוגת ימי-שבוע">📅 תצוגת ימים</button></div>
         <div class="custFilterWrap"><input id="custFilter" type="search" placeholder="🔍 חיפוש לקוח…" autocomplete="off"></div>
         ${sideList}</aside>
       <section class="mdMain">${detail}</section>
       ${cardsPanel}
-    </div>`;
+    </div>`);
   /* ⚠️ כפתור "📅 סיכום היום" ברצועת-הימים נושא data-cust אבל אינו .custItem,
      ולכן מטפל-הקליק המשותף לא תופס אותו — לחיצה עליו לא עשתה כלום, בשקט.
      (בדיוק דפוס הכשל-השקט שכבר עלה כאן פעמיים.) */
@@ -1015,6 +1090,49 @@ function render(rows) {
     }
     render(rows);
   });
+  /* "פתח ובדוק" בתיבת-"חדש מהלקוחות" → בוחר את הלקוח (אותה התנהגות בדיוק
+     כמו .custItem, כולל מעבר-יום במבנה-פורטל) — כל הפעולות הקיימות של
+     חלון-הלקוח (👁 נצפה, ⬇ הורד, קישור, דרישה…) זמינות משם כרגיל. */
+  document.querySelectorAll('[data-opencust]').forEach(b => b.onclick = () => {
+    const c = b.dataset.opencust;
+    _selCust = c;
+    if (_uiPortal) { const d = _dayKey(_dayOf[c]); _pvDay = (d === 'ללא יום קבוע') ? '__none__' : d; }
+    render(rows);
+    const m = document.querySelector('.mdMain'); if (m) m.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  /* מונה-הכותרת + התראה על העלאה-אמיתית-חדשה. ⚠️ מפתחות-מעקב נבנים רק
+     מפריטים עם קובץ-אמיתי (status new/seen/inwork/failed — לא stub), ולכן
+     יצירת-stub לעולם אינה מפעילה התראה; היא תופיע בתיבה בלבד. */
+  if (window._ibxBoard) {
+    const bd = window._ibxBoard;
+    const chip = document.getElementById('inboxCount');
+    if (chip) { chip.textContent = 'חדש מהלקוחות: ' + bd.counts.newReal;
+                chip.style.display = bd.counts.newReal ? '' : 'none'; }
+    document.title = (bd.counts.newReal ? ('(' + bd.counts.newReal + ') ') : '') + 'לקוחות ועבודות — סולן הדפסות';
+    try { if (window.parent !== window) window.parent.postMessage({ type: 'solanPortalInbox', n: bd.counts.newReal }, '*'); } catch(e){}
+    try {
+      const KEY = 'solanInboxKnown';
+      const known = new Set(JSON.parse(localStorage.getItem(KEY) || '[]'));
+      const first = !localStorage.getItem(KEY);          // ריצה ראשונה — לומדים בלי להתריע
+      const fresh = [];
+      const cur = [];
+      bd.inbox.concat(bd.waiting, bd.inwork).forEach(it => {
+        if (it.status === 'stub') return;                // stub — אף פעם לא בהתראות
+        const k = String(it.p.id || it.at) + ':' + it.kind;
+        cur.push(k);
+        if (!known.has(k) && it.status === 'new') fresh.push(it);
+      });
+      localStorage.setItem(KEY, JSON.stringify(cur.slice(0, 400)));
+      if (!first && fresh.length) {
+        const it = fresh[0];
+        const t = document.createElement('div'); t.className = 'ibxToast';
+        t.innerHTML = '📥 <b>לקוח העלה עיתון חדש</b><br>' + escapeHtml(it.customer) + ' · '
+          + escapeHtml(ShopView.KIND_LABELS[it.kind] || '') + ' · ' + fmt(it.at)
+          + (fresh.length > 1 ? ('<br><span style="opacity:.8">ועוד ' + (fresh.length - 1) + ' העלאות</span>') : '');
+        document.body.appendChild(t); setTimeout(() => { try{ t.remove(); }catch(e){} }, 8000);
+      }
+    } catch(e){}
+  }
   // לחיצה על לקוח במסך "היום" → פותחת את הלקוח
   // (הכפתורים שבתוך השורה מטופלים בנפרד — קליק עליהם לא אמור לפתוח את הלקוח)
   document.querySelectorAll('.todayCust').forEach(el => el.onclick = (ev) => {
@@ -1871,9 +1989,14 @@ $('invite').onclick = async () => {
   }
   const id = crypto.randomUUID?.() || (Date.now().toString(36) + Math.random().toString(36).slice(2));
   msg('יוצר…');
+  /* ⚠️ כיוון-הדפדוף **מועתק** לעבודה בזמן היצירה (snapshot), ולא נקרא דינמית
+     מרשומת-הלקוח בכל פתיחה — כדי ששינוי עתידי של ברירת-המחדל של הלקוח לא
+     ישנה עבודות קיימות. כשל-קריאה/לקוח לא-מוכר → 'rtl' (ברירת-המחדל
+     ההיסטורית); לעולם לא חוסם יצירת-עבודה. */
+  const readingDirection = await _defaultDirFor(customer.trim());
   await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'awaiting_upload', customer: customer.trim(), title: title.trim(), reqW, reqH, createdAt: Date.now() }),
+    body: JSON.stringify({ status: 'awaiting_upload', customer: customer.trim(), title: title.trim(), reqW, reqH, readingDirection, createdAt: Date.now() }),
   });
   const base = location.href.replace(/[^/]+(\?.*)?$/, '');
   const link = `${base}proof-client.html?id=${id}`;
@@ -2029,6 +2152,36 @@ if ('serviceWorker' in navigator) {
    2. כרום לפעמים לא יורה beforeinstallprompt מיד. קודם הסתרנו את הכפתור עד
       שהאירוע נורה — כלומר הוא פשוט לא היה שם. עכשיו הוא תמיד מוצג, ואם אין
       הצעה זמינה — נאמר בדיוק מה לעשות. */
+/* ברירת-המחדל של כיוון-הדפדוף לפי הלקוח (customers[].defaultReadingDirection).
+   נקרא **פעם אחת בזמן יצירת-עבודה** ומועתק לרשומת-העבודה. התאמת-שם מנורמלת
+   (רווחים כפולים/גרשיים), כדי ש"נקודה צפונית" ו"הנקודה הצפונית" לא יתפספסו
+   סתם — אך בלי התאמה-חלקית מסוכנת: רק שוויון מנורמל. */
+let _custDirCache = null;
+async function _defaultDirFor(name){
+  const norm = s => String(s || '').replace(/["'׳״]/g, '').replace(/\s+/g, ' ').trim();
+  try {
+    if (!_custDirCache) {
+      const r = await fetch(await _au(`${_FBURL}/customers.json`));
+      if (!r.ok) return 'rtl';
+      const list = await r.json();
+      _custDirCache = {};
+      const arr = Array.isArray(list) ? list : Object.values(list || {});
+      arr.forEach(c => { if (c && c.name) _custDirCache[norm(c.name)] = (c.defaultReadingDirection === 'ltr') ? 'ltr' : 'rtl'; });
+    }
+    return _custDirCache[norm(name)] || 'rtl';
+  } catch(e){ return 'rtl'; }
+}
+
+/* ⚠️ כותרת אחת בלבד (עיצוב-מחדש 06/08/2026): כשהמסך מוטמע במעטפת-האפליקציה,
+   למעטפת כבר יש כותרת ("📥 לקוחות ועבודות"). כותרת פנימית שנייה = "מסך בתוך
+   מסך". לכן מסתירים אותה כאן; מונה-"חדש מהלקוחות" ממשיך להישלח למעטפת
+   ב-postMessage ומוצג שם, כדי שלא יאבד. בכרטיסייה עצמאית — הכותרת נשארת. */
+(function(){
+  const embedded = (function(){ try { return window.top !== window.self; } catch(e){ return true; } })();
+  if (!embedded) return;
+  const h = document.querySelector('.top h2');
+  if (h) h.style.display = 'none';
+})();
 (function(){
   const b = $('installBtn'); if (!b) return;
   const inFrame = (function(){ try { return window.top !== window.self; } catch(e){ return true; } })();
