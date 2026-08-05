@@ -7,7 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
-<script src="page-spine.js"></script>
+<script src="page-spine.js?v=bidi1"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
@@ -266,6 +266,11 @@ const params = new URLSearchParams(location.search);
 const proofId = params.get('id');
 const partId  = params.get('part');
 let imgs = [], metas = [], vIndex = 0;
+/* ── כיוון-דפדוף + גלישה-לכל-עמוד (פריסה 1 המשך, 08/2026) ────────────────
+   מקור-אמת יחיד: PageSpine. readingDirection מהרשומה (חסר → 'rtl'),
+   pageDisplayMeta = אישורי-הגלישה לכל עמוד-מקור (לפי sourceId יציב),
+   _prov = provenance של עמודי-התצוגה אחרי פיצול-כפולות. */
+let _readDir = 'rtl', _pageMeta = null, _prov = [], _reqWmm = 0, _reqHmm = 0;
 let _pdfUrlForBoxes = '';   // כתובת ה-PDF לקריאת TrimBox (גם כשמוצג ממטמון מהיר)
 let _engineNew = false;     // האם מרנדרים במנוע התצוגה החדש
 let _tScan = [];            // ממצאי-שקיפות לכל עמוד (PdfTransparency)
@@ -288,28 +293,72 @@ async function _trimFracsFromPdf(bytes){
     });
   } catch(e){ return []; }
 }
-// מפצל עמודי "כפולה" (רוחב ≈ פי-2 מהחציון) לשני עמודים בודדים לתצוגה תקינה (RTL: חצי ימין קודם). אידמפוטנטי.
+/* גזירת trimFrac לכל עמוד-תצוגה, לפי סדר-הקדימויות המאושר:
+     1) TrimBox אמיתי ב-PDF                                  → 'pdf-trimbox'
+     2) אין TrimBox, העמוד גדול מהגודל-הסופי + אישור-הלקוח    → 'confirmed-oversize'
+     3) בדיוק בגודל                                           → 'exact-size' (בלי קו-חיתוך)
+   ⚠️ ההחלטה לכל עמוד בנפרד — לעולם לא מוחלת על כל העיתון. אישור-הלקוח מגיע
+   מ-pageDisplayMeta ומועבר לשני חצאי-כפולה דרך provenance (metaForProv). */
+async function _metasForDisplay(normBytes, realTrims){
+  const out = (realTrims || []).slice();
+  if (!window.PageSpine || !_pageMeta) return out;
+  try {
+    const doc = await PDFLib.PDFDocument.load(normBytes, { ignoreEncryption:true });
+    const pgs = doc.getPages(), PT = 25.4 / 72;
+    for (let i = 0; i < pgs.length; i++){
+      if (out[i]) continue;                                   // TrimBox אמיתי — גובר
+      const prov = _prov[i]; if (!prov) continue;             // בלי provenance — לא מנחשים
+      const meta = PageSpine.metaForProv(_pageMeta, prov);
+      if (!meta || !meta.bleedConfirmed) continue;            // לא אושרה גלישה → exact-size
+      const mW = pgs[i].getWidth() * PT, mH = pgs[i].getHeight() * PT;
+      const r = PageSpine.resolveBleed(null, meta, mW, mH, _reqWmm, _reqHmm);
+      if (r.source === 'confirmed-oversize') out[i] = r.trimFrac;
+    }
+  } catch(e){ /* נשאר ללא גלישה — fallback בטוח, בלי קו-שדרה שגוי */ }
+  return out;
+}
+/* מפצל עמודי-כפולה לשני חצאים לתצוגה — לפי provenance מ-PageSpine (מקור-אמת יחיד).
+   ⚠️ הזיהוי לפי הגודל-הסופי (reqW/reqH) ולא לפי median; הסדר לפי readingDirection.
+   מחזיר { bytes, prov } — כל עמוד-תצוגה יודע את srcIndex/part/number/spine/outer שלו,
+   כדי שמיפוי ה-metadata לא יסתמך על המרה-מספרית עיוורת. ⚠️ ה-PDF המקורי לא משתנה. */
 async function splitSpreadsPdf(bytes){
+  const _passthru = (n) => ({ bytes, prov: (window.PageSpine
+      ? PageSpine.splitProvenance(Array.from({length:n},()=>({wmm:NaN,hmm:NaN,type:'single'})), { readingDirection:_readDir })
+      : []) });
   try {
     if (!(bytes instanceof Uint8Array)) { try { bytes = new Uint8Array(bytes); } catch(e){} }   // cross-realm safety
     const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption:true });
     const pages = src.getPages();
-    if (!pages.length) return bytes;
-    const ws = pages.map(p=>p.getWidth()).slice().sort((a,b)=>a-b);
-    const med = ws[Math.floor(ws.length/2)] || 0;
-    const isDbl = p => med>0 && p.getWidth() > med*1.5;
-    if (!pages.some(isDbl)) return bytes;
-    const out = await PDFLib.PDFDocument.create();
-    for (let i=0;i<pages.length;i++){
-      const sp = pages[i], w=sp.getWidth(), h=sp.getHeight();
-      if (isDbl(sp)){
-        const half=w/2;
-        const embR = await out.embedPage(sp, { left:half, bottom:0, right:w, top:h }); out.addPage([half,h]).drawPage(embR);
-        const embL = await out.embedPage(sp, { left:0, bottom:0, right:half, top:h }); out.addPage([half,h]).drawPage(embL);
-      } else { const [cp] = await out.copyPages(src, [i]); out.addPage(cp); }
+    if (!pages.length) return { bytes, prov: [] };
+    if (!window.PageSpine) return _passthru(pages.length);
+    // גודל לוגי לכל עמוד-מקור: TrimBox אם קיים, אחרת CropBox/MediaBox
+    const PT = 25.4 / 72;
+    const sources = pages.map((pg, i) => {
+      let box = null;
+      try { const tb = pg.getTrimBox(); if (tb && tb.width && tb.height) box = tb; } catch(e){}
+      if (!box) { try { const cb = pg.getCropBox(); if (cb && cb.width && cb.height) box = cb; } catch(e){} }
+      if (!box) { try { box = pg.getMediaBox(); } catch(e){} }
+      const w = box ? box.width : pg.getWidth(), h = box ? box.height : pg.getHeight();
+      return { wmm: w * PT, hmm: h * PT, sourceId: i };
+    });
+    const prov = PageSpine.splitProvenance(sources, {
+      readingDirection: _readDir, reqWmm: _reqWmm, reqHmm: _reqHmm });
+    if (!prov.some(p => p.part !== 'single')) {
+      // אין כפולות — לא נוגעים ב-PDF (אידמפוטנטי), אבל כן מחזירים provenance לצורך spine
+      return { bytes, prov };
     }
-    return await out.save();
-  } catch(e){ console.warn('splitSpreadsPdf failed', e); return bytes; }
+    const out = await PDFLib.PDFDocument.create();
+    for (const p of prov) {                       // ⚠️ בסדר-הקריאה של provenance (RTL/LTR)
+      const sp = pages[p.srcIndex], w = sp.getWidth(), h = sp.getHeight();
+      if (p.part === 'single') { const [cp] = await out.copyPages(src, [p.srcIndex]); out.addPage(cp); continue; }
+      const half = w / 2;
+      const emb = (p.part === 'spread-right')
+        ? await out.embedPage(sp, { left: half, bottom: 0, right: w, top: h })
+        : await out.embedPage(sp, { left: 0, bottom: 0, right: half, top: h });
+      out.addPage([half, h]).drawPage(emb);
+    }
+    return { bytes: await out.save(), prov };
+  } catch(e){ console.warn('splitSpreadsPdf failed', e); return { bytes, prov: [] }; }
 }
 // טוען את תיבות ה-TrimBox ברקע (למסלול מטמון מהיר) ואז מרנדר מחדש עם חיתוך-נטו + מסגרת
 async function _loadTrimsBg(){
@@ -317,7 +366,16 @@ async function _loadTrimsBg(){
   try {
     const buf = await (await fetch(await _au(_pdfUrlForBoxes))).arrayBuffer();
     const tf = await _trimFracsFromPdf(new Uint8Array(buf));
-    if (tf && tf.length){ metas = tf; renderViewer(); }
+    if (tf && tf.length){
+      /* מסלול-המטמון רץ רק כשאין כפולות (spreadCount===0), ולכן עמוד-תצוגה ≡ עמוד-מקור.
+         בונים provenance טריוויאלי כדי שגלישה-מאושרת תמופה נכון גם כאן. */
+      if (!_prov.length && window.PageSpine)
+        _prov = PageSpine.splitProvenance(tf.map((_, i) => ({ wmm: NaN, hmm: NaN, type: 'single', sourceId: i })),
+                                          { readingDirection: _readDir });
+      metas = tf;
+      try { metas = await _metasForDisplay(new Uint8Array(buf), tf); } catch(e){}
+      renderViewer();
+    }
   } catch(e){ /* נשאר בתצוגה רגילה */ }
 }
 
@@ -328,6 +386,18 @@ async function _loadTrimsBg(){
   catch(e){ return fail('שגיאה בטעינה.'); }
   if (!rec) return fail('העיתון לא נמצא או הוסר.');
   $('sub').textContent = [rec.customer, rec.title].filter(Boolean).join(' · ') || 'סולן הדפסות';
+  /* ── כיוון-דפדוף + נתוני-גלישה לכל עמוד (מקור-אמת: הרשומה) ──
+     עבודה ישנה בלי readingDirection → 'rtl' (בלי migration, בלי רגרסיה).
+     ⚠️ בריצה (part) הכיוון/המטא נלקחים מהריצה אם נשמרו שם, אחרת מהעבודה. */
+  {
+    const _pt = (partId && rec.parts && rec.parts[partId]) ? rec.parts[partId] : null;
+    _readDir = (window.PageSpine ? PageSpine.normDir((_pt && _pt.readingDirection) || rec.readingDirection)
+                                 : (((_pt && _pt.readingDirection) || rec.readingDirection) === 'ltr' ? 'ltr' : 'rtl'));
+    _pageMeta = (_pt && _pt.pageDisplayMeta) || rec.pageDisplayMeta || null;
+    const _mm = v => { const n = parseFloat(v); return isFinite(n) ? (n > 100 ? n : n * 10) : 0; };   // ס״מ→מ״מ אם ננעך קטן
+    _reqWmm = _mm(rec.reqW); _reqHmm = _mm(rec.reqH);
+    document.documentElement.setAttribute('data-read-dir', _readDir);
+  }
 
   // איזה קובץ להציג: ריצה מסוימת (part), עיתון מלא, או בוחר ריצות
   let url = null, label = '';
@@ -397,9 +467,13 @@ async function _loadTrimsBg(){
     });
     const orig = new Uint8Array(rawBuf);
     let norm = orig;
-    try { norm = await splitSpreadsPdf(orig); } catch(e){ norm = orig; }   // כפולה → 2 עמודים בודדים
+    // כפולה → 2 חצאים לתצוגה, בסדר-הקריאה; prov שומר את ה-provenance לכל עמוד-תצוגה
+    try { const _r = await splitSpreadsPdf(orig); norm = _r.bytes || orig; _prov = _r.prov || []; }
+    catch(e){ norm = orig; _prov = []; }
     if (!_fromCache) showOverlay('מרנדר עמודים…', true, 0);
-    try { metas = await _trimFracsFromPdf(norm.slice(0)); } catch(e){ metas = []; }   // תיבות חיתוך לפני ש-pdf.js "בולע" את ה-buffer
+    // תיבות חיתוך לפני ש-pdf.js "בולע" את ה-buffer; ואז השלמת גלישות-מאושרות לכל עמוד
+    try { metas = await _trimFracsFromPdf(norm.slice(0)); } catch(e){ metas = []; }
+    try { metas = await _metasForDisplay(norm.slice(0), metas); } catch(e){}
     const pdf = await pdfjsLib.getDocument({ data: norm }).promise;
     _pdfDoc = pdf;                      // נשמר לרינדור איכות-שיא לפי-דרישה
     // רינדור-אמת. כשמוצג מטמון — מחליפים עמוד-עמוד בלי להסתיר את התצוגה,
@@ -517,6 +591,11 @@ function renderViewer(){
   $('vlabel').textContent = `עמוד ${s.map(i=>i+1).join('–')} מתוך ${imgs.length}`;
   $('vprev').disabled = vIndex <= 0;
   $('vnext').disabled = s[s.length-1] >= imgs.length - 1;
+  /* מיקום העמודים בכפולה לפי כיוון-הקריאה: ב-LTR העמוד הראשון בסדר מוצג משמאל.
+     ⚠️ שינוי סדר/מיקום בלבד — התוכן עצמו לעולם אינו משוקף. */
+  spread.style.direction = (_readDir === 'ltr') ? 'ltr' : 'rtl';
+  $('vprev').textContent = (_readDir === 'ltr') ? '‹ הקודם' : 'הקודם ›';
+  $('vnext').textContent = (_readDir === 'ltr') ? 'הבא ›' : '‹ הבא';
   const two = s.length === 2;
   // עוטף את הכפולה ביחידה אחת (.zoomWrap) — הזום מוחל עליה, לא על כל עמוד בנפרד
   spread.innerHTML = '<div class="zoomWrap">' + s.map((i, pos) => {
@@ -525,7 +604,9 @@ function renderViewer(){
       // חותכים ל-TrimBox רק בצד השדרה (חיבור נקי); בצדדים החיצוניים מציגים בליד + צלבי חיתוך + מסגרת trim
       // חוק-הברזל: עמוד אי-זוגי שדרה-ימין · זוגי שדרה-שמאל. חל גם על עמוד בודד.
       // באג שתוקן: לשער (עמוד 1, אי-זוגי) היה מקובע 'left' ולכן הגלישה הוצגה מימין במקום משמאל.
-      const spine = PageSpine.spineForIndex(i);
+      /* צד-השדרה: מ-provenance (חצי-כפולה → הקצה-הפנימי; בודד → לפי המספר-הלוגי
+         והכיוון). נפילה-לאחור לחישוב-לפי-אינדקס רק כשאין provenance. */
+      const spine = (_prov[i] && _prov[i].spine) || PageSpine.spineForIndex(i, _readDir);
       const sp = PageSpine.netSpec(tf, spine);
       const mc = `aspect-ratio:${sp.arr.toFixed(4)};background-image:url('${srcFor(i)}');`
         + `background-size:${sp.sizeW.toFixed(3)}% 100%;background-position:${sp.posX.toFixed(3)}% 0%;`;
@@ -624,7 +705,14 @@ $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) 
   sp.addEventListener('dblclick', function(){ if(on) reset(); });
   ['vprev','vnext'].forEach(function(id){ var b=$(id); if(b) b.addEventListener('click', function(){ setTimeout(reset,0); }); });
 })();
-document.addEventListener('keydown', e => { if (e.key==='ArrowLeft') step(+1); if (e.key==='ArrowRight') step(-1); });
+/* מקלדת מודעת-כיוון: ב-RTL חץ-שמאל מתקדם; ב-LTR חץ-ימין מתקדם.
+   (הכיוון משנה רק ניווט/סדר — לעולם לא משקף תוכן.) */
+document.addEventListener('keydown', e => {
+  const fwd = (_readDir === 'ltr') ? 'ArrowRight' : 'ArrowLeft';
+  const back = (_readDir === 'ltr') ? 'ArrowLeft' : 'ArrowRight';
+  if (e.key === fwd) step(+1);
+  if (e.key === back) step(-1);
+});
 
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fail(msg){ showOverlay(msg, true); throw new Error(msg); }

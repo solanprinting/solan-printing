@@ -1,4 +1,8 @@
-/* ═══════════ page-spine.js — צד השדרה והגלישות בתצוגת דפדוף (RTL) ═══════════
+/* ⚠️ CACHE / RELEASE-ID: הצרכנים טוענים page-spine.js?v=<release>. **בכל שינוי
+   בקובץ הזה יש להעלות את מזהה-ה-release** (bidi1 → bidi2 → …) בכל הצרכנים
+   (proof-client.html, proof-viewer.html), כדי ש-HTML חדש לעולם לא יקבל
+   page-spine.js ישן מ-cache. bidi1 אינו תג-קבוע — הוא מזהה-שחרור בן-חלוף. */
+/* ═══════════ page-spine.js — צד השדרה והגלישות בתצוגת דפדוף (RTL+LTR) ═══════════
    חוק-הברזל של חוברות עברית: **עמוד אי-זוגי — שדרה מימין · עמוד זוגי — שדרה משמאל.**
 
    בתצוגת הדפדוף חותכים את הגלישה בצד השדרה בלבד (כדי ששני עמודי הכפולה
@@ -16,17 +20,25 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  /* צד השדרה לפי מספר-עמוד 1-מבוסס. אי-זוגי → ימין, זוגי → שמאל. */
-  function spineFor(pageNumber) {
+  /* מנרמל כיוון-דפדוף: 'ltr' מפורש בלבד; כל השאר (כולל חסר/ריק) → 'rtl' (תאימות-לאחור). */
+  function normDir(readingDirection) { return (readingDirection === 'ltr') ? 'ltr' : 'rtl'; }
+
+  /* צד השדרה לפי מספר-עמוד 1-מבוסס + כיוון-דפדוף.
+     RTL (חוברת עברית): אי-זוגי → ימין, זוגי → שמאל.
+     LTR (אנגלית/צרפתית/רוסית): המראה — אי-זוגי → שמאל, זוגי → ימין.
+     readingDirection חסר → 'rtl' (ברירת-מחדל היסטורית; אין רגרסיה לעבודות ישנות). */
+  function spineFor(pageNumber, readingDirection) {
+    var rtl = normDir(readingDirection) === 'rtl';
     var p = parseInt(pageNumber, 10);
-    if (!isFinite(p) || p < 1) return 'right';
-    return (p % 2 === 0) ? 'left' : 'right';
+    if (!isFinite(p) || p < 1) return rtl ? 'right' : 'left';            // שער
+    var rtlSide = (p % 2 === 0) ? 'left' : 'right';                       // בסיס RTL
+    return rtl ? rtlSide : (rtlSide === 'right' ? 'left' : 'right');      // LTR = מראה
   }
   /* אותו כלל לפי אינדקס 0-מבוסס (כמו מערך התמונות בצופה) */
-  function spineForIndex(i) { return spineFor((parseInt(i, 10) || 0) + 1); }
+  function spineForIndex(i, readingDirection) { return spineFor((parseInt(i, 10) || 0) + 1, readingDirection); }
 
   /* הצד שבו מוצגת הגלישה — תמיד ההפוך משדרה */
-  function bleedSide(pageNumber) { return spineFor(pageNumber) === 'left' ? 'right' : 'left'; }
+  function bleedSide(pageNumber, readingDirection) { return spineFor(pageNumber, readingDirection) === 'left' ? 'right' : 'left'; }
 
   /* שני עמודי כפולה הם שני הצדדים של אותו דף — השדרות שלהם הפוכות */
   function isMirrorPair(a, b) {
@@ -52,6 +64,123 @@
       frame: { left: trimL * 100, top: tf.t * 100, width: (trimR - trimL) * 100, height: tf.h * 100, skip: spine } };
   }
 
+  /* ── גלישה-לכל-עמוד: מקור-אמת יחיד לסיווג ולגזירת TrimBox לוגי ──────────
+     כלל-הקדימויות (בקשת-בעלים 08/2026):
+       1) TrimBox אמיתי ב-PDF        → 'pdf-trimbox'
+       2) אין TrimBox אך MediaBox גדול מהגודל-הסופי + אישור-משתמש → 'confirmed-oversize'
+       3) העמוד בדיוק בגודל-הסופי     → 'exact-size'
+     החלטה לכל עמוד בנפרד — לעולם לא מוחלת על כל העיתון. */
+  var BLEED_TOL_MM = 1.5;   // סף: מעל ~1.5מ״מ הפרש בצד = "גדול" (מכסה גלישת 3–10מ״מ, מתעלם מרעש-עיגול)
+
+  /* האם MediaBox גדול מהגודל-הסופי (בשני הצירים) מעבר לסף */
+  function isOversize(mediaWmm, mediaHmm, finalWmm, finalHmm) {
+    return isFinite(mediaWmm) && isFinite(finalWmm) && finalWmm > 0 && finalHmm > 0 &&
+           (mediaWmm - finalWmm) > BLEED_TOL_MM && (mediaHmm - finalHmm) > BLEED_TOL_MM;
+  }
+  /* TrimBox לוגי ממורכז בתוך ה-MediaBox לפי הגודל-הסופי — {l,t,w,h,wmm,hmm} כמו netSpec מצפה */
+  function logicalTrimFrac(mediaWmm, mediaHmm, finalWmm, finalHmm) {
+    var mW = mediaWmm, mH = mediaHmm;
+    var lMm = (mW - finalWmm) / 2, tMm = (mH - finalHmm) / 2;
+    return { l: lMm / mW, t: tMm / mH, w: finalWmm / mW, h: finalHmm / mH, wmm: finalWmm, hmm: finalHmm };
+  }
+
+  /* מסווג עמוד בודד. מחזיר { source, trimFrac|null, oversize }.
+     pdfTrimFrac — trimFrac אמיתי מה-PDF (או null). meta — { bleedConfirmed } שמור (או null).
+     final{W,H}mm — הגודל-הסופי (reqW/reqH). media{W,H}mm — גודל-העמוד בפועל. */
+  function resolveBleed(pdfTrimFrac, meta, mediaWmm, mediaHmm, finalWmm, finalHmm) {
+    if (pdfTrimFrac && (pdfTrimFrac.w < 0.999 || pdfTrimFrac.h < 0.999))
+      return { source: 'pdf-trimbox', trimFrac: pdfTrimFrac, oversize: true };
+    var over = isOversize(mediaWmm, mediaHmm, finalWmm, finalHmm);
+    if (over && meta && meta.bleedConfirmed)
+      return { source: 'confirmed-oversize', trimFrac: logicalTrimFrac(mediaWmm, mediaHmm, finalWmm, finalHmm), oversize: true };
+    return { source: 'exact-size', trimFrac: null, oversize: over };
+  }
+
+  /* ── פיצול-כפולות: provenance יציב לתצוגה ──────────────────────────────
+     קלט: רוחבי-עמודי-המקור (pt) + כיוון-דפדוף. פלט: מערך עמודי-תצוגה בסדר-קריאה,
+     כל אחד עם מקור יציב + תפקידו + מספר-לוגי + צד-שדרה + צד-חיצוני.
+       - עמוד-כפולה (רוחב > חציון×1.5) → שני חצאים בסדר-הקריאה:
+           RTL: ימני(spine שמאל) ואז שמאלי(spine ימין)
+           LTR: שמאלי(spine ימין) ואז ימני(spine שמאל)
+         ⚠️ צד-השדרה של חצי = הקצה-הפנימי (החיבור) — קבוע ע"פ גיאומטריית-הכפולה,
+         לא ע"פ הכיוון; הכיוון קובע רק את **סדר** החצאים. אין קו-חיתוך בקצה-הפנימי.
+       - עמוד רגיל → single, spine לפי המספר-הלוגי הסופי + הכיוון.
+     provenance מונע "המרה מספרית עיוורת": כל חצי יודע את srcIndex/part/number שלו. */
+  function _medianWidth(widths) {
+    var ws = (widths || []).slice().sort(function (a, b) { return a - b; });
+    return ws.length ? (ws[Math.floor(ws.length / 2)] || 0) : 0;
+  }
+  /* מסווג עמוד-מקור יחיד: 'single' | 'spread' | '?' (לא-ודאי → נחליט ב-fallback).
+     מקור-אמת: type מפורש → גודל-עבודה reqW/reqH → (בחוץ) median.
+     wmm/hmm = הגודל-הלוגי של העמוד (TrimBox אם קיים, אחרת CropBox/MediaBox). */
+  var SPREAD_BLEED_SLACK_MM = 14;   // סובלנות לגלישה (~10מ״מ/צד) + עיגול
+  function classifyPageType(src, reqWmm, reqHmm, tolMm) {
+    if (src && (src.type === 'single' || src.type === 'spread')) return src.type;   // מפורש גובר
+    var w = src ? src.wmm : NaN, h = src ? src.hmm : NaN;
+    if (isFinite(reqWmm) && reqWmm > 0 && isFinite(reqHmm) && reqHmm > 0 && isFinite(w) && isFinite(h)) {
+      var tol = (tolMm != null ? tolMm : 2), slack = SPREAD_BLEED_SLACK_MM;
+      var hOk = (h >= reqHmm - tol) && (h <= reqHmm + slack);          // גובה ≈ עמוד לוגי (+גלישה)
+      var wSpread = (w >= 2 * reqWmm - tol) && (w <= 2 * reqWmm + slack);
+      var wSingle = (w >= reqWmm - tol) && (w <= reqWmm + slack);
+      if (hOk && wSpread && !wSingle) return 'spread';
+      if (hOk && wSingle) return 'single';
+      return 'single';                                                  // לא-ודאי (כולל landscape שבו h≠reqH) → לא מפצלים
+    }
+    return '?';                                                        // אין גודל-עבודה → median-fallback
+  }
+  /* sources: [{ wmm, hmm, sourceId?, type? }] · opts: { readingDirection, reqWmm, reqHmm, tolMm } */
+  function splitProvenance(sources, opts) {
+    opts = opts || {};
+    var rtl = normDir(opts.readingDirection) === 'rtl';
+    var reqW = opts.reqWmm, reqH = opts.reqHmm, tolMm = opts.tolMm;
+    sources = sources || [];
+    // median-fallback רק כשאין גודל-עבודה — ורק אם רוב-העמודים בודדים (אחרת החציון לא מייצג)
+    var haveReq = isFinite(reqW) && reqW > 0 && isFinite(reqH) && reqH > 0;
+    var med = 0, majoritySingles = false;
+    if (!haveReq) {
+      var widths = sources.map(function (s) { return s.wmm; });
+      med = _medianWidth(widths);
+      var cluster = widths.filter(function (w) { return med > 0 && w <= med * 1.2; }).length;
+      majoritySingles = cluster > widths.length / 2;
+    }
+    var isSpread = function (src) {
+      var t = classifyPageType(src, reqW, reqH, tolMm);
+      if (t === 'spread') return true;
+      if (t === 'single') return false;
+      return majoritySingles && med > 0 && src.wmm > med * 1.5;         // '?' → fallback בטוח
+    };
+    var out = [];
+    for (var i = 0; i < sources.length; i++) {
+      var src = sources[i];
+      var sid = (src && src.sourceId != null) ? src.sourceId : i;
+      if (isSpread(src)) {
+        var rightHalf = { srcIndex: i, sourceId: sid, part: 'spread-right', spine: 'left', outer: 'right' };
+        var leftHalf  = { srcIndex: i, sourceId: sid, part: 'spread-left',  spine: 'right', outer: 'left' };
+        if (rtl) { out.push(rightHalf); out.push(leftHalf); }   // RTL: ימני קודם
+        else     { out.push(leftHalf);  out.push(rightHalf); }  // LTR: שמאלי קודם
+      } else {
+        out.push({ srcIndex: i, sourceId: sid, part: 'single', spine: null, outer: null });
+      }
+    }
+    out.forEach(function (p, idx) {
+      p.number = idx + 1;                                  // מספר-לוגי סופי = מיקום בסדר-הקריאה
+      if (p.part === 'single') { p.spine = spineFor(p.number, opts.readingDirection); p.outer = (p.spine === 'left' ? 'right' : 'left'); }
+    });
+    return out;
+  }
+  /* מיפוי metadata-מקור לעמוד-תצוגה: pageDisplayMeta של עמוד-מקור עובר לשני חצאיו.
+     מפתח יציב: sourceId (או srcIndex בנפילה-לאחור). מחזיר null אם אין התאמה חד-משמעית. */
+  function metaForProv(pageDisplayMeta, prov) {
+    if (!pageDisplayMeta || !prov) return null;
+    var byId = pageDisplayMeta.bySourceId || null, byIdx = pageDisplayMeta.byIndex || pageDisplayMeta;
+    if (byId && prov.sourceId != null && byId[prov.sourceId] != null) return byId[prov.sourceId];
+    if (byIdx && byIdx[prov.srcIndex] != null) return byIdx[prov.srcIndex];
+    return null;
+  }
+
   return { spineFor: spineFor, spineForIndex: spineForIndex, bleedSide: bleedSide,
-           isMirrorPair: isMirrorPair, netSpec: netSpec };
+           isMirrorPair: isMirrorPair, netSpec: netSpec, normDir: normDir,
+           isOversize: isOversize, logicalTrimFrac: logicalTrimFrac, resolveBleed: resolveBleed,
+           BLEED_TOL_MM: BLEED_TOL_MM, splitProvenance: splitProvenance, metaForProv: metaForProv,
+           classifyPageType: classifyPageType, SPREAD_BLEED_SLACK_MM: SPREAD_BLEED_SLACK_MM };
 });
