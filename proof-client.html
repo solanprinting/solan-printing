@@ -86,6 +86,13 @@
   /* כפולה שלמה מוצגת לבדה (page:only-child) — היא רחבה פי-2, ולכן max-width:48vw שבר את
      יחס-הצדדים והעמודים נראו "דחוסים". נותנים לה כמעט את כל רוחב-החלון. */
   #spread .page:only-child img, #spread .page:only-child .mediacrop { max-width:94vw; }
+  /* ── תצוגת כפולה כשני חצאים לוגיים (בלבד-לתצוגה) ──────────────────────────
+     באג: כפולה (עמוד PDF כפול-רוחב) הוצגה כתמונה רחבה אחת שנחסמה ל-48vw →
+     שני העמודים נדחסו ונראו קטנים מעמוד בודד. התיקון: מציגים את הכפולה כשני
+     חצאים — כל חצי בגובה ובקנה-מידה של עמוד בודד, צמודים בשדרה (gap:0). כל חצי
+     הוא חיתוך-רקע של אותה תמונה (background) — ה-PDF/הסדר/ההורדה לא משתנים. */
+  #spread .spread-halves { display:flex; gap:0; align-items:stretch; line-height:0; }
+  #spread .spread-halves .mediacrop { max-width:48vw; }   /* כל חצי = רוחב עמוד בודד; שני חצאים ≤ 96vw */
   #spread .trimframe { position:absolute; box-sizing:border-box; pointer-events:none; }
   #spread .cmark { position:absolute; background:#111; pointer-events:none; }
   #spread .pgdel { position:absolute; top:8px; left:8px; width:34px; height:34px; border:none; border-radius:50%;
@@ -1310,6 +1317,18 @@ function renderViewer() {
   const two = s.length === 2;
   spread.innerHTML = s.map((i, pos) => {
     const p = pages[i];
+    // ── כפולה מלאה → שני חצאים לוגיים (RTL: ימין קודם), כל חצי בגובה/קנה-מידה של עמוד בודד, צמודים בשדרה ──
+    //    תצוגה בלבד: חיתוך-רקע של אותה תמונה; אין נגיעה ב-PDF/סדר/מספרי-עמוד/הורדה. (מצב-בליד נשאר כמכלול)
+    if (p.isSpread && _spreadPages(p) === 2 && !window._pcShowBleed) {
+      const src = p.displaySrc || p.src;
+      const arHalf = (p.wmm && p.hmm) ? ((p.wmm / 2) / p.hmm) : (595 / 842);   // יחס עמוד-בודד
+      const half = pos100 => `<div class="mediacrop" style="aspect-ratio:${arHalf.toFixed(4)};`
+        + `background-image:url('${src}');background-size:200% 100%;background-position:${pos100}% 0%;"></div>`;
+      return `<div class="pagewrap"><div class="page spread-split" data-idx="${i}" data-uid="${p.uid}">`
+        + `<div class="spread-halves">${half(100)}${half(0)}</div>`
+        + `<button class="pgdel" title="רוקן עמוד זה — יישאר ריק" data-uid="${p.uid}">✕</button></div>`
+        + `<div class="pgnum">עמודים ${_lbls[i]}</div></div>`;
+    }
     const tf = p.trimFrac;
     if (tf && (tf.w < 1 || tf.h < 1) && window._pcShowBleed) {
       /* עם גלישות + צלבי חיתוך — חיתוך נטו רק בשדרה (חיבור נקי בין העמודים); בליד + צלבים מסביב.
