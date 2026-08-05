@@ -1366,7 +1366,13 @@ async function approvalsScreen(){
   // ⚠️ v בלבד (בלי t) קורה בכל רענון-דף רגיל אחרי שהזהות כבר אומתה: t מוסר
   // מהכתובת ע"י ProofContext מיד עם ההצלחה (history.replaceState). בלי השורה
   // הזו, F5 היה נופל למסך "הכלי במצב Beta סגור" במקום לשחזר את הסשן.
-  if(v){ clientScreen(v, t||''); return; }   // מצב-לקוח (כניסה חדשה או רענון-סשן-משוחזר)
+  // ⚠️ אבל v חייב להיות **בפורמט proof-versionId** (v_ + 32 הקסה) לפני
+  // כניסה למצב-לקוח: krtis-avoda טוען את מסך-האישורים ב-iframe עם
+  // ‎?approvals=1&v=<APP_VERSION>‎ (מפצח-מטמון, מספר) — ובלי הסינון הזה
+  // הוא היה נכנס ל-clientScreen עם מספר-גרסה כ-versionId ונכשל ב-
+  // "הקישור אינו תקין". הסינון מחזיר את מסך-האישורים ושומר על שחזור-F5
+  // (versionId אמיתי תואם ל-regex). ראה proof-link.js: VERSION_ID_RE.
+  if(v && /^v_[0-9a-f]{32}$/.test(v)){ clientScreen(v, t||''); return; }   // מצב-לקוח (כניסה חדשה או רענון-סשן-משוחזר)
   if(qs.get('approvals')==='1'){ approvalsScreen(); return; }   // מסך-מנהל: מערכת אישור לקוחות
   // מצב-עובד: מאחורי הדגל solanCustomerFoldPreviewBeta (או ?cfp=1)
   if(ADP.customerFoldPreviewEnabled(window) || qs.get('cfp')==='1'){ workerScreen(); }
