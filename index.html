@@ -24897,15 +24897,32 @@ registerPushServiceWorker().then(function(){ setTimeout(_checkPushState, 300); }
 </script>
 
 <!-- פורטל לקוחות — לוח אישור קבצים (iframe מבודד) -->
+<!-- ⚠️ עיצוב-מחדש (אישור-בעלים 06/08/2026): הפורטל נפתח כ**תצוגה גדולה** ולא
+     כ-modal קטן "מסך בתוך מסך". שינויים: מסך-מלא (100vw/100vh, בלי רקע-כהה
+     ובלי פינות), **כותרת אחת בלבד** (הכותרת הפנימית של proof-admin מוסתרת
+     כשהוא מוטמע), **פס-גלילה אחד** (המעטפת overflow:hidden — רק תוכן-ה-iframe
+     גולל), וכפתורי "← חזרה למערכת" ו-"🔗 פתח בחלון נפרד". במובייל — עמוד מלא. -->
 <div id="newspapersModal" style="display:none;position:fixed;inset:0;z-index:9999;
-     background:rgba(0,0,0,.5);align-items:center;justify-content:center" dir="rtl">
-  <div style="background:#fff;width:95vw;height:92vh;border-radius:12px;overflow:hidden;display:flex;flex-direction:column">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:#2d3561;color:#fff">
-      <span style="font-weight:800">📥 פורטל לקוחות</span>
-      <div style="display:flex;align-items:center;gap:12px">
+     background:#fff;align-items:stretch;justify-content:stretch" dir="rtl">
+  <div style="background:#fff;width:100vw;height:100vh;border-radius:0;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px;background:#2d3561;color:#fff;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button id="np-back-btn" title="חזרה למסך הראשי של המערכת"
+          style="background:rgba(255,255,255,.16);border:none;color:#fff;font-weight:800;font-size:.86rem;
+                 padding:7px 14px;border-radius:8px;cursor:pointer;font-family:inherit">← חזרה למערכת</button>
+        <span style="font-weight:800">📥 לקוחות ועבודות</span>
+        <!-- מונה "חדש מהלקוחות" — מגיע מהמסך המוטמע ב-postMessage (הכותרת
+             הפנימית מוסתרת שם, כדי שתהיה כותרת אחת בלבד) -->
+        <span id="np-inbox-count" style="display:none;background:#dc2626;color:#fff;border-radius:12px;
+              padding:2px 10px;font-size:.78rem;font-weight:800"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <label id="np-prepress-lbl" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.82rem;font-weight:600" title="רק במסך זה יקפצו התראה+קול על קבצים חדשים; באחרים רק נקודה אדומה">
           <input type="checkbox" id="np-prepress-chk" style="width:16px;height:16px"> 🖨️ מסך קדם-דפוס
         </label>
+        <button id="np-newwin-btn" title="פתיחת המסך בכרטיסייה נפרדת"
+          style="background:rgba(255,255,255,.16);border:none;color:#fff;font-weight:700;font-size:.82rem;
+                 padding:7px 12px;border-radius:8px;cursor:pointer;font-family:inherit">🔗 פתח בחלון נפרד</button>
         <button onclick="document.getElementById('newspapersModal').style.display='none'"
           style="background:none;border:none;color:#fff;font-size:1.4rem;cursor:pointer">✕</button>
       </div>
@@ -24945,6 +24962,33 @@ registerPushServiceWorker().then(function(){ setTimeout(_checkPushState, 300); }
     Array.prototype.forEach.call(document.querySelectorAll('#npTabs .nptab'), function(t){
       t.onclick=function(){ window._npTab(t.dataset.np); };
     });
+    /* "← חזרה למערכת" — סוגר את התצוגה וחוזר למסך הראשי (זהה ל-✕, אבל מפורש
+       ומילולי, כי במסך-מלא כבר לא ברור שזו שכבה מעל האפליקציה). */
+    /* מונה-"חדש מהלקוחות" מהמסך המוטמע (postMessage). מקור-מהימן בלבד:
+       מקבלים רק מהמסמך של אחד ה-iframes שלנו, ורק מספר. */
+    window.addEventListener('message', function(ev){
+      try{
+        var d=ev.data; if(!d || d.type!=='solanPortalInbox') return;
+        var okSrc=['npFrameJobs','npFrameSend','npFrameApprovals'].some(function(fid){
+          var f=document.getElementById(fid); return f && f.contentWindow===ev.source; });
+        if(!okSrc) return;
+        var n=parseInt(d.n,10)||0, el=document.getElementById('np-inbox-count');
+        if(el){ el.textContent='חדש: '+n; el.style.display=n?'':'none'; }
+      }catch(e){}
+    });
+    var bk=document.getElementById('np-back-btn');
+    if(bk) bk.onclick=function(){ var m=document.getElementById('newspapersModal'); if(m) m.style.display='none'; };
+    /* "🔗 פתח בחלון נפרד" — פותח את התאב הפעיל בכרטיסייה משלו (מאפשר גם
+       התקנה כאפליקציה, מה שהדפדפן לא מציע לדף מוטמע). */
+    var nw=document.getElementById('np-newwin-btn');
+    if(nw) nw.onclick=function(){
+      try{
+        var act=document.querySelector('#npTabs .nptab[style*="rgb(255, 255, 255)"]');
+        var which=(act&&act.dataset.np)||'jobs';
+        var url = (which==='jobs') ? 'proof-admin.html' : (SRC[which]+'&v='+(window.APP_VERSION||'1'));
+        window.open(url,'_blank','noopener');
+      }catch(e){ window.open('proof-admin.html','_blank','noopener'); }
+    };
     // צ'קבוקס "מסך קדם-דפוס" בכותרת המסך — נגיש גם למי שאינו מנהל
     var chk=document.getElementById('np-prepress-chk'), lbl=document.getElementById('np-prepress-lbl');
     if(chk){
