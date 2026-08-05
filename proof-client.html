@@ -9,6 +9,9 @@
 <script src="lib-loader.js"></script>
 <script src="pdfjs-engine.js"></script>
 <script src="proof-guard.js"></script>
+<!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
+     כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
+<script src="portal-context.js?v=1785763969"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js"></script>
 <script src="page-swap.js"></script>
@@ -369,6 +372,9 @@ window._appCheckToken = function(){
 try { window._appCheckToken(); } catch(e){}
 let _fbTok = null, _fbTokExp = 0, _fbTokP = null;
 async function _fbAuthToken(){
+  /* ⚠️ שכבת-הזהות: כשקיים סשן-פורטל, האסימון ממנו — עם ה-claims של
+     הלקוח. אנונימי נשאר כנפילה-לאחור בלבד. */
+  try { if (window.PortalContext && PortalContext.hasSession()) { var _pt = await PortalContext.authToken(); if (_pt) return _pt; } } catch(e){}
   if (_fbTok && Date.now() < _fbTokExp - 120000) return _fbTok;
   if (_fbTokP) return _fbTokP;
   _fbTokP = (async function(){
@@ -507,6 +513,11 @@ async function _psSendRequest(target){
   showOverlay('שולח בקשה…', true);
   try {
     const req = PageSwap.buildRequest({ at: Date.now(), by: (record.customer || 'לקוח'), note: note, target: target });
+    /* ⚠️ ‏proofId — מטא-אבטחה בלבד (2026-08-04). הנתיב ממילא מקונן תחת
+       customerProofs/<proofId>/changeRequests, כך שהבעלות יורשת מה-proof
+       האב; זהו אימות-עקביות נוסף (החוק דורש proofId === מזהה-הנתיב).
+       ‏proofId מגיע מרשומת-העבודה שנטענה ואומתה, לא מ-URL. */
+    req.proofId = proofId;
     await fetch(await _au(`${_FBURL}/${PageSwap.requestPath(proofId, target)}.json`),
       { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) });
     await _psRefresh();
@@ -1438,7 +1449,17 @@ async function _pcComposePdf(){
   }
   return await out.save();
 }
-function _pcFolder(){ return (record.customer || 'לקוח').replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60) || 'לקוח'; }
+/* ⚠️ בסשן-פורטל מאומת, תיקיית-האחסון היא ה-slug מה-claims (PortalContext.slug)
+   — לעולם לא מ-URL ולעולם לא נגזרת-מחדש משם-הלקוח. זה מונע פיצול-תיקייה
+   כש-_pcFolder (רגקס שומר-רישיות) וה-slug האמיתי (תמיד lowercase) נבדלים —
+   בדיוק הפער שהיה גורם לקובץ להיכתב תחת תיקייה שאינה תואמת ל-slug שהחוקים
+   העתידיים (storage.rules.portal) יאכפו. ⚠️ fallback להתנהגות הישנה נשמר
+   **רק** כשאין סשן-פורטל פעיל (PortalContext.ok===false/לא-קיים) — מסכים
+   ותיקים שאינם מגיעים מהפורטל ממשיכים לעבוד בדיוק כמו קודם. */
+function _pcFolder(){
+  try { if (window.PortalContext && window.PortalContext.ok && window.PortalContext.slug) return window.PortalContext.slug; } catch (e) {}
+  return (record.customer || 'לקוח').replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60) || 'לקוח';
+}
 
 /* אישור סופי של גרסה מעודכנת (אחרי החלפת/מחיקת עמודים) — נכתבת כגרסה חדשה,
    הקובץ שאושר קודם נשאר ב-Storage, והבקשה נסגרת עם תיעוד מה השתנה. */
