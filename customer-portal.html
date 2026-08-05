@@ -7,6 +7,9 @@
 <script src="lib-loader.js"></script>
 <!-- אותו כלל "גיליון סגור" שבצד הדפוס — עבודה שהושלמה/נסגרה נעולה לשינויים -->
 <script src="proof-guard.js"></script>
+<!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
+     כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
+<script src="portal-context.js?v=1785763969"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -188,6 +191,10 @@ window._appCheckToken = function(){
 try { window._appCheckToken(); } catch(e){}
 let _fbTok=null,_fbTokExp=0,_fbTokP=null;
 async function _fbAuthToken(){
+  /* ⚠️ שכבת-הזהות: כשקיים סשן-פורטל (קישור-ותיק שהוחלף / חשבון-מייל),
+     האסימון מגיע ממנו — עם ה-claims של הלקוח. הזדהות אנונימית נשארת
+     כנפילה-לאחור בלבד (מסך שנפתח בלי זהות). */
+  try { if (window.PortalContext && PortalContext.hasSession()) { var _pt = await PortalContext.authToken(); if (_pt) return _pt; } } catch(e){}
   if (_fbTok && Date.now() < _fbTokExp-120000) return _fbTok;
   if (_fbTokP) return _fbTokP;
   _fbTokP = (async function(){
@@ -202,6 +209,15 @@ async function _fbAuthToken(){
   return _fbTokP;
 }
 async function _au(url){ const t=await _fbAuthToken(); return t ? url+(url.indexOf('?')>=0?'&':'?')+'auth='+t : url; }
+/* ⚠️ **הבידוד.** קריאת customerProofs עוברת כשאילתה מסוננת
+   ‎orderBy="customer"&equalTo=<שלי>‎. החוקים דוחים כל קריאה מלאה של
+   הצומת, ולכן לקוח אינו יכול לקרוא מטא של לקוח אחר. הערך הוא
+   ה-portalCustomer מה-claims (זהה ל-‎record.name‎). */
+async function _auProofs(){
+  var c = (window.PortalContext && PortalContext.customer) || (_portalRec && _portalRec.name) || CUST;
+  var q = 'orderBy=' + encodeURIComponent('"customer"') + '&equalTo=' + encodeURIComponent(JSON.stringify(String(c||'')));
+  return _au(`${_FBURL}/customerProofs.json?` + q);
+}
 _fbAuthToken();
 
 const $ = id => document.getElementById(id);
@@ -222,6 +238,10 @@ function _portalOpenNotices(obj){                              // דרישות �
     .sort(function(a,b){ return (b.at||0)-(a.at||0); });
 }
 function _proofBadge(p){                                       // סטטוס תצוגה לעבודה
+  // מערכת "פרופר ללקוח" (foldVersionId) — מקור-האמת customerFoldVersions; foldApprovalStatus הוא mirror.
+  // נבדק ראשון: לרשומת-fold יש תמיד apogeeUrl (קישור-הורדה) בלי apogeeApprovedAt (שדה-מסלול-ישן), אחרת "ממתין" לנצח.
+  if (p.foldApprovalStatus === 'approved') return { cls:'b-approved', txt:'אושר' };
+  if (p.foldApprovalStatus === 'correction-requested') return { cls:'b-new', txt:'נשלחה בקשת תיקון' };
   if (p.apogeeUrl && !p.apogeeApprovedAt) return { cls:'b-wait', txt:'ממתין לאישורך' };
   if (p.status === 'approved' || p.apogeeApprovedAt) return { cls:'b-approved', txt:'אושר' };
   if (p.source === 'portal') return { cls:'b-new', txt:'נשלח לבית הדפוס' };
@@ -229,18 +249,40 @@ function _proofBadge(p){                                       // סטטוס ת�
 }
 
 const params = new URLSearchParams(location.search);
-const CUST = params.get('cust') || '';
-const KEY  = params.get('k') || '';
-const SLUG = _slug(CUST);
+/* ⚠️ ‏let ולא const: אחרי PortalContext.ready() ה-SLUG וה-CUST מגיעים
+   מה-claims (מקור-אמת שרתי), לא מהכתובת. הכתובת משמשת רק כדי לדעת
+   *איזה* קישור-ותיק להחליף. */
+let CUST = params.get('cust') || '';
+let KEY  = params.get('k') || '';
+let SLUG = _slug(CUST);
 let _portalRec = null;
 
 (async function init(){
   showOv('טוען את הפורטל…', true);
+  /* ⚠️ שכבת-הזהות **לפני הכול**: מחליפה קישור-ותיק ב-Custom Token או
+     משחזרת סשן-מייל, ומסירה את ה-k מהכתובת. אחרי ready — ה-SLUG וה-
+     customer מגיעים מה-claims. */
+  try { await PortalContext.ready(); } catch(e){}
+  if (PortalContext.ok){
+    SLUG = PortalContext.slug;
+    CUST = PortalContext.customer || CUST;
+  }
   if (!CUST || !SLUG){ return gate('הקישור חסר פרטי לקוח.'); }
-  try { _portalRec = await (await fetch(await _au(`${_FBURL}/customerPortals/${SLUG}.json`))).json(); }
-  catch(e){ return gate('שגיאה בטעינה. נסו שוב מאוחר יותר.'); }
-  if (!_portalRec){ return gate('הפורטל עדיין לא הופעל עבורכם.'); }
-  if (!_portalRec.token || _portalRec.token !== KEY){ return gate('הקישור אינו תקין או פג תוקף.'); }
+  if (!PortalContext.ok){
+    /* ⚠️ אין יותר נפילה-לאחור לקריאה-אנונימית של customerPortals + השוואת-
+       token בצד-הלקוח. חוקי customerProofs (05/08/2026) דוחים כל קריאה
+       שאינה נושאת auth.token.portalCustomer מאומת-שרת — אסימון אנונימי
+       אינו יכול עוד לקרוא customerProofs בשום צורה, ולכן "אימות ישן
+       שמצליח ואז נופל לאנונימי בהמשך" היה מדף-ריק אחרי הגייט, לא פתרון.
+       אם portalLinkLogin נכשל (token שגוי/פג, קצב, רשת) — זה בדיוק המקרה
+       שבו יש לחסום, לא "לנחש" עם בדיקה מקבילה בצד-הלקוח. */
+    return gate('הקישור אינו תקין או פג תוקף.');
+  }
+  /* ⚠️ **לקוח אינו קורא את customerPortals** — הרשומה מכילה את ה-token
+     הקבוע, וקריאתו הייתה מאפשרת שחזור-קישור. השם-להצגה מגיע מ-
+     portalCustomer שב-claims (=record.name), והזהות כבר אומתה בשרת
+     (portalLinkLogin/acceptInvite). ‏_portalRec נשאר שם-בלבד. */
+  _portalRec = { name: CUST };
   var _dispName = _portalRec.name || CUST;
   $('who').textContent = 'הפורטל של ' + _dispName;
   $('hello-name').textContent = _dispName;          // "שלום, <שם העיתון>"
@@ -271,7 +313,7 @@ async function loadNotices(){
 }
 // מאשר פרופר-אפוגי ממתין ישירות מהדרישה (אם יש בדיוק אחד); אחרת מפנה להיסטוריה
 async function _portalApproveFromNotice(){
-  var all = null; try { all = await (await fetch(await _au(`${_FBURL}/customerProofs.json`))).json(); } catch(e){}
+  var all = null; try { all = await (await fetch(await _auProofs())).json(); } catch(e){}
   var pend = _portalFilterProofs(all, SLUG).filter(function(p){
     if (window.ProofGuard ? ProofGuard.isClosed(p) : (p.completedAt || p.closedAt)) return false;   // הושלמה — לא לאישור
     return p.apogeeUrl && !p.apogeeApprovedAt; });
@@ -287,7 +329,8 @@ function _renderHelloStats(list){
   var el = $('hello-stats'); if (!el) return;
   var total = list.length;
   var waiting = list.filter(function(p){
-    return (p.foldVersionId || p.apogeeUrl) && !p.apogeeApprovedAt && p.status !== 'approved'; }).length;
+    if (p.foldVersionId) return !p.foldApprovalStatus;   // מערכת פרופר-ללקוח — הלקוח כבר פעל (אישר/ביקש-תיקון) אם יש ערך כלשהו
+    return p.apogeeUrl && !p.apogeeApprovedAt && p.status !== 'approved'; }).length;
   var ready = list.filter(function(p){ return !!p.readyNotice; }).length;
   var last = list.reduce(function(m,p){ var t=p.createdAt||p.approvedAt||0; return t>m?t:m; }, 0);
   var out = [];
@@ -299,7 +342,7 @@ function _renderHelloStats(list){
 }
 async function loadHistory(){
   let all = null;
-  try { all = await (await fetch(await _au(`${_FBURL}/customerProofs.json`))).json(); } catch(e){}
+  try { all = await (await fetch(await _auProofs())).json(); } catch(e){}
   const list = _portalFilterProofs(all, SLUG);
   _renderHelloStats(list);
   if (!list.length){ $('history').innerHTML = '<div class="empty">אין עדיין עיתונים 🗞️</div>'; return; }
@@ -334,7 +377,7 @@ async function loadHistory(){
       if (!(p.apogeeApprovedAt || p.status === 'approved') && !isDone) acts += '<a class="btn btn-primary" href="proof-client.html?id='+encodeURIComponent(p._id)+'&back='+encodeURIComponent(location.href)+'">✏️ ערוך / העלה</a>';
     }
     var cnt = p.fileCount || (p.files ? Object.keys(p.files).length : 0);
-    var locked = isDone || !!p.apogeeApprovedAt || p.status === 'approved';   // הושלם/אושר → נעול לשינויים
+    var locked = isDone || !!p.apogeeApprovedAt || p.status === 'approved' || p.foldApprovalStatus === 'approved';   // הושלם/אושר → נעול לשינויים
     var lockNote = isDone
       ? '<div style="font-size:.74rem;color:#3730a3;margin-top:3px">🔒 העבודה הושלמה — לא ניתן לערוך, להעלות או לבקש שינויים. לכל בקשה פנו לבית הדפוס.</div>'
       : (locked ? '<div style="font-size:.74rem;color:#166534;margin-top:3px">🔒 נעול לדפוס — לשינויים פנו לבית הדפוס</div>' : '');
@@ -415,7 +458,11 @@ async function approveApogee(id){
        את מה שחסר — בלי כפילות ובלי צורך בטרנזקציה. */
     await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ apogeeApprovedAt: now, apogeeApprovedBy: name }) }, 'approve:customerProofs');
     // רשומת-אישור קבועה (בית הדפוס מנטר את bookletApprovals ומקבל התראה)
-    await fbWrite(await _au(`${_FBURL}/bookletApprovals/portal_${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, at:now, fileName:(CUST+' — פרופר'), foldType:'', ua:navigator.userAgent, source:'portal' }) }, 'approve:bookletApprovals');
+    /* ⚠️ ‏proofId — מטא-אבטחה בלבד (2026-08-04). מאפשר לחוקי-RTDB להצליב
+       ‏customerProofs/<proofId>/customer מול portalCustomer, כי מהמפתח
+       portal_<id> אי-אפשר לגזור את <id> בחוקים. ‏id מגיע מרשומת-העבודה
+       שכבר נטענה ואומתה בשאילתת-הבעלות, לא מ-URL. אינו משנה התנהגות. */
+    await fbWrite(await _au(`${_FBURL}/bookletApprovals/portal_${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ proofId:id, name:name, at:now, fileName:(CUST+' — פרופר'), foldType:'', ua:navigator.userAgent, source:'portal' }) }, 'approve:bookletApprovals');
     /* סגירת דרישות-אישור פתוחות — נוחות-תצוגה בלבד, ולכן *אינה* חיונית:
        כישלון כאן לא הופך את האישור ללא-תקף ולא ימנע את הודעת-ההצלחה. */
     try {
