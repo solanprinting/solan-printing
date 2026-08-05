@@ -130,6 +130,15 @@
   .brandfoot { text-align:center; color:#9aa1b0; font-size:.78rem; padding:18px 0 6px; }
   .brandfoot b { color:var(--press); }
   #overlay { position:fixed; inset:0; background:rgba(255,255,255,.96); display:none; align-items:center; justify-content:center; flex-direction:column; gap:14px; text-align:center; padding:24px; z-index:50; white-space:pre-line; }
+  /* מודאל-תוצאה קבוע וממורכז (כשל/הצלחה) — כיסוי כהה, בלי גלילה, בלי סגירה-אוטומטית */
+  #resmodal { position:fixed; inset:0; background:rgba(15,18,40,.62); display:none; align-items:center; justify-content:center; padding:20px; z-index:70; }
+  #resmodal.on { display:flex; }
+  #resmodal .card { background:#fff; border-radius:16px; max-width:440px; width:100%; padding:26px 22px; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.35); }
+  #resmodal .ic { font-size:2.6rem; line-height:1; margin-bottom:8px; }
+  #resmodal .msg { line-height:1.65; margin:6px auto 4px; }
+  #resmodal .sub { color:#6b7280; font-size:.85rem; margin-bottom:14px; }
+  #resmodal .acts { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  #resmodal button { border:none; border-radius:8px; padding:10px 20px; font-weight:800; cursor:pointer; font-family:inherit; font-size:.95rem; }
   #ovBar { width:300px; max-width:82vw; height:16px; background:var(--line); border-radius:9px; overflow:hidden; display:none; position:relative; }
   #ovBar > div { height:100%; width:0; background:linear-gradient(90deg,#2d3561,#16a34a); transition:width .15s; }
   #ovPct { font-size:2.6rem; font-weight:900; color:var(--press); line-height:1; display:none; font-variant-numeric:tabular-nums; }
@@ -140,6 +149,7 @@
 </head>
 <body>
 <div id="overlay"><div id="ovText">טוען…</div><div id="ovPct"></div><div id="ovBar"><div></div></div></div>
+<div id="resmodal"><div class="card"><div class="ic" id="resIc"></div><div class="msg" id="resMsg"></div><div class="sub" id="resSub"></div><div class="acts" id="resActs"></div></div></div>
 <div class="brandbar">
   <div class="logo">🖨️</div>
   <div class="bt">
@@ -374,7 +384,12 @@ let _fbTok = null, _fbTokExp = 0, _fbTokP = null;
 async function _fbAuthToken(){
   /* ⚠️ שכבת-הזהות: כשקיים סשן-פורטל, האסימון ממנו — עם ה-claims של
      הלקוח. אנונימי נשאר כנפילה-לאחור בלבד. */
-  try { if (window.PortalContext && PortalContext.hasSession()) { var _pt = await PortalContext.authToken(); if (_pt) return _pt; } } catch(e){}
+  try {
+    if (window.PortalContext) {
+      if (PortalContext.ready) { try { await PortalContext.ready(); } catch(_r){} }   // ⚠️ המתן לשחזור-הזהות לפני שבוחרים אנונימי (אירוע UPL 08/2026)
+      if (PortalContext.hasSession && PortalContext.hasSession()) { var _pt = await PortalContext.authToken(); if (_pt) return _pt; }
+    }
+  } catch(e){}
   if (_fbTok && Date.now() < _fbTokExp - 120000) return _fbTok;
   if (_fbTokP) return _fbTokP;
   _fbTokP = (async function(){
@@ -396,6 +411,45 @@ async function _fbAuthToken(){
 }
 async function _au(url){ const t = await _fbAuthToken(); return t ? url + (url.indexOf('?')>=0?'&':'?') + 'auth=' + t : url; }
 _fbAuthToken();   // חימום מוקדם
+/* ── שכבת-זהות להעלאה: מסלול-פורטל חייב זהות אמיתית; אין נפילה-לאחור לאנונימי ──
+   אירוע UPL (08/2026): ההעלאה נשלחה עם אסימון אנונימי כי הזהות עדיין לא שוחזרה
+   (PortalContext.ready() לא הומתן). כאן ממתינים לשחזור, ומזהים "מסלול-פורטל"
+   לפי סשן-פורטל פעיל / refresh-token שמור / פתיחה-מפורטל (?back=). במסלול-פורטל
+   ללא slug תקין — עוצרים ולא שולחים אנונימי. */
+function _portalModeHint(){
+  try { if (localStorage.getItem('solanPortalRT')) return true; } catch(e){}
+  try { if (new URLSearchParams(location.search).get('back')) return true; } catch(e){}
+  return false;
+}
+let _identityPending = true, _idResult = null;
+async function _ensureIdentity(){
+  let portalMode = _portalModeHint();
+  if (window.PortalContext && PortalContext.ready) { try { await PortalContext.ready(); } catch(e){} }
+  let has = false; try { has = !!(window.PortalContext && PortalContext.hasSession && PortalContext.hasSession()); } catch(e){}
+  if (has) portalMode = true;
+  let res;
+  if (portalMode) {
+    let tok = null; try { tok = await PortalContext.authToken(); } catch(e){}
+    let okSlug = false; try { okSlug = !!(window.PortalContext && PortalContext.ok && PortalContext.slug); } catch(e){}
+    res = (tok && okSlug) ? { portal:true, token:tok } : { portal:true, token:null, failed:true };
+  } else {
+    res = { portal:false };
+  }
+  _idResult = res; return res;
+}
+/* אסימון להעלאה בלבד — במסלול-פורטל לא נופל לאנונימי (זורק) */
+async function _uploadToken(){
+  const id = await _ensureIdentity();
+  if (id.portal) {
+    if (id.token) return id.token;
+    const e = new Error('portal-identity-unresolved'); e.code = 0; e.portalUnresolved = true; throw e;
+  }
+  return await _fbAuthToken();   // מסלול-תאימות ישן — אנונימי מותר
+}
+// שחזור-זהות מוקדם ברקע — מקצר את ההמתנה גם בלחיצה מהירה מיד אחרי טעינה
+const _identityReady = _ensureIdentity()
+  .then(function(r){ _identityPending = false; try { _refreshApproveState(); } catch(e){} return r; })
+  .catch(function(){ _identityPending = false; try { _refreshApproveState(); } catch(e){} });
 /* גובה הרינדור (פעם אחת לעמוד) — חד גם במסך מלא.
    הועלה מ-1100 (בקשת-בעלים 2026-07-30): הלקוח מאשר עיתון, ולכן הוא צריך לראות אותו
    באיכות מקסימלית. הסקייל מותאם לצפיפות-המסך, עם תקרה שמונעת קנבס ענק שקורס בנייד. */
@@ -416,6 +470,13 @@ function showOverlay(t, on=true, pct=null){
   }
 }
 const show = (id, on=true) => $(id).classList.toggle('hidden', !on);
+/* מצב כפתור-האישור: בזמן שחזור-הזהות — מושבת + "מתחבר לפורטל…"; אחרת רגיל */
+function _refreshApproveState(){
+  const b = $('approve'); if (!b) return;
+  if (typeof _identityPending !== 'undefined' && _identityPending) { b.disabled = true; b.textContent = '⏳ מתחבר לפורטל…'; return; }
+  b.textContent = '✓ אשר ושלח לדפוס';
+  b.disabled = (typeof pages === 'undefined' || pages.length === 0);
+}
 function _fmtEta(sec){ sec = Math.max(0, Math.round(sec));
   if (sec < 60) return '~' + sec + ' שניות';
   const m = Math.floor(sec/60), s = sec%60;
@@ -572,7 +633,7 @@ function _pcUploadAllowed(){
 }
 function startEditor(m) {
   if (!_pcUploadAllowed()) return;
-  mode = m; pages = []; sources.clear(); vIndex = 0; window._pcRun = null;
+  mode = m; pages = []; sources.clear(); vIndex = 0; window._pcRun = null; window._retryPartId = null;
   if (m === 'run') setTimeout(_pcRunPicker, 80);   // שאל כמה עמודים + איזו ריצה — לזיהוי אוטומטי של כפולות-גבול
   $('editorHint').innerHTML = (m === 'full'
     ? 'העלו את <b>כל עמודי העיתון</b>. דפדפו בתצוגה, וסדרו/החליפו עמודים בסרגל הצד. אתם אחראים על הסדר.'
@@ -1106,7 +1167,7 @@ function renderSidebar() {
     d.querySelector('.n').onclick   = e => { e.stopPropagation(); const t = prompt('להעביר עמוד זה למיקום (1–' + pages.length + '):', String(idx+1)); if (t != null) movePageTo(p.uid, t); };
     bindDnD(d); sb.appendChild(d);
   });
-  $('approve').disabled = pages.length === 0;
+  _refreshApproveState();
 }
 
 function removePage(uid) {
@@ -1471,7 +1532,11 @@ async function _psApproveEdited(){
   if (!changes.replacedCount && !changes.deletedCount && !changes.reordered) { alert('לא בוצע שינוי.'); return; }
   const warn = PageSwap.pageCountWarning(pages.length);
   if (!confirm('לאשר ולשלוח את הגרסה המעודכנת?\n' + PageSwap.changesLabel(changes) + (warn ? ('\n\n⚠️ ' + warn) : ''))) return;
-  try { await _requireLibs(); } catch(e){ return; }
+  // ── שער-זהות: אין הרכבה/העלאה במסלול-פורטל בלי זהות אמיתית ──
+  showOverlay('מתחבר לפורטל…', true);
+  const _id = await _ensureIdentity();
+  if (_id.portal && !_id.token) { _uplPortalIdentityFail(); return; }
+  try { await _requireLibs(); } catch(e){ showOverlay('', false); return; }
   _uploading = true; await acquireWakeLock();
   try {
     showOverlay('מרכיב קובץ…', true);
@@ -1501,8 +1566,8 @@ async function _psApproveEdited(){
     await _psRefresh();
     _psEditing = false;
     showOverlay('', false);
-    done('הגרסה המעודכנת נשלחה לדפוס (גרסה ' + version + ').<div style="font-size:.85rem;color:#6b7280;margin-top:6px">'
-      + esc(PageSwap.changesLabel(changes)) + '</div>');
+    // ✓ הצלחה — רק כאן: Storage + כל כתיבות-RTDB הושלמו
+    _pcUploadSuccess('הגרסה המעודכנת נשלחה לבית הדפוס (גרסה ' + version + '). ' + PageSwap.changesLabel(changes), function(){ goHome(); });
   } catch(e){ _uplFail(e, 'edit-version'); }
   finally { _uploading = false; releaseWakeLock(); }
 }
@@ -1529,7 +1594,11 @@ $('approve').onclick = async () => {
   if (_pend === false) return;                      // הלקוח ביטל — חוזר לעריכה
   const _spr = spreadCount();
   if (!confirm(`לאשר ולשלוח ${effPageCount()} עמודים${_spr ? ` (כולל ${_spr} כפולות שנספרות כ-2 עמודים)` : ''}${(_pend&&_pend.length)?` · ${_pend.length} עמודים יישארו ריקים להשלמה`:''} בסדר הנוכחי?\nלאחר האישור לא ניתן לשנות.`)) return;
-  try { await _requireLibs(); } catch(e){ return; }
+  // ── שער-זהות: במסלול-פורטל חובה זהות אמיתית לפני הרכבה/העלאה; אין נפילה-לאחור לאנונימי ──
+  showOverlay('מתחבר לפורטל…', true);
+  const _id = await _ensureIdentity();
+  if (_id.portal && !_id.token) { _uplPortalIdentityFail(); return; }   // עצור — אין קובץ, אין רשומה, אין אנונימי
+  try { await _requireLibs(); } catch(e){ showOverlay('', false); return; }
   _uploading = true; await acquireWakeLock();
   // אות "לקוח מעלה קובץ" — כדי שבית הדפוס יקבל התראה (גם קולית) בזמן אמת
   try { patch({ uploading: { at: Date.now(), name: (mode === 'run' ? runName : 'עיתון מלא'), pages: effPageCount() } }); } catch(e){}
@@ -1554,9 +1623,14 @@ $('approve').onclick = async () => {
       const cache = await uploadPagesCache(`customerProofs/${folder}/${proofId}/pages.json`);
       await patch({ status:'approved', mode:'full', fileUrl, filePath:path, fileName:'full.pdf', pageCount:effPageCount(), spreadCount:_spr, fileSize:pdfBytes.byteLength, approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at,
         pendingPages: (_pend && _pend.length) ? _pend : null });   // עמודים שנשארו ריקים להשלמה
-      return done((_pend&&_pend.length) ? ('✓ נשלח. נשארו להשלמה: עמ׳ '+_pend.join(', ')) : '✓ העיתון אושר ונשלח לדפוס. תודה!');
+      // ✓ הצלחה — רק כאן: Storage + RTDB הושלמו שניהם
+      record.status = 'approved'; record.mode = 'full';
+      _pcUploadSuccess((_pend&&_pend.length) ? ('נשלח לבית הדפוס. נשארו עמודים להשלמה: עמ׳ '+_pend.join(', ')) : 'העיתון אושר ונשלח לבית הדפוס. תודה!', function(){ goHome(); });
+      return;
     } else {
-      const partId = 'p' + Date.now();
+      // מזהה-ריצה יציב לניסיון-חוזר אידמפוטני: אותו נתיב-Storage ואותה רשומה — בלי כפילות
+      const partId = window._retryPartId || ('p' + Date.now());
+      window._retryPartId = partId;
       const path = `customerProofs/${folder}/${proofId}/${partId}.pdf`;
       const fileUrl = await uploadBytes(path, pdfBytes, onUp);
       const cache = await uploadPagesCache(`customerProofs/${folder}/${proofId}/${partId}-pages.json`);
@@ -1566,11 +1640,12 @@ $('approve').onclick = async () => {
           pendingPages: (_pend && _pend.length) ? _pend : null }) });   // עמודים שנשארו ריקים להשלמה
       await patch({ status:'parts', mode:'parts' });
       record = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
+      // ✓ הצלחה — רק כאן: Storage + RTDB הושלמו; נקה מזהה-ריצה כדי שריצה הבאה תקבל מזהה חדש
+      window._retryPartId = null;
       showOverlay('', false);
-      alert((_pend&&_pend.length)
-        ? `✓ "${runName}" נשלחה.\nנשארו להשלמה: עמ׳ ${_pend.join(', ')} — אפשר להעלות אותם בהמשך כ"השלמת עמודים".`
-        : `✓ "${runName}" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.`);
-      goHome();
+      _pcUploadSuccess((_pend&&_pend.length)
+        ? ('"'+runName+'" נשלחה. נשארו להשלמה: עמ׳ '+_pend.join(', ')+' — אפשר להעלות בהמשך כ"השלמת עמודים".')
+        : ('"'+runName+'" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.'), function(){ goHome(); });
     }
   } catch (e) { _uplFail(e, 'approve'); }
   finally { _uploading = false; releaseWakeLock(); try { patch({ uploading: null }); } catch(e){} }
@@ -1659,7 +1734,11 @@ function xhrPost(url, bytes, onProgress) {
     };
     xhr.onerror   = () => { const e = new Error('שגיאת רשת'); e.code = 0; reject(e); };
     xhr.ontimeout = () => { const e = new Error('פג זמן ההעלאה'); e.code = 408; reject(e); };
-    _fbAuthToken().then(_finishSend, () => _finishSend(null));
+    // ⚠️ במסלול-פורטל אין לשלוח אנונימי: _uploadToken זורק אם הזהות לא שוחזרה
+    _uploadToken().then(_finishSend, function(err){
+      if (err && err.portalUnresolved) { const e = new Error('portal-identity-unresolved'); e.code = 0; e.portalUnresolved = true; reject(e); return; }
+      _finishSend(null);   // מסלול-תאימות ישן בלבד (אין סשן-פורטל)
+    });
   });
 }
 
@@ -1673,25 +1752,65 @@ window.addEventListener('beforeunload', e => { if (_uploading) { e.preventDefaul
 
 function done(text){ show('home',false); show('editor',false); showOverlay('',false);
   const s=$('status'); s.classList.remove('hidden'); s.innerHTML=`<div style="color:var(--green);font-size:2.4rem">✓</div>${text}`; }
+
+/* ── מודאל-תוצאה קבוע וממורכז (כשל/הצלחה) ── כיסוי כהה, בלי גלילה, בלי סגירה-אוטומטית.
+   buttons: [{label, primary?, onClick?}]. onClick נקרא אחרי סגירת המודאל. */
+function _showResult(kind, msgHtml, subText, buttons){
+  showOverlay('', false);
+  var ic = $('resIc'); ic.textContent = (kind === 'success') ? '✓' : '⚠️';
+  ic.style.color = (kind === 'success') ? 'var(--green)' : '#dc2626';
+  $('resMsg').innerHTML = msgHtml;
+  var sub = $('resSub'); sub.textContent = subText || ''; sub.style.display = subText ? 'block' : 'none';
+  var acts = $('resActs'); acts.innerHTML = '';
+  (buttons || []).forEach(function(bt){
+    var el = document.createElement('button');
+    el.textContent = bt.label;
+    el.style.background = bt.primary ? '#2d3561' : '#eef0f6';
+    el.style.color = bt.primary ? '#fff' : '#2d3561';
+    if (!bt.primary) el.style.border = '1px solid var(--line)';
+    el.onclick = function(){ _hideResult(); try { bt.onClick && bt.onClick(); } catch(e){} };
+    acts.appendChild(el);
+  });
+  $('resmodal').classList.add('on');
+}
+function _hideResult(){ $('resmodal').classList.remove('on'); }
+function _uplBackDest(){ var b = new URLSearchParams(location.search).get('back'); if (b) { try { location.href = b; return; } catch(e){} } goHome(); }
+
+/* הצלחה — מוצגת **רק** אחרי ש-Storage וגם כתיבת-RTDB הושלמו (נקרא מסוף המסלול). */
+function _pcUploadSuccess(msg, onClose){
+  show('home', false); show('editor', false);
+  _showResult('success', '<b>' + esc(msg) + '</b>', '',
+    [ { label:'סגור', primary:true, onClick:function(){ try { onClose ? onClose() : goHome(); } catch(e){ goHome(); } } } ]);
+}
+
 /* ⚠️ כשל-העלאה מול הלקוח (אירוע 06/08/2026): הודעה ידידותית בלבד + מספר-
-   תקלה בטוח + כפתורים. **הפרטים הטכניים (קוד-HTTP/סוג-כשל) נרשמים ל-console
-   בלבד — לצוות.** אסור שהלקוח יראה Firebase/Storage/Rules/401/403/404/500/
-   token/App Check/claim/נתיב-קובץ/שם-Function/versionId. מספר-התקלה הוא
-   4-ספרות אקראי (UPL-XXXX) — אינו נגזר מ-token/UID/customer/path/versionId. */
+   תקלה בטוח + כפתורים, במודאל ממורכז. **הפרטים הטכניים (קוד-HTTP/סוג-כשל)
+   נרשמים ל-console בלבד — לצוות.** אסור שהלקוח יראה Firebase/Storage/Rules/
+   401/403/404/500/token/App Check/claim/נתיב-קובץ/שם-Function/versionId.
+   מספר-התקלה 4-ספרות אקראי (UPL-XXXX) — אינו נגזר מ-token/UID/customer/path. */
 function _uplFail(e, op){
   var id = 'UPL-' + (1000 + Math.floor(Math.random() * 9000));
   try { console.error('[SOLAN upload-fail] ' + id, { op: op || 'upload', httpStatus: (e && e.code) || 0, message: (e && e.message) || String(e) }); } catch(_){}
-  showOverlay('', false);
-  var s = $('status'); s.classList.remove('hidden');
-  s.innerHTML = '<div style="color:#dc2626;font-size:2.2rem">⚠️</div>'
-    + '<div style="max-width:430px;margin:8px auto;line-height:1.65">לא הצלחנו לשלוח את הקבצים. הקבצים עדיין לא נשלחו לבית הדפוס. נסו שוב בעוד מספר דקות. אם הבעיה חוזרת, פנו לבית הדפוס.</div>'
-    + '<div style="color:#6b7280;font-size:.85rem;margin-bottom:12px">מספר תקלה: ' + id + '</div>'
-    + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
-    + '<button id="_uplRetry" style="background:#2d3561;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:800;cursor:pointer;font-family:inherit">נסה שוב</button>'
-    + '<button id="_uplBack" style="background:#eef0f6;color:#2d3561;border:1px solid var(--line);border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer;font-family:inherit">חזרה לפורטל</button>'
-    + '</div>';
-  var rb = $('_uplRetry'); if (rb) rb.onclick = function(){ s.classList.add('hidden'); show('status', false); show('editor', true); };   // העמודים עדיין בזיכרון — אפשר לאשר שוב
-  var bb = $('_uplBack');  if (bb) bb.onclick = function(){ var b = new URLSearchParams(location.search).get('back'); if (b) { try { location.href = b; return; } catch(e){} } goHome(); };
+  _showResult('fail',
+    '<div style="max-width:430px;margin:0 auto">לא הצלחנו לשלוח את הקבצים. הקבצים עדיין לא נשלחו לבית הדפוס. נסו שוב בעוד מספר דקות. אם הבעיה חוזרת, פנו לבית הדפוס.</div>',
+    'מספר תקלה: ' + id,
+    [ { label:'נסה שוב', primary:true, onClick:function(){ show('status', false); show('editor', true); } },   // העמודים בזיכרון — אישור חוזר אידמפוטני
+      { label:'חזרה לפורטל', onClick:_uplBackDest } ]);
+}
+
+/* כשל-שחזור-זהות במסלול-פורטל — ניטרלי, בלי מונחים פנימיים; "נסה שוב" מרענן זהות. */
+function _uplPortalIdentityFail(){
+  try { console.error('[SOLAN upload-fail] portal-identity-unresolved', { op: 'portal-identity' }); } catch(_){}
+  _showResult('fail',
+    '<div style="max-width:430px;margin:0 auto">מתחברים לפורטל… החיבור עדיין לא הושלם ולכן הקבצים לא נשלחו. נסו שוב בעוד רגע. אם הבעיה חוזרת, רעננו את העמוד או פנו לבית הדפוס.</div>',
+    '',
+    [ { label:'נסה שוב', primary:true, onClick:async function(){
+          _identityPending = true; _refreshApproveState();
+          try { await _ensureIdentity(); } catch(e){}
+          _identityPending = false; _refreshApproveState();
+          show('status', false); show('editor', true);
+        } },
+      { label:'חזרה לפורטל', onClick:_uplBackDest } ]);
 }
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fail(msg){ showOverlay(msg, true); throw new Error(msg); }
