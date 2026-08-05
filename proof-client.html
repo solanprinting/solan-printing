@@ -1503,7 +1503,7 @@ async function _psApproveEdited(){
     showOverlay('', false);
     done('הגרסה המעודכנת נשלחה לדפוס (גרסה ' + version + ').<div style="font-size:.85rem;color:#6b7280;margin-top:6px">'
       + esc(PageSwap.changesLabel(changes)) + '</div>');
-  } catch(e){ console.error(e); showOverlay('שגיאה: ' + (e.message||e), true); }
+  } catch(e){ _uplFail(e, 'edit-version'); }
   finally { _uploading = false; releaseWakeLock(); }
 }
 
@@ -1572,7 +1572,7 @@ $('approve').onclick = async () => {
         : `✓ "${runName}" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.`);
       goHome();
     }
-  } catch (e) { console.error(e); showOverlay('שגיאה: ' + e.message + '\n\nנסו שוב או פנו לבית הדפוס.', true); }
+  } catch (e) { _uplFail(e, 'approve'); }
   finally { _uploading = false; releaseWakeLock(); try { patch({ uploading: null }); } catch(e){} }
 };
 
@@ -1654,9 +1654,8 @@ function xhrPost(url, bytes, onProgress) {
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) { try { resolve(JSON.parse(xhr.responseText)); } catch(e){ const er=new Error('תגובה לא תקינה'); er.code=xhr.status; reject(er);} return; }
-      let msg = 'Storage ' + xhr.status;
-      if (xhr.status === 403) msg = 'אין הרשאת כתיבה (403) — יש לעדכן את כללי האחסון ב-Firebase';
-      const er = new Error(msg); er.code = xhr.status; reject(er);
+      // ⚠️ המחרוזת פנימית (ל-console/צוות בלבד) — לעולם לא מוצגת ללקוח (ראה _uplFail).
+      const er = new Error('storage-upload-failed'); er.code = xhr.status; reject(er);
     };
     xhr.onerror   = () => { const e = new Error('שגיאת רשת'); e.code = 0; reject(e); };
     xhr.ontimeout = () => { const e = new Error('פג זמן ההעלאה'); e.code = 408; reject(e); };
@@ -1674,6 +1673,26 @@ window.addEventListener('beforeunload', e => { if (_uploading) { e.preventDefaul
 
 function done(text){ show('home',false); show('editor',false); showOverlay('',false);
   const s=$('status'); s.classList.remove('hidden'); s.innerHTML=`<div style="color:var(--green);font-size:2.4rem">✓</div>${text}`; }
+/* ⚠️ כשל-העלאה מול הלקוח (אירוע 06/08/2026): הודעה ידידותית בלבד + מספר-
+   תקלה בטוח + כפתורים. **הפרטים הטכניים (קוד-HTTP/סוג-כשל) נרשמים ל-console
+   בלבד — לצוות.** אסור שהלקוח יראה Firebase/Storage/Rules/401/403/404/500/
+   token/App Check/claim/נתיב-קובץ/שם-Function/versionId. מספר-התקלה הוא
+   4-ספרות אקראי (UPL-XXXX) — אינו נגזר מ-token/UID/customer/path/versionId. */
+function _uplFail(e, op){
+  var id = 'UPL-' + (1000 + Math.floor(Math.random() * 9000));
+  try { console.error('[SOLAN upload-fail] ' + id, { op: op || 'upload', httpStatus: (e && e.code) || 0, message: (e && e.message) || String(e) }); } catch(_){}
+  showOverlay('', false);
+  var s = $('status'); s.classList.remove('hidden');
+  s.innerHTML = '<div style="color:#dc2626;font-size:2.2rem">⚠️</div>'
+    + '<div style="max-width:430px;margin:8px auto;line-height:1.65">לא הצלחנו לשלוח את הקבצים. הקבצים עדיין לא נשלחו לבית הדפוס. נסו שוב בעוד מספר דקות. אם הבעיה חוזרת, פנו לבית הדפוס.</div>'
+    + '<div style="color:#6b7280;font-size:.85rem;margin-bottom:12px">מספר תקלה: ' + id + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
+    + '<button id="_uplRetry" style="background:#2d3561;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:800;cursor:pointer;font-family:inherit">נסה שוב</button>'
+    + '<button id="_uplBack" style="background:#eef0f6;color:#2d3561;border:1px solid var(--line);border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer;font-family:inherit">חזרה לפורטל</button>'
+    + '</div>';
+  var rb = $('_uplRetry'); if (rb) rb.onclick = function(){ s.classList.add('hidden'); show('status', false); show('editor', true); };   // העמודים עדיין בזיכרון — אפשר לאשר שוב
+  var bb = $('_uplBack');  if (bb) bb.onclick = function(){ var b = new URLSearchParams(location.search).get('back'); if (b) { try { location.href = b; return; } catch(e){} } goHome(); };
+}
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fail(msg){ showOverlay(msg, true); throw new Error(msg); }
 </script>
