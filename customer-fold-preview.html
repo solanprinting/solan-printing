@@ -1188,19 +1188,27 @@ async function clientScreen(versionId, token){
   $('cFlip').innerHTML='<div id="cLoad" style="text-align:center;color:#94a3b8;padding:26px"></div>';
   const _bigMsg='<div style="font-size:.82rem;opacity:.8;margin-top:6px">הקובץ גדול והטעינה עשויה להימשך עד שתי דקות. אין לסגור את החלון.</div>';
   _stage('⏳ מוריד את הפרופר… נא להמתין');
+  /* ⚠️ אזהרת קובץ-גדול לפי **זמן-שהייה אמיתי** (עדיין-מוריד אחרי 4 שנ'), לא
+     לפי גודל: תגובת-ההזרמה של הפונקציה היא chunked בלי Content-Length, ולכן
+     הגודל לא ידוע מראש. אין להציג נתון שאין לנו. */
+  let _dlSlow=false;
+  const _slowTimer=setTimeout(function(){ _dlSlow=true;
+    const el=$('cLoad'); if(el && /מוריד את הפרופר/.test(el.innerHTML) && el.innerHTML.indexOf('להימשך עד שתי דקות')<0) el.innerHTML+=_bigMsg;
+  }, 4000);
   let bytes=null;
   if(rec.outputStoragePath){
     try{
       bytes=new Uint8Array(await _cStorageFetch(versionId, function(received,total){
-        /* אחוזים **אמיתיים בלבד** — לפי Content-Length. */
+        /* אחוזים **אמיתיים בלבד** — לפי Content-Length. הקריאה מגיעה רק
+           כשהכותרת קיימת (total>0); בתגובת-chunked אין אחוזים כלל. */
         const pct=Math.max(0,Math.min(100,Math.round(received/total*100)));
-        const mb=(total/1048576);
         _stage('⏳ מוריד את הפרופר… נא להמתין <b>'+pct+'%</b>'
           +'<div style="height:8px;background:#334155;border-radius:5px;margin:10px auto 0;max-width:340px"><div style="height:100%;width:'+pct+'%;background:#16a34a;border-radius:5px;transition:width .2s"></div></div>'
-          +(mb>=25?_bigMsg:''));
+          +(_dlSlow?_bigMsg:''));
       }));
     }catch(e){}
   }
+  clearTimeout(_slowTimer);
   if(!bytes){ $('cBook').style.display='none'; $('cTitle').innerHTML+=' <span class="bad">(טעינת החוברת נכשלה)</span>'; $('cMeta').innerHTML+=_loadFailMsg(); return; }
   // הוכחת-זהות: ה-bytes שהתקבלו === outputHash שברשומה. ⚠️ אי-התאמה נעצרת
   // כאן במפורש (לא "אזהרה וממשיכים") — קובץ חתוך/שגוי לא מגיע ל-pdf.js,
