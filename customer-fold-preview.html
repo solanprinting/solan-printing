@@ -154,11 +154,32 @@ function _cDbGetOrFail(path){ return _cAuth().then(tok=>fetch(_FBURL+'/'+path+'.
 // רשומה, revoked/expired, נתיב-מהרשומה מול proofStoragePath) מתבצעת
 // בשרת לפני שה-Admin SDK (עוקף rules) קורא את הקובץ. מהלקוח נשלח versionId
 // בלבד — לעולם לא storagePath. _FN_BASE מוגדר למטה (משותף עם _callStaffFn).
-function _cStorageFetch(versionId){
+// ⚠️ תיקון-UX (06/08/2026): onProgress אופציונלי — התקדמות **אמיתית בלבד**
+// לפי bytes-שהתקבלו מול Content-Length. בלי הכותרת (או בלי תמיכת-stream
+// בדפדפן) חוזרים ל-arrayBuffer() הרגיל בלי שום prozent מזויף.
+function _cStorageFetch(versionId, onProgress){
   return _cAuth().then(tok=>fetch(
     _FN_BASE+'proofFileDownload?versionId='+encodeURIComponent(versionId),
     { headers:{ 'Authorization':'Bearer '+tok } }
-  )).then(r=>{ if(!r.ok) return Promise.reject(new Error('storage '+r.status)); return r.arrayBuffer(); });
+  )).then(r=>{
+    if(!r.ok) return Promise.reject(new Error('storage '+r.status));
+    const total=Number(r.headers.get('Content-Length'))||0;
+    if(!onProgress || !r.body || typeof r.body.getReader!=='function') return r.arrayBuffer();
+    const reader=r.body.getReader(); const chunks=[]; let received=0;
+    if(total>0) onProgress(0, total);
+    return (function pump(){
+      return reader.read().then(function(res){
+        if(res.done){
+          const buf=new Uint8Array(received); let off=0;
+          for(let i=0;i<chunks.length;i++){ buf.set(chunks[i],off); off+=chunks[i].length; }
+          return buf.buffer;
+        }
+        chunks.push(res.value); received+=res.value.length;
+        if(total>0) onProgress(received, total);
+        return pump();
+      });
+    })();
+  });
 }
 // ── קריאת-Function מאומתת-צוות (חסם-3: ביטול-קישור עובר דרך השרת, לא כתיבה ישירה) ──
 const _FN_BASE='https://europe-west1-solan-printing.cloudfunctions.net/';
@@ -1158,24 +1179,51 @@ async function clientScreen(versionId, token){
   const _incidentId=(versionId||'?').slice(-8)+'-'+Date.now().toString(36);
   function _loadFailMsg(extra){ return '<div class="bad" style="white-space:pre-line;margin-top:8px">טעינת החוברת נכשלה. נסו לרענן את הדף.'
     +(extra?(' '+extra):'')+'\nמזהה-תקלה: '+_incidentId+'</div>'; }
+  /* ⚠️ תיקון-UX (06/08/2026): כרטיס-הדפדוף מוצג **מיד** אחרי פרטי-הרשומה,
+     עם חיווי-שלבים, במקום אזור-ריק שנראה תקוע. אין כאן שינוי בהורדה,
+     באבטחה, ב-hash או באישור — רק מה שהמשתמש רואה בזמן ההמתנה.
+     החיווי נעלם **רק** כשהעמוד הראשון כבר מוצג (אחרי mountFlipbook). */
+  $('cBook').style.display='';
+  function _stage(html){ const el=$('cLoad'); if(el) el.innerHTML=html; }
+  $('cFlip').innerHTML='<div id="cLoad" style="text-align:center;color:#94a3b8;padding:26px"></div>';
+  const _bigMsg='<div style="font-size:.82rem;opacity:.8;margin-top:6px">הקובץ גדול והטעינה עשויה להימשך עד שתי דקות. אין לסגור את החלון.</div>';
+  _stage('⏳ מוריד את הפרופר… נא להמתין');
   let bytes=null;
-  if(rec.outputStoragePath){ try{ bytes=new Uint8Array(await _cStorageFetch(versionId)); }catch(e){} }
-  if(!bytes){ $('cTitle').innerHTML+=' <span class="bad">(טעינת החוברת נכשלה)</span>'; $('cMeta').innerHTML+=_loadFailMsg(); return; }
+  if(rec.outputStoragePath){
+    try{
+      bytes=new Uint8Array(await _cStorageFetch(versionId, function(received,total){
+        /* אחוזים **אמיתיים בלבד** — לפי Content-Length. */
+        const pct=Math.max(0,Math.min(100,Math.round(received/total*100)));
+        const mb=(total/1048576);
+        _stage('⏳ מוריד את הפרופר… נא להמתין <b>'+pct+'%</b>'
+          +'<div style="height:8px;background:#334155;border-radius:5px;margin:10px auto 0;max-width:340px"><div style="height:100%;width:'+pct+'%;background:#16a34a;border-radius:5px;transition:width .2s"></div></div>'
+          +(mb>=25?_bigMsg:''));
+      }));
+    }catch(e){}
+  }
+  if(!bytes){ $('cBook').style.display='none'; $('cTitle').innerHTML+=' <span class="bad">(טעינת החוברת נכשלה)</span>'; $('cMeta').innerHTML+=_loadFailMsg(); return; }
   // הוכחת-זהות: ה-bytes שהתקבלו === outputHash שברשומה. ⚠️ אי-התאמה נעצרת
   // כאן במפורש (לא "אזהרה וממשיכים") — קובץ חתוך/שגוי לא מגיע ל-pdf.js,
   // שהיה קורס בשקט (InvalidPDFException בלתי-מטופלת) ומשאיר מסך לבן.
+  _stage('🔍 בודק את שלמות הקובץ…');
   const gotHash=await sha256(bytes);
   if(gotHash!==rec.outputHash){
+    $('cBook').style.display='none';
     $('cMeta').innerHTML+=_loadFailMsg('הקובץ שהתקבל אינו תואם את הגרסה המאושרת.');
     return;
   }
   // רכיבי-הצפייה (pdf.js) חייבים להיות זמינים לפני הדפדוף — אחרת הלקוח נשאר על "טוען…"
   const _lr=await _ensureLibs();
-  if(!_lr.ok){ $('cMeta').innerHTML+='<div class="bad" style="white-space:pre-line;margin-top:8px">'+_libsBlockedMsg(_lr)+'</div>'; return; }
+  if(!_lr.ok){ $('cBook').style.display='none'; $('cMeta').innerHTML+='<div class="bad" style="white-space:pre-line;margin-top:8px">'+_libsBlockedMsg(_lr)+'</div>'; return; }
   // ⚠️ mountFlipbook יכול לזרוק (pdf.js/InvalidPDFException) — לפני התיקון
   // חריגה כזו הייתה בלתי-מטופלת ומשאירה מסך לבן בלי שום הודעה.
   try{
-    $('cBook').style.display=''; await mountFlipbook($('cFlip'), bytes);
+    _stage('📖 מכין את הדפדוף…');
+    /* ⚠️ mountFlipbook כותב את ה-HTML שלו לתוך host ובכך **מחליף** את חיווי-
+       הטעינה — כלומר החיווי נעלם בדיוק כשהעמוד הראשון מוצג, לא לפני. */
+    await mountFlipbook($('cFlip'), bytes);
+    /* ⚠️ כפתורי אישור/בקשת-תיקון נרנדרים **רק כאן** — אחרי שהקובץ ירד,
+       ה-hash אומת והדפדוף מוכן. כשל בכל אחד מהשלבים מדלג על השורה הזו. */
     renderApprove(rec, gotHash===rec.outputHash);
   }catch(e){
     $('cBook').style.display='none';
