@@ -1153,17 +1153,34 @@ async function clientScreen(versionId, token){
   // ⚠️ חסם-4: דרך proofFileDownload עם versionId בלבד, לא rec.outputUrl
   // (download-token שעוקף כל בדיקת-הרשאה) ולא rec.outputStoragePath ישירות
   // (הנתיב נגזר בשרת מהרשומה, לא מתקבל/נשלח מהלקוח).
+  // ⚠️ תיקון-חירום (06/08/2026): מזהה-תקלה בטוח לתצוגה-למשתמש — לא חושף
+  // נתיב/token/hash מלא, רק versionId (כבר ידוע ללקוח מהכתובת) + חותמת-זמן.
+  const _incidentId=(versionId||'?').slice(-8)+'-'+Date.now().toString(36);
+  function _loadFailMsg(extra){ return '<div class="bad" style="white-space:pre-line;margin-top:8px">טעינת החוברת נכשלה. נסו לרענן את הדף.'
+    +(extra?(' '+extra):'')+'\nמזהה-תקלה: '+_incidentId+'</div>'; }
   let bytes=null;
   if(rec.outputStoragePath){ try{ bytes=new Uint8Array(await _cStorageFetch(versionId)); }catch(e){} }
-  if(!bytes){ $('cTitle').innerHTML+=' <span class="bad">(טעינת החוברת נכשלה)</span>'; return; }
-  // הוכחת-זהות: ה-bytes שהתקבלו === outputHash שברשומה
+  if(!bytes){ $('cTitle').innerHTML+=' <span class="bad">(טעינת החוברת נכשלה)</span>'; $('cMeta').innerHTML+=_loadFailMsg(); return; }
+  // הוכחת-זהות: ה-bytes שהתקבלו === outputHash שברשומה. ⚠️ אי-התאמה נעצרת
+  // כאן במפורש (לא "אזהרה וממשיכים") — קובץ חתוך/שגוי לא מגיע ל-pdf.js,
+  // שהיה קורס בשקט (InvalidPDFException בלתי-מטופלת) ומשאיר מסך לבן.
   const gotHash=await sha256(bytes);
-  if(gotHash!==rec.outputHash){ $('cMeta').innerHTML+=' <span class="bad">· אזהרה: החוברת אינה תואמת לגרסה המאושרת</span>'; }
+  if(gotHash!==rec.outputHash){
+    $('cMeta').innerHTML+=_loadFailMsg('הקובץ שהתקבל אינו תואם את הגרסה המאושרת.');
+    return;
+  }
   // רכיבי-הצפייה (pdf.js) חייבים להיות זמינים לפני הדפדוף — אחרת הלקוח נשאר על "טוען…"
   const _lr=await _ensureLibs();
   if(!_lr.ok){ $('cMeta').innerHTML+='<div class="bad" style="white-space:pre-line;margin-top:8px">'+_libsBlockedMsg(_lr)+'</div>'; return; }
-  $('cBook').style.display=''; await mountFlipbook($('cFlip'), bytes);
-  renderApprove(rec, gotHash===rec.outputHash);
+  // ⚠️ mountFlipbook יכול לזרוק (pdf.js/InvalidPDFException) — לפני התיקון
+  // חריגה כזו הייתה בלתי-מטופלת ומשאירה מסך לבן בלי שום הודעה.
+  try{
+    $('cBook').style.display=''; await mountFlipbook($('cFlip'), bytes);
+    renderApprove(rec, gotHash===rec.outputHash);
+  }catch(e){
+    $('cBook').style.display='none';
+    $('cMeta').innerHTML+=_loadFailMsg();
+  }
 }
 // חיווי אישור-הקבלה של בית-הדפוס (הלקוח רואה שההודעה התקבלה — לא נשאר באוויר)
 function _cShopAckHtml(rec){
