@@ -569,12 +569,18 @@ function _seenDot(customer){
   return (s && s.fresh) ? ` <span class="seenDot" title="נכנס לפורטל ${_seenAgo(s.age)}">🟢</span>` : '';
 }
 /* תג-חיווי מוכן-להטמעה. ריק כשאין נתון — לקוח שמעולם לא נכנס לא מקבל תג. */
+/* ⚠️ אירוע-ייצור 06/08/2026: המסך קפא על "טוען…" אצל כולם. השורש —
+   ‎fmt‎ מוגדר **בתוך** render() (const מקומי), ו-_seenBadge הגלובלית קראה
+   לו: ReferenceError שקם רק כשיש lastSeenAt — כלומר רק אחרי שהלקוח
+   הראשון נכנס לפורטל, שעות אחרי הפריסה. זו הפעם **השלישית** של אותו באג
+   (ראה moveRun, שורה ~1373) — ולכן פורמטר גלובלי משלו, לא תלות ב-render. */
+function _fmtSeenAt(t){ return t ? new Date(t).toLocaleString('he-IL', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—'; }
 function _seenBadge(customer){
   const s = _seenInfo(customer);
   if (!s) return '';
   return s.fresh
-    ? `<span class="seenNow" title="נכנס לפורטל ${fmt(s.at)}">🟢 נכנס לפורטל ${_seenAgo(s.age)}</span>`
-    : `<span class="seenAgo" title="כניסה אחרונה: ${fmt(s.at)}${s.count ? (' · סה״כ ' + s.count + ' כניסות') : ''}">👤 נכנס ${_seenAgo(s.age)}</span>`;
+    ? `<span class="seenNow" title="נכנס לפורטל ${_fmtSeenAt(s.at)}">🟢 נכנס לפורטל ${_seenAgo(s.age)}</span>`
+    : `<span class="seenAgo" title="כניסה אחרונה: ${_fmtSeenAt(s.at)}${s.count ? (' · סה״כ ' + s.count + ' כניסות') : ''}">👤 נכנס ${_seenAgo(s.age)}</span>`;
 }
 async function _loadWeeklyContext(){
   try {
