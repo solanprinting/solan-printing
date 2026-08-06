@@ -20275,11 +20275,27 @@ function _speakHe(text){
 function _isPrepressUser(){ try { return !!(typeof currentUser!=='undefined' && currentUser && /קדם[\s\-]*דפוס/.test(String(currentUser.name||''))); } catch(e){ return false; } }
 function _isPrepressScreen(){ try { return _isPrepressUser() || localStorage.getItem('solanPrepressScreen') === '1'; } catch(e){ return false; } }
 function _setPrepressScreen(on){ try { if(on) localStorage.setItem('solanPrepressScreen','1'); else localStorage.removeItem('solanPrepressScreen'); } catch(e){} }
+/* ── שער-צליל בין-חלונות ───────────────────────────────────────────────────
+   כמה חלונות של המערכת פתוחים באותו מחשב → אותה התראה השמיעה כמה צלילים
+   חופפים. localStorage משותף לכל החלונות של אותו origin, ולכן חלון שמשמיע
+   רושם חותמת, והאחרים מדלגים על הצליל בחלון-הזמן הקצר. ⚠️ ה-toast והיומן
+   ממשיכים להופיע בכל חלון — רק הרעש מנוכה. */
+var SOUND_GATE_MS = 4000;
+function _soundGateOk(){
+  try {
+    var last = parseInt(localStorage.getItem('solanLastAlertSound') || '0', 10) || 0;
+    var now = Date.now();
+    if (now - last < SOUND_GATE_MS) return false;    // חלון אחר כבר השמיע ממש עכשיו
+    localStorage.setItem('solanLastAlertSound', String(now));
+    return true;
+  } catch(e){ return true; }                          // אין localStorage → לא חוסמים התראה
+}
 function _cpNotify(msg, voiceText){
   if (!_isPrepressScreen()) return;   // התראות רועשות רק במסך קדם-הדפוס; לאחרים — נקודה אדומה
   try { showToast(msg); } catch(e){}
-  try { _playNewCardSound(); } catch(e){}
-  _speakHe(voiceText || msg);
+  var _snd = _soundGateOk();
+  if (_snd) { try { _playNewCardSound(); } catch(e){} }
+  if (_snd) _speakHe(voiceText || msg);
   try {
     if (window.Notification && Notification.permission === 'granted') {
       var n = new Notification(msg, { tag: 'cp-upload', renotify: true });
@@ -20818,18 +20834,34 @@ async function _fbPollAll() {
       localStorage.setItem('solanCustomers', JSON.stringify(customers));
       window._fbSnapshot.customers = JSON.stringify(customers);
     }
-    // אישורי חוברת מלקוחות (קיפול ששותף בוואטסאפ/מייל) — התראה + תיעוד ביומן הפעילות
+    /* אישורי חוברת מלקוחות (קיפול ששותף בוואטסאפ/מייל) — התראה + יומן-פעילות.
+       ⚠️ באג שדווח 06/08/2026: התראות ישנות קפצו שוב בכל כניסה/רענון.
+       השורש: ה-dedup נשען על **כתיבה חזרה ל-Production**
+       (bookletApprovals/<id>/notified = true). מאז שהחוקים הודקו הכתיבה
+       נכשלת בשקט, ‏notified לעולם לא נקבע, וכל מחזור-polling ירה מחדש את
+       כל ההיסטוריה. מעכשיו אותה תבנית בדיוק כמו התראות-ההעלאה:
+       ‏**baseline מקומי** ב-localStorage, ריצה-ראשונה לומדת בשקט, ומפתח
+       יציב (id+at) — בלי לגעת בנתוני-הייצור וברשומות-האישור. */
     try {
       var bkap = await window._fbGet('bookletApprovals');
       if (bkap && typeof bkap === 'object') {
+        var bkFirst = (localStorage.getItem('solanBkAlertSeen') === null);   // baseline: מה שהיה לפני הטעינה — לא מתריע
+        var bkSeen = {}; try { bkSeen = JSON.parse(localStorage.getItem('solanBkAlertSeen') || '{}'); } catch(e){}
+        var bkNow = Date.now(), bkChanged = false;
         Object.keys(bkap).forEach(function(bid){
-          var v = bkap[bid]; if (!v || !v.at || v.notified) return;
+          var v = bkap[bid]; if (!v || !v.at) return;
+          var key = bid + '_' + v.at;              // מזהה יציב — לא טקסט
+          if (bkSeen[key]) return;                 // כבר טופל בדפדפן הזה
+          bkSeen[key] = bkNow; bkChanged = true;
+          if (bkFirst) return;                     // היסטוריה שהייתה לפני האתחול — נלמדת בשקט
           var txt = '📖 לקוח אישר חוברת לדפוס: ' + (v.name||'') + (v.fileName ? ' — ' + v.fileName : '');
           try { showToast('✅ ' + txt, 6000); } catch(e){}
           try { if (typeof _speakHe === 'function') _speakHe('לקוח אישר חוברת לדפוס'); } catch(e){}
-          try { if (typeof _logActivity === 'function') _logActivity('📖', 'לקוח אישר חוברת לדפוס: ' + (v.name||'') + (v.fileName ? ' — ' + v.fileName : '')); } catch(e){}
-          window._fbPut('bookletApprovals/' + bid + '/notified', true);   // פעם אחת בלבד (בכל המכשירים)
+          try { if (typeof _logActivity === 'function') _logActivity('📖', txt.replace(/^📖 /, '')); } catch(e){}
         });
+        // ניקוי מפתחות ישנים (7 ימים) כדי שהאחסון לא יתפח
+        Object.keys(bkSeen).forEach(function(k){ if (bkNow - bkSeen[k] > 7*86400000) { delete bkSeen[k]; bkChanged = true; } });
+        if (bkChanged || bkFirst) { try { localStorage.setItem('solanBkAlertSeen', JSON.stringify(bkSeen)); } catch(e){} }
       }
     } catch(e){}
     // התראות העלאת קבצים מלקוחות (אות "מעלה עכשיו" + עיתונים/ריצות שאושרו) — כולל קול
