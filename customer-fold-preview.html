@@ -62,20 +62,45 @@
      מהזרימה** — ולכן לעולם אינו מכסה את העמוד ואינו נחתך.
      ⚠️ ‏dvh ולא vh: בנייד ‎100vh‎ גדול מהגובה הנראה (סרגל-הכתובת), והתחתית
      נחתכת. ‎100dvh‎ הוא הגובה בפועל, ומתעדכן בסיבוב-המכשיר. */
-  #_fbwrap.fsOn{position:fixed;inset:0;z-index:9999;margin:0;padding:0;border:none;border-radius:0;
-    background:#000;display:flex;flex-direction:column;height:100dvh;max-height:100dvh}
-  #_fbwrap.fsOn #_sp{flex:1 1 auto;min-height:0;border:none;border-radius:0;background:#000;padding:0;
-    overflow:hidden;display:flex;align-items:center;justify-content:center}
+  /* ⚠️ ‏!important כאן אינו קיצור-דרך אלא הכרח: ל-#_fbwrap ול-#_sp יש
+     סגנון-inline (border/padding/border-radius/min-height) שנכתב ב-
+     innerHTML, וסגנון-inline גובר על גיליון-הסגנונות תמיד. בלי זה נשארו
+     במסך-מלא מסגרת וריפוד — נמדד: השטח קטן ב-2px+16px והסרגל לא נגע
+     בתחתית. מוגבל בדיוק לתכונות שיש להן inline מתנגש. */
+  #_fbwrap.fsOn{position:fixed;inset:0;z-index:9999;margin:0;
+    padding:0!important;border:none!important;border-radius:0!important;background:#000!important;
+    display:flex;flex-direction:column;height:100dvh;max-height:100dvh}
+  #_fbwrap.fsOn #_sp{flex:1 1 auto;min-height:0!important;border:none;border-radius:0;background:#000;
+    padding:0!important;overflow:hidden;display:flex;align-items:center;justify-content:center}
   /* ⚠️ max-height/max-width במקום height קבוע — כך אותו כלל משרת גם לאורך
      וגם לרוחב: בסיבוב-המכשיר העמוד מתאים את עצמו בלי קוד JS ובלי נעילה. */
   #_fbwrap.fsOn #_sp img,#_fbwrap.fsOn #_sp>canvas{
     height:auto;width:auto;max-height:100%;max-width:100%;object-fit:contain}
-  #_fbwrap.fsOn .fbctl{flex:0 0 auto;position:static;transform:none;width:auto;margin:0;
+  #_fbwrap.fsOn .fbctl{flex:0 0 auto;position:static;transform:none;width:auto;margin:0!important;
     background:rgba(11,18,32,.94);border-radius:0;flex-wrap:wrap;row-gap:6px;
     padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px))}
   #_fbwrap.fsOn .fbtune{display:none}
   #_fbwrap.fsOn .fbctl button{min-height:40px}         /* יעד-מגע נוח */
   body.fsLock{overflow:hidden}
+  /* ⚠️ שבב "🔓 שומר בתצפית" של auth-guard הוא כלי-פנימי, והוא הופיע **ללקוח**
+     מעל התצוגה (position:fixed עם z-index עצום). הלקוח אינו אמור לראות מצב-
+     פנימי של מערכת-ההרשאות, ובוודאי לא בזמן בחינת פרופר. מוסתר במסך-הלקוח
+     בלבד — במסכי-הצוות הוא נשאר, שם הוא נחוץ. */
+  html.client #solan-guard-chip{display:none!important}
+  /* ── סיבוב-ידני ──────────────────────────────────────────────────────────
+     ⚠️ נדרש מפני שדף-אינטרנט **אינו יכול** לסובב את המסך: screen.orientation
+     .lock() דורש מסך-מלא אמיתי ואינו נתמך ב-iOS כלל. כשהטלפון נעול על
+     פורטרט (מתג-הנעילה) אין דרך לעקוף — ולכן מסובבים את **התצוגה**.
+     ⚠️ הסיבוב על #_sp (המכל) ולא על התמונה: draw() מחליף את התמונה בכל
+     דפדוף, וסיבוב שהיה עליה היה נמחק בכל מעבר-עמוד. המכל יציב.
+     ⚠️ המידות ממשתני-CSS שה-JS מודד — נכונות גם אחרי שינוי-גודל וגם
+     כשסרגל-הכפתורים עובר שורה. */
+  #_rot{display:none}
+  #_fbwrap.fsOn #_rot{display:inline-block}
+  #_fbwrap.fsOn.rot #_sp{position:absolute;top:50%;left:50%;
+    width:var(--spH,100%);height:var(--spW,100%);
+    transform:translate(-50%,-50%) rotate(90deg)}
+  #_fbwrap.fsOn.rot .fbctl{margin-top:auto!important}   /* #_sp יצא מהזרימה — הסרגל נשאר בתחתית */
   /* מכשיר לרוחב (או מסך נמוך) — סרגל נמוך יותר, מקסימום גובה לעמוד */
   @media (max-height:520px){
     #_fbwrap.fsOn .fbctl{padding:4px 8px calc(4px + env(safe-area-inset-bottom,0px));gap:6px}
@@ -438,6 +463,41 @@ function _spreadGroups(n){ const g=[]; if(n<=0)return g; g.push([0]); for(let k=
 //    בגוש ה-CSS למעלה. בקצרה: ב-iPhone ה-API אינו נתמך על אלמנט רגיל,
 //    ב-Android הוא מוסיף הודעת-מערכת מעל התצוגה, והסרגל הצף נחתך במסך צר.
 //    כשל כלשהו כאן אינו מפיל את ה-viewer — נתפס ומתעלמים.
+/* ── סיבוב-ידני של התצוגה ────────────────────────────────────────────────
+   ⚠️ אינו מסובב את המכשיר — אי-אפשר. מסובב את מה שרואים, ולכן עובד גם
+   כשמתג-נעילת-הסיבוב של הטלפון פעיל, וגם באייפון. */
+function _fbRotVars(wrap){
+  if(!wrap) return;
+  const ctl = wrap.querySelector('.fbctl');
+  /* השטח הפנוי לתצוגה = כל העטיפה פחות סרגל-הכפתורים. נמדד ולא מונח:
+     הסרגל עובר שורה במסך צר, וגובהו משתנה. */
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight - (ctl ? ctl.offsetHeight : 0);
+  if(w > 0 && h > 0){
+    wrap.style.setProperty('--spW', w + 'px');
+    wrap.style.setProperty('--spH', h + 'px');
+  }
+}
+function _fbRotBtn(on){
+  const b = document.getElementById('_rot');
+  if(!b) return;
+  b.style.background = on ? '#c9a84c' : '';
+  b.style.color = on ? '#1a1a2e' : '';
+  b.textContent = on ? '🔄 בטל סיבוב' : '🔄 סובב';
+}
+function _toggleRotate(el){
+  if(!el || !el.classList.contains('fsOn')) return;
+  const on = el.classList.toggle('rot');
+  _fbRotVars(el);
+  _fbRotBtn(on);
+  if(window._zoomReset) window._zoomReset();
+}
+/* שינוי-גודל/סיבוב-מכשיר בפועל — המידות נמדדות מחדש. ⚠️ רק כשהסיבוב פעיל,
+   כדי לא לשלם על מדידה בכל resize של מסך רגיל. */
+addEventListener('resize', function(){
+  const w = document.getElementById('_fbwrap');
+  if(w && w.classList.contains('rot')) _fbRotVars(w);
+});
 function _toggleFullscreen(el){
   if(!el) return;
   try{
@@ -451,6 +511,10 @@ function _toggleFullscreen(el){
     document.body.classList.toggle('fsLock', on);
     const b = document.getElementById('_full');
     if(b) b.textContent = on ? '✕ יציאה ממסך מלא' : '⛶ מסך מלא';
+    /* ⚠️ יציאה ממסך-מלא מבטלת גם סיבוב: מחוץ למסך-מלא הכלל אינו חל, ושארית
+       מחלקה 'rot' הייתה מסובבת את התצוגה בכניסה הבאה בלי שאיש ביקש. */
+    if(!on){ el.classList.remove('rot'); _fbRotBtn(false); }
+    else _fbRotVars(el);
     if(window._zoomReset) window._zoomReset();   // מידות השתנו — הזום כבר לא רלוונטי
 
     /* ‏ESC יוצא, בדיוק כמו במסך-מלא אמיתי. המאזין נרשם רק כשצריך ומוסר
@@ -520,7 +584,7 @@ async function mountFlipbook(host, bytes){
   host.innerHTML='<div id="_fbwrap" style="background:#1a1a2e;border:1px solid var(--line);border-radius:10px;padding:8px">'
     + '<div class="spread" id="_sp" dir="ltr" style="min-height:220px;align-items:center"></div>'
     + '<div dir="rtl" class="fbctl" style="text-align:center;margin-top:8px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">'
-    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <button id="_zoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div>'
+    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <button id="_rot" title="מסובב את התצוגה 90° — שימושי כשהטלפון נעול על פורטרט">🔄 סובב</button> <button id="_zoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div>'
     + '<div dir="rtl" class="fbtune" style="text-align:center;margin-top:6px;font-size:.82rem;color:#94a3b8">חיתוך מסגרת-לבנה (מכל 4 הצדדים של כל עמוד): '
     + '<input type="range" id="_spine" min="0" max="8" step="0.1" value="'+_SPINE_TRIM_PCT+'" style="vertical-align:middle;width:240px"> <b id="_spineVal">'+_SPINE_TRIM_PCT.toFixed(1)+'%</b> <span style="opacity:.7">— הגדל עד שהמסגרת הלבנה נעלמת, ותגיד לי את המספר</span></div></div>';
   function progHtml(){ return '<div style="max-width:340px;margin:auto;text-align:center;color:#94a3b8;padding:18px">📖 מרנדר…'
@@ -541,6 +605,7 @@ async function mountFlipbook(host, bytes){
   }
   $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} if(window._zoomReset)window._zoomReset(); }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} if(window._zoomReset)window._zoomReset(); };
   $('_full').onclick=()=>{ _toggleFullscreen($('_fbwrap')); };
+  $('_rot').onclick=()=>{ _toggleRotate($('_fbwrap')); };
   _setupZoom();   // 🔍 זום: לחצן + גלגלת + גרירה
   $('_spine').oninput=async ()=>{ _SPINE_TRIM_PCT=parseFloat($('_spine').value)||0; $('_spineVal').textContent=_SPINE_TRIM_PCT.toFixed(1)+'%';
     if(curPages){ const u=await _composeView(curPages, _SPINE_TRIM_PCT); if($('_sp'))$('_sp').innerHTML='<img src="'+u+'">'; } };   // כוונון חי — בלי רינדור-מחדש
@@ -600,7 +665,7 @@ async function mountFlipbookFast(host, thumbsHost, book){
   host.innerHTML='<div id="_fbwrap" style="background:#1a1a2e;border:1px solid var(--line);border-radius:10px;padding:8px">'
     + '<div class="spread" id="_sp" dir="ltr" style="min-height:220px;align-items:center"><div id="_prog" style="width:100%;text-align:center;color:#94a3b8">📖 טוען את הפרופר…</div></div>'
     + '<div dir="rtl" class="fbctl" style="text-align:center;margin-top:8px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">'
-    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <button id="_zoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div></div>';
+    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <button id="_rot" title="מסובב את התצוגה 90° — שימושי כשהטלפון נעול על פורטרט">🔄 סובב</button> <button id="_zoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div></div>';
   function cellCanvas(N){ if(hiCell[N]) return hiCell[N]; if(ccache[N]) return ccache[N];   // חד גובר על נמוך
     const o=order[N-1]; const run=R[o.runIndex]; if(!run) return null;
     const p=run.byPos[o.posInRun]; if(!p) return null; const s=run.srcCv[p.sourcePdfPage]; if(!s) return null;
@@ -619,6 +684,7 @@ async function mountFlipbookFast(host, thumbsHost, book){
     $('_pi').textContent='כפולה '+(gi+1)+' / '+groups.length; $('_prev').disabled=gi<=0; $('_next').disabled=gi>=groups.length-1; }
   $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} if(window._zoomReset)window._zoomReset(); }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} if(window._zoomReset)window._zoomReset(); };
   $('_full').onclick=()=>{ _toggleFullscreen($('_fbwrap')); };
+  $('_rot').onclick=()=>{ _toggleRotate($('_fbwrap')); };
   _setupZoom();   // 🔍 זום: לחצן + גלגלת + גרירה
   function renderThumbsFast(){ if(!thumbsHost) return; thumbsHost.innerHTML=''; for(let N=1;N<=n;N++){ const c=cellCanvas(N); const t=document.createElement('div'); t.className='th';
     if(c){ const tc=document.createElement('canvas'); const s=88/c.width; tc.width=88; tc.height=Math.round(c.height*s); tc.getContext('2d').drawImage(c,0,0,tc.width,tc.height); const im=new Image(); im.src=tc.toDataURL('image/jpeg',0.7); im.style.width='88px'; t.appendChild(im); }
