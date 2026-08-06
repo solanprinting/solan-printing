@@ -16,14 +16,28 @@
 
   var PDFJS_VER = '3.11.174', PDFLIB_VER = '1.17.1';
 
-  /* מראות לפי סדר ניסיון. cdnjs ראשון (הכי מהיר אצלנו), ואז חלופות. */
+  /* ── מראות לפי סדר ניסיון ──────────────────────────────────────────────
+     ⚠️ **המראה הראשונה היא אצלנו** (‎vendor/‎, נפרס עם האתר), ורק אחריה
+     ה-CDN-ים. הסיבה נמדדה בייצור 06/08/2026: לקוחות ברשת מסוננת
+     (אינטרנט כשר) — שהם בסיס-הלקוחות — נחסמים משלושת ה-CDN-ים **יחד**,
+     כי כולם ציבוריים. התוצאה: 5 מתוך 6 העלאות מהפורטל נכשלו ומסך
+     אישור-הפרופר לא עלה, בזמן שהמסלול שאינו דורש רינדור דווקא עבד.
+     מראה שיושבת באותו origin של הדף אינה יכולה להיחסם בלי לחסום את האתר
+     כולו — ולכן היא ראשונה, ולא אחרונה.
+     ⚠️ אותו לקח כבר יושם כאן על הגופן Heebo (ראה upload.ps1): קישור ל-
+     fonts.googleapis לא הספיק, והגופן עבר לאירוח-עצמי. הספריות נשארו מאחור.
+     ⚠️ נתיב **יחסי** ולא מוחלט: כל דפי-הלקוח יושבים בשורש האתר לצד
+     vendor/, וכתובת מוחלטת הייתה שוברת בדיקות מקומיות ותצוגה-מקדימה. */
+  var LOCAL = 'vendor/';
   var MIRRORS = {
     pdfjs: [
+      LOCAL + 'pdf.min.js',
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + PDFJS_VER + '/pdf.min.js',
       'https://cdn.jsdelivr.net/npm/pdfjs-dist@' + PDFJS_VER + '/build/pdf.min.js',
       'https://unpkg.com/pdfjs-dist@' + PDFJS_VER + '/build/pdf.min.js'
     ],
     pdflib: [
+      LOCAL + 'pdf-lib.min.js',
       'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/' + PDFLIB_VER + '/pdf-lib.min.js',
       'https://cdn.jsdelivr.net/npm/pdf-lib@' + PDFLIB_VER + '/dist/pdf-lib.min.js',
       'https://unpkg.com/pdf-lib@' + PDFLIB_VER + '/dist/pdf-lib.min.js'

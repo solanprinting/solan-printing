@@ -19,12 +19,22 @@
   var MODERN = '5.4.149';    // מצייר נכון מסכות-שקיפות (אומת מול עוצמה עמ' 28)
   var LEGACY = '3.11.174';   // מה שהיה בדפים עד כה — נפילה-לאחור בלבד
 
-  // שלוש מראות, כמו ב-lib-loader: cdnjs נחסם אצל חלק מהלקוחות
+  /* ⚠️ ‏vendor/ הוא **אחרון** כאן, ובכוונה — הפוך מ-lib-loader.
+     ההבדל: שתי המראות הראשונות מגישות לצדן גם cmaps/standard_fonts,
+     ו-assetsFor() מצרף אותן. בלעדיהן גופן שלא הוטבע בקובץ עלול ליפול
+     לגופן-חלופי — קריטי בעברית. ‎vendor/‎ אינו כולל את הנכסים (הם מאות
+     קבצים), ולכן העדפתו כברירת-מחדל הייתה פוגעת **בכל** הלקוחות כדי
+     לעזור לחסומים בלבד.
+     לכן: מי שאינו חסום מקבל את הגרסה המלאה; מי שחסום נופל ל-vendor/
+     ומקבל דפדוף עובד בלי הנכסים — עדיף בהרבה על מסך שלא עולה.
+     ⚠️ וגם אם המנוע החדש נכשל לגמרי — ‎ensure()‎ נופל למנוע הישן, שכבר
+     נטען מ-vendor/ דרך lib-loader. כלומר יש שתי רשתות-ביטחון, לא אחת. */
   function mirrors(version) {
     var v = version || MODERN;
     return ['https://cdn.jsdelivr.net/npm/pdfjs-dist@' + v + '/build/',
             'https://unpkg.com/pdfjs-dist@' + v + '/build/',
-            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + v + '/'];
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + v + '/',
+            'vendor/'];
   }
   function moduleFor(base) { return base + 'pdf.min.mjs'; }
   function workerFor(base) { return base + 'pdf.worker.min.mjs'; }

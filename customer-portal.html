@@ -551,6 +551,17 @@ function _loadPdfLib(){
   else _pdflibP = new Promise(function(res){ var s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js'; s.onload=function(){ res(window.PDFLib||null); }; s.onerror=function(){ res(null); }; document.head.appendChild(s); });
   return _pdflibP;
 }
+/* ⚠️ ‏Blob.prototype.arrayBuffer חסר ב-iOS Safari מתחת ל-14 — שם כל קריאת
+   קובץ זורקת, והלקוח רואה כישלון בלי סיבה. FileReader קיים בכל מקום. */
+function _fileBytes(file){
+  if (typeof file.arrayBuffer === 'function') return file.arrayBuffer();
+  return new Promise(function(res, rej){
+    var r = new FileReader();
+    r.onload  = function(){ res(r.result); };
+    r.onerror = function(){ rej(r.error || new Error('קריאת הקובץ נכשלה')); };
+    r.readAsArrayBuffer(file);
+  });
+}
 async function _pfBoxes(bytes){
   var PDFLib = await _loadPdfLib(); if (!PDFLib) return null;
   try {
@@ -608,7 +619,7 @@ async function handleUpload(fileList){
   showOv('בודק תקינות קבצים…', true);
   var bufs = [], pfIssues = [];
   for (var pi=0; pi<files.length; pi++){
-    var pbuf; try { pbuf = new Uint8Array(await files[pi].arrayBuffer()); } catch(e){ pbuf = new Uint8Array(0); }
+    var pbuf; try { pbuf = new Uint8Array(await _fileBytes(files[pi])); } catch(e){ pbuf = new Uint8Array(0); }
     bufs.push(pbuf);
     var pf = _preflightCheck(await _pfBoxes(pbuf));
     if (pf.warnings.length) pfIssues.push({ name: files[pi].name||('קובץ '+(pi+1)), warnings: pf.warnings });
@@ -629,7 +640,7 @@ async function handleUpload(fileList){
   prog();
   try {
     var uploaded = await _pool(files, 4, async function(f, i){
-      var buf = bufs[i] && bufs[i].byteLength ? bufs[i] : new Uint8Array(await f.arrayBuffer());   // שימוש חוזר בבייטים שנקראו לבדיקה
+      var buf = bufs[i] && bufs[i].byteLength ? bufs[i] : new Uint8Array(await _fileBytes(f));   // שימוש חוזר בבייטים שנקראו לבדיקה
       var safe = (f.name||'file.pdf').replace(/[\\/:*?"<>|#%&{}]+/g,'_').slice(0,90);
       var path = 'customerProofs/'+SLUG+'/'+jobId+'/'+i+'_'+safe;
       var url = await uploadBytes(path, buf, function(bytes){ loaded[i]=bytes; prog(); });

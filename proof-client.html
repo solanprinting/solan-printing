@@ -683,9 +683,30 @@ function addFiles(fileList) {
   _addFilesBusy = run.catch(() => {});
   return run;
 }
+/* ⚠️ ‏Blob.prototype.arrayBuffer אינו קיים ב-iOS Safari מתחת ל-14, ושם
+   `await file.arrayBuffer()` זורק TypeError על **כל** קובץ. הכשל נבלע
+   בלולאה, ולא נכנס אף עמוד — "בחרתי קובץ ולא קרה כלום" באייפון ישן.
+   ‏FileReader קיים בכל דפדפן שיש בו File API בכלל. */
+function _fileBytes(file){
+  if (typeof file.arrayBuffer === 'function') return file.arrayBuffer();
+  return new Promise(function(res, rej){
+    var r = new FileReader();
+    r.onload  = function(){ res(r.result); };
+    r.onerror = function(){ rej(r.error || new Error('קריאת הקובץ נכשלה')); };
+    r.readAsArrayBuffer(file);
+  });
+}
 async function _addFilesNow(fileArr) {
   const files = fileArr.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-  if (!files.length) return;
+  /* ⚠️ אירוע-ייצור 06/08/2026: שלושה `return` שקטים בפונקציה הזו הפכו כל
+     תקלה ל"בחרתי קובץ ולא קרה כלום", והשאירו את התקלה בלי אבחנה במשך יום.
+     מכאן והלאה: כל יציאה אומרת למה. */
+  if (!files.length) {
+    showOverlay('<div style="max-width:400px;margin:0 auto">לא זוהו קובצי PDF.<br>'
+      + '<span style="font-weight:400;font-size:.9rem">נבחרו ' + fileArr.length + ' קבצים. '
+      + 'המערכת מקבלת קובצי PDF בלבד — ודאו שהקובץ מסתיים ב-<b>.pdf</b>.</span></div>', true);
+    return;
+  }
   // ⚠️ מנגנון מניעת-בלגן: בבחירה מרובת-קבצים הדפדפן מוסר את הקבצים לפי סדר הבחירה בסייר —
   // לא לפי שם! (זה גרם ל"עמודים מבולגנים"). ממיינים דטרמיניסטית לפי שם קובץ במיון טבעי
   // (עמ' 2 לפני עמ' 10), כך שקבצים ממוספרים תמיד נכנסים בסדר הנכון.
@@ -697,17 +718,45 @@ async function _addFilesNow(fileArr) {
   // ספירת עמודים כוללת למד התקדמות
   let total = 0, doneN = 0;
   const docs = [];
-  try { await _requireLibs(); } catch(e){ return; }   // רכיבי-הצפייה חסומים → הודעה ברורה במקום דף מת
+  /* ⚠️ ‏_requireLibs מציג בעצמו כיסוי-הסבר כשכל המראות חסומות (LIBS_BLOCKED).
+     כל שגיאה **אחרת** לא הוצגה כלל — ה-catch היה ריק. */
+  try { await _requireLibs(); }
+  catch(e){
+    if (!/LIBS_BLOCKED/.test(String(e && e.message))) {
+      showOverlay('<div style="max-width:400px;margin:0 auto">לא הצלחנו לטעון את רכיבי הצפייה.<br>'
+        + '<span style="font-weight:400;font-size:.9rem">' + esc(String((e && e.message) || e)) + '</span></div>', true);
+    }
+    return;
+  }
   showOverlay('קורא קבצים…', true, 0);
+  const failed = [];
   for (const file of files) {
     try {
-      const bytes = await file.arrayBuffer();
+      const bytes = await _fileBytes(file);
       const fileId = 'f' + (nextFid++);
       const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
       sources.set(fileId, { bytes, name: file.name });
       const boxes = await fileBoxes(bytes);
       docs.push({ fileId, pdf, boxes, name: file.name, bytes }); total += pdf.numPages;
-    } catch (e) { console.error('קובץ נכשל:', file.name, e); }
+    } catch (e) {
+      console.error('קובץ נכשל:', file.name, e);
+      failed.push({ name: file.name, why: String((e && e.message) || e).slice(0, 120) });
+    }
+  }
+  /* ⚠️ כשכל הקבצים נכשלו, הקוד המשיך לרוץ, ניקה את הכיסוי, ולא הציג דבר —
+     בדיוק "לא קורה כלום". עכשיו זו הודעה, עם שם-הקובץ והסיבה. */
+  if (!docs.length) {
+    showOverlay('<div style="max-width:420px;margin:0 auto">לא הצלחנו לקרוא את הקבצים.<br>'
+      + '<span style="font-weight:400;font-size:.88rem">'
+      + failed.map(f => esc(f.name) + ' — ' + esc(f.why)).join('<br>')
+      + '<br><br>נסו קובץ אחר, או פנו לבית הדפוס.</span></div>', true);
+    $('file').value = '';
+    return;
+  }
+  if (failed.length) {
+    _orderNotice && console.warn('חלק מהקבצים לא נכנסו:', failed);
+    setTimeout(() => alert('⚠️ ' + failed.length + ' קבצים לא נכנסו:\n'
+      + failed.map(f => '• ' + f.name + ' — ' + f.why).join('\n')), 100);
   }
   for (const d of docs) {
     for (let i = 1; i <= d.pdf.numPages; i++) {
@@ -1218,7 +1267,7 @@ $('repInput').onchange = async e => {
   try { await _requireLibs(); } catch(err){ return; }
   showOverlay('מחליף עמוד…', true);
   try {
-    const bytes = await file.arrayBuffer();
+    const bytes = await _fileBytes(file);   // נפילה-לאחור ל-FileReader (אייפון ישן)
     const fileId = 'f' + (nextFid++);
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
     sources.set(fileId, { bytes });
