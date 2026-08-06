@@ -240,6 +240,11 @@ window.addEventListener('appinstalled', function(){
   .ibxSec summary { cursor:pointer; font-weight:800; color:#2d3561; padding:6px 0; }
   .ibxRow { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 8px;
     border-bottom:1px dashed var(--line); font-size:.86rem; }
+  /* חיווי כניסת-לקוח לפורטל (חותמת-שרת) */
+  .seenNow { display:inline-flex; align-items:center; gap:4px; background:#dcfce7; color:#166534;
+    border:1px solid #86efac; border-radius:11px; padding:1px 8px; font-size:.74rem; font-weight:800; }
+  .seenAgo { display:inline-flex; align-items:center; gap:4px; background:#f3f4f6; color:#6b7280;
+    border:1px solid var(--line); border-radius:11px; padding:1px 8px; font-size:.74rem; font-weight:700; }
   .ibxDismiss { background:#fff; color:#6b7280; border:1px solid var(--line); border-radius:8px;
     padding:6px 12px; font-weight:700; font-size:.82rem; cursor:pointer; font-family:inherit; }
   .ibxDismiss:hover { background:#f3f4f6; color:#b91c1c; }
@@ -507,6 +512,42 @@ function _custHasActiveCard(name){
   return false;
 }
 let _portalCusts = [];   // לקוחות שיש להם פורטל — גם אם עוד לא העלו כלום
+/* ── חיווי "הלקוח נכנס לפורטל" ────────────────────────────────────────────
+   מקור: customerPortals/<slug>.lastSeenAt — נכתב **בשרת** ע"י portalLinkLogin
+   בכל כניסה מהקישור. הלקוח אינו יכול לזייף אותו.
+   ⚠️ זהו "נכנס", לא "נמצא כרגע במסך": הוא מתעדכן בכניסה, לא כל שנייה.
+   נוכחות-חיה אמיתית (heartbeat) נשארה כמשימה נפרדת. */
+let _portalSeen = {};
+const _seenKey = s => String(s || '').replace(/["'׳״]/g, '').replace(/\s+/g, ' ').trim();
+const SEEN_NOW_MS = 10 * 60 * 1000;      // עד 10 דק' → "נכנס הרגע"
+function _seenInfo(customer){
+  const v = _portalSeen[_seenKey(customer)];
+  if (!v || !v.at) return null;
+  const age = Date.now() - v.at;
+  return { at: v.at, count: v.count, fresh: age >= 0 && age <= SEEN_NOW_MS, age };
+}
+function _seenAgo(ms){
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'הרגע';
+  if (m < 60) return 'לפני ' + m + ' דק׳';
+  const h = Math.floor(m / 60);
+  if (h < 24) return 'לפני ' + h + ' שע׳';
+  const d = Math.floor(h / 24);
+  return d === 1 ? 'אתמול' : ('לפני ' + d + ' ימים');
+}
+/* ברשימת-הלקוחות הצפופה — רק נקודה ירוקה כשהלקוח נכנס ממש עכשיו (בלי רעש). */
+function _seenDot(customer){
+  const s = _seenInfo(customer);
+  return (s && s.fresh) ? ` <span class="seenDot" title="נכנס לפורטל ${_seenAgo(s.age)}">🟢</span>` : '';
+}
+/* תג-חיווי מוכן-להטמעה. ריק כשאין נתון — לקוח שמעולם לא נכנס לא מקבל תג. */
+function _seenBadge(customer){
+  const s = _seenInfo(customer);
+  if (!s) return '';
+  return s.fresh
+    ? `<span class="seenNow" title="נכנס לפורטל ${fmt(s.at)}">🟢 נכנס לפורטל ${_seenAgo(s.age)}</span>`
+    : `<span class="seenAgo" title="כניסה אחרונה: ${fmt(s.at)}${s.count ? (' · סה״כ ' + s.count + ' כניסות') : ''}">👤 נכנס ${_seenAgo(s.age)}</span>`;
+}
 async function _loadWeeklyContext(){
   try {
     const [np, cds, ov, po] = await Promise.all([
@@ -522,6 +563,14 @@ async function _loadWeeklyContext(){
     _portalCusts = po && typeof po === 'object'
       ? Object.keys(po).map(k => (po[k] && po[k].name) || String(k).replace(/_/g,' ')).filter(Boolean)
       : [];
+    /* חותמת-כניסה אחרונה לכל לקוח (נכתבת בשרת ע"י portalLinkLogin).
+       מפתח = השם המנורמל, כדי להצליב מול customerProofs[].customer. */
+    _portalSeen = {};
+    if (po && typeof po === 'object') Object.keys(po).forEach(k => {
+      const rec = po[k] || {};
+      const nm = _seenKey(rec.name || String(k).replace(/_/g,' '));
+      if (nm && rec.lastSeenAt) _portalSeen[nm] = { at: Number(rec.lastSeenAt) || 0, count: Number(rec.loginCount) || 0 };
+    });
     _dayOverride = (ov && typeof ov==='object') ? ov : {};
     const dayMap = {};
     const npArr = Array.isArray(np) ? np : (np && typeof np==='object' ? Object.values(np) : []);
@@ -824,7 +873,7 @@ function render(rows) {
     const newTag = nNew
       ? ` <span class="newDot" title="${nNew} קבצים חדשים שטרם נצפו">🆕 ${nNew}</span>` : '';
     return `<div class="custItem${on?' on':''}${nNew?' hasNew':''}" data-cust="${escapeHtml(c)}" data-day="${escapeHtml(_dayKey(day))}"${hidden}>
-      <span class="cName">📁 ${escapeHtml(c)}${card}${newTag}</span><span class="cCount" title="פעילות מתוך סה״כ">${act}${act!==items.length?('/'+items.length):''}</span></div>`;
+      <span class="cName">📁 ${escapeHtml(c)}${card}${newTag}${_seenDot(c)}</span><span class="cCount" title="פעילות מתוך סה״כ">${act}${act!==items.length?('/'+items.length):''}</span></div>`;
   };
   const dayHdrHtml = (day, count) => {
     const col = _isDayCollapsed(day), isToday = (day === _today);
@@ -926,7 +975,7 @@ function render(rows) {
         ? `<div class="ibxUp">⬆ הלקוח מעלה קבצים כעת${it.uploading.name ? (' · ' + escapeHtml(it.uploading.name)) : ''}${it.uploading.pages ? (' · ' + it.uploading.pages + ' עמ׳') : ''}</div>` : '';
       return `<div class="ibxCard${cls}${it.uploading ? ' stUp' : ''}">
         <div class="ibxSt">${bl.icon} ${bl.label}</div>${upNow}
-        <div><b>${escapeHtml(it.customer)}</b> · ${escapeHtml(kind)}</div>
+        <div><b>${escapeHtml(it.customer)}</b> · ${escapeHtml(kind)} ${_seenBadge(it.customer)}</div>
         ${ttl ? `<div class="ibxMeta">${escapeHtml(ttl)}</div>` : ''}${stubNote}
         <div class="ibxMeta">${meta}</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${act}${dis}</div></div>`;
