@@ -51,19 +51,37 @@
   .spread canvas{display:block;background:#fff;max-height:62vh;width:auto;max-width:47vw}
   #_sp img{display:block;background:#fff;height:56vh;width:auto}
   #_sp>canvas{display:block;background:#fff;height:56vh;width:auto;max-width:none}
-  #_fbwrap:fullscreen{display:flex;flex-direction:column;justify-content:center;align-items:center;background:#0b1220}
-  #_fbwrap:-webkit-full-screen{display:flex;flex-direction:column;justify-content:center;align-items:center;background:#0b1220}
-  /* מסך-מלא: התצוגה על כל המסך · הלחצנים צפים בשכבה מעל · כוונון מוסתר */
-  #_fbwrap:fullscreen{padding:0;border:none;background:#000}
-  #_fbwrap:fullscreen #_sp{border:none;border-radius:0;background:#000;padding:0;height:100vh;min-height:100vh;overflow:hidden;display:flex;align-items:center;justify-content:center}
-  #_fbwrap:fullscreen #_sp img,#_fbwrap:fullscreen #_sp>canvas{height:94vh;max-height:94vh;width:auto;max-width:99vw;object-fit:contain}
-  #_fbwrap:fullscreen .fbctl{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:9;background:rgba(11,18,32,.62);padding:6px 14px;border-radius:12px;margin:0;width:max-content}
-  #_fbwrap:fullscreen .fbtune{display:none}
-  #_fbwrap:-webkit-full-screen{padding:0;border:none;background:#000}
-  #_fbwrap:-webkit-full-screen #_sp{border:none;border-radius:0;background:#000;padding:0;height:100vh;min-height:100vh;overflow:hidden;display:flex;align-items:center;justify-content:center}
-  #_fbwrap:-webkit-full-screen #_sp img,#_fbwrap:-webkit-full-screen #_sp>canvas{height:94vh;max-height:94vh;width:auto;max-width:99vw;object-fit:contain}
-  #_fbwrap:-webkit-full-screen .fbctl{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:9;background:rgba(11,18,32,.62);padding:6px 14px;border-radius:12px;margin:0;width:max-content}
-  #_fbwrap:-webkit-full-screen .fbtune{display:none}
+  /* ── מסך-מלא ────────────────────────────────────────────────────────────
+     ⚠️ מיושם ב-CSS ולא ב-Fullscreen API. שלוש סיבות שנמדדו בטלפון:
+       1. ‏iPhone/Safari **אינו תומך** ב-requestFullscreen על אלמנט רגיל —
+          הכפתור פשוט לא עשה כלום. זו הסיבה המכרעת.
+       2. ‏Android מציג הודעת-מערכת "החלק כדי לצאת" מעל התצוגה.
+       3. הסרגל היה position:fixed עם width:max-content — במסך צר הוא גלש
+          משני הצדדים, ו"◀ הבא" (הראשון ב-RTL) נחתך אל מחוץ למסך.
+     כאן: flex-column רגיל. התמונה תופסת את מה שנשאר, והסרגל הוא **חלק
+     מהזרימה** — ולכן לעולם אינו מכסה את העמוד ואינו נחתך.
+     ⚠️ ‏dvh ולא vh: בנייד ‎100vh‎ גדול מהגובה הנראה (סרגל-הכתובת), והתחתית
+     נחתכת. ‎100dvh‎ הוא הגובה בפועל, ומתעדכן בסיבוב-המכשיר. */
+  #_fbwrap.fsOn{position:fixed;inset:0;z-index:9999;margin:0;padding:0;border:none;border-radius:0;
+    background:#000;display:flex;flex-direction:column;height:100dvh;max-height:100dvh}
+  #_fbwrap.fsOn #_sp{flex:1 1 auto;min-height:0;border:none;border-radius:0;background:#000;padding:0;
+    overflow:hidden;display:flex;align-items:center;justify-content:center}
+  /* ⚠️ max-height/max-width במקום height קבוע — כך אותו כלל משרת גם לאורך
+     וגם לרוחב: בסיבוב-המכשיר העמוד מתאים את עצמו בלי קוד JS ובלי נעילה. */
+  #_fbwrap.fsOn #_sp img,#_fbwrap.fsOn #_sp>canvas{
+    height:auto;width:auto;max-height:100%;max-width:100%;object-fit:contain}
+  #_fbwrap.fsOn .fbctl{flex:0 0 auto;position:static;transform:none;width:auto;margin:0;
+    background:rgba(11,18,32,.94);border-radius:0;flex-wrap:wrap;row-gap:6px;
+    padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px))}
+  #_fbwrap.fsOn .fbtune{display:none}
+  #_fbwrap.fsOn .fbctl button{min-height:40px}         /* יעד-מגע נוח */
+  body.fsLock{overflow:hidden}
+  /* מכשיר לרוחב (או מסך נמוך) — סרגל נמוך יותר, מקסימום גובה לעמוד */
+  @media (max-height:520px){
+    #_fbwrap.fsOn .fbctl{padding:4px 8px calc(4px + env(safe-area-inset-bottom,0px));gap:6px}
+    #_fbwrap.fsOn .fbctl button{min-height:32px;padding:5px 9px;font-size:.85rem}
+    #_fbwrap.fsOn .fbctl .muted{font-size:.75rem}
+  }
   .chk{display:flex;gap:9px;align-items:flex-start;background:#faf8f2;border:1px solid var(--line);border-radius:8px;padding:10px}
   /* client — אותה שפת-עיצוב, ממורכז */
   .clientwrap{max-width:920px;margin:0 auto}
@@ -416,17 +434,35 @@ async function renderThumbs(host, bytes){ const pdf=await getOutDoc(bytes); host
     th.innerHTML='<div class="ph" style="width:88px;height:120px;display:flex;align-items:center;justify-content:center;color:#475569">⏳</div><div>'+i+'</div>'; host.appendChild(th); io.observe(th); } }
 function _spreadGroups(n){ const g=[]; if(n<=0)return g; g.push([0]); for(let k=1;k<n;k+=2) g.push(k+1<n?[k,k+1]:[k]); return g; }
 // ── מסך-מלא: toggle משותף לשני מנועי-הדפדוף (mountFlipbook/mountFlipbookFast) ──
-//    בלי זה, לחיצה שנייה קוראת שוב ל-requestFullscreen (no-op) והיציאה אפשרית רק ב-ESC.
-//    תמיכה חסרה/כשל (למשל דפדפן חוסם) לא מפילה את ה-viewer — נתפס ומתעלמים.
+//    ⚠️ מיושם כמחלקת-CSS (fsOn) ולא דרך Fullscreen API — ראה נימוק מלא
+//    בגוש ה-CSS למעלה. בקצרה: ב-iPhone ה-API אינו נתמך על אלמנט רגיל,
+//    ב-Android הוא מוסיף הודעת-מערכת מעל התצוגה, והסרגל הצף נחתך במסך צר.
+//    כשל כלשהו כאן אינו מפיל את ה-viewer — נתפס ומתעלמים.
 function _toggleFullscreen(el){
+  if(!el) return;
   try{
-    const isFull = document.fullscreenElement || document.webkitFullscreenElement;
-    if(isFull){
-      const exit = document.exitFullscreen || document.webkitExitFullscreen;
-      if(exit) Promise.resolve(exit.call(document)).catch(()=>{});
-    } else {
-      const request = el.requestFullscreen || el.webkitRequestFullscreen;
-      if(request) Promise.resolve(request.call(el)).catch(()=>{});
+    /* אם דפדפן כלשהו כבר נמצא במסך-מלא אמיתי — יוצאים ממנו, כדי שלא יהיו
+       שתי שכבות מסך-מלא זו על זו. */
+    const native = document.fullscreenElement || document.webkitFullscreenElement;
+    if(native){ const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if(exit) Promise.resolve(exit.call(document)).catch(()=>{}); }
+
+    const on = el.classList.toggle('fsOn');
+    document.body.classList.toggle('fsLock', on);
+    const b = document.getElementById('_full');
+    if(b) b.textContent = on ? '✕ יציאה ממסך מלא' : '⛶ מסך מלא';
+    if(window._zoomReset) window._zoomReset();   // מידות השתנו — הזום כבר לא רלוונטי
+
+    /* ‏ESC יוצא, בדיוק כמו במסך-מלא אמיתי. המאזין נרשם רק כשצריך ומוסר
+       ביציאה — מאזין ששורד סגירה היה תופס ESC של דיאלוגים אחרים. */
+    if(on){
+      if(!_toggleFullscreen._esc){
+        _toggleFullscreen._esc = function(e){ if(e.key === 'Escape') _toggleFullscreen(el); };
+        document.addEventListener('keydown', _toggleFullscreen._esc);
+      }
+    } else if(_toggleFullscreen._esc){
+      document.removeEventListener('keydown', _toggleFullscreen._esc);
+      _toggleFullscreen._esc = null;
     }
   }catch(e){}
 }
