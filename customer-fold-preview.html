@@ -1103,8 +1103,12 @@ function workerScreen(){
         + _portalBtn
         + '<button id="sndWa" class="primary" style="background:#25d366">🟢 שלח בוואטסאפ</button>'
         + '<a id="sndMail" href="'+mailUrl+'"><button>✉️ שלח במייל</button></a>'
-        + '<button id="cpLink">📋 העתק קישור</button>'
-        + '<a href="'+link+'" target="_blank"><button>👁 פתח כלקוח (בדיקה)</button></a></div>'
+        /* ⚠️ ניסוח מפורש: "העתק קישור" הישן לא הבחין בינו לבין העתקה
+           משורת-הכתובת — וזו בדיוק הטעות שהפילה לקוח. */
+        + '<button id="cpLink">📋 העתק קישור מלא ללקוח</button>'
+        /* ⚠️ preview=1 — מסמן את החלון הנפתח כמסך-בדיקה. הסימן שורד את
+           הסרת ה-t, ולכן נוסע עם כל כתובת שתועתק משם בטעות. */
+        + '<a href="'+link+'&preview=1" target="_blank"><button>👁 פתח כלקוח (בדיקה)</button></a></div>'
         + (_selCustRow && !_custHasPortal
             ? '<div class="muted" style="margin-top:6px;font-size:.82rem">ל־'+_esc(_selCustRow.name)+' אין פורטל — שלחו את הקישור בוואטסאפ/מייל. (פורטל נפתח מ"לקוחות ועבודות" → 🔗 קישור-פורטל)</div>'
             : '')
@@ -1154,9 +1158,39 @@ async function clientScreen(versionId, token){
   // (לא "version לא קיים" מול "token שגוי") — כדי לא לגלות ללקוח-מנחש אם
   // גרסה של מישהו אחר קיימת. t מוסר מהכתובת אוטומטית ב-ProofContext.ready().
   if(!window.ProofContext){ $('cTitle').innerHTML='<span class="bad">שגיאת-טעינה — נסו לרענן את הדף</span>'; return; }
+  /* ⚠️ פס-בדיקה (אירוע 06/08/2026). ‏"פתח כלקוח (בדיקה)" מוסיף preview=1,
+     והוא **שורד** את ה-replaceState שמסיר את t (params.delete('t') בלבד).
+     לכן גם אם עובד יעתיק בכל-זאת את הכתובת מהחלון הזה, הנמען יראה את
+     הפס ויבין מיד שקיבל כתובת-בדיקה — הסימן נוסע עם הכתובת. */
+  const _isPreview = new URLSearchParams(location.search).get('preview')==='1';
+  if(_isPreview){
+    const bar=document.createElement('div');
+    bar.id='cPreviewBar';
+    bar.style.cssText='position:sticky;top:0;z-index:50;background:#fef3c7;border-bottom:2px solid #f59e0b;'
+      + 'color:#78350f;padding:10px 14px;font-weight:700;line-height:1.5;direction:rtl';
+    bar.textContent='🔎 זהו מסך בדיקה. אין להעתיק את הכתובת; לשליחת קישור השתמשו '
+      + 'ב"העתק קישור מלא ללקוח" או "שלח קישור מלא ללקוח" במסך האישורים.';
+    document.body.insertBefore(bar, document.body.firstChild);
+  }
   const pctx=await window.ProofContext.ready(versionId);
   if(!pctx.ok || pctx.versionId!==versionId){
-    $('cTitle').innerHTML='<span class="bad">הקישור אינו תקין או פג תוקף.</span>'; return;
+    /* ⚠️ שתי תקלות שונות, שתי הודעות שונות (אירוע 06/08/2026): לקוח קיבל
+       כתובת **בלי** ‎&t=‎ וראה "אינו תקין או פג תוקף" — הודעה שמובילה אותו
+       ואת בית-הדפוס למסקנה שהפרופר בוטל, בזמן שהוא תקין לחלוטין והחסר
+       הוא הטוקן בלבד.
+
+       ⚠️ ההבחנה נשענת על ‎token‎ (הפרמטר שהכתובת עצמה נשאה) ולא על מצב-
+       פנימי של ProofContext — כלומר על מה שהמשתמש שלח, ולא על מה שהשרת
+       ענה. לכן היא **אינה מדליפה דבר**: בענף הזה עוד לא בוצעה שום קריאה
+       לשרת, ולא ניתן ללמוד ממנה אם גרסה כלשהי קיימת. הודעת "אינו תקין"
+       נשארת אחידה בדיוק כפי שהייתה, לכל שאר המקרים.
+
+       ⚠️ הטוקן עצמו אינו מוזכר בהודעה, לא נרשם ל-console ואינו נכנס
+       ל-DOM — ראה cfp-link-message-tests.js. */
+    $('cTitle').innerHTML = token
+      ? '<span class="bad">הקישור אינו תקין או פג תוקף.</span>'
+      : '<span class="bad">הקישור שקיבלתם אינו מלא. בקשו מבית הדפוס לשלוח קישור חדש.</span>';
+    return;
   }
   let rec=null;
   try{ rec=await _cDbGet('customerFoldVersions/'+versionId); }catch(e){}
@@ -1407,9 +1441,11 @@ async function approvalsScreen(){
         + '<div><b>'+(r.jobName||'—')+'</b> <span class="muted">V'+r.versionNumber+' · '+(r.pageCount||'?')+' עמ׳'+(r.customerId?(' · '+r.customerId):'')+'</span></div>'+badge(st,r)+'</div>'
         + '<div class="muted" style="font-size:.8rem">נוצר '+_fmt(r.createdAt)+(r.sentAt?(' · נשלח '+_fmt(r.sentAt)):'')+(appr.approvedAt?(' · '+(st==='approved'?'אושר':'תיקון')+' '+_fmt(appr.approvedAt)+(appr.approvedBy?(' — '+_esc(appr.approvedBy)):'')):'')+(appr.comment?(' · הערה: '+_esc(appr.comment)):'')+'</div>'
         + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
-        + '<a href="'+link+'" target="_blank"><button>👁 פתח</button></a>'
-        + '<button class="cpBtn" data-l="'+encodeURIComponent(link)+'">📋 העתק</button>'
-        + '<button class="waBtn" data-l="'+encodeURIComponent(link)+'" data-j="'+encodeURIComponent(r.jobName||'החוברת')+'">🟢 שלח שוב</button>'
+        /* ⚠️ preview=1 גם כאן: זהו המסך שממנו הצוות שולח שוב, ולכן זו
+           נקודת-ההעתקה-בטעות המסוכנת ביותר. */
+        + '<a href="'+link+'&preview=1" target="_blank"><button>👁 פתח (בדיקה)</button></a>'
+        + '<button class="cpBtn" data-l="'+encodeURIComponent(link)+'">📋 העתק קישור מלא ללקוח</button>'
+        + '<button class="waBtn" data-l="'+encodeURIComponent(link)+'" data-j="'+encodeURIComponent(r.jobName||'החוברת')+'">🟢 שלח קישור מלא ללקוח</button>'
         + (st==='revoked'?'':'<button class="rvBtn" data-v="'+r.versionId+'">🚫 בטל קישור</button>')
         // מאושר → אפשר להעביר לארכיון (מוציא מהרשימה הפעילה) · ומחיקה מלאה
         + (r.archived ? '<button class="unArcBtn" data-v="'+r.versionId+'">↩ החזר מארכיון</button>'
