@@ -245,6 +245,34 @@ window.addEventListener('appinstalled', function(){
     border:1px solid #86efac; border-radius:11px; padding:1px 8px; font-size:.74rem; font-weight:800; }
   .seenAgo { display:inline-flex; align-items:center; gap:4px; background:#f3f4f6; color:#6b7280;
     border:1px solid var(--line); border-radius:11px; padding:1px 8px; font-size:.74rem; font-weight:700; }
+  /* ── רכיב-פעולות אחיד (06/08/2026) ──────────────────────────────────────
+     ⚠️ הכפתורים **אינם נוצרים מחדש** — הרכיב מארגן את אותם צמתי-DOM שכבר
+     רונדרו. לכן אי-אפשר לאבד פעולה, ואי-אפשר לחשוף פעולה שלא הייתה בשורה. */
+  .acts .actPrimary { background:#2d3561; color:#fff; border:1px solid #2d3561; font-weight:800; }
+  .acts .actPrimary:hover { background:#3b4680; }
+  .acts .actSecondary { background:#fff; color:#2d3561; border:1px solid var(--line); font-weight:700; }
+  .acts .actPrimary, .acts .actSecondary { min-height:40px; padding:8px 16px; border-radius:8px; cursor:pointer; font-family:inherit; }
+  .actMoreWrap { position:relative; display:inline-block; }
+  .actMoreBtn { min-height:40px; padding:8px 12px; border-radius:8px; border:1px solid var(--line);
+    background:#fff; color:#374151; font-weight:800; cursor:pointer; font-family:inherit; }
+  .actMoreBtn:hover { background:#f3f4f6; }
+  /* ⚠️ position:fixed — התפריט לא נחתך בתוך טבלה/אזור עם overflow */
+  .actMenu { position:fixed; z-index:200; background:#fff; border:1px solid var(--line); border-radius:10px;
+    box-shadow:0 10px 30px rgba(0,0,0,.18); padding:6px; display:none; flex-direction:column; gap:2px;
+    min-width:230px; max-width:92vw; max-height:70vh; overflow:auto; }
+  .actMenu.on { display:flex; }
+  .actMenu > * { min-height:40px; width:100%; text-align:right; justify-content:flex-start; border:none;
+    background:none; border-radius:7px; padding:9px 12px; font-size:.88rem; font-weight:600; cursor:pointer;
+    color:#374151; font-family:inherit; display:flex; align-items:center; text-decoration:none; }
+  .actMenu > *:hover { background:#f3f4f6; }
+  .actMenu .actDangerSep { border-top:1px solid var(--line); margin:5px 2px 3px; min-height:0; padding:0; pointer-events:none; }
+  .actMenu .del, .actMenu [data-deljob], .actMenu [data-delpart] { color:#b91c1c; font-weight:800; }
+  .actMenu .del:hover, .actMenu [data-deljob]:hover, .actMenu [data-delpart]:hover { background:#fef2f2; }
+  @media (max-width:640px){
+    .acts { flex-wrap:wrap; }
+    .acts .actPrimary { flex:1 1 100%; }        /* ראשי ברוחב מלא במובייל */
+    .actMenu { min-width:0; width:min(92vw,320px); }
+  }
   .ibxDismiss { background:#fff; color:#6b7280; border:1px solid var(--line); border-radius:8px;
     padding:6px 12px; font-weight:700; font-size:.82rem; cursor:pointer; font-family:inherit; }
   .ibxDismiss:hover { background:#f3f4f6; color:#b91c1c; }
@@ -1158,6 +1186,13 @@ function render(rows) {
   /* "פתח ובדוק" בתיבת-"חדש מהלקוחות" → בוחר את הלקוח (אותה התנהגות בדיוק
      כמו .custItem, כולל מעבר-יום במבנה-פורטל) — כל הפעולות הקיימות של
      חלון-הלקוח (👁 נצפה, ⬇ הורד, קישור, דרישה…) זמינות משם כרגיל. */
+  /* ארגון-הפעולות בשורות — אחרי שה-HTML נכתב ולפני שהמשתמש נוגע.
+     ⚠️ התפריטים יושבים על <body> (כדי שלא ייחתכו ב-overflow של הטבלה),
+     ולכן ברינדור-מחדש מנקים את הישנים כדי שלא יצטברו. */
+  _actCloseMenu();
+  document.querySelectorAll('body > .actMenu').forEach(m => m.remove());
+  _applyActionGroups(document);
+
   /* "✕ הסר" — מוריד את הפריט מ"חדש מהלקוחות" בלבד. מסמן shopSeenAt (השדה
      הקיים של "👁 נצפה") — **לא מוחק** את העבודה ולא נוגע בקבצים. */
   document.querySelectorAll('[data-dismiss]').forEach(b => b.onclick = async (ev) => {
@@ -2232,6 +2267,91 @@ if ('serviceWorker' in navigator) {
    2. כרום לפעמים לא יורה beforeinstallprompt מיד. קודם הסתרנו את הכפתור עד
       שהאירוע נורה — כלומר הוא פשוט לא היה שם. עכשיו הוא תמיד מוצג, ואם אין
       הצעה זמינה — נאמר בדיוק מה לעשות. */
+/* ═══ רכיב-פעולות אחיד לשורות-העבודה ═══════════════════════════════════════
+   ⚠️ עיקרון-הבטיחות: הרכיב **אינו יוצר ואינו מוחק כפתורים** — הוא מזיז את
+   אותם צמתי-DOM שכבר רונדרו. מכאן נובע ישירות:
+     · אי-אפשר לאבד פעולה (כל צומת עובר, אף אחד לא נמחק).
+     · אי-אפשר לחשוף פעולה שלא הייתה בשורה (אין מקור ליצירה).
+     · ה-handlers, ה-data-attributes וה-payloads נשארים **זהים** — כולל
+       event-delegation, כי הצמתים הם אותם צמתים.
+   הפעולות המסוכנות יורדות לתחתית התפריט, מופרדות בקו ובאדום.
+   ⚠️ אין כאן שום שכבת-הרשאות: הסתרה בתפריט אינה אבטחה, והאכיפה נשארת
+   בשרת/בחוקים (ראה משימת-ההמשך "Audit הרשאות לפעולות במסך proof-admin"). */
+const ACT_DANGER = el => el.matches('.del,[data-deljob],[data-delpart]');
+/* סדר-עדיפות לפעולה הראשית — הראשון שקיים בשורה זוכה. הכל מתוך מה שכבר רונדר. */
+const ACT_PRIMARY_ORDER = ['[data-opencust]', 'a[href*="proof-viewer"]', '[data-link*="proof-client"]',
+                           '[data-dl]', '[data-link]', '[data-portal]', '[data-editproof]'];
+let _actOpenMenu = null;
+function _actCloseMenu(){ if (_actOpenMenu){ _actOpenMenu.classList.remove('on'); _actOpenMenu = null; } }
+function _applyActionGroups(root){
+  (root || document).querySelectorAll('.acts:not([data-grouped])').forEach(box => {
+    box.setAttribute('data-grouped', '1');
+    const items = Array.from(box.children).filter(el => el.nodeType === 1);
+    if (items.length <= 2) return;                       // מעט פעולות — אין טעם בתפריט
+    const picked = [];
+    for (const sel of ACT_PRIMARY_ORDER) {
+      if (picked.length >= 2) break;
+      const el = items.find(x => !picked.includes(x) && !ACT_DANGER(x) && x.matches(sel));
+      if (el) picked.push(el);
+    }
+    const rest = items.filter(x => !picked.includes(x));
+    if (!rest.length) return;
+    if (picked[0]) picked[0].classList.add('actPrimary');
+    if (picked[1]) picked[1].classList.add('actSecondary');
+
+    const wrap = document.createElement('span'); wrap.className = 'actMoreWrap';
+    const btn = document.createElement('button');
+    btn.className = 'actMoreBtn'; btn.type = 'button';
+    btn.textContent = '⋮ פעולות נוספות'; btn.title = 'פעולות נוספות';
+    btn.setAttribute('aria-haspopup', 'true'); btn.setAttribute('aria-expanded', 'false');
+    const menu = document.createElement('div'); menu.className = 'actMenu';
+    const safe = rest.filter(x => !ACT_DANGER(x)), danger = rest.filter(ACT_DANGER);
+    safe.forEach(el => menu.appendChild(el));            // אותו צומת — לא עותק
+    if (danger.length) {
+      const sep = document.createElement('div'); sep.className = 'actDangerSep';
+      menu.appendChild(sep);
+      danger.forEach(el => {
+        /* אישור שמציג במפורש את שם-העבודה ואת הפעולה. ⚠️ נוסף כשכבה מקדימה
+           בלבד — ה-handler המקורי נשאר ורץ רק אם אושר. */
+        if (!el.dataset.confirmWired) {
+          el.dataset.confirmWired = '1';
+          const jobName = (box.closest('tr')?.querySelector('td b')?.textContent || '').trim();
+          el.addEventListener('click', ev => {
+            const what = el.matches('[data-delpart]') ? 'מחיקת ריצה' : 'מחיקת עבודה';
+            const msg = what + (jobName ? ('\n\nעבודה: ' + jobName) : '') + '\n\nהפעולה אינה הפיכה. להמשיך?';
+            if (!confirm(msg)) { ev.stopImmediatePropagation(); ev.preventDefault(); }
+          }, true);                                       // capture — לפני ה-handler הקיים
+        }
+        if (!el.textContent.trim() || el.textContent.trim() === '🗑')
+          el.textContent = el.matches('[data-delpart]') ? '🗑 מחק ריצה' : '🗑 מחק עבודה';
+        menu.appendChild(el);
+      });
+    }
+    box.appendChild(wrap); wrap.appendChild(btn); document.body.appendChild(menu);
+
+    btn.addEventListener('click', ev => {
+      ev.preventDefault(); ev.stopPropagation();          // לא לפתוח את הכרטיס שמתחת
+      const isOpen = menu.classList.contains('on');
+      _actCloseMenu();                                    // תפריט אחד פתוח בכל רגע
+      if (isOpen) { btn.setAttribute('aria-expanded', 'false'); return; }
+      const r = btn.getBoundingClientRect();
+      menu.classList.add('on'); _actOpenMenu = menu;
+      btn.setAttribute('aria-expanded', 'true');
+      const mh = menu.offsetHeight, mw = menu.offsetWidth;
+      menu.style.top  = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - mh - 8)) + 'px';
+      menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8)) + 'px';
+      try { (menu.querySelector('button,a') || menu).focus({ preventScroll: true }); } catch(e){}
+    });
+    menu.addEventListener('click', ev => { if (ev.target.closest('button,a')) _actCloseMenu(); });
+  });
+}
+document.addEventListener('click', ev => {
+  if (_actOpenMenu && !_actOpenMenu.contains(ev.target) && !ev.target.closest('.actMoreBtn')) _actCloseMenu();
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') _actCloseMenu(); });
+window.addEventListener('resize', _actCloseMenu);
+window.addEventListener('scroll', _actCloseMenu, true);
+
 /* ⚠️ חיווט "⋮ פעולות נוספות" — בלעדיו התפריט קיים ב-DOM אבל display:none
    ואף אחד לא פותח אותו, כלומר 4 הפעולות שבתוכו (התקנה/חלון-נפרד · פורטלים
    ליומן · ניצול-אחסון · סל-מיחזור) פשוט בלתי-נגישות. זה בדיוק דפוס
