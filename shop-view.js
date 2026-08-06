@@ -244,6 +244,23 @@
        waiting — נצפה וטרם טופל
        inwork  — יש כרטיס-עבודה פעיל (ברמת-לקוח)
      ⚠️ כל גיליון מסווג פעם אחת בדיוק → אין מונים כפולים (נבדק). */
+  /* "הלקוח מעלה קבצים כרגע" — משדה `uploading` שמסך-הלקוח כותב בתחילת ההעלאה
+     ומוחק בסיומה. ⚠️ תוקף-זמן: אם הדפדפן של הלקוח נסגר באמצע, השדה נשאר
+     תקוע; לכן מתייחסים אליו כ"חי" רק בחלון קצר. אין כאן שדה חדש — רק תצוגה
+     של נתון שכבר נכתב. */
+  var UPLOADING_FRESH_MS = 15 * 60 * 1000;
+  function uploadingNow(p, now){
+    if (!p || !p.uploading) return null;
+    var at = _i(p.uploading.at);
+    if (!at) return null;
+    if ((_i(now) || 0) - at > UPLOADING_FRESH_MS) return null;   // ישן → לא מציגים "כרגע"
+    return { at: at, name: String(p.uploading.name || ''), pages: _i(p.uploading.pages) || 0 };
+  }
+
+  /* האם הצוות כבר "סילק" את הפריט מהתיבה. משתמשים ב-shopSeenAt הקיים
+     (אותו שדה של "👁 נצפה") — בלי להוסיף schema. */
+  function dismissedFromInbox(p){ return anySeen(p); }
+
   function inboxBoard(customers, now){
     var inbox = [], waiting = [], inwork = [];
     (customers || []).forEach(function(c){
@@ -252,16 +269,25 @@
         if (!p) return;
         var st = bizStatus(p);
         if (st === 'done') return;                       // היסטוריה — לא בלוח העליון
+        var up = uploadingNow(p, now);
+        /* פריט שהצוות סילק מהתיבה יורד ממנה. ⚠️ אם הלקוח מעלה **כרגע**, הוא
+           חוזר להופיע — זו פעילות חדשה, לא "מה שכבר טיפלנו בו". */
+        if (st === 'stub' && dismissedFromInbox(p) && !up) return;
         if (c.hasActiveCard && st !== 'stub' && st !== 'failed') st = 'inwork';
         var item = { customer: c.name, p: p, kind: uploadKind(p), status: st,
-                     at: _i(p.createdAt) || _i(p.approvedAt) || 0, files: realFileCount(p) };
+                     at: _i(p.createdAt) || _i(p.approvedAt) || 0, files: realFileCount(p),
+                     uploading: up };
+        if (up) { inbox.push(item); return; }            // מעלה כרגע → תמיד בראש התיבה
         if (st === 'new' || st === 'stub' || st === 'failed') inbox.push(item);
         else if (st === 'seen') waiting.push(item);
         else inwork.push(item);
       });
     });
     var rank = { 'new': 0, failed: 1, stub: 2 };
-    inbox.sort(function(a,b){ return (rank[a.status]-rank[b.status]) || (b.at-a.at); });
+    // "מעלה כרגע" קודם לכל השאר
+    inbox.sort(function(a,b){
+      if (!!a.uploading !== !!b.uploading) return a.uploading ? -1 : 1;
+      return (rank[a.status]-rank[b.status]) || (b.at-a.at); });
     waiting.sort(function(a,b){ return b.at-a.at; });
     inwork.sort(function(a,b){ return b.at-a.at; });
     /* מונה-"חדש": העלאות-אמיתיות שטרם נפתחו בלבד — stubs אינם נספרים בו */
@@ -279,5 +305,6 @@
            sentOn: sentOn, startOfDay: startOfDay, dayNameOf: dayNameOf, todayBoard: todayBoard,
            hasRealFiles: hasRealFiles, realFileCount: realFileCount, uploadKind: uploadKind,
            bizStatus: bizStatus, inboxBoard: inboxBoard,
+           uploadingNow: uploadingNow, dismissedFromInbox: dismissedFromInbox,
            KIND_LABELS: KIND_LABELS, BIZ_LABELS: BIZ_LABELS };
 });

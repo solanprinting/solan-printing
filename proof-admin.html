@@ -240,6 +240,14 @@ window.addEventListener('appinstalled', function(){
   .ibxSec summary { cursor:pointer; font-weight:800; color:#2d3561; padding:6px 0; }
   .ibxRow { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 8px;
     border-bottom:1px dashed var(--line); font-size:.86rem; }
+  .ibxDismiss { background:#fff; color:#6b7280; border:1px solid var(--line); border-radius:8px;
+    padding:6px 12px; font-weight:700; font-size:.82rem; cursor:pointer; font-family:inherit; }
+  .ibxDismiss:hover { background:#f3f4f6; color:#b91c1c; }
+  /* "מעלה כרגע" — חיווי חי, בולט אך לא צועקני */
+  .ibxCard.stUp { border-color:#2563eb; background:#eff6ff; }
+  .ibxUp { font-size:.82rem; font-weight:800; color:#1d4ed8; display:flex; align-items:center; gap:6px; }
+  .ibxUp::before { content:''; width:8px; height:8px; border-radius:50%; background:#2563eb; animation:ibxPulse 1.2s infinite; }
+  @keyframes ibxPulse { 0%,100%{opacity:1} 50%{opacity:.25} }
   .ibxToast { position:fixed; bottom:18px; right:18px; z-index:99; background:#2d3561; color:#fff;
     padding:12px 18px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.25); font-weight:700; max-width:320px; }
   @media (max-width:640px){ .ibxCards{flex-direction:column} .ibxCard{max-width:none} .ibxToast{left:12px;right:12px;max-width:none} }
@@ -908,12 +916,20 @@ function render(rows) {
       const act = it.status === 'stub'
         ? `<button class="ibxOpen" data-portal="${escapeHtml(it.customer)}" style="background:#6b7280">🔗 צור קשר / קישור-פורטל</button>`
         : `<button class="ibxOpen" data-opencust="${escapeHtml(it.customer)}">פתח ובדוק</button>`;
+      /* "הסר מהרשימה" — מסמן שהצוות ראה (shopSeenAt הקיים, בלי schema חדש).
+         העבודה **לא נמחקת** — היא רק יורדת מ"חדש מהלקוחות". אם הלקוח יעלה
+         אח"כ קובץ אמיתי / יתחיל להעלות, היא תחזור להופיע. */
+      const dis = `<button class="ibxDismiss" data-dismiss="${escapeHtml(it.p.id||'')}" title="הסרה מהרשימה בלבד — העבודה נשמרת">✕ הסר</button>`;
       const cls = it.status === 'new' ? ' stNew' : it.status === 'stub' ? ' stStub' : it.status === 'failed' ? ' stFailed' : '';
-      return `<div class="ibxCard${cls}">
-        <div class="ibxSt">${bl.icon} ${bl.label}</div>
+      // חיווי חי: הלקוח מעלה קבצים ברגע זה (משדה uploading שמסך-הלקוח כותב)
+      const upNow = it.uploading
+        ? `<div class="ibxUp">⬆ הלקוח מעלה קבצים כעת${it.uploading.name ? (' · ' + escapeHtml(it.uploading.name)) : ''}${it.uploading.pages ? (' · ' + it.uploading.pages + ' עמ׳') : ''}</div>` : '';
+      return `<div class="ibxCard${cls}${it.uploading ? ' stUp' : ''}">
+        <div class="ibxSt">${bl.icon} ${bl.label}</div>${upNow}
         <div><b>${escapeHtml(it.customer)}</b> · ${escapeHtml(kind)}</div>
         ${ttl ? `<div class="ibxMeta">${escapeHtml(ttl)}</div>` : ''}${stubNote}
-        <div class="ibxMeta">${meta}</div>${act}</div>`;
+        <div class="ibxMeta">${meta}</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${act}${dis}</div></div>`;
     };
     const _ibxRow = (it) => `<div class="ibxRow"><span><b>${escapeHtml(it.customer)}</b>${it.p.title ? (' · ' + escapeHtml(it.p.title)) : ''}
         <span class="ibxMeta">${fmt(it.at)}</span></span>
@@ -1093,6 +1109,21 @@ function render(rows) {
   /* "פתח ובדוק" בתיבת-"חדש מהלקוחות" → בוחר את הלקוח (אותה התנהגות בדיוק
      כמו .custItem, כולל מעבר-יום במבנה-פורטל) — כל הפעולות הקיימות של
      חלון-הלקוח (👁 נצפה, ⬇ הורד, קישור, דרישה…) זמינות משם כרגיל. */
+  /* "✕ הסר" — מוריד את הפריט מ"חדש מהלקוחות" בלבד. מסמן shopSeenAt (השדה
+     הקיים של "👁 נצפה") — **לא מוחק** את העבודה ולא נוגע בקבצים. */
+  document.querySelectorAll('[data-dismiss]').forEach(b => b.onclick = async (ev) => {
+    ev.stopPropagation();
+    const id = b.dataset.dismiss;
+    if (!id) return;
+    b.disabled = true; b.textContent = 'מסיר…';
+    try {
+      await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ shopSeenAt: Date.now(), shopSeenBy: 'בית-הדפוס' }) });   // אותה מוסכמה כמו סימון-"נצפה" הקיים
+      await loadProofs();
+    } catch(e){ b.disabled = false; b.textContent = '✕ הסר'; msg('לא הצלחנו להסיר — נסו שוב'); }
+  });
+
   document.querySelectorAll('[data-opencust]').forEach(b => b.onclick = () => {
     const c = b.dataset.opencust;
     _selCust = c;
@@ -2152,6 +2183,22 @@ if ('serviceWorker' in navigator) {
    2. כרום לפעמים לא יורה beforeinstallprompt מיד. קודם הסתרנו את הכפתור עד
       שהאירוע נורה — כלומר הוא פשוט לא היה שם. עכשיו הוא תמיד מוצג, ואם אין
       הצעה זמינה — נאמר בדיוק מה לעשות. */
+/* ⚠️ חיווט "⋮ פעולות נוספות" — בלעדיו התפריט קיים ב-DOM אבל display:none
+   ואף אחד לא פותח אותו, כלומר 4 הפעולות שבתוכו (התקנה/חלון-נפרד · פורטלים
+   ליומן · ניצול-אחסון · סל-מיחזור) פשוט בלתי-נגישות. זה בדיוק דפוס
+   "כפתור שלא מחווט" שנתפס כאן בעבר — לכן יש עליו גם בדיקה. */
+(function(){
+  const btn = $('moreBtn'), menu = $('moreMenu');
+  if (!btn || !menu) return;
+  const open = on => { menu.style.display = on ? 'flex' : 'none'; btn.setAttribute('aria-expanded', on ? 'true' : 'false'); };
+  open(false);
+  btn.onclick = (e) => { e.stopPropagation(); open(menu.style.display === 'none'); };
+  // בחירה בתפריט סוגרת אותו (הפעולה עצמה מטופלת ע"י המטפל הקיים של הכפתור)
+  menu.addEventListener('click', (e) => { if (e.target.closest('button')) setTimeout(() => open(false), 0); });
+  document.addEventListener('click', (e) => { if (!menu.contains(e.target) && e.target !== btn) open(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') open(false); });
+})();
+
 /* ברירת-המחדל של כיוון-הדפדוף לפי הלקוח (customers[].defaultReadingDirection).
    נקרא **פעם אחת בזמן יצירת-עבודה** ומועתק לרשומת-העבודה. התאמת-שם מנורמלת
    (רווחים כפולים/גרשיים), כדי ש"נקודה צפונית" ו"הנקודה הצפונית" לא יתפספסו
