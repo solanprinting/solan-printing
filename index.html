@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1786104251';
+window.APP_VERSION = '1786124661';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1608,9 +1608,9 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
      ומחזיר אותו בדיוק לכתובת שממנה בא (returnTo).
      ⚠️ מסך ה-PIN נשאר כבחירת-זהות פנימית אחרי ההתחברות במייל — הוא אינו
      מעניק שום הרשאת Firebase. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786104251"></script>
-<script src="auth-client.js?v=1786104251"></script>
-<script src="auth-guard.js?v=1786104251" data-page="krtis-avoda.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1786124661"></script>
+<script src="auth-client.js?v=1786124661"></script>
+<script src="auth-guard.js?v=1786124661" data-page="krtis-avoda.html" data-mode="enforce"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 try { if (window.LibLoader) LibLoader.autoFill(['xlsx','jspdf','html2canvas','pdfjs','qrcode','jsbarcode']); } catch(e){}
@@ -1627,26 +1627,26 @@ window._pdfEngineReady = (window.PdfEngine
      ב-_fbGet / _fbPut / _fbSnapshot, ו-async או defer היו מפילים את כולם. -->
 <!-- שער-התפקיד של המשרד. ⚠️ **לפני** solan-data.js: ‏_fbGet/_fbPut שם
      קוראים ל-OfficeCards, ולכן הוא חייב להיות מוגדר קודם. -->
-<script src="office-cards.js?v=1786104251"></script>
+<script src="office-cards.js?v=1786124661"></script>
 <!-- ⚠️ הדרך היחידה שבה המסך נוגע בתור המכונות. אין כתיבה ישירה. -->
-<script src="queue-client.js?v=1786104251"></script>
-<script src="solan-data.js?v=1786104251"></script>
+<script src="queue-client.js?v=1786124661"></script>
+<script src="solan-data.js?v=1786124661"></script>
 <!-- ⚠️ מנגנון הסנכרון — צורך את _fbGet/_fbPut מ-solan-data.js,
      ולכן חייב לבוא **אחריו** ולפני הבלוק הגדול. -->
-<script src="solan-sync.js?v=1786104251"></script>
-<script src="solan-toast.js?v=1786104251"></script>
-<script src="solan-persist.js?v=1786104251"></script>
+<script src="solan-sync.js?v=1786124661"></script>
+<script src="solan-toast.js?v=1786124661"></script>
+<script src="solan-persist.js?v=1786124661"></script>
 <!-- שכבת ה-AI (חילוץ 6B). צורכת את solan-data.js ואת showToast, ולכן אחריהם.
      ⚠️ חמש שורות האתחול של פרוקסי-הענן נשארו במיקומן המקורי בבלוק הגדול,
      כדי שקריאת-הרשת בזמן-הטעינה לא תוקדם לכאן. -->
-<script src="solan-ai.js?v=1786104251"></script>
+<script src="solan-ai.js?v=1786124661"></script>
 <!-- מנוע ההחלטות Prepress (חילוץ 7). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-prepress.js?v=1786104251"></script>
+<script src="solan-prepress.js?v=1786124661"></script>
 <!-- מנוע הלמידה (חילוץ 8). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-learn.js?v=1786104251"></script>
+<script src="solan-learn.js?v=1786124661"></script>
 <!-- השלמה-אוטומטית (חילוץ 9). אין לו תלות בשכבה מוקדמת;
      המיקום נקבע רק כדי שיהיה לפני הבלוק הגדול. -->
-<script src="solan-autocomplete.js?v=1786104251"></script>
+<script src="solan-autocomplete.js?v=1786124661"></script>
 </head>
 <body>
 
@@ -22865,16 +22865,72 @@ function _opSetPaper(cardId, runIdx, paper) {
   try { _renderOperatorScreen(); } catch (e) {}
 }
 
+/* ⚠️ 08/08/2026 — הודעה גלויה **בתוך** מסך-הדפס.
+   ‏showToast אינו שמיש כאן: ‏#solanToast הוא z-index:9999 ומוצמד ל-body,
+   ו-#operator-screen הוא position:fixed;inset:0 עם z-index:99999 — כלומר
+   ה-toast מצויר מתחת למסך האטום ואינו נראה. הבאנר נשתל כילד של המסך
+   עצמו, ולכן הוא באותו הקשר-ערמה ותמיד מעליו. */
+function _opShowError(msg) {
+  var screen = document.getElementById('operator-screen');
+  if (!screen) return false;
+  var el = document.getElementById('op-err-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'op-err-banner';
+    el.style.cssText = 'position:absolute;top:0;left:0;right:0;z-index:10;background:#b91c1c;color:#fff;'
+      + 'padding:14px 18px;font-size:1.05rem;font-weight:700;text-align:center;direction:rtl;'
+      + 'box-shadow:0 4px 14px rgba(0,0,0,.35)';
+    screen.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.display = '';
+  return true;
+}
+
 function _opPushCardsMerged(changedId) {
   var loc = (cards||[]).find(function(c){ return c && String(c.id) === String(changedId); });
   if (loc) loc._upd = Date.now();   // הכרטיס ששונה — חותמת טרייה כדי שהמיזוג יעדיף אותו
   return window._fbGet('cards').then(function(sv){
-    var server = Array.isArray(sv) ? sv : (sv && typeof sv==='object' ? Object.values(sv) : []);
+    /* ⚠️ 08/08/2026 — תיקון-חירום: שני המגנים שכבר קיימים בווריאנט של
+       המשרד (solan-sync.js:140 ו-:144) חסרו כאן לגמרי.
+       ‏_fbGet מחזיר null גם על 403 וגם על נפילת-רשת, ואי-אפשר להבחין —
+       ולכן המיזוג רץ מול [] ודחף מערך בן כרטיס אחד במקום 130. זהו בדיוק
+       המנגנון של תקרית מחיקת-הכרטיסים מ-30/07, בווריאנט שלא קיבל את
+       התיקון. שוחזר בהרצה: 130 בשרת → cards=1 + PUT בוצע. */
+    if (sv === null) {
+      console.warn('[cards] קריאת-שרת נכשלה/ריקה — דחיפת מסך-הדפס נדחתה');
+      _opShowError('⚠️ אין כרגע חיבור לשרת — השינוי לא נשמר. אל תסגור את המסך; נסה שוב בעוד רגע.');
+      return false;   // לא ממזגים, לא דוחפים, ולא נוגעים ב-cards המקומי
+    }
+    var server = Array.isArray(sv) ? sv : (typeof sv==='object' ? Object.values(sv) : []);
     // בסיס = השרת (הכי עדכני); רק הכרטיס ששונה מהמקומי (עם _upd חדש) מנצח
-    cards = _mergeCardArrays(server, loc ? [loc] : []);
+    var merged = _mergeCardArrays(server, loc ? [loc] : []);
+    /* מגן-מחיקה-המונית — אותו מגן בדיוק כמו במסלול המשרד. הפלת כרטיסי-שרת
+       רבים בלי tombstones היא תקלה, לא עריכה. */
+    if (!_cardsWipeGuard(server, merged, (typeof deletedIds !== 'undefined' && deletedIds && deletedIds.cards) || [])) {
+      console.error('[cards] המיזוג היה מוחק ' + server.length + '→' + merged.length + ' כרטיסים בלי tombstones — דחיפת מסך-הדפס נחסמה');
+      _opShowError('⚠️ השמירה נחסמה כדי למנוע אובדן נתונים. השינוי לא נשמר — פנה לבית-הדפוס.');
+      return false;   // לא מאמצים ולא דוחפים
+    }
+    cards = merged;
     localStorage.setItem('solanCards', JSON.stringify(cards));
-    if (window._fbPut) return window._fbPut('cards', cards);
-  }).catch(function(){ /* אם ההבאה נכשלה — לא דוחפים כלל, כדי לא לדרוס */ });
+    if (!window._fbPut) return;
+    return window._fbPut('cards', cards).then(function(ok){
+      if (ok === false) {
+        /* ⚠️ בלי כפיית-משיכה: היא הייתה דורסת את השינוי המקומי (‏_pollGet
+           מאמץ בהשמה מלאה, בלי מיזוג) ומאיצה אובדן-נתונים. כאן רק מדווחים;
+           הנתון המקומי נשאר, וההודעה גלויה. */
+        console.error('[cards] דחיפת מסך-הדפס נכשלה — הנתון המקומי נשמר');
+        _opShowError('⚠️ השמירה לשרת נכשלה. השינוי נשמר במכשיר בלבד — הודע לבית-הדפוס.');
+        return false;
+      }
+      return true;
+    });
+  }).catch(function(e){ /* אם ההבאה נכשלה — לא דוחפים כלל, כדי לא לדרוס */
+    console.error('[cards] דחיפת מסך-הדפס נדחתה', e);
+    _opShowError('⚠️ אין כרגע חיבור לשרת — השינוי לא נשמר.');
+    return false;
+  });
 }
 
 /* ⚠️ **סדר הפעולות התהפך.** קודם המסך עבר לעבודה החדשה, סימן את הכרטיס
