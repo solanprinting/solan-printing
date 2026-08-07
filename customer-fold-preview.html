@@ -24,9 +24,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786139782"></script>
-<script src="auth-client.js?v=1786139782"></script>
-<script src="auth-guard.js?v=1786139782" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786142245"></script>
+<script src="auth-client.js?v=1786142245"></script>
+<script src="auth-guard.js?v=1786142245" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -670,8 +670,17 @@ async function mountFlipbook(host, bytes){
   $('_prev').disabled=true; $('_next').disabled=true;
   const preN=Math.max(2, Math.ceil(n*0.5)); const t0=performance.now();
   for(let i=1;i<=preN;i++){ if(_outKey!==bytes) return; try{ await pageImg(pdf,i,true); }catch(e){}
-    const pct=Math.round(i/preN*100), sp=$('_sp');
-    if(sp) sp.innerHTML='<div style="max-width:380px;margin:auto;text-align:center;color:#94a3b8;padding:22px">📖 מכין את החוברת… <b>'+pct+'%</b> ('+i+'/'+preN+' עמ׳)<div style="font-size:.75rem;opacity:.7;margin-top:4px">השאר בלשונית זו — הטעינה נעצרת ברקע וממשיכה כשחוזרים</div>'
+    /* ⚠️ **מכנה אחד לשני המספרים.** ‏pct נמדד קודם מול preN (יעד-הטעינה-
+       המוקדמת, חצי מהעמודים) בזמן שהספירה נמדדה מול n — שני מספרים זה
+       לצד זה שאמרו יחסים שונים: "13% · 2 מתוך 32". הקורא אינו יכול לדעת
+       שהאחוז מודד משהו אחר, והמסקנה הסבירה היא שאחד מהם שגוי.
+       ⚠️ ‏i הוא **מספר-עמוד פיזי**: הוא נמסר כמות-שהוא ל-pageImg → _renderPage
+       → pdf.getPage(i), וה-await שלפני השורה כבר הסתיים — כלומר העמוד
+       באמת מוכן. לכן מותר להציג אותו, ובאותו מכנה: i מתוך n.
+       ⚠️ התוצאה: הפס מגיע ל-~50% כשהטעינה-המוקדמת נגמרת והחוברת נפתחת,
+       והשאר ממשיך ברקע. זה **מה שקורה בפועל** — ולא עיגול לנוחות. */
+    const pct=Math.round(i/n*100), sp=$('_sp');
+    if(sp) sp.innerHTML='<div style="max-width:380px;margin:auto;text-align:center;color:#94a3b8;padding:22px">📖 מכינים את החוברת… <b>'+pct+'%</b> · הוכנו <b>'+i+'</b> מתוך <b>'+n+'</b> עמודים<div style="font-size:.75rem;opacity:.7;margin-top:4px">אפשר להתחיל לדפדף כשייפתח — שאר העמודים ממשיכים להיטען ברקע</div>'
       + '<div style="height:8px;background:#334155;border-radius:5px;margin-top:10px"><div style="height:100%;width:'+pct+'%;background:#16a34a;border-radius:5px;transition:width .2s"></div></div></div>'; }
   if(_outKey!==bytes) return;
   await draw();   // השער מהמטמון — מיידי; דפדוף בחצי-הראשון חלק
@@ -755,7 +764,12 @@ async function mountFlipbookFast(host, thumbsHost, book){
   // שלב 1 — רינדור-מקור מהיר לכל (קונטרס,צד) → תצוגה מיידית + thumbnails
   for(let i=0;i<need.length;i++){ const {ri,side}=need[i]; const d=await ensureDoc(ri);
     R[ri].srcCv[side]=await _renderSource(d, side, SC_LO); if(myGen!==_fastGen) return;
-    const pr=$('_prog'); if(pr&&i===0) pr.textContent='📖 טוען…'; const bg=$('_bg'); if(bg) bg.textContent='טוען '+(i+1)+'/'+need.length+'…'; ccache={}; draw(); }
+    /* ⚠️ **בלי שבר-מספרי.** ‏need.length הוא מספר צדדי-הגיליון שצריך
+       לרנדר, לא עמודים — והיחס ביניהם אינו 1:1. הצגתו ללקוח ייצרה מספר
+       שנראה כמו ספירת-עמודים ואינו. אין כאן מספר-עמודים אמיתי להציג
+       בשלב הזה, ולכן לא מציגים מספר בכלל — עדיף חסר-מספר על-פני מספר
+       שמשמעותו אחרת. הספירה הפיזית מגיעה מיד אחר-כך ב-'מחדד… N/n'. */
+    const pr=$('_prog'); if(pr&&i===0) pr.textContent='📖 טוענים את הפרופר…'; const bg=$('_bg'); if(bg) bg.textContent='מכינים את התצוגה…'; ccache={}; draw(); }
   renderThumbsFast();
   // שלב 2 — חידוד פר-עמוד בסדר-קריאה: 6 הראשונים חדים מיד, השאר תוך-כדי דפדוף.
   //   כל תא מרונדר חד ישירות מ-pdf.js (אזור-התא בקנה גבוה · פענוח-הגיליון כבר במטמון → מהיר).
