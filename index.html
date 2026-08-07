@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1786124661';
+window.APP_VERSION = '1786127824';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1608,9 +1608,9 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
      ומחזיר אותו בדיוק לכתובת שממנה בא (returnTo).
      ⚠️ מסך ה-PIN נשאר כבחירת-זהות פנימית אחרי ההתחברות במייל — הוא אינו
      מעניק שום הרשאת Firebase. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786124661"></script>
-<script src="auth-client.js?v=1786124661"></script>
-<script src="auth-guard.js?v=1786124661" data-page="krtis-avoda.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1786127824"></script>
+<script src="auth-client.js?v=1786127824"></script>
+<script src="auth-guard.js?v=1786127824" data-page="krtis-avoda.html" data-mode="enforce"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 try { if (window.LibLoader) LibLoader.autoFill(['xlsx','jspdf','html2canvas','pdfjs','qrcode','jsbarcode']); } catch(e){}
@@ -1627,26 +1627,26 @@ window._pdfEngineReady = (window.PdfEngine
      ב-_fbGet / _fbPut / _fbSnapshot, ו-async או defer היו מפילים את כולם. -->
 <!-- שער-התפקיד של המשרד. ⚠️ **לפני** solan-data.js: ‏_fbGet/_fbPut שם
      קוראים ל-OfficeCards, ולכן הוא חייב להיות מוגדר קודם. -->
-<script src="office-cards.js?v=1786124661"></script>
+<script src="office-cards.js?v=1786127824"></script>
 <!-- ⚠️ הדרך היחידה שבה המסך נוגע בתור המכונות. אין כתיבה ישירה. -->
-<script src="queue-client.js?v=1786124661"></script>
-<script src="solan-data.js?v=1786124661"></script>
+<script src="queue-client.js?v=1786127824"></script>
+<script src="solan-data.js?v=1786127824"></script>
 <!-- ⚠️ מנגנון הסנכרון — צורך את _fbGet/_fbPut מ-solan-data.js,
      ולכן חייב לבוא **אחריו** ולפני הבלוק הגדול. -->
-<script src="solan-sync.js?v=1786124661"></script>
-<script src="solan-toast.js?v=1786124661"></script>
-<script src="solan-persist.js?v=1786124661"></script>
+<script src="solan-sync.js?v=1786127824"></script>
+<script src="solan-toast.js?v=1786127824"></script>
+<script src="solan-persist.js?v=1786127824"></script>
 <!-- שכבת ה-AI (חילוץ 6B). צורכת את solan-data.js ואת showToast, ולכן אחריהם.
      ⚠️ חמש שורות האתחול של פרוקסי-הענן נשארו במיקומן המקורי בבלוק הגדול,
      כדי שקריאת-הרשת בזמן-הטעינה לא תוקדם לכאן. -->
-<script src="solan-ai.js?v=1786124661"></script>
+<script src="solan-ai.js?v=1786127824"></script>
 <!-- מנוע ההחלטות Prepress (חילוץ 7). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-prepress.js?v=1786124661"></script>
+<script src="solan-prepress.js?v=1786127824"></script>
 <!-- מנוע הלמידה (חילוץ 8). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-learn.js?v=1786124661"></script>
+<script src="solan-learn.js?v=1786127824"></script>
 <!-- השלמה-אוטומטית (חילוץ 9). אין לו תלות בשכבה מוקדמת;
      המיקום נקבע רק כדי שיהיה לפני הבלוק הגדול. -->
-<script src="solan-autocomplete.js?v=1786124661"></script>
+<script src="solan-autocomplete.js?v=1786127824"></script>
 </head>
 <body>
 
@@ -15581,6 +15581,7 @@ function renderCards() {
         case 'pipe_created':   return _pipelineStageOf(c) === 'created';
         case 'pipe_sent':      return _pipelineStageOf(c) === 'sent';
         case 'pipe_printing':  return _pipelineStageOf(c) === 'printing';
+        case 'pipe_printed':   return _pipelineStageOf(c) === 'printed';
         case 'pipe_finishing': return _pipelineStageOf(c) === 'finishing';
         case 'pipe_done':      return _pipelineStageOf(c) === 'done' && c.printedAt && c.printedAt.slice(0,10) === today2;
         default: return true;
@@ -21802,15 +21803,41 @@ function _pipelineStageOf(c){
   if (_cardPrintingNow(c)) return 'printing';   // מודפס כרגע בפועל לפי מסך הדפס (רשומה אחת פר-מכונה)
   // בתור וטרם הודפס → "נשלח" — כך הרשימה זהה לזו של הדפס (גם עבודה שסומנה בהדפסה/ריצה חלקית עדיין ממתינה בתור)
   if ((machineQueue||[]).some(function(e){ return String(e.cardId) === String(c.id) && !e.done; })) return 'sent';
-  if (c.status === 'inprogress') return 'printing';   // סומן בהדפסה ואינו בתור — גיבוי
-  if ((c.runs||[]).some(function(r){ return r.done; })) return 'printing';
-  if ((machineQueue||[]).some(function(e){ return String(e.cardId) === String(c.id); })) return 'sent';
-  return 'created';
+  /* ⚠️ 08/08/2026 — שני הגיבויים שלמטה חלים **רק** על כרטיס שאין לו שום
+     רשומה בתור. קודם הם רצו תמיד, ולכן כרטיס שכל רשומות-התור שלו סומנו
+     "הודפס" המשיך להיות מוצג "בהדפסה" בדאשבורד כל עוד card.status נשאר
+     'inprogress'. נמדד בייצור 08/08: 3 כרטיסים ב-inprogress, 2 מהם עם
+     כל רשומות-התור done — בשתי המכונות.
+     ⚠️ **אין כאן הסקה ש"הושלם".** הגזירה ל-done/finishing נשארת באחריות
+     צד-המשרד (_syncCardStatusFromQueue), וכרטיס בלי רשומות-תור שומר על
+     התנהגותו הקודמת בדיוק. זהו תיקון-תצוגה בלבד — אינו נוגע ב-card.status,
+     ב-machineQueue או ב-printingState. */
+  var _hasQ = (machineQueue||[]).some(function(e){ return String(e.cardId) === String(c.id); });
+  if (!_hasQ) {
+    if (c.status === 'inprogress') return 'printing';   // סומן בהדפסה ואינו בתור כלל — גיבוי
+    if ((c.runs||[]).some(function(r){ return r.done; })) return 'printing';
+    return 'created';
+  }
+  /* ⚠️ **לא 'sent' ולא 'done'.** כל רשומות-התור סומנו הודפס — ההדפסה
+     הסתיימה, אבל העבודה עשויה עדיין להמתין לקיפול/כריכה/חיתוך. "נשלח"
+     הוא נסיגה-אחורה מטעה, ו"הושלם" הוא הסקה שאסורה כאן: ההכרעה בין
+     'finishing' ל-'done' תלויה ב-_cardNeedsFinishing ונשארת באחריות
+     צד-המשרד (_syncCardStatusFromQueue). */
+  return 'printed';
 }
 var _PIPE_STAGES = [
   { key:'created',   icon:'📝', label:'נוצר כרטיס',   type:'pipe_created',   tone:'#475569', bg:'#f1f5f9', bd:'#cbd5e1' },
   { key:'sent',      icon:'📤', label:'נשלח להדפסה',  type:'pipe_sent',      tone:'#6d28d9', bg:'#f5f3ff', bd:'#ddd6fe' },
   { key:'printing',  icon:'🖨️', label:'בהדפסה',       type:'pipe_printing',  tone:'#c2410c', bg:'#fff7ed', bd:'#fed7aa' },
+  /* ⚠️ 08/08/2026 — שלב חדש. נגזר מהתור בלבד ואינו נשמר על הכרטיס.
+     ⚠️ הוספת מפתח מחייבת **ארבע** נקודות נוספות, אחרת הכרטיס נעלם:
+     ‏byStage ב-renderDashPipeline · ה-switch ב-_cardMatchesFilter ·
+     ו-_pipeMoveStage (שאין לו else). כולן עודכנו יחד עם השורה הזו.
+     ⚠️ הנוסח אומר **רק מה שידוע**: כל ריצות-ההדפסה הושלמו. הוא אינו
+     מנחש את השלב הבא — לא לכל עבודה יש גימורים (_cardNeedsFinishing),
+     וגיליון מלא ללא חיתוך עובר ישר ל"הושלם".
+     ⚠️ ‏label מרונדר עם white-space:nowrap (22081) — חייב להישאר קצר. */
+  { key:'printed',   icon:'📦', label:'הודפס', note:'כל ריצות ההדפסה הושלמו', type:'pipe_printed', tone:'#7c2d12', bg:'#fef3c7', bd:'#fcd34d' },
   { key:'finishing', icon:'🎨', label:'בגימורים',     type:'pipe_finishing', tone:'#0369a1', bg:'#e0f2fe', bd:'#bae6fd' },
   { key:'done',      icon:'✅', label:'הושלם היום',   type:'pipe_done',      tone:'#15803d', bg:'#f0fdf4', bd:'#bbf7d0' }
 ];
@@ -21977,7 +22004,9 @@ function _pipeClearDone(){
 function renderDashPipeline(){
   var el = document.getElementById('dash-pipeline'); if (!el) return;
   var today = _todayStr();
-  var byStage = { created:[], sent:[], printing:[], finishing:[], done:[] };
+  /* ⚠️ ליטרל קשיח, לא נגזר מ-_PIPE_STAGES. מפתח חסר כאן ⇒ השורה שמתחת
+     (`!byStage[st]` → return) מפילה את הכרטיס מהדאשבורד **בשקט**. */
+  var byStage = { created:[], sent:[], printing:[], printed:[], finishing:[], done:[] };
   (cards||[]).forEach(function(c){
     var st = _pipelineStageOf(c); if (!st || !byStage[st]) return;
     if (st === 'done'){ if (c.printedAt && c.printedAt.slice(0,10) === today) byStage.done.push(c); }
@@ -22053,7 +22082,11 @@ function renderDashPipeline(){
       + 'style="flex:1;min-width:132px;background:'+s.bg+';border:1.5px solid '+s.bd+';border-radius:12px;padding:11px 8px;cursor:pointer;font-family:Heebo,sans-serif;align-self:stretch;display:flex;flex-direction:column;transition:box-shadow .1s">'
       + '<div style="text-align:center"><div style="font-size:1.25rem;line-height:1">'+s.icon+'</div>'
       + '<div style="font-size:1.6rem;font-weight:900;color:'+s.tone+';line-height:1.2">'+n+'</div>'
-      + '<div style="font-size:.72rem;font-weight:700;color:#475569;white-space:nowrap">'+s.label+'</div></div>'
+      + '<div style="font-size:.72rem;font-weight:700;color:#475569;white-space:nowrap">'+s.label+'</div>'
+      /* ⚠️ הערת-שלב אופציונלית: נאמר מה ידוע, בלי לנחש את השלב הבא.
+         מוצגת רק לשלב שהגדיר note, ולכן אינה נוגעת בחמשת הוותיקים. */
+      + (s.note ? '<div style="font-size:.6rem;color:#78716c;line-height:1.25;margin-top:2px">'+escHtml(s.note)+'</div>' : '')
+      + '</div>'
       + body
       + '</button>';
   });
@@ -22123,6 +22156,13 @@ function _pipeMoveStage(cardId, toStage){
     c.printedAt = c.printedAt || new Date().toISOString();
     c.status='done';
     if (typeof _csApplyRefillOnDone==='function') _csApplyRefillOnDone(c);
+  } else {
+    /* ⚠️ 08/08/2026 — שרשרת ה-if/else-if לא כיסתה מפתחות חדשים, ולכן
+       גרירה ליעד לא-נתמך הייתה **no-op שקט**: הכרטיס חוזר למקומו ואיש
+       אינו יודע למה. השלב 'printed' נגזר מרשומות-התור ואינו נשמר על
+       הכרטיס — אין לו מה לכתוב, ולכן הוא אינו יעד-גרירה. */
+    try { showToast('שלב זה נגזר מתור המכונות ואינו ניתן לגרירה'); } catch(e){}
+    return;
   }
   _pipeCommitStage(c, toStage, reopen);
 }
@@ -23163,13 +23203,24 @@ function _renderOperatorScreen() {
         + '<div style="color:#64748b;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(ji.name + runSuffix) + '</div>'
         + (doneTime ? '<div style="color:#94a3b8;font-size:.68rem">' + doneTime + (dur ? ' · ' + dur : '') + '</div>' : '')
         + '</div>'
-        + '<button onclick="_operatorUnmarkDone(' + qSq2 + ')" style="font-size:.78rem;padding:6px 12px;border:1.5px solid #fbbf24;background:#fffbeb;color:#92400e;border-radius:7px;cursor:pointer;flex-shrink:0;font-weight:700;font-family:Heebo,sans-serif;-webkit-tap-highlight-color:transparent">↩ החזר לתור</button>'
+        /* ⚠️ 08/08/2026 — הכפתור **מושבת**, ולא מוסתר. קודם הוא קרא
+           ל-_operatorUnmarkDone → _queueReopenServer, שהוא גדם שתמיד דוחה
+           (14084), וה-catch הריק בלע את הדחייה. מהמפעיל: לחיצה, ושום דבר.
+           גם ה-showToast שכן נשלח אינו נראה כאן — #solanToast הוא
+           z-index:9999 מתחת ל-#operator-screen שהוא 99999.
+           פעולה שנראית פעילה ואינה קיימת גרועה מפעולה מושבתת עם הסבר. */
+        + '<button disabled title="' + escHtml('החזרה לתור ל' + machine + ' עדיין אינה זמינה') + '" '
+        + 'style="font-size:.78rem;padding:6px 12px;border:1.5px solid #e2e8f0;background:#f8fafc;color:#94a3b8;border-radius:7px;cursor:not-allowed;flex-shrink:0;font-weight:700;font-family:Heebo,sans-serif">↩ החזר לתור</button>'
         + '</div>';
     }
 
     if (recentDone.length) {
+      /* ⚠️ ההסבר גלוי ולא רק ב-title: המסך רץ בקיוסק/טאבלט, ושם אין ריחוף
+         עכבר. כפתור מושבת בלי מלל נראה כתקלה. */
       html += '<div style="margin-top:4px;padding-top:12px;border-top:1px solid #e2e8f0">'
-        + '<div style="color:#94a3b8;font-size:.75rem;font-weight:700;margin-bottom:8px">הושלמו היום</div>';
+        + '<div style="color:#94a3b8;font-size:.75rem;font-weight:700;margin-bottom:4px">הושלמו היום</div>'
+        + '<div style="color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:5px 9px;font-size:.7rem;margin-bottom:8px">'
+        + 'ℹ️ ' + escHtml('החזרה לתור ל' + machine + ' עדיין אינה זמינה — לביטול סימון פנה לבית-הדפוס.') + '</div>';
       recentDone.forEach(function(e){ html += _doneRow(e, sq); });
       html += '</div>';
     }
@@ -24203,9 +24254,16 @@ function _opReturnToPrintQueue() {
 
 /* ⚠️ החזרה-לתור: reopenPress4Job בלבד, ואין נפילה-לאחור. הסרת-הסימון
    שהייתה כאן שינתה עותק מקומי ותו לא — על המסך העבודה חזרה לתור, ובשרת
-   נשארה "הודפס". */
+   נשארה "הודפס".
+   ⚠️ 08/08/2026 — **אין לה יותר קוראים**: הכפתור במסך-המכונה הושבת, כי
+   ‏_queueReopenServer הוא גדם שתמיד דוחה (14084). היא נשמרת עם טיפול-כשל
+   אמיתי כדי שקורא עתידי לא יקבל בירושה catch ריק. */
 function _operatorUnmarkDone(qid) {
-  return _queueReopenServer(qid).catch(function(){});
+  return _queueReopenServer(qid).catch(function(e){
+    console.error('[queue] החזרה-לתור אינה זמינה במסך הזה', e);
+    if (typeof _opShowError === 'function') _opShowError('⚠️ החזרה לתור אינה זמינה במסך זה — פנה לבית-הדפוס.');
+    return false;
+  });
 }
 
 // ═══════════════════════════════════════════════════════
