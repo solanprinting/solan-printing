@@ -24,9 +24,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786135943"></script>
-<script src="auth-client.js?v=1786135943"></script>
-<script src="auth-guard.js?v=1786135943" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786139782"></script>
+<script src="auth-client.js?v=1786139782"></script>
+<script src="auth-guard.js?v=1786139782" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -83,7 +83,6 @@
   #_fbwrap.fsOn .fbctl{flex:0 0 auto;position:static;transform:none;width:auto;margin:0!important;
     background:rgba(11,18,32,.94);border-radius:0;flex-wrap:wrap;row-gap:6px;
     padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px))}
-  #_fbwrap.fsOn .fbtune{display:none}
   #_fbwrap.fsOn .fbctl button{min-height:40px}         /* יעד-מגע נוח */
   body.fsLock{overflow:hidden}
   /* ⚠️ שבב "🔓 שומר בתצפית" של auth-guard הוא כלי-פנימי, והוא הופיע **ללקוח**
@@ -115,7 +114,10 @@
   /* client — אותה שפת-עיצוב, ממורכז */
   .clientwrap{max-width:920px;margin:0 auto}
   .clientwrap .spread{background:#1a1a2e}
-  .client .fbtune{display:none!important}   /* הלקוח לא רואה את סליד כוונון-המסגרת (כלי-פנימי) */
+  /* ⚠️ ‏.fbtune (סליד כוונון-המסגרת) **הוסר לגמרי** ב-08/08/2026. עד אז הוא
+     היה מוסתר מהלקוח בלבד ונשאר גלוי לצוות — פקד-פיתוח שחתך אחוז שווה
+     מארבעת הצדדים, כלומר קיצץ גם את הגלישה החיצונית. אין יותר כלל CSS
+     שמסתיר אותו, כי אין מה להסתיר. */
 </style>
 </head>
 <body>
@@ -483,6 +485,27 @@ async function renderThumbs(host, bytes){ const pdf=await getOutDoc(bytes); host
   for(let i=1;i<=pdf.numPages;i++){ const th=document.createElement('div'); th.className='th'; th.dataset.p=i;
     th.innerHTML='<div class="ph" style="width:88px;height:120px;display:flex;align-items:center;justify-content:center;color:#475569">⏳</div><div>'+i+'</div>'; host.appendChild(th); io.observe(th); } }
 function _spreadGroups(n){ const g=[]; if(n<=0)return g; g.push([0]); for(let k=1;k<n;k+=2) g.push(k+1<n?[k,k+1]:[k]); return g; }
+/* ── מונה-עמודים פיזי ─────────────────────────────────────────────────────
+   ⚠️ עד 08/08/2026 שני מנועי-הדפדוף הציגו ‏'כפולה ' + (gi+1) + ' / ' + groups.length‎ —
+   כלומר **כפולה 1 / 17** לעיתון בן 32 עמודים. הלקוח ספר כפולות, בית-הדפוס
+   ספר עמודים, ואותה עבודה קיבלה שני מספרים שונים בשתי שיחות.
+
+   ⚠️ המספרים נגזרים מ-‎groups‎, שהוא כבר **אינדקסים של עמודים** (מבוסס-אפס):
+   ‏[[0],[1,2],[3,4],…]. אין כאן חישוב חדש — רק הצגה של מה שכבר ידוע.
+
+   ⚠️ **הסדר עולה תמיד, בשתי כיווני-הקריאה.** ‏RTL/LTR קובע איזה עמוד מצויר
+   מימין ואיזה משמאל — ולא איך קוראים את המספרים. "עמודים 3–2" אינו טקסט
+   שמישהו אמור לפענח, והמיקום כבר אומר את מה שצריך.
+
+   ⚠️ יחיד/רבים לפי מספר העמודים בפועל: שער ועמוד-אחרון-בודד הם "עמוד",
+   כפולה היא "עמודים". */
+function _pageLabel(g, total){
+  if(!g || !g.length) return '';
+  const nums=g.map(k=>k+1).sort((a,b)=>a-b);
+  return (nums.length>1 ? 'עמודים '+nums[0]+'–'+nums[nums.length-1] : 'עמוד '+nums[0])
+       + ' מתוך ' + total;
+}
+if(typeof window!=='undefined') window._pageLabel=_pageLabel;   // לבדיקות
 // ── מסך-מלא: toggle משותף לשני מנועי-הדפדוף (mountFlipbook/mountFlipbookFast) ──
 //    ⚠️ מיושם כמחלקת-CSS (fsOn) ולא דרך Fullscreen API — ראה נימוק מלא
 //    בגוש ה-CSS למעלה. בקצרה: ב-iPhone ה-API אינו נתמך על אלמנט רגיל,
@@ -590,15 +613,20 @@ function _setupZoom(){
 function _loadImg(url){ return new Promise(res=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>res(null); im.src=url; }); }
 // חיתוך "מסגרת-לבנה" מכל 4 הצדדים של כל עמוד (מסיר שוליים-לבנים/קצה-נייר בשדרה ובחוץ),
 // ואז חיבור העמודים לכפולה על canvas אחד (hi=שמאל · lo=ימין · צמוד).
-let _SPINE_TRIM_PCT = 0;   // אחוז-חיתוך-מסגרת מכל צד של כל עמוד
-function _cropBorderCv(img, pct){ const t=Math.max(0,Math.round(img.width*pct/100));
-  const w=Math.max(4,img.width-2*t), h=Math.max(4,img.height-2*t);
-  const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img, t,t,w,h, 0,0,w,h); return cv; }
-// מרכיב את התצוגה הנוכחית: עמוד בודד או כפולה (hi שמאל · lo ימין), עם חיתוך-מסגרת pct
-async function _composeView(pageUrls, pct){
+/* ⚠️ **‏_SPINE_TRIM_PCT הוסר** (08/08/2026). הוא היה מחוון-פיתוח שנשלח
+   ללקוח, עם הכיתוב "הגדל עד שהמסגרת הלבנה נעלמת, ותגיד לי את המספר".
+   מעבר לכך שהוא פקד-פיתוח בייצור, הוא חתך **אחוז שווה מארבעת הצדדים של
+   כל עמוד** — כלומר קיצץ גם את הגלישה החיצונית, בניגוד לחוק-הברזל.
+   ⚠️ הפס-הלבן עצמו **לא נפתר כאן**: הוא לבן שבתוך העמוד (רינדור של תיבת-
+   העמוד המלאה ולא של ה-TrimBox). הפתרון — חיתוך לצד-השדרה בלבד, כמו
+   ב-proof-viewer — הוא שלב 1ב נפרד, אחרי בדיקות-פיקסלים. עד אז לא מציגים
+   פקד שמתיימר לפתור אותו. */
+// מרכיב את התצוגה הנוכחית: עמוד בודד או כפולה (hi שמאל · lo ימין)
+async function _composeView(pageUrls){
   const imgs=(await Promise.all(pageUrls.map(_loadImg))).filter(Boolean); if(!imgs.length) return null;
-  const cvs=imgs.map(im=>_cropBorderCv(im, pct));
-  if(cvs.length===1) return cvs[0].toDataURL('image/jpeg',0.92);
+  const cvs=imgs;
+  if(cvs.length===1){ const c0=document.createElement('canvas'); c0.width=cvs[0].width; c0.height=cvs[0].height;
+    c0.getContext('2d').drawImage(cvs[0],0,0); return c0.toDataURL('image/jpeg',0.92); }
   const H=Math.max(cvs[0].height,cvs[1].height), cv=document.createElement('canvas'); cv.width=cvs[0].width+cvs[1].width; cv.height=H;
   const c=cv.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,cv.width,cv.height);
   c.drawImage(cvs[0], 0, Math.round((H-cvs[0].height)/2)); c.drawImage(cvs[1], cvs[0].width, Math.round((H-cvs[1].height)/2));   // hi שמאל · lo ימין · צמוד
@@ -606,12 +634,18 @@ async function _composeView(pageUrls, pct){
 // דפדוף: השער ראשון · ניווט בעדיפות (פס-התקדמות+ETA, מבטל ישן) · המשך-רקע · RTL נכון · חד · מסך-מלא
 async function mountFlipbook(host, bytes){
   const pdf=await getOutDoc(bytes); const n=pdf.numPages; const groups=_spreadGroups(n); let gi=0, navSeq=0;
+  /* ⚠️ **החיווי נכתב בתוך אותה הצבה שפותחת את המלבן הכהה.** זה מקור
+     "המסך השחור": ה-innerHTML הזה מוחק את חיווי-השלבים (#cLoad) שהיה על
+     המסך, ועד 08/08/2026 הוא כתב ‎<div class="spread" id="_sp"></div>‎ **ריק**
+     בגובה 220px וברקע #1a1a2e (ובמסך-מלא #000). הציור הראשון מתחיל רק
+     בשורה שאחרי, אחרי await של רינדור-עמוד — ובחלון הזה הלקוח ראה מלבן
+     כהה בלי מילה אחת.
+     ⚠️ המנוע השני (mountFlipbookFast) כתב כאן #_prog מלכתחילה. שתי גרסאות
+     של אותה שורה הן שתיים שיסטו — וזו בדיוק הסחיפה שקרתה. */
   host.innerHTML='<div id="_fbwrap" style="background:#1a1a2e;border:1px solid var(--line);border-radius:10px;padding:8px">'
-    + '<div class="spread" id="_sp" dir="ltr" style="min-height:220px;align-items:center"></div>'
+    + '<div class="spread" id="_sp" dir="ltr" style="min-height:220px;align-items:center"><div id="_prog" style="width:100%;text-align:center;color:#94a3b8;padding:22px 14px"><div style="font-size:1rem;font-weight:700">📖 טוענים את הפרופר…</div><div style="font-size:.84rem;opacity:.85;margin-top:4px">רגע, מכינים את החוברת לצפייה</div></div></div>'
     + '<div dir="rtl" class="fbctl" style="text-align:center;margin-top:8px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">'
-    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <button id="_rot" title="מסובב את התצוגה 90° — שימושי כשהטלפון נעול על פורטרט">🔄 סובב</button> <button id="_zoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div>'
-    + '<div dir="rtl" class="fbtune" style="text-align:center;margin-top:6px;font-size:.82rem;color:#94a3b8">חיתוך מסגרת-לבנה (מכל 4 הצדדים של כל עמוד): '
-    + '<input type="range" id="_spine" min="0" max="8" step="0.1" value="'+_SPINE_TRIM_PCT+'" style="vertical-align:middle;width:240px"> <b id="_spineVal">'+_SPINE_TRIM_PCT.toFixed(1)+'%</b> <span style="opacity:.7">— הגדל עד שהמסגרת הלבנה נעלמת, ותגיד לי את המספר</span></div></div>';
+    + '<button id="_next">◀ הבא</button> <span id="_pi" class="muted"></span> <button id="_prev">הקודם ▶</button> <button id="_full">⛶ מסך מלא</button> <button id="_rot" title="מסובב את התצוגה 90° — שימושי כשהטלפון נעול על פורטרט">🔄 סובב</button> <button id="_zoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button> <span id="_bg" class="muted" style="font-size:.78rem"></span></div></div>';
   function progHtml(){ return '<div style="max-width:340px;margin:auto;text-align:center;color:#94a3b8;padding:18px">📖 מרנדר…'
     + '<div style="height:7px;background:#334155;border-radius:5px;margin:8px 0"><div id="_pbfill" style="height:100%;width:6%;background:#16a34a;border-radius:5px;transition:width .15s"></div></div></div>'; }
   let curPages=null;   // URLs של התצוגה הנוכחית ([u] בודד / [uHi,uLo] כפולה) — לכוונון-מסגרת חי
@@ -624,16 +658,14 @@ async function mountFlipbook(host, bytes){
     if(g.length===1){ const u=await pageImg(pdf,g[0]+1,true); if(anim)clearInterval(anim); if(my!==navSeq) return; urls=[u]; }
     else { const lo=g[0]+1,hi=g[1]+1; const uHi=await pageImg(pdf,hi,true); if(my!==navSeq){ if(anim)clearInterval(anim); return; } const uLo=await pageImg(pdf,lo,true);
       if(anim)clearInterval(anim); if(my!==navSeq) return; urls=[uHi,uLo]; }   // hi שמאל · lo ימין
-    curPages=urls; const view=await _composeView(urls, _SPINE_TRIM_PCT); if(my!==navSeq) return;
+    curPages=urls; const view=await _composeView(urls); if(my!==navSeq) return;
     sp.innerHTML='<img src="'+view+'">';
-    $('_pi').textContent='כפולה '+(gi+1)+' / '+groups.length; $('_prev').disabled=gi<=0; $('_next').disabled=gi>=groups.length-1;
+    $('_pi').textContent=_pageLabel(g, n); $('_prev').disabled=gi<=0; $('_next').disabled=gi>=groups.length-1;
   }
   $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} if(window._zoomReset)window._zoomReset(); }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} if(window._zoomReset)window._zoomReset(); };
   $('_full').onclick=()=>{ _toggleFullscreen($('_fbwrap')); };
   $('_rot').onclick=()=>{ _toggleRotate($('_fbwrap')); };
   _setupZoom();   // 🔍 זום: לחצן + גלגלת + גרירה
-  $('_spine').oninput=async ()=>{ _SPINE_TRIM_PCT=parseFloat($('_spine').value)||0; $('_spineVal').textContent=_SPINE_TRIM_PCT.toFixed(1)+'%';
-    if(curPages){ const u=await _composeView(curPages, _SPINE_TRIM_PCT); if($('_sp'))$('_sp').innerHTML='<img src="'+u+'">'; } };   // כוונון חי — בלי רינדור-מחדש
   // ── preload 50% מהקונטרס עם פס-התקדמות → ואז צפייה; שאר ה-50% נטענים ברקע תוך-כדי דפדוף ──
   $('_prev').disabled=true; $('_next').disabled=true;
   const preN=Math.max(2, Math.ceil(n*0.5)); const t0=performance.now();
@@ -706,7 +738,7 @@ async function mountFlipbookFast(host, thumbsHost, book){
         view=combo; } }
     if(!view){ sp.innerHTML='<div style="color:#94a3b8;padding:24px;width:100%;text-align:center">⏳ טוען…</div>'; return; }
     sp.replaceChildren(view);
-    $('_pi').textContent='כפולה '+(gi+1)+' / '+groups.length; $('_prev').disabled=gi<=0; $('_next').disabled=gi>=groups.length-1; }
+    $('_pi').textContent=_pageLabel(g, n); $('_prev').disabled=gi<=0; $('_next').disabled=gi>=groups.length-1; }
   $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} if(window._zoomReset)window._zoomReset(); }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} if(window._zoomReset)window._zoomReset(); };
   $('_full').onclick=()=>{ _toggleFullscreen($('_fbwrap')); };
   $('_rot').onclick=()=>{ _toggleRotate($('_fbwrap')); };

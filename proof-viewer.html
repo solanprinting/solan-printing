@@ -14,9 +14,9 @@
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786135943"></script>
-<script src="auth-client.js?v=1786135943"></script>
-<script src="auth-guard.js?v=1786135943" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786139782"></script>
+<script src="auth-client.js?v=1786139782"></script>
+<script src="auth-guard.js?v=1786139782" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -212,6 +212,19 @@ const BASE_H = 1500, BASE_Q = 0.88;
 const HI_H   = 3000, HI_Q   = 0.95, HI_MAX = 6;
 const RENDER_SCALE_CAP = 5;
 let _fromCache = false;      // האם מה שמוצג כרגע הוא מטמון (תצוגה מהירה) ולא רינדור-אמת
+let _cacheImgs = null;       // מה שהמטמון הכיל — להשוואה מול הקובץ בסיום הרינדור
+
+/* ── חוזה-המטמון ──────────────────────────────────────────────────────────
+   ⚠️ המטמון הוא **מציין-מקום זמני, לעולם לא המסך הסופי.** מה שמותר לו:
+   להראות עמודים מיד, עם הטקסט למטה, בלי "מתוך N" ובלי להתיימר להיות
+   הקובץ. מה שאסור: להישאר. כל מסלול שבו הריצה נגמרת בזמן שהמטמון על
+   המסך הוא כשל — כולל מסלולים שאינם "שגיאה" (רכיבים חסומים, יציאה
+   מוקדמת), כי מבחינת הצופה אין הבדל בין תצוגה שנעצרה לתצוגה שהסתיימה.
+
+   ⚠️ הטקסט מוגדר **פעם אחת** ומשמש גם את המונה וגם את הבאנר: שתי מחרוזות
+   שאומרות את אותו דבר הן שתיים שיסטו, וכאן ההבטחה לצופה היא בדיוק
+   המחרוזת הזו. */
+const TEMP_VIEW_TEXT = 'תצוגה זמנית — בודקים את הפרופר המלא…';
 
 /* ── מנוע התצוגה ("עוצמה" עמ' 28) ───────────────────────────────────────
    נמדד מול הקובץ האמיתי: הקובץ תקין, וגם *הפענוח* תקין (3.11 ו-5.4 מפענחים
@@ -323,15 +336,26 @@ async function _metasForDisplay(normBytes, realTrims){
    ⚠️ הזיהוי לפי הגודל-הסופי (reqW/reqH) ולא לפי median; הסדר לפי readingDirection.
    מחזיר { bytes, prov } — כל עמוד-תצוגה יודע את srcIndex/part/number/spine/outer שלו,
    כדי שמיפוי ה-metadata לא יסתמך על המרה-מספרית עיוורת. ⚠️ ה-PDF המקורי לא משתנה. */
+/* ⚠️ **מחזירה status, ולא רק bytes.** עד 08/08/2026 כל מסלול-כשל כאן החזיר
+   בשקט את ה-PDF המקורי: כפולות נשארו עמוד-אחד, המונה הציג "עמוד 3 מתוך 20"
+   לעיתון בן 40, וצד-השדרה נקבע בניחוש-לפי-אינדקס. כשל שנראה כהצלחה הוא
+   הדבר היחיד שגרוע מכשל.
+
+   ⚠️ ‏'ok' פירושו **ידענו**: או שפיצלנו, או שווידאנו שאין כפולות.
+   ‏'failed' פירושו **לא ידענו** — והקורא חייב להיכשל גלויות ולא להציג מונה.
+   אין ערך שלישי, ואין "כנראה". */
 async function splitSpreadsPdf(bytes){
-  const _passthru = (n) => ({ bytes, prov: (window.PageSpine
-      ? PageSpine.splitProvenance(Array.from({length:n},()=>({wmm:NaN,hmm:NaN,type:'single'})), { readingDirection:_readDir })
-      : []) });
+  const _passthru = (n) => (window.PageSpine
+      ? { bytes, status:'ok', prov: PageSpine.splitProvenance(
+            Array.from({length:n},()=>({wmm:NaN,hmm:NaN,type:'single'})), { readingDirection:_readDir }) }
+      /* ⚠️ בלי PageSpine אי-אפשר לדעת אם יש כפולות — וזה כשל, לא "אין". */
+      : { bytes, status:'failed', reason:'no_page_spine', prov: [] });
   try {
     if (!(bytes instanceof Uint8Array)) { try { bytes = new Uint8Array(bytes); } catch(e){} }   // cross-realm safety
     const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption:true });
     const pages = src.getPages();
-    if (!pages.length) return { bytes, prov: [] };
+    /* מסמך ריק — ידענו, ואין מה לפצל. */
+    if (!pages.length) return { bytes, status:'ok', prov: [] };
     if (!window.PageSpine) return _passthru(pages.length);
     // גודל לוגי לכל עמוד-מקור: TrimBox אם קיים, אחרת CropBox/MediaBox
     const PT = 25.4 / 72;
@@ -347,7 +371,7 @@ async function splitSpreadsPdf(bytes){
       readingDirection: _readDir, reqWmm: _reqWmm, reqHmm: _reqHmm });
     if (!prov.some(p => p.part !== 'single')) {
       // אין כפולות — לא נוגעים ב-PDF (אידמפוטנטי), אבל כן מחזירים provenance לצורך spine
-      return { bytes, prov };
+      return { bytes, status:'ok', prov };
     }
     const out = await PDFLib.PDFDocument.create();
     for (const p of prov) {                       // ⚠️ בסדר-הקריאה של provenance (RTL/LTR)
@@ -359,8 +383,13 @@ async function splitSpreadsPdf(bytes){
         : await out.embedPage(sp, { left: 0, bottom: 0, right: half, top: h });
       out.addPage([half, h]).drawPage(emb);
     }
-    return { bytes: await out.save(), prov };
-  } catch(e){ console.warn('splitSpreadsPdf failed', e); return { bytes, prov: [] }; }
+    return { bytes: await out.save(), status:'ok', prov };
+  } catch(e){
+    /* ⚠️ **לא נופלים-לאחור ל-bytes המקוריים.** זו הייתה הנפילה השקטה: PDF
+       עם כפולות היה מוצג כאילו כל כפולה היא עמוד, והמונה שיקר בחצי. */
+    console.warn('splitSpreadsPdf failed', e);
+    return { bytes: null, status:'failed', reason:'split_error', prov: [] };
+  }
 }
 // טוען את תיבות ה-TrimBox ברקע (למסלול מטמון מהיר) ואז מרנדר מחדש עם חיתוך-נטו + מסגרת
 async function _loadTrimsBg(){
@@ -438,23 +467,32 @@ async function _loadTrimsBg(){
       showOverlay('טוען תצוגה מהירה…', true, 0);
       var _c = await (await fetch(cacheUrl)).json();
       if (Array.isArray(_c) && _c.length) {
-        imgs = _c; _fromCache = true;
+        imgs = _c; _fromCache = true; _cacheImgs = _c;
         showOverlay('', false); show('viewer', true); renderViewer();
-        _qBadge('⏳ טוען את הקובץ באיכות מלאה…');
+        _qBadge('⏳ ' + TEMP_VIEW_TEXT);
       }
     } catch(e){ console.warn('quick-cache failed, falling back to PDF render:', e); }
   }
 
+  /* ⚠️ **יציאה מוקדמת בזמן תצוגה-זמנית היא כשל.** ‏_requireLibs נכשלת
+     כשרכיבי-הצפייה חסומים (רשת כשרה, חוסם-פרסומות) והיא מציגה הודעה
+     משלה — אבל ה-‎return‎ שהיה כאן השאיר את המטמון על המסך **לתמיד**,
+     בלי מונה ובלי דרך לדעת שזו אינה התצוגה האמיתית. */
   try {
     await _requireLibs();   // רכיבי-הצפייה חסומים → הודעה ברורה במקום דף/מסך מת
-  } catch(e){ return; }
+  } catch(e){ return _bailOut('libs_blocked'); }
   /* מנוע התצוגה: החדש כברירת-מחדל. אם כל המראות שלו חסומות אצל הצופה —
      נופלים-לאחור למנוע הישן שכבר נטען, ואז (ורק אז) האזהרה על עמודי-שקיפות
      נכונה ומוצגת. */
   if (window.PdfEngine){
     var wantOld = PdfEngine.chooseEngine(params.get('engine')) === 'old';
     if (!wantOld) showOverlay('טוען את מנוע התצוגה…', true);
-    var eng = await PdfEngine.ensure({ force: wantOld ? 'old' : 'new', win: window });
+    /* ⚠️ ‏ensure יכולה לזרוק (כל המראות חסומות). בלי ה-catch הזה החריגה
+       הייתה בורחת מה-IIFE ומשאירה את התצוגה-הזמנית כמסך הסופי — כשל
+       שקט מהסוג שהמסך הזה כבר שילם עליו פעם. */
+    var eng;
+    try { eng = await PdfEngine.ensure({ force: wantOld ? 'old' : 'new', win: window }); }
+    catch(e){ return _bailOut('engine_failed'); }
     _engineNew = (eng.engine === 'new');
     showOverlay('', false);
     if (wantOld) _qBadge('⚙️ מנוע תצוגה ישן (' + PdfEngine.LEGACY + ') — לפי בקשה בכתובת', 7000);
@@ -469,9 +507,17 @@ async function _loadTrimsBg(){
     });
     const orig = new Uint8Array(rawBuf);
     let norm = orig;
-    // כפולה → 2 חצאים לתצוגה, בסדר-הקריאה; prov שומר את ה-provenance לכל עמוד-תצוגה
-    try { const _r = await splitSpreadsPdf(orig); norm = _r.bytes || orig; _prov = _r.prov || []; }
-    catch(e){ norm = orig; _prov = []; }
+    /* כפולה → 2 חצאים לתצוגה, בסדר-הקריאה; prov שומר את ה-provenance לכל עמוד-תצוגה.
+       ⚠️ **כשל בפיצול עוצר כאן.** אין נפילה-לאחור ל-orig: תצוגה שלא ידוע
+       אם היא מפוצלת היא תצוגה שהמונה בה שקרי וצד-השדרה בה ניחוש. */
+    let _r;
+    try { _r = await splitSpreadsPdf(orig); }
+    catch(e){ _r = { status:'failed', reason:'split_throw' }; }
+    if (!_r || _r.status !== 'ok' || !_r.bytes) {
+      _splitFailed(_r && _r.reason);
+      return;
+    }
+    norm = _r.bytes; _prov = _r.prov || [];
     if (!_fromCache) showOverlay('מרנדר עמודים…', true, 0);
     // תיבות חיתוך לפני ש-pdf.js "בולע" את ה-buffer; ואז השלמת גלישות-מאושרות לכל עמוד
     try { metas = await _trimFracsFromPdf(norm.slice(0)); } catch(e){ metas = []; }
@@ -495,14 +541,30 @@ async function _loadTrimsBg(){
         if (i % 3 === 0) renderViewer();
       }
     }
+    /* ⚠️ אי-התאמה בין המטמון לקובץ **עוצרת**, ולא הופכת לבאנר חולף.
+       הצופה כבר ראה מספור אחר; ההנחה שהוא שם לב להודעה בת תשע שניות
+       ומתקן לעצמו את מה שראה אינה הנחה סבירה. */
+    if (_fromCache && Array.isArray(_cacheImgs) && _cacheImgs.length !== fresh.length) {
+      return _cacheMismatch(_cacheImgs.length, fresh.length);
+    }
+    /* ⚠️ מכאן ואילך התצוגה מדויקת: המטמון הוחלף, המונה הפיזי נכנס לתוקף. */
     imgs = fresh; _fromCache = false; _baseDone = true;
     showOverlay('', false); show('viewer', true); renderViewer();
     _qBadge('✓ מוצג מהקובץ המקורי', 3000);
   } catch(e){
     console.error(e);
     // אם מוצג מטמון — לא הופכים את המסך לשגיאה, אבל *כן* אומרים שזו תצוגה מהירה
-    if (_fromCache) _qBadge('⚠️ לא הצלחנו לטעון את הקובץ המקורי — זו תצוגה מהירה בלבד', 12000);
-    else fail('שגיאה בטעינת הקובץ.\n' + (e&&e.message||''));
+    /* ⚠️ **גם כשמוצג מטמון — זה כשל, לא הערה.** עד 08/08/2026 המסך נשאר
+       על התצוגה-המהירה עם באנר, כלומר המשיך להציג עמודים שלא אומתו מול
+       הקובץ. זה בדיוק המצב שהוביל לתקרית "עוצמה עמ' 28": מה שנראה בדפדוף
+       לא היה מה שבקובץ. עכשיו: מסך-כשל עם "נסה שוב", בשני המסלולים. */
+    if (_fromCache) {
+      _hardFail('לא הצלחנו לטעון את הקובץ המלא',
+        'מה שהוצג עד כה היה תצוגה זמנית בלבד ולא אומת מול הקובץ. '
+        + 'אין להסתמך עליה — נסו שוב.');
+    } else {
+      _hardFail('שגיאה בטעינת הקובץ', (e && e.message) || 'נסו שוב.');
+    }
   }
 })();
 
@@ -604,7 +666,17 @@ function renderViewer(){
   const spread = $('spread');
   if (!imgs.length) return;
   const s = showingPages();
-  $('vlabel').textContent = `עמוד ${s.map(i=>i+1).join('–')} מתוך ${imgs.length}`;
+  /* ⚠️ **"מתוך N" נאמר רק כשיודעים מהו N.** בזמן תצוגה-מהירה (מטמון)
+     ‏imgs.length הוא אורך המטמון ולא ספירת-העמודים של הקובץ; אם הרשומה
+     טעתה ב-spreadCount, המטמון עלול להיות ספירת-כפולות. לכן עד שהרינדור-
+     האמיתי הסתיים מוצג המיקום בלבד, עם ציון שהתצוגה מהירה.
+     ⚠️ המספרים עולים תמיד — גם ב-LTR. הכיוון קובע מי מצויר איפה, לא איך
+     קוראים את המספר; "עמוד 3–2" אינו טקסט שמישהו אמור לפענח. */
+  const _pn = s.map(i => i + 1).sort((a, b) => a - b);
+  const _head = (_pn.length > 1 ? `עמודים ${_pn[0]}–${_pn[_pn.length-1]}` : `עמוד ${_pn[0]}`);
+  $('vlabel').textContent = (_baseDone && !_fromCache)
+    ? `${_head} מתוך ${imgs.length}`
+    : `${_head} · ${TEMP_VIEW_TEXT}`;
   $('vprev').disabled = vIndex <= 0;
   $('vnext').disabled = s[s.length-1] >= imgs.length - 1;
   /* מיקום העמודים בכפולה לפי כיוון-הקריאה: ב-LTR העמוד הראשון בסדר מוצג משמאל.
@@ -732,6 +804,58 @@ document.addEventListener('keydown', e => {
 
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fail(msg){ showOverlay(msg, true); throw new Error(msg); }
+
+/* ── כשל שאי-אפשר "להמשיך למרות" ──────────────────────────────────────────
+   ⚠️ מסך-כשל מלא עם "נסה שוב", ולא באנר מעל תצוגה חלקית. הכלל שנקבע:
+   אין מונה לא-ודאי, אין נפילה-לאחור שקטה, ואין צפייה בתצוגה שלא ידוע אם
+   היא מדויקת. ‏proof-viewer הוא מסך-הצוות ואין בו כפתור-אישור, ולכן
+   "אין אישור מתצוגה לא מדויקת" מתקיים כאן במבנה; המסך שכן מאשר
+   (‏proof-client / customer-fold-preview) אינו נוגע במסלול הזה.
+   ⚠️ המונה **נמחק** ולא נשאר על ערכו האחרון: מספר ישן על מסך-כשל הוא
+   בדיוק המידע השגוי שבאנו למנוע. */
+function _hardFail(title, detail){
+  try { show('viewer', false); } catch(e){}
+  try { const vl = $('vlabel'); if (vl) vl.textContent = ''; } catch(e){}
+  const ov = document.getElementById('overlay');
+  if (!ov) { alert(title); return; }
+  ov.style.display = 'flex';
+  ov.innerHTML = '<div style="max-width:420px;text-align:center;direction:rtl;color:#e6e9f5;padding:18px">'
+    + '<div style="font-size:2rem;margin-bottom:8px">⚠️</div>'
+    + '<div style="font-size:1rem;font-weight:800;margin-bottom:6px">' + title + '</div>'
+    + '<div style="font-size:.86rem;opacity:.85;line-height:1.6;margin-bottom:14px">' + detail + '</div>'
+    + '<button id="ovRetry" style="padding:10px 22px;border-radius:10px;border:0;background:#2d3561;'
+    + 'color:#fff;font:inherit;font-size:.9rem;font-weight:800;cursor:pointer">↻ נסה שוב</button></div>';
+  const b = document.getElementById('ovRetry');
+  if (b) b.onclick = () => location.reload();
+}
+/* ⚠️ **השומר של חוזה-המטמון.** כל יציאה מוקדמת אחרי שהתצוגה-הזמנית
+   עלתה חייבת לעבור כאן. אם המטמון עדיין על המסך — זה כשל גלוי, כי
+   הצופה אינו יכול להבחין בין "נעצר" לבין "זה הפרופר".
+   ⚠️ כשאין מטמון על המסך אין מה לעשות: הקורא (‏_requireLibs / PdfEngine)
+   כבר הציג את ההודעה שלו, ואין טעם לכסות אותה במסך-כשל שני. */
+function _bailOut(reason){
+  if (!_fromCache) return;
+  console.error('[proof-viewer] יציאה מוקדמת בזמן תצוגה-זמנית:', reason || '');
+  _hardFail('לא הצלחנו להשלים את בדיקת הפרופר',
+    'מה שהוצג עד כה היה תצוגה זמנית בלבד ולא אומת מול הקובץ. אין להסתמך עליה.');
+}
+
+/* ⚠️ מטמון שאינו תואם לקובץ = מה שהוצג היה ספירה אחרת (כפולות שלא
+   פוצלו, או רשומה עם spreadCount שגוי). עד 08/08/2026 זה היה באנר
+   שחלף — כלומר "הצגנו לך מספר שגוי" בהודעה בת תשע שניות. */
+function _cacheMismatch(cacheLen, realLen){
+  console.error('[proof-viewer] מטמון לא תואם: ' + cacheLen + ' ≠ ' + realLen);
+  _hardFail('התצוגה המהירה לא תאמה את הקובץ',
+    'התצוגה הזמנית הראתה ' + cacheLen + ' עמודים, ובקובץ יש ' + realLen + '. '
+    + 'כדי שלא להציג מספור שגוי — טענו מחדש.');
+}
+
+function _splitFailed(reason){
+  console.error('[proof-viewer] פיצול-כפולות נכשל:', reason || '');
+  _hardFail('לא הצלחנו להכין את התצוגה',
+    'לא ניתן היה לקבוע את חלוקת העמודים בקובץ, ולכן אין להציג אותו — '
+    + 'מספור העמודים וצד-השדרה היו עלולים להיות שגויים.');
+}
 </script>
 </body>
 </html>
