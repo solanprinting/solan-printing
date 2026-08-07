@@ -30,8 +30,13 @@
   var SEND_FIELDS = ['qid', 'cardId', 'runIdx', 'machine', 'order',
                      'estMinutes', 'printDurationSec', 'addedAt', 'label'];
 
-  /* ⚠️ שדות שהשרת מחזיק. אם אי-פעם יישלחו — השרת דוחה במפורש. */
-  var SERVER_FIELDS = ['done', 'doneAt', 'doneBy', 'doneByStaffId', 'doneByName'];
+  /* ⚠️ שדות שהשרת מחזיק. אם אי-פעם יישלחו — השרת דוחה במפורש.
+     ⚠️ שלושת שדות-ההחזרה (reopened*) נוספו יחד עם queueReopen. הרשימה
+     כאן היא **מראה** של SERVER_FIELDS ב-queue.js, וסנטינל בבדיקות מוודא
+     ששתיהן זהות: רשימה שתיסחף הייתה מחזירה בדיוק את הבאג שהקובץ הזה נולד
+     כדי למנוע. */
+  var SERVER_FIELDS = ['done', 'doneAt', 'doneBy', 'doneByStaffId', 'doneByName',
+                       'reopenedAt', 'reopenedByStaffId', 'reopenedByName'];
 
   /* ⚠️ שדות שמותר לרוקן ב-null מפורש. בלי הרשימה הזו "בטל זמן משוער"
      לא היה עובד: השמטה אינה מחיקה, והשרת שומר את הערך הישן. הרשימה
