@@ -193,9 +193,15 @@ window._fbBumpRev = function(coll, tok){
   var doPut = function(t){
     window._appCheckToken().then(function(ac){
       var h = {'Content-Type':'application/json'}; if (ac) h['X-Firebase-AppCheck'] = ac;
+      /* ⚠️ 07/08/2026 — הכשל כאן היה בלוע פעמיים (בלי r.ok, ועם catch ריק).
+         חותמת-גרסה שלא זזה = הכתיבה עברה אך מכשירים אחרים לא ימשכו אותה,
+         כלומר "שמרתי ובמסך-הדפוס זה לא מופיע". לא מציגים למשתמש — הכתיבה
+         עצמה כן הצליחה — אבל חייב להיות עקבה ב-console. */
       fetch(_FBURL + '/_rev/' + coll + '.json' + (t ? '?auth=' + t : ''), {
         method:'PUT', headers: h, body: String(Date.now())
-      }).catch(function(){});
+      }).then(function(r){
+        if (!r.ok) console.error('_fbBumpRev נכשל:', coll, r.status, r.statusText);
+      }).catch(function(e){ console.error('_fbBumpRev נכשל:', coll, e); });
     });
   };
   if (tok) doPut(tok); else if (window._fbAuthToken) window._fbAuthToken().then(doPut); else doPut(null);
@@ -211,14 +217,20 @@ window._fbPut = async (path, data) => {
     var t = await window._fbAuthToken();
     var ac = await window._appCheckToken();
     var _h = {'Content-Type':'application/json'}; if (ac) _h['X-Firebase-AppCheck'] = ac;
-    await fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
+    /* ⚠️ 07/08/2026 — התגובה נבדקת. עד לתאריך הזה היא לא נקשרה למשתנה כלל,
+       ולכן 400/401/403/413/500 כולם חזרו כ-true. ‏Firebase מחזיר דחיית-הרשאה
+       כתגובת-HTTP תקינה ולא כחריגה, ולכן try/catch לבדו אינו תופס אותה —
+       והפונקציה סתרה את ההערה שמעליה. ארבעה מגני "if (ok === false)" בקוד
+       הקורא (ניקוי-צנרת, ארכוב-אוטומטי, מיזוג-כרטיסים) היו קוד-מת בגללה. */
+    var r = await fetch(_FBURL + '/' + path + '.json' + (t ? '?auth=' + t : ''), {
       method: 'PUT',
       headers: _h,
       body: JSON.stringify(data)
     });
+    if (!r.ok) { console.error('_fbPut נכשל:', path, r.status, r.statusText); return false; }
     try { if (String(path).indexOf('_rev') !== 0) window._fbBumpRev(String(path).split('/')[0], t); } catch(e){}
     return true;
-  } catch(e) { return false; }
+  } catch(e) { console.error('_fbPut נכשל:', path, e); return false; }
 };
 /* ⚠️ הועברו לכאן מ-krtis-avoda.html (חילוץ 6A) — העברה מכנית בלבד.
    אלה פונקציות גישה ל-Firebase, ולכן מקומן כאן ולא בשכבת ה-AI:

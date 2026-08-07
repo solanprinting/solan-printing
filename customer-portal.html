@@ -9,7 +9,7 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-context.js?v=1785763969"></script>
+<script src="portal-context.js?v=1786104251"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -173,14 +173,18 @@ window._appCheckReady = null;
 window._appCheckInit = function(){
   if (!_APPCHECK_SITEKEY) return Promise.resolve(null);
   if (window._appCheckReady) return window._appCheckReady;
-  window._appCheckReady = new Promise(function(resolve){
+  /* ⚠️ 07/08/2026 — פסק-זמן על טעינת ה-SDK עצמו, לא רק על getToken.
+     מסנן-תוכן ששומט חבילות בשקט אינו מפעיל לא onload ולא onerror, ולכן
+     ההבטחה נשארה תלויה לנצח — ואיתה מסלול-ההעלאה-המהירה של הפורטל.
+     ראה את אותו תיקון ב-proof-client.html. */
+  window._appCheckReady = Promise.race([ new Promise(function(resolve){
     function load(src){ return new Promise(function(res,rej){ var s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
     var base='https://www.gstatic.com/firebasejs/10.12.5/';
     load(base+'firebase-app-compat.js').then(function(){ return load(base+'firebase-app-check-compat.js'); }).then(function(){
       try { if(!firebase.apps.length) firebase.initializeApp({ apiKey:_FB_APIKEY, authDomain:'solan-printing.firebaseapp.com', projectId:'solan-printing', databaseURL:_FBURL, appId:'1:1094826649317:web:bd5f5efdc1f8e3ab67160c' });
         var ac=firebase.appCheck(); ac.activate(new firebase.appCheck.ReCaptchaV3Provider(_APPCHECK_SITEKEY), true); resolve(ac); } catch(e){ resolve(null); }
     }).catch(function(){ resolve(null); });
-  });
+  }), new Promise(function(res){ setTimeout(function(){ res(null); }, 5000); }) ]);
   return window._appCheckReady;
 };
 window._appCheckToken = function(){
@@ -295,9 +299,30 @@ let _portalRec = null;
 
 function gate(msg){ showOv('', false); $('app').classList.add('hidden'); $('gate-msg').textContent = msg; $('gate').classList.remove('hidden'); }
 
+/* ⚠️ 07/08/2026 — קריאה שנכשלה אינה "ריק".
+   שלוש הקריאות של המסך הזה בלעו כל שגיאה והחזירו null, ו-null עבר
+   ל-_portalFilterProofs שמחזיר [] — תוצאה **בייטים-זהה** לחשבון ריק.
+   לקוח עם היסטוריה מלאה ראה "אין עדיין עיתונים 🗞️" והתקשר בבהלה
+   שהקבצים שלו נמחקו. ‏Firebase מחזיר 401/403 כתגובת-HTTP תקינה ולא
+   כחריגה, ולכן try/catch לבדו לעולם לא תפס את זה.
+   שלושה מצבים, לא שניים: יש · ריק · לא-הצלחנו-לטעון.
+   הדפוס כבר קיים בפרויקט — _fbGetChecked ו-_dbGetOrFail. */
+async function _pReadOrFail(url){
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return await r.json();
+}
+
 async function loadNotices(){
   let obj = null;
-  try { obj = await (await fetch(await _au(`${_FBURL}/customerNotices/${SLUG}.json`))).json(); } catch(e){}
+  try { obj = await _pReadOrFail(await _au(`${_FBURL}/customerNotices/${SLUG}.json`)); }
+  catch(e){
+    console.error('טעינת הדרישות נכשלה', e);
+    $('notices-list').innerHTML = '<li>⚠️ לא הצלחנו לטעון את הדרישות מבית-הדפוס — רעננו את הדף.</li>';
+    $('notices-acts').innerHTML = '';
+    $('notices').classList.remove('hidden');
+    return;
+  }
   const open = _portalOpenNotices(obj);
   if (!open.length){ $('notices').classList.add('hidden'); return; }
   $('notices-list').innerHTML = open.map(function(n){
@@ -313,7 +338,9 @@ async function loadNotices(){
 }
 // מאשר פרופר-אפוגי ממתין ישירות מהדרישה (אם יש בדיוק אחד); אחרת מפנה להיסטוריה
 async function _portalApproveFromNotice(){
-  var all = null; try { all = await (await fetch(await _auProofs())).json(); } catch(e){}
+  var all = null;
+  try { all = await _pReadOrFail(await _auProofs()); }
+  catch(e){ console.error('בדיקת הפרופרים נכשלה', e); toast('לא הצלחנו לבדוק מול בית-הדפוס — נסו שוב'); return; }
   var pend = _portalFilterProofs(all, SLUG).filter(function(p){
     if (window.ProofGuard ? ProofGuard.isClosed(p) : (p.completedAt || p.closedAt)) return false;   // הושלמה — לא לאישור
     return p.apogeeUrl && !p.apogeeApprovedAt; });
@@ -342,7 +369,15 @@ function _renderHelloStats(list){
 }
 async function loadHistory(){
   let all = null;
-  try { all = await (await fetch(await _auProofs())).json(); } catch(e){}
+  try { all = await _pReadOrFail(await _auProofs()); }
+  catch(e){
+    /* מצב שלישי: לא-הצלחנו-לטעון. אסור להציג כאן את מחרוזת-הריקנות —
+       היא מה שגרם ללקוחות לחשוב שהקבצים שלהם נמחקו. */
+    console.error('טעינת ההיסטוריה נכשלה', e);
+    $('history').innerHTML = '<div class="empty">לא הצלחנו לטעון את רשימת הגיליונות.<br>'
+      + '<span style="font-weight:400">ייתכן שהקישור פג — רעננו את הדף, או פתחו מחדש את הקישור שקיבלתם מבית-הדפוס.</span></div>';
+    return;
+  }
   const list = _portalFilterProofs(all, SLUG);
   _renderHelloStats(list);
   if (!list.length){ $('history').innerHTML = '<div class="empty">אין עדיין עיתונים 🗞️</div>'; return; }

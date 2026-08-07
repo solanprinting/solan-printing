@@ -149,8 +149,15 @@ function _doPushCardsMerged(){
     cards = merged;
     localStorage.setItem('solanCards', JSON.stringify(cards));
     _seedCardSnap();
-    window._fbSnapshot.cards = JSON.stringify(cards);
-    return window._fbPut('cards', cards);
+    /* ⚠️ 07/08/2026 — ה-baseline נקבע רק אחרי אישור-שרת. קודם הוא נכתב לפני
+       ה-PUT, ולכן דחייה הותירה baseline שקרי על נתיב-הכרטיסים הראשי, ושער
+       הדחיפה (solan-persist.js:95) חסם ניסיון חוזר עד רענון-דף. */
+    var _cardsJson = JSON.stringify(cards);
+    return window._fbPut('cards', cards).then(function(ok){
+      if (ok === false) { console.error('[cards] דחיפת-הכרטיסים נכשלה — ה-baseline לא עודכן, הסבב הבא ינסה שוב'); return false; }
+      window._fbSnapshot.cards = _cardsJson;
+      return true;
+    });
   }).then(function(){
     window._fbPendingPuts.cards = Math.max(0, (window._fbPendingPuts.cards||1) - 1);
     if (typeof updateBadge === 'function') updateBadge();

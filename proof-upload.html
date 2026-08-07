@@ -265,8 +265,12 @@ async function uploadToStorage(path, file, onProgress) {
   for (const bucket of _BUCKETS) {
     try {
       const json = await xhrUpload(bucket, path, file, onProgress, token);
-      const token = json.downloadTokens?.split(',')[0] || '';
-      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
+      /* ⚠️ 07/08/2026 — היה כאן `const token` שני, שהצליל את אסימון-ההזדהות
+         באותו בלוק. בגלל TDZ השורה שמעליו נזרקה **לפני** שההעלאה התחילה
+         ("Cannot access token before initialization"), בכל דפדפן, בכל פעם.
+         החיצוני הוא אסימון-הזדהות; זה כאן הוא אסימון-הורדה. שמות נפרדים. */
+      const dlTok = json.downloadTokens?.split(',')[0] || '';
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media&token=${dlTok}`;
     } catch (e) { lastErr = e; /* נסה bucket הבא */ }
   }
   throw lastErr || new Error('העלאה נכשלה');

@@ -4,14 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>העלאת קבצים לדפוס — סולן הדפסות</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<!-- ⚠️ 07/08/2026 — שתי התגיות האלה מצביעות ל-vendor/ ולא ל-cdnjs.
+     הן **חוסמות-פרסור** ורצות לפני lib-loader, ולכן תיקון-המראות של 06/08
+     כלל לא הגן עליהן: אצל לקוח עם סינון-תוכן הדף נתקע כאן, לפני שנטען
+     הקוד שיודע ליפול-לאחור. מראה באותו origin אינה ניתנת לחסימה בלי
+     לחסום את האתר כולו. ה-CDN נשאר כמראת-גיבוי בתוך lib-loader.js. -->
+<script src="vendor/pdf.min.js"></script>
+<script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
 <script src="pdfjs-engine.js"></script>
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
      כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-context.js?v=1785763969"></script>
+<script src="portal-context.js?v=1786104251"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi1"></script>
 <script src="page-swap.js"></script>
@@ -361,7 +366,14 @@ window._appCheckReady = null;
 window._appCheckInit = function(){
   if (!_APPCHECK_SITEKEY) return Promise.resolve(null);
   if (window._appCheckReady) return window._appCheckReady;
-  window._appCheckReady = new Promise(function(resolve){
+  /* ⚠️ 07/08/2026 — פסק-זמן על **טעינת ה-SDK עצמו**, לא רק על getToken.
+     ‏s.onerror יורה רק כשהרשת מחזירה שגיאה. מסנן-תוכן ששומט חבילות בשקט
+     (אינטרנט כשר) אינו מפעיל לא onload ולא onerror — וההבטחה נשארה תלויה
+     לנצח. כל קריאת-רשת ל-RTDB עוברת דרך העוטפת שלמטה, ולכן **שני**
+     מסלולי-ההעלאה פשוט קפאו: אין מד-התקדמות, אין שגיאה, אין פסק-זמן.
+     ההערה שמעל הבלוק כבר הבטיחה "אם ה-SDK נכשל — שום דבר לא נחסם";
+     ההבטחה הייתה נכונה לכשל, ולא לתלייה. */
+  window._appCheckReady = Promise.race([ new Promise(function(resolve){
     function load(src){ return new Promise(function(res, rej){ var s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
     var base='https://www.gstatic.com/firebasejs/10.12.5/';
     load(base+'firebase-app-compat.js').then(function(){ return load(base+'firebase-app-check-compat.js'); }).then(function(){
@@ -370,7 +382,7 @@ window._appCheckInit = function(){
         var ac=firebase.appCheck(); ac.activate(new firebase.appCheck.ReCaptchaV3Provider(_APPCHECK_SITEKEY), true); resolve(ac);
       } catch(e){ resolve(null); }
     }).catch(function(){ resolve(null); });
-  });
+  }), new Promise(function(res){ setTimeout(function(){ res(null); }, 5000); }) ]);
   return window._appCheckReady;
 };
 window._appCheckToken = function(){
@@ -596,8 +608,7 @@ async function _psSendRequest(target){
        האב; זהו אימות-עקביות נוסף (החוק דורש proofId === מזהה-הנתיב).
        ‏proofId מגיע מרשומת-העבודה שנטענה ואומתה, לא מ-URL. */
     req.proofId = proofId;
-    await fetch(await _au(`${_FBURL}/${PageSwap.requestPath(proofId, target)}.json`),
-      { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) });
+    await _dbWrite(await _au(`${_FBURL}/${PageSwap.requestPath(proofId, target)}.json`), 'PUT', req);
     await _psRefresh();
     showOverlay('', false);
     alert('✓ הבקשה נשלחה לבית-הדפוס. תקבלו גישה לעריכה מיד לאחר האישור.');
@@ -758,19 +769,38 @@ async function _addFilesNow(fileArr) {
     setTimeout(() => alert('⚠️ ' + failed.length + ' קבצים לא נכנסו:\n'
       + failed.map(f => '• ' + f.name + ' — ' + f.why).join('\n')), 100);
   }
-  for (const d of docs) {
-    for (let i = 1; i <= d.pdf.numPages; i++) {
-      const box = d.boxes ? d.boxes[i-1] : null;
-      const r = await renderPage(d.pdf, i, box);
-      pages.push({ uid: nextUid++, fileId: d.fileId, pageIndex: i-1, src: r.src, trimFrac: r.trimFrac, wmm: r.wmm, hmm: r.hmm });
-      doneN++; showOverlay('מעבד עמודים…', true, Math.round(doneN/total*100));
-      if (doneN % 3 === 0) renderAll();    // עדכון הדרגתי
+  /* ⚠️ 07/08/2026 — כל עמוד נעטף בנפרד, והשחרור יושב ב-finally.
+     קודם לכן כשל ברינדור של עמוד **אחד** (הקצאת-קנבס שנכשלת באייפון,
+     עמוד פגום, PDF מוצפן) נזרק מתוך הלולאה: הכיסוי "מעבד עמודים… 43%"
+     נשאר על המסך לנצח, אי-אפשר היה ללחוץ על כלום, ורענון מוחק את כל מה
+     שהועלה עד כה ("עמודים שטרם אושרו יימחקו"). */
+  const renderFailed = [];
+  try {
+    for (const d of docs) {
+      for (let i = 1; i <= d.pdf.numPages; i++) {
+        const box = d.boxes ? d.boxes[i-1] : null;
+        try {
+          const r = await renderPage(d.pdf, i, box);
+          pages.push({ uid: nextUid++, fileId: d.fileId, pageIndex: i-1, src: r.src, trimFrac: r.trimFrac, wmm: r.wmm, hmm: r.hmm });
+        } catch (e) {
+          console.error('רינדור עמוד נכשל:', d.name, i, e);
+          renderFailed.push(d.name + ' — עמ׳ ' + i);
+        }
+        doneN++; showOverlay('מעבד עמודים…', true, Math.round(doneN/total*100));
+        if (doneN % 3 === 0) renderAll();    // עדכון הדרגתי
+      }
+      // בדיקת קבצים אוטומטית (פרי-פלייט) — לפני ניקוי ה-pdf
+      d.pdf.cleanup && d.pdf.cleanup();
     }
-    // בדיקת קבצים אוטומטית (פרי-פלייט) — לפני ניקוי ה-pdf
-    d.pdf.cleanup && d.pdf.cleanup();
+  } finally {
+    $('file').value = '';
+    renderAll(); showOverlay('', false);
   }
-  $('file').value = '';
-  renderAll(); showOverlay('', false);
+  /* עמוד חסר אסור שיישאר שקט — הלקוח עלול לאשר עיתון בלי לשים לב. */
+  if (renderFailed.length) {
+    setTimeout(() => alert('⚠️ ' + renderFailed.length + ' עמודים לא נקראו ואינם מופיעים ברשימה:\n'
+      + renderFailed.join('\n') + '\n\nאל תאשרו לפני שתבדקו — אפשר לפנות לבית הדפוס.'), 100);
+  }
   _pcAnomalyCheck();   // שאל את הלקוח על עמודים בגודל לא רגיל (כפולה / גלישות)
 }
 // באנר סידור-קבצים: מודיע ללקוח שקבצים מרובים סודרו לפי שם הקובץ ושיש לבדוק את הסדר לפני אישור
@@ -815,13 +845,31 @@ async function fileBoxes(bytes) {
   } catch (e) { return null; }
 }
 
+/* ⚠️ 07/08/2026 — תקרת-**שטח** לקנבס, לא רק תקרת-סקייל.
+   בספארי בנייד (אייפון/אייפד, וגם מק עם מסך רטינה) יש תקרה קשיחה לשטח
+   קנבס — כ-16.7 מיליון פיקסלים, ובמכשירים ישנים גם תקרת-ממד של 4096.
+   קנבס שחורג ממנה מוחזר **ריק, בלי לזרוק שגיאה**: העמוד מוצג לבן, הלקוח
+   מדווח "הדפים נעלמו", ואותו קובץ בדיוק נראה מושלם בכרום במחשב — ולכן
+   זה מעולם לא נתפס. עמוד עיתון בפורמט גדול או כפולה חוצה את התקרה בקלות.
+   ‏RENDER_SCALE_CAP הגביל את הסקייל ולא את התוצאה. */
+function _capCanvasScale(scale, v1) {
+  const MAX_AREA = 16777216 * 0.85;   // מרווח-ביטחון מתחת לתקרת ספארי
+  const MAX_DIM  = 4096;              // מכשירי אפל ישנים
+  let s = scale;
+  const area = (v1.width * s) * (v1.height * s);
+  if (area > MAX_AREA) s *= Math.sqrt(MAX_AREA / area);
+  const mx = Math.max(v1.width, v1.height) * s;
+  if (mx > MAX_DIM) s *= MAX_DIM / mx;
+  return s;
+}
+
 async function renderPage(pdf, pageNo, box) {
   const page = await pdf.getPage(pageNo);
   const view = page.view;                       // [x0,y0,x1,y1] התיבה שמוצגת
   const vbW = view[2] - view[0], vbH = view[3] - view[1];
   const v1 = page.getViewport({ scale: 1 });
   const dpr = Math.min(2, (window.devicePixelRatio || 1));
-  const scale = Math.min(RENDER_SCALE_CAP, (RENDER_H * dpr) / v1.height);
+  const scale = _capCanvasScale(Math.min(RENDER_SCALE_CAP, (RENDER_H * dpr) / v1.height), v1);
   const vp = page.getViewport({ scale });
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
@@ -1002,7 +1050,10 @@ window._pcPickRun = function(num) {
   var fs = _pcFullSheet();
   if (!fs) { alert('נא לבחור כמה עמודים נכנסים בגיליון'); return; }   // לא ממשיכים על ניחוש
   record.totalPages = total; record.sheetPages = fs;
-  try { patch({ totalPages: total, sheetPages: fs }); } catch(e){}     // נדבק לריצות הבאות של אותו גיליון
+  /* ⚠️ ‏patch הוא async ואינו מומתן כאן, ולכן ה-try/catch שהיה עוטף אותו לא
+     יכול היה לירות לעולם — ומאז ש-patch זורק על דחייה, הכשל היה הופך
+     לדחייה בלתי-מטופלת. בליעה מכוונת: זהו מטא-נתון נלווה, לא נתיב-האישור. */
+  patch({ totalPages: total, sheetPages: fs }).catch(function(e){ console.error('שמירת מטא-נתוני-גיליון נכשלה', e); });   // נדבק לריצות הבאות של אותו גיליון
   var runs = _pcRunLayout(total, fs);
   window._pcRun = runs.find(function(r){ return r.num===num; }) || null;
   var m = document.getElementById('pc-runpick'); if (m) m.remove();
@@ -1670,7 +1721,17 @@ async function _psApproveEdited(){
   showOverlay('מתחבר לפורטל…', true);
   const _id = await _ensureIdentity();
   if (_id.portal && !_id.token) { _uplPortalIdentityFail(); return; }
-  try { await _requireLibs(); } catch(e){ showOverlay('', false); return; }
+  /* ⚠️ 07/08/2026 — היה כאן showOverlay('', false), שמחק **מיד** את מסך
+     ההסבר ש-_requireLibs הרגע הציג. הלקוח לחץ "אשר ושלח", ראה הבהוב,
+     ושום דבר לא קרה — בלי הודעה ובלי שגיאה. זהו בדיוק "לחצתי ולא קרה
+     כלום". הדפוס הנכון כבר קיים למעלה, בקריאה השלישית ל-_requireLibs. */
+  try { await _requireLibs(); }
+  catch(e){
+    if (!/LIBS_BLOCKED/.test(String(e && e.message))) {
+      showOverlay('לא הצלחנו לטעון את רכיבי הצפייה: ' + esc(String((e && e.message) || e)), true);
+    }
+    return;
+  }
   _uploading = true; await acquireWakeLock();
   try {
     showOverlay('מרכיב קובץ…', true);
@@ -1691,13 +1752,11 @@ async function _psApproveEdited(){
       readingDirection: _pcReadDir(), pageDisplayMeta: _pcBuildPageMeta(),
       pagesUrl: cache.url, pagesReadyAt: cache.at, pendingPages: null };
     if (target === 'full') await patch(Object.assign({ status: 'approved', mode: 'full' }, fields));
-    else await fetch(await _au(`${_FBURL}/customerProofs/${proofId}/parts/${target}.json`),
-      { method:'PATCH', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(Object.assign({ status: 'approved' }, fields)) });
+    else await _dbWrite(await _au(`${_FBURL}/customerProofs/${proofId}/parts/${target}.json`), 'PATCH',
+      Object.assign({ status: 'approved' }, fields));
     // סוגרים את הבקשה עם התיעוד — בית-הדפוס רואה בדיוק מה הוחלף
-    await fetch(await _au(`${_FBURL}/${PageSwap.requestPath(proofId, target)}.json`),
-      { method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(PageSwap.markUsed(req, { at: Date.now(), version: version, changes: changes })) });
+    await _dbWrite(await _au(`${_FBURL}/${PageSwap.requestPath(proofId, target)}.json`), 'PUT',
+      PageSwap.markUsed(req, { at: Date.now(), version: version, changes: changes }));
     if (target === 'full') await patch({ version: version });
     await _psRefresh();
     _psEditing = false;
@@ -1734,10 +1793,23 @@ $('approve').onclick = async () => {
   showOverlay('מתחבר לפורטל…', true);
   const _id = await _ensureIdentity();
   if (_id.portal && !_id.token) { _uplPortalIdentityFail(); return; }   // עצור — אין קובץ, אין רשומה, אין אנונימי
-  try { await _requireLibs(); } catch(e){ showOverlay('', false); return; }
+  /* ⚠️ 07/08/2026 — היה כאן showOverlay('', false), שמחק **מיד** את מסך
+     ההסבר ש-_requireLibs הרגע הציג. הלקוח לחץ "אשר ושלח", ראה הבהוב,
+     ושום דבר לא קרה — בלי הודעה ובלי שגיאה. זהו בדיוק "לחצתי ולא קרה
+     כלום". הדפוס הנכון כבר קיים למעלה, בקריאה השלישית ל-_requireLibs. */
+  try { await _requireLibs(); }
+  catch(e){
+    if (!/LIBS_BLOCKED/.test(String(e && e.message))) {
+      showOverlay('לא הצלחנו לטעון את רכיבי הצפייה: ' + esc(String((e && e.message) || e)), true);
+    }
+    return;
+  }
   _uploading = true; await acquireWakeLock();
   // אות "לקוח מעלה קובץ" — כדי שבית הדפוס יקבל התראה (גם קולית) בזמן אמת
-  try { patch({ uploading: { at: Date.now(), name: (mode === 'run' ? runName : 'עיתון מלא'), pages: effPageCount() } }); } catch(e){}
+  /* בליעה מכוונת: זהו אות-התראה לבית-הדפוס ("לקוח מעלה עכשיו"), לא הרשומה
+     עצמה. כשל כאן אינו אמור לעצור את ההעלאה — אבל חייב עקבה. */
+  patch({ uploading: { at: Date.now(), name: (mode === 'run' ? runName : 'עיתון מלא'), pages: effPageCount() } })
+    .catch(function(e){ console.error('אות "מעלה עכשיו" נכשל', e); });
   try {
     showOverlay('מרכיב קובץ…', true);
     const pdfBytes = await _pcComposePdf();
@@ -1771,11 +1843,10 @@ $('approve').onclick = async () => {
       const path = `customerProofs/${folder}/${proofId}/${partId}.pdf`;
       const fileUrl = await uploadBytes(path, pdfBytes, onUp);
       const cache = await uploadPagesCache(`customerProofs/${folder}/${proofId}/${partId}-pages.json`);
-      await fetch(await _au(`${_FBURL}/customerProofs/${proofId}/parts/${partId}.json`), {
-        method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ name:runName, fileUrl, filePath:path, pageCount:effPageCount(), spreadCount:_spr, fileSize:pdfBytes.byteLength, status:'approved', approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at,
+      await _dbWrite(await _au(`${_FBURL}/customerProofs/${proofId}/parts/${partId}.json`), 'PUT',
+        { name:runName, fileUrl, filePath:path, pageCount:effPageCount(), spreadCount:_spr, fileSize:pdfBytes.byteLength, status:'approved', approvedAt:Date.now(), pagesUrl:cache.url, pagesReadyAt:cache.at,
           readingDirection: _pcReadDir(), pageDisplayMeta: _pcBuildPageMeta(),   // הריצה נושאת כיוון+גלישה משלה
-          pendingPages: (_pend && _pend.length) ? _pend : null }) });   // עמודים שנשארו ריקים להשלמה
+          pendingPages: (_pend && _pend.length) ? _pend : null });   // עמודים שנשארו ריקים להשלמה
       await patch({ status:'parts', mode:'parts' });
       record = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
       // ✓ הצלחה — רק כאן: Storage + RTDB הושלמו; נקה מזהה-ריצה כדי שריצה הבאה תקבל מזהה חדש
@@ -1786,11 +1857,26 @@ $('approve').onclick = async () => {
         : ('"'+runName+'" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.'), function(){ goHome(); });
     }
   } catch (e) { _uplFail(e, 'approve'); }
-  finally { _uploading = false; releaseWakeLock(); try { patch({ uploading: null }); } catch(e){} }
+  /* ניקוי-דגל בלבד; בליעה מכוונת, עם עקבה. */
+  finally { _uploading = false; releaseWakeLock(); patch({ uploading: null }).catch(function(e){ console.error('ניקוי דגל-ההעלאה נכשל', e); }); }
 };
 
+/* ⚠️ 07/08/2026 — כתיבה שנדחית חייבת לזרוק.
+   ‏Firebase מחזיר 401/403 כתגובת-HTTP **תקינה** ולא כחריגה, ולכן עד היום
+   כל כתיבות-הרשומה של המסך הזה "הצליחו" תמיד. התוצאה: הלקוח ראה
+   "✓ העיתון אושר ונשלח לבית הדפוס", בבית-הדפוס לא נוצרה שום רשומה,
+   והקבצים נשארו ב-Storage בלי מצביע — הלקוח בטוח ששלח, הדפוס בטוח שלא
+   קיבל. החיווט לתפיסת הכשל כבר היה קיים (‏_uplFail ב-catch של ההעלאה);
+   מה שחסר היה החוליה שזורקת. אותו תיקון בוצע ב-customer-portal ב-06/08
+   ולא הוחל כאן. */
+async function _dbWrite(url, method, body) {
+  const r = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error('שמירת הנתונים בבית-הדפוס נכשלה (' + r.status + ')');
+  return r;
+}
+
 async function patch(fields) {
-  await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(fields) });
+  await _dbWrite(await _au(`${_FBURL}/customerProofs/${proofId}.json`), 'PATCH', fields);
 }
 
 // העלאה עם מד אחוזים (XHR), עם ניסיונות חוזרים על תקלות רשת זמניות (למשל מעבר חלון).

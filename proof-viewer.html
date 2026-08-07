@@ -4,17 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>צפייה בעיתון — סולן הדפסות</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<!-- ⚠️ 07/08/2026 — vendor/ ולא cdnjs; תגיות חוסמות-פרסור שרצות לפני
+     lib-loader, ולכן לא היו מכוסות ע"י מנגנון-המראות. ראה proof-client.html. -->
+<script src="vendor/pdf.min.js"></script>
+<script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
 <script src="page-spine.js?v=bidi1"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1785763969"></script>
-<script src="auth-client.js?v=1785763969"></script>
-<script src="auth-guard.js?v=1785763969" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786104251"></script>
+<script src="auth-client.js?v=1786104251"></script>
+<script src="auth-guard.js?v=1786104251" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -540,11 +542,25 @@ function _toggleEngine(){
   location.href = u.toString();
 }
 
+/* ⚠️ 07/08/2026 — תקרת-**שטח** לקנבס, לא רק תקרת-סקייל. בספארי בנייד יש
+   תקרה קשיחה (~16.7 מיליון פיקסלים; מכשירים ישנים גם 4096 לממד), וקנבס
+   שחורג ממנה מוחזר ריק **בלי לזרוק** — העמוד לבן, בלי שגיאה ובלי הודעה.
+   אותו קובץ נראה תקין בכרום, ולכן זה לא נתפס. ראה proof-client.html. */
+function _capCanvasScale(scale, v1) {
+  const MAX_AREA = 16777216 * 0.85, MAX_DIM = 4096;
+  let s = scale;
+  const area = (v1.width * s) * (v1.height * s);
+  if (area > MAX_AREA) s *= Math.sqrt(MAX_AREA / area);
+  const mx = Math.max(v1.width, v1.height) * s;
+  if (mx > MAX_DIM) s *= MAX_DIM / mx;
+  return s;
+}
+
 async function renderPage(pdf, pageNo, targetH, q){
   const page = await pdf.getPage(pageNo);
   const v1 = page.getViewport({ scale:1 });
   const dpr = Math.min(2, (window.devicePixelRatio || 1));
-  const scale = Math.min(RENDER_SCALE_CAP, ((targetH || BASE_H) * dpr) / v1.height);
+  const scale = _capCanvasScale(Math.min(RENDER_SCALE_CAP, ((targetH || BASE_H) * dpr) / v1.height), v1);
   const vp = page.getViewport({ scale });
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));

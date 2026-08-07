@@ -6,9 +6,13 @@
 <meta name="robots" content="noindex, nofollow">
 <title>הצגת פרופר מקופל ללקוח — סולן הדפסות</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}</script>
+<!-- ⚠️ 07/08/2026 — vendor/ ולא cdnjs. זהו מסך **אישור-הפרופר של הלקוח**,
+     והתגיות כאן חוסמות-פרסור ורצות לפני lib-loader. יתרה מזו, שורה ~127
+     מפרקת את PDFLib ברמת-הסקריפט — כלומר cdnjs חסום היה הורג את הקובץ
+     כולו בשגיאת-פרסור, לא רק את הספרייה. ה-CDN נשאר גיבוי ב-lib-loader. -->
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="vendor/pdf.min.js"></script>
+<script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js'; }catch(e){}</script>
 <script src="lib-loader.js"></script>
 <script src="imposition-decoder.js"></script>
 <script src="imposition-decoder-exec.js"></script>
@@ -20,9 +24,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1785763969"></script>
-<script src="auth-client.js?v=1785763969"></script>
-<script src="auth-guard.js?v=1785763969" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786104251"></script>
+<script src="auth-client.js?v=1786104251"></script>
+<script src="auth-guard.js?v=1786104251" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -234,6 +238,12 @@ function _callStaffFn(name, data){
 // הפולינג באפליקציה מזהה רשומה-חדשה-ממשתמש-אחר → toast+צלצול. read-merge-write, cap 150.
 // סימון "נשלח ללקוח" על הרשומה (שדה sentAt) — למעקב במערכת-האישור. אדיטיבי (לא נוגע ב-share/approval).
 async function _markSent(versionId){ try{ await _dbPatch('customerFoldVersions/'+versionId, { sentAt:_nowIso() }); }catch(e){} }
+/* ⚠️ 07/08/2026 — מחזיר הצלחה/כישלון במקום לבלוע.
+   ה-catch הריק כאן עטף את **כל** הגוף, והקריאה הייתה "שגר-ושכח". ‏_dbPut
+   כן בודק r.ok ודוחה — כלומר דחייה אמיתית נעלמה בלי עקבה. התוצאה: הלקוח
+   רואה "✅ אושר לדפוס", ובבית-הדפוס לא מצלצל כלום ולא מופיעה שום התראה.
+   בקשת-תיקון שאובדת כך = עיתון שיוצא עם השגיאה שהלקוח ביקש לתקן.
+   האישור עצמו כבר נשמר לפני-כן (מקור-האמת), ולכן זו אזהרה — לא כישלון. */
 async function _notifyShop(icon, text, user){
   try{
     const sv=await _dbGet('activityLog');
@@ -242,7 +252,8 @@ async function _notifyShop(icon, text, user){
     arr=arr.filter(a=>a&&a.id!==entry.id); arr.push(entry);
     arr.sort((a,b)=>(b.t||0)-(a.t||0)); if(arr.length>150) arr=arr.slice(0,150);
     await _dbPut('activityLog', arr);
-  }catch(e){}
+    return true;
+  }catch(e){ console.error('התראת בית-הדפוס נכשלה', e); return false; }
 }
 
 // ── קיפול/פירוק לפי טמפלט (3 מסלולים מאושרים) → outputPdfBytes + NormalizedFoldResult ──
@@ -437,11 +448,25 @@ async function renderLock(isFg, fn){
     _busy=true; try{ return await fn(); } finally{ _busy=false; }
   } finally{ if(isFg) _fgWaiting--; }
 }
+/* תקרת-שטח לקנבס — ראה הנימוק המלא ב-proof-client.html. תקרת ספארי בנייד
+   אינה זורקת שגיאה; היא פשוט מחזירה קנבס ריק. */
+function _cfpCapScale(scale, v1){
+  var MAX_AREA = 16777216 * 0.85, MAX_DIM = 4096, s = scale;
+  var area = (v1.width * s) * (v1.height * s);
+  if (area > MAX_AREA) s *= Math.sqrt(MAX_AREA / area);
+  var mx = Math.max(v1.width, v1.height) * s;
+  if (mx > MAX_DIM) s *= MAX_DIM / mx;
+  return s;
+}
 async function _renderPage(pdf, i){   // רזולוציה גבוהה (דגימת-על → חד). פענוח-התמונות שולט בזמן.
   await _whenVisible();   // לא מתחילים רינדור בלשונית-רקע (עלול להיתקע)
   const pg=await pdf.getPage(i); const v1=pg.getViewport({scale:1});
   const dpr=Math.min(window.devicePixelRatio||1, 2), dispH=Math.min((window.innerHeight||900)*0.6, 1000);
-  const targetH=Math.min(Math.max(dispH*dpr, dispH*2.6), 2400), sc=Math.max(1.6, Math.min(8, targetH/v1.height));
+  /* ⚠️ 07/08/2026 — תקרת-שטח אחרי חישוב-הסקייל. ‏Math.max(1.6, …) יכול
+     להעלות את הסקייל, ובספארי בנייד קנבס שחורג מ-~16.7 מיליון פיקסלים
+     מוחזר **ריק בלי לזרוק** — כפולה בפורמט עיתון חוצה את זה בקלות.
+     הלקוח רואה עמוד לבן במסך-אישור-הפרופר, ובכרום אותו קובץ תקין. */
+  const targetH=Math.min(Math.max(dispH*dpr, dispH*2.6), 2400), sc=_cfpCapScale(Math.max(1.6, Math.min(8, targetH/v1.height)), v1);
   const vp=pg.getViewport({scale:sc}); const cv=document.createElement('canvas'); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height);
   const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height); ctx.imageSmoothingQuality='high';
   await pg.render({canvasContext:ctx, viewport:vp}).promise; return cv.toDataURL('image/jpeg',0.92);
@@ -1450,7 +1475,17 @@ function renderApprove(rec, hashOk){
     if(submit._busy) return; submit._busy=true;
     const btnA=$('cApproveBtn'), btnC=$('cCorrectBtn'); if(btnA)btnA.disabled=true; if(btnC)btnC.disabled=true;
     const nm=$('cName').value||null, cm=$('cComment').value||null;
-    const fresh=await _cDbGet('customerFoldVersions/'+rec.versionId);   // מקור-אמת עדכני מהשרת
+    /* ⚠️ 07/08/2026 — הקריאה הזו הייתה **מחוץ** ל-try, אחרי ששני הכפתורים
+       כבר נוטרלו ו-submit._busy הודלק. ‏_cAuth דוחה במפורש כשהאסימון פג —
+       ועורך שמדפדף 32 עמודים לפני שהוא מאשר מגיע לזה. הדחייה עקפה את שני
+       מסלולי-השחזור שלמטה, והכפתורים נשארו אפורים **עד רענון-דף**, בלי
+       שום הודעה. הלקוח בטוח שלחץ ושהמערכת תקועה. */
+    let fresh;
+    try{ fresh=await _cDbGet('customerFoldVersions/'+rec.versionId); }   // מקור-אמת עדכני מהשרת
+    catch(e){
+      $('cResult').innerHTML='<span class="bad">לא הצלחנו לאמת מול השרת — ייתכן שהקישור פג. רעננו את הדף ונסו שוב.</span>';
+      submit._busy=false; if(btnA)btnA.disabled=!hashOk; if(btnC)btnC.disabled=false; return;
+    }
     const res=CFV.applyApproval(fresh, action, { approvedBy:nm, comment:cm, nowIso:_nowIso() });
     if(!res.ok){ $('cResult').innerHTML='<span class="bad">'+(res.error==='LINK_REVOKED'?'הקישור בוטל':res.error==='LINK_EXPIRED'?'תוקף פג':res.error)+'</span>';
       submit._busy=false; if(btnA)btnA.disabled=!hashOk; if(btnC)btnC.disabled=false; return; }
@@ -1470,10 +1505,16 @@ function renderApprove(rec, hashOk){
     // התראת-שופ (סוגר את הלולאה — האפליקציה תצלצל ותציג toast)
     const who=(nm||'לקוח'), jl=rec.jobName||'חוברת', vn='V'+rec.versionNumber;
     const syncWarn=proofsCheckFailed?' ⚠️ בדיקת-סנכרון-פורטל נכשלה — יש לוודא ידנית שהתצוגה בפורטל עודכנה':'';
-    if(action==='approve') _notifyShop('✅','לקוח אישר חוברת לדפוס: "'+jl+'" ('+vn+')'+syncWarn, who);
-    else _notifyShop('✎','לקוח ביקש תיקון בחוברת: "'+jl+'" ('+vn+')'+(cm?(' — '+cm):'')+syncWarn, who);
+    const notified = (action==='approve')
+      ? await _notifyShop('✅','לקוח אישר חוברת לדפוס: "'+jl+'" ('+vn+')'+syncWarn, who)
+      : await _notifyShop('✎','לקוח ביקש תיקון בחוברת: "'+jl+'" ('+vn+')'+(cm?(' — '+cm):'')+syncWarn, who);
     // החלון של הלקוח משתנה למצב-הסופי (אושר לדפוס / התבקש תיקון)
     box.innerHTML = action==='approve' ? _cApprovedBox(res.record) : _cCorrectionBox(res.record);
+    /* ⚠️ האישור עצמו כבר נשמר בשרת, ולכן זו אזהרה ולא כישלון — אבל הלקוח
+       חייב לדעת שההתראה לא יצאה, אחרת בקשת-תיקון יכולה ללכת לאיבוד בשקט. */
+    if(!notified){
+      box.innerHTML += '<div class="bad" style="margin-top:10px;white-space:pre-line">⚠️ ההודעה נשמרה, אך ההתראה לבית-הדפוס לא יצאה.\nכדאי ליידע אותם גם טלפונית.</div>';
+    }
     _startAckPoll(rec.versionId, action==='approve');   // המסך נשאר פתוח וממתין לאישור-הקבלה של הדפוס
   }
   $('cApproveBtn').onclick=()=>submit('approve'); $('cCorrectBtn').onclick=()=>submit('request-correction');

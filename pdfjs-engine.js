@@ -79,16 +79,36 @@
 
   /* טוען את המנוע החדש ומציב אותו כ-pdfjsLib. מחזיר {ok, engine, version, base}.
      נכשל בשקט אם כל המראות חסומות — הקורא נופל-לאחור למנוע הישן. */
+  /* ⚠️ 07/08/2026 — בדיקת-יכולת, לא בדיקת-קיום.
+     ‏pdf.js 5.4.149 משתמש ב-Promise.withResolvers, שקיים רק מספארי 17.4.
+     בספארי 16.4–17.3 המודול **נפרס בהצלחה** ו-getDocument קיים — ולכן
+     ההתחייבות למנוע החדש נעשתה, הנפילה-לאחור למנוע הישן לא הופעלה,
+     והכשל צץ מאוחר יותר כ-"Promise.withResolvers is not a function"
+     בהודעה שמאשימה את **הקובץ של הלקוח**. רצועה של כשנה שלמה של גרסאות
+     ‏iOS/מק נפלה בדיוק לשם. (מתחת ל-16.4 המודול נכשל בפרסור והנפילה-לאחור
+     כן עבדה — ולכן זה נראה כאילו הישנים מכוסים.) */
+  function modernRuntimeOk() {
+    try { return typeof Promise.withResolvers === 'function'; } catch (e) { return false; }
+  }
+
   function loadModern(opts) {
     opts = opts || {};
     var win = opts.win || (typeof window !== 'undefined' ? window : null);
     var list = opts.mirrors || mirrors(opts.version || MODERN);
     var imp = opts.importer || function (u) { return import(/* webpackIgnore: true */ u); };
+    /* ⚠️ פסק-זמן לכל מראה. מסנן-תוכן שמפיל חבילות **בשקט** (במקום להחזיר
+       שגיאה) משאיר את ה-import תלוי לנצח — ואז tryNext לעולם לא נקרא,
+       הנפילה-לאחור ל-vendor לא קורית, והלקוח נשאר על "טוען רכיבי צפייה…". */
+    var perMirrorMs = opts.timeoutMs || 5000;   // 3 מראות מרוחקות → לכל היותר ~15ש' עד vendor/
+    if (modernRuntimeOk() === false) return Promise.resolve({ ok: false, engine: 'old', version: LEGACY });
     var i = 0;
     function tryNext() {
       if (i >= list.length) return Promise.resolve({ ok: false, engine: 'old', version: LEGACY });
       var base = list[i++];
-      return Promise.resolve().then(function () { return imp(moduleFor(base)); }).then(function (m) {
+      return Promise.race([
+        Promise.resolve().then(function () { return imp(moduleFor(base)); }),
+        new Promise(function (_, rej) { setTimeout(function () { rej(new Error('PDFJS_MIRROR_TIMEOUT')); }, perMirrorMs); })
+      ]).then(function (m) {
         if (!m || typeof m.getDocument !== 'function') return tryNext();
         try { m.GlobalWorkerOptions.workerSrc = workerFor(base); } catch (e) {}
         try { withAssets(m, base); } catch (e) {}

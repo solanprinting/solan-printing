@@ -87,6 +87,8 @@ function persist() {
     // מלאי-לקוחות — דחיפה ממוזגת לפי-לקוח (לא PUT של המפה כולה)
     if (window._fbSnapshot.customerStock !== JSON.stringify(customerStock)) _pushMapMerged('customerStock');
     window._fbPendingPuts = window._fbPendingPuts || {};
+    window._fbInFlight = window._fbInFlight || {};   // תוכן שנמצא כרגע בדחיפה, לפי collection
+    var _pushes = [];
     Object.keys(_paths).forEach(function(p) {
       var _json = JSON.stringify(_paths[p]);
       // אם ה-collection הזה לא השתנה אצלנו מאז הסנכרון האחרון מהשרת — לא דוחפים אותו.
@@ -105,15 +107,27 @@ function persist() {
       // הגנת מחירון: אל תדחוף quotePricing עד שידוע שהוא אמין (נמשך מהשרת או נשמר ידנית),
       // כדי שטאב עם ברירת-מחדל ריקה לא ידרוס את המחירון התקין בשרת.
       if (p === 'quotePricing' && !window._quotePricingLoaded) return;
-      window._fbSnapshot[p] = _json;
+      /* ⚠️ 07/08/2026 — ה-baseline (_fbSnapshot) נקבע רק **אחרי** אישור-שרת.
+         קודם לכן הוא נכתב כאן, לפני ה-PUT: כתיבה שנדחתה (403 · שער-סביבה ·
+         כשל-רשת) הותירה baseline שקרי, ושער-הדחיפה בשורה 95 חסם כל ניסיון
+         חוזר **עד רענון-דף** — בזמן שהמסך הציג "🟢 מחובר". */
+      if (window._fbInFlight[p] === _json) return;   // אותו תוכן כבר באוויר — לא לדחוף פעמיים
+      window._fbInFlight[p] = _json;
       // מסמנים "כתיבה בתהליך" כדי שה-poll (כל 15 שניות) לא ימשוך בטעות נתון ישן
       // מהשרת בזמן שהכתיבה הזו עדיין באוויר, וידרוס איתו את העדכון המקומי שלנו
       // (זה מה שגרם לתעודות משלוח/הורדות מלאי "להתאפס" בחזרה אחרי כמה שניות).
       window._fbPendingPuts[p] = (window._fbPendingPuts[p] || 0) + 1;
-      window._fbPut(p, _paths[p]).then(function() {
+      _pushes.push(window._fbPut(p, _paths[p]).then(function(ok) {
         window._fbPendingPuts[p] = Math.max(0, (window._fbPendingPuts[p] || 1) - 1);
-      });
+        if (window._fbInFlight[p] === _json) delete window._fbInFlight[p];
+        if (ok === false) { console.error('[persist] דחיפה נכשלה — ' + p + ' (ה-baseline לא עודכן; הקריאה הבאה תנסה שוב)'); return false; }
+        window._fbSnapshot[p] = _json;
+        return true;
+      }));
     });
-    updateFBStatus(true);
+    /* ⚠️ הסטטוס נגזר מהתוצאה ולא מהיציאה-לדרך. "🟢 מחובר · עודכן HH:MM"
+       הוצג קודם גם כשכל הדחיפות נדחו. */
+    if (_pushes.length) Promise.all(_pushes).then(function(res){ updateFBStatus(res.indexOf(false) === -1); });
+    else updateFBStatus(true);
   }
 }
