@@ -9,7 +9,7 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-context.js?v=1786142245"></script>
+<script src="portal-context.js?v=1786211165"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -433,8 +433,21 @@ async function loadHistory(){
         + ' <span style="color:#6b7280">· בבדיקת קדם-דפוס · לא נדרשת ממך פעולה</span></div>' : '';
     // בית-הדפוס סימן שהעבודה מוכנה (בקשת-משתמש 2026-07-30) → באנר ירוק בולט ללקוח
     var readyNote = p.readyNotice ? '<div style="font-size:.82rem;color:#166534;background:#dcfce7;border:1.5px solid #16a34a;border-radius:7px;padding:6px 10px;margin-top:5px;font-weight:800;display:inline-block">🎉 העבודה מוכנה! ניתן לתאם איסוף/משלוח עם בית הדפוס</div>' : '';
+    /* ⚠️ סכום גודלי-הקבצים של העבודה: עיתון-מלא נושא fileSize אחד, ועבודה
+       שנשלחה בריצות נושאת אחד לכל ריצה. סכימה בלבד — אין שדה חדש.
+       ⚠️ אפס/חסר מחזיר מחרוזת ריקה, כדי שרשומה ותיקה לא תציג "0 MB". */
+    function _cpSize(rec){
+      var b = Number(rec && rec.fileSize) || 0;
+      if (rec && rec.parts) Object.keys(rec.parts).forEach(function(k){
+        var t = rec.parts[k]; if (t && isFinite(Number(t.fileSize))) b += Number(t.fileSize); });
+      if (!isFinite(b) || b <= 0) return '';
+      return b < 1024*1024 ? ((b/1024).toFixed(0)+' KB') : ((b/(1024*1024)).toFixed(1)+' MB');
+    }
     return '<div class="row" style="'+rowStyle+'"><div class="main"><div class="title">'+(isDone?'🏁 ':(p.readyNotice?'🎉 ':(locked?'✅ ':'')))+esc(p.title || (p.customer? p.customer+' — עיתון' : 'עיתון'))+'</div>'
-      + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(locked&&!isDone?'אושר '+_appDate:'')+'</div>'+lockNote+readyNote+seenNote+'</div>'
+      /* ⚠️ גודל-הקובץ נוסף לשורת-המידע (08/08/2026). ‏fileSize כבר נכתב
+         ברשומה ברגע השליחה — הוא פשוט לא הוצג. אין שדה חדש ואין schema.
+         ⚠️ רשומה ותיקה בלי fileSize פשוט לא מציגה אותו; אין "0 MB". */
+      + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(_cpSize(p)?_cpSize(p)+' · ':'')+(locked&&!isDone?'אושר '+_appDate:'')+'</div>'+lockNote+readyNote+seenNote+'</div>'
       + '<span class="badge '+(isDone?'b-done':(locked?'b-approved':b.cls))+'" style="'+(locked?'font-size:.78rem;padding:4px 11px':'')+'">'
       + (isDone?'🏁 הושלמה':(locked?'✓ אושר לדפוס':b.txt))+'</span>'
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">'+acts+'</div></div>';

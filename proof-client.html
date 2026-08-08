@@ -16,7 +16,7 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
      כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-context.js?v=1786142245"></script>
+<script src="portal-context.js?v=1786211165"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi1"></script>
 <script src="page-swap.js"></script>
@@ -1834,7 +1834,10 @@ $('approve').onclick = async () => {
         pendingPages: (_pend && _pend.length) ? _pend : null });   // עמודים שנשארו ריקים להשלמה
       // ✓ הצלחה — רק כאן: Storage + RTDB הושלמו שניהם
       record.status = 'approved'; record.mode = 'full';
-      _pcUploadSuccess((_pend&&_pend.length) ? ('נשלח לבית הדפוס. נשארו עמודים להשלמה: עמ׳ '+_pend.join(', ')) : 'העיתון אושר ונשלח לבית הדפוס. תודה!', function(){ goHome(); });
+      /* ⚠️ העובדות נלקחות **מאותם ערכים שנכתבו ברשומה בשורה למעלה** —
+         לא מחושבות מחדש ולא נאספות ממקור אחר. */
+      _pcUploadSuccess((_pend&&_pend.length) ? ('נשלח לבית הדפוס. נשארו עמודים להשלמה: עמ׳ '+_pend.join(', ')) : 'העיתון אושר ונשלח לבית הדפוס. תודה!', function(){ goHome(); },
+        { jobName:_pcJobName(), pages:effPageCount(), bytes:pdfBytes.byteLength, at:Date.now() });
       return;
     } else {
       // מזהה-ריצה יציב לניסיון-חוזר אידמפוטני: אותו נתיב-Storage ואותה רשומה — בלי כפילות
@@ -1852,9 +1855,13 @@ $('approve').onclick = async () => {
       // ✓ הצלחה — רק כאן: Storage + RTDB הושלמו; נקה מזהה-ריצה כדי שריצה הבאה תקבל מזהה חדש
       window._retryPartId = null;
       showOverlay('', false);
+      /* ⚠️ בריצה, שם-העבודה כולל את שם-הריצה: הלקוח שלח חלק ולא את הכל,
+         ומסך שאומר רק את שם-העיתון היה נקרא כאילו העיתון כולו נשלח. */
       _pcUploadSuccess((_pend&&_pend.length)
         ? ('"'+runName+'" נשלחה. נשארו להשלמה: עמ׳ '+_pend.join(', ')+' — אפשר להעלות בהמשך כ"השלמת עמודים".')
-        : ('"'+runName+'" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.'), function(){ goHome(); });
+        : ('"'+runName+'" נשלחה. אפשר להוסיף ריצה נוספת או לסגור.'), function(){ goHome(); },
+        { jobName:[_pcJobName(), runName].filter(Boolean).join(' · '), pages:effPageCount(),
+          bytes:pdfBytes.byteLength, at:Date.now() });
     }
   } catch (e) { _uplFail(e, 'approve'); }
   /* ניקוי-דגל בלבד; בליעה מכוונת, עם עקבה. */
@@ -2000,10 +2007,83 @@ function _showResult(kind, msgHtml, subText, buttons){
 function _hideResult(){ $('resmodal').classList.remove('on'); }
 function _uplBackDest(){ var b = new URLSearchParams(location.search).get('back'); if (b) { try { location.href = b; return; } catch(e){} } goHome(); }
 
+/* ── מסך-הסטטוס ללקוח ────────────────────────────────────────────────────
+   ⚠️ נבנה **אך ורק מנתונים שכבר נכתבו** ברגע השליחה — ‏pageCount, fileSize
+   ו-approvedAt נשמרים ברשומה ממילא. אין כאן שדה חדש, אין schema, אין
+   סטטוס חדש ואין פעולה חדשה: רק הצגה של מה שכבר ידוע.
+   ⚠️ עד עכשיו הלקוח קיבל שורת-טקסט אחת וכפתור "סגור" — בלי לדעת מה בדיוק
+   נשלח, כמה עמודים, באיזה גודל ומתי. */
+
+/* גודל-קובץ קריא. ⚠️ ערך שאינו מספר סופי מחזיר מחרוזת ריקה ולא "NaN MB":
+   שדה חסר ברשומה ותיקה לא ייהפך למספר מומצא. */
+function _pcFmtSize(bytes){
+  var b = Number(bytes);
+  if (!isFinite(b) || b <= 0) return '';
+  if (b < 1024) return b + ' בתים';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' KB';
+  return (b / (1024 * 1024)).toFixed(1) + ' MB';
+}
+/* זמן-שליחה. ⚠️ חותמת חסרה → מחרוזת ריקה, לא "Invalid Date". */
+function _pcFmtWhen(ms){
+  var t = Number(ms);
+  if (!isFinite(t) || t <= 0) return '';
+  try {
+    return new Date(t).toLocaleString('he-IL',
+      { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+  } catch(e){ return ''; }
+}
+/* ⚠️ טהורה ונבדקת: מקבלת עובדות ומחזירה HTML. שורה בלי ערך **מושמטת**
+   ולא מוצגת ריקה — "עמודים: —" נראה כתקלה ולא כמידע חסר.
+   ⚠️ החיווי "בית-הדפוס קיבל" נגזר מ-shopSeenAt, שברגע השליחה עדיין אינו
+   קיים. לכן הוא מוצג כ"ממתין" ולא כהבטחה, והניסוח זהה לזה שבפורטל
+   בכוונה — שני מסכים שאומרים את אותו דבר בשתי לשונות מבלבלים. */
+function _pcSentFactsHtml(f){
+  f = f || {};
+  var rows = [
+    ['עבודה',      f.jobName || ''],
+    ['עמודים',     (isFinite(Number(f.pages)) && Number(f.pages) > 0) ? (Number(f.pages) + ' עמודים') : ''],
+    ['גודל הקובץ', _pcFmtSize(f.bytes)],
+    ['נשלח',       _pcFmtWhen(f.at)]
+  ].filter(function(r){ return r[1]; });
+
+  var facts = rows.map(function(r){
+    return '<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;'
+      + 'border-bottom:1px solid #eef0f5;font-size:.88rem">'
+      + '<span style="color:#6b7280">' + esc(r[0]) + '</span>'
+      + '<span style="font-weight:800">' + esc(r[1]) + '</span></div>';
+  }).join('');
+
+  var seenWhen = _pcFmtWhen(f.seenAt);
+  var seen = seenWhen
+    ? '<div style="font-size:.78rem;color:#166534;background:#f0fdf4;border:1px solid #86efac;'
+      + 'border-radius:6px;padding:5px 9px;margin-top:10px;display:inline-block">'
+      + '📩 בית-הדפוס קיבל את הקבצים · ' + esc(seenWhen) + '</div>'
+    : '<div style="font-size:.78rem;color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;'
+      + 'border-radius:6px;padding:5px 9px;margin-top:10px;display:inline-block">'
+      + '⏳ ממתין לקבלה בבית-הדפוס — הסטטוס יתעדכן בפורטל</div>';
+
+  return (facts
+      ? '<div style="background:#fff;border:1px solid #d1fae5;border-radius:11px;padding:2px 14px;'
+        + 'text-align:right;margin-top:12px">' + facts + '</div>'
+      : '')
+    + seen
+    + '<div style="font-size:.76rem;color:#6b7280;margin-top:10px">'
+    + 'הסטטוס נשאר זמין בפורטל האישי גם אחרי סגירת החלון.</div>';
+}
+if (typeof window !== 'undefined') {
+  window._pcFmtSize = _pcFmtSize; window._pcFmtWhen = _pcFmtWhen;
+  window._pcSentFactsHtml = _pcSentFactsHtml;          // לבדיקות
+}
+/* שם-העבודה כפי שהלקוח מכיר אותו — אותו צירוף שמוצג בכותרת המסך. */
+function _pcJobName(){
+  try { return [record.customer, record.title].filter(Boolean).join(' · '); } catch(e){ return ''; }
+}
+
 /* הצלחה — מוצגת **רק** אחרי ש-Storage וגם כתיבת-RTDB הושלמו (נקרא מסוף המסלול). */
-function _pcUploadSuccess(msg, onClose){
+function _pcUploadSuccess(msg, onClose, facts){
   show('home', false); show('editor', false);
-  _showResult('success', '<b>' + esc(msg) + '</b>', '',
+  _showResult('success',
+    '<b>' + esc(msg) + '</b>' + (facts ? _pcSentFactsHtml(facts) : ''), '',
     [ { label:'סגור', primary:true, onClick:function(){ try { onClose ? onClose() : goHome(); } catch(e){ goHome(); } } } ]);
 }
 
