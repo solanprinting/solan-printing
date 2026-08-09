@@ -36,16 +36,16 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1786265489"></script>
-<script src="auth-client.js?v=1786265489"></script>
-<script src="auth-guard.js?v=1786265489" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1786265489"></script>
+<script src="firebase-auth.bundle.js?v=1786268703"></script>
+<script src="auth-client.js?v=1786268703"></script>
+<script src="auth-guard.js?v=1786268703" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1786268703"></script>
 <!-- ⚠️ הגופן מתארח **אצלנו**, לא ב-Google. קישור ל-fonts.googleapis לא
      הספיק: גיליון-הסגנון מגיע משם, אבל קובצי הגופן עצמם מגיעים
      מ-fonts.gstatic.com — ומספיק שאחד מהשניים חסום ברשת המסוננת
      כדי שהמסך ייפול לגופן-מערכת, והמלל ייצא דק ושונה ממה
      שהמפעילים מכירים. עכשיו אין תלות ברשת חיצונית בכלל. -->
-<link href="heebo.css?v=1786265489" rel="stylesheet">
+<link href="heebo.css?v=1786268703" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -264,7 +264,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1786265489';
+var _BAKED = '1786268703';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -755,6 +755,7 @@ async function pvShowBuffer(buf, label) {
   if (!window.pdfjsLib) throw new Error('מנוע התצוגה נחסם ברשת. פנו למנהל.');
 
   var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  try { if (window._p4Mark) window._p4Mark('parsed'); } catch (e) {}
   var n = pdf.numPages;
   _pv = { imgs: [], idx: 0, zoom: 1, spread: false, total: n, url: null,
           sharp: [], pdf: pdf };
@@ -794,6 +795,9 @@ async function pvShowBuffer(buf, label) {
       built = true;
       var l = document.getElementById('pv-load'); if (l) l.remove();
       pvBuild(ov, label);
+      /* ⚠️ **זה הרגע שהדפס מרגיש** — לא סיום ההורדה ולא סיום הרינדור
+         של כל העמודים, אלא הרגע שבו משהו מופיע על המסך. */
+      try { if (window._p4Mark) window._p4Mark('first'); } catch (e) {}
     }
     pvRender();
     /* הפסקה קצרה: מחזירה שליטה לדפדפן כדי שהמסך יגיב ללחיצות
@@ -831,6 +835,64 @@ async function pvShowBuffer(buf, label) {
   })();
 }
 
+/* מציג את מטמון-התמונות מיד. אותו מבנה _pv בדיוק כמו pvShowBuffer,
+   עם sharp=false — כלומר "עדיין לא מהמקור". */
+function pvShowCached(imgs, label) {
+  var ov = document.getElementById('ov');
+  if (!ov) return;
+  var l = document.getElementById('pv-load'); if (l) l.remove();
+  _pv = { imgs: imgs.slice(), idx: 0, zoom: 1, spread: false, total: imgs.length,
+          url: null, sharp: imgs.map(function () { return false; }), pdf: null, fromCache: true };
+  pvBuild(ov, label);
+  pvRender();
+  pvNote('תצוגה מהירה — טוען את הקובץ המקורי…', 2500);
+}
+
+/* מוריד את המקור ברקע ומחליף לתמונה החדה.
+   ⚠️ כשל כאן **אינו** מסך-שגיאה: על המסך כבר יש תצוגה שמישה, והחלפתה
+   במסך-כשל הייתה מורידה מהדפס את מה שכבר עובד. חיווי בלבד. */
+async function pvUpgradeFromSource(url, label) {
+  var alive = function () { return !!document.getElementById('ov') && !!_pv; };
+  try {
+    var r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var buf = await r.arrayBuffer();
+    if (!alive()) return;
+    var head = '';
+    try { head = String.fromCharCode.apply(null, new Uint8Array(buf, 0, 4)); } catch (e) {}
+    if (head !== '%PDF') throw new Error('not-pdf');
+    await PdfEngine.ensure({ win: window }).catch(function () {});
+    if (!window.pdfjsLib) throw new Error('no-engine');
+    var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    if (!alive()) { try { pdf.cleanup(); } catch (e) {} return; }
+    _pv.pdf = pdf;
+    var n = pdf.numPages;
+    for (var i = 1; i <= n; i++) {
+      if (!alive()) { try { pdf.cleanup(); } catch (e) {} return; }
+      var page = await pdf.getPage(i);
+      var v1 = page.getViewport({ scale: 1 });
+      var vp = page.getViewport({ scale: Math.min(4.0, 2900 / v1.height) });
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
+      var cx = c.getContext('2d');
+      try { cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high'; } catch (e) {}
+      cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: cx, viewport: vp }).promise;
+      if (!alive()) { try { pdf.cleanup(); } catch (e) {} return; }
+      _pv.imgs[i - 1] = c.toDataURL('image/jpeg', 0.96);
+      _pv.sharp[i - 1] = true;
+      if (_pv.total < i) _pv.total = i;
+      try { page.cleanup(); } catch (e) {}
+      if (i - 1 === _pv.idx || (_pv.spread && i - 1 === _pv.idx + 1)) pvRender();
+      await new Promise(function (res) { setTimeout(res, 0); });
+    }
+    if (alive()) { _pv.fromCache = false; pvNote('✓ מהקובץ המקורי', 3000); try { pdf.cleanup(); } catch (e) {} }
+  } catch (e) {
+    /* ⚠️ הניסוח שנקבע: הדפס חייב לדעת שמה שהוא רואה אינו הקובץ עצמו. */
+    if (alive()) pvNote('תצוגה מהירה בלבד — הקובץ המקורי לא נטען', 0);
+  }
+}
+
 async function openProof(jobKey){
   pvClose();
   var ov = document.createElement('div'); ov.id = 'ov';
@@ -845,6 +907,19 @@ async function openProof(jobKey){
   var j = null;
   for (var i = 0; i < _jobs.length; i++) if (_jobs[i].jobKey === jobKey) j = _jobs[i];
   var label = (j && (j.runLabel || j.name)) || 'פרופר';
+
+  /* ⚠️ **מדידת-שלבים.** התלונה היא "נפתח לאט" על פרופר של גיליון אחד או
+     שניים — ובלי מדידה אי-אפשר לדעת אם הזמן הולך להורדה, לפענוח ה-PDF,
+     או לרינדור. שלושת אלה דורשים שלושה תיקונים שונים לגמרי.
+     ⚠️ נשמרים **מספרים בלבד** — אלפיות ובתים. אין שם-לקוח, אין מזהה-עבודה
+     ואין כתובת; המדידה מוצגת לדפס וגם נכתבת לאבחון. */
+  var _t0 = Date.now();
+  window._p4Timing = { gate: 0, bytes: 0, size: 0, parsed: 0, first: 0, source: '' };
+  /* ⚠️ הסמן **גלובלי**, כי שלב "העמוד הראשון על המסך" נמדד בתוך
+     pvShowBuffer — פונקציה אחרת. סמן מקומי היה משאיר בלי מדידה בדיוק
+     את השלב שהדפס מרגיש. */
+  window._p4Mark = function (k) { try { if (window._p4Timing) window._p4Timing[k] = Date.now() - _t0; } catch (e) {} };
+  var _mark = window._p4Mark;
 
   try {
     pvStatus('⏳ מוריד את הקובץ…');
@@ -868,6 +943,27 @@ async function openProof(jobKey){
       if (ru.ok) {
         var ju = null; try { ju = await ru.json(); } catch (e) {}
         if (ju && ju.url) {
+          _mark('gate');
+
+          /* ⚠️ **תצוגה מהירה קודם.** מטמון-התמונות נוצר כבר בהעלאת הפרופר
+             (‏JPEG מרונדר מראש). הצגתו אינה דורשת pdf.js ואינה דורשת רינדור,
+             ולכן העמוד הראשון עולה תוך שבריר מהזמן. המקור יורד אחר-כך
+             ברקע ומחליף לתמונה החדה. */
+          if (ju.pagesUrl) {
+            try {
+              var pr = await fetch(ju.pagesUrl);
+              if (pr.ok) {
+                var pimgs = await pr.json();
+                if (Array.isArray(pimgs) && pimgs.length) {
+                  _mark('first');
+                  pvShowCached(pimgs, label);
+                  pvUpgradeFromSource(ju.url, label);   // ברקע — אינו מעכב
+                  return;
+                }
+              }
+            } catch (e) { /* מטמון פגום → ממשיכים למקור, וזה המסלול הרגיל */ }
+          }
+
           pvStatus('⏳ מוריד את הקובץ…');
           r = await fetch(ju.url);
           direct = true;
@@ -902,7 +998,10 @@ async function openProof(jobKey){
     var buf = await r.arrayBuffer();
     if (!document.getElementById('ov')) return;      /* המפעיל סגר בינתיים */
 
+    _mark('bytes');
     var got = buf.byteLength;
+    window._p4Timing.size = got;
+    window._p4Timing.source = direct ? 'direct' : 'stream';
     var head4 = '';
     try { head4 = String.fromCharCode.apply(null, new Uint8Array(buf, 0, Math.min(4, got))); } catch (e) {}
     var facts = { expect: expect, got: got, head: head4, ctype: r.headers.get('Content-Type') || '' };
