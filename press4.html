@@ -36,16 +36,16 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1786264541"></script>
-<script src="auth-client.js?v=1786264541"></script>
-<script src="auth-guard.js?v=1786264541" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1786264541"></script>
+<script src="firebase-auth.bundle.js?v=1786265489"></script>
+<script src="auth-client.js?v=1786265489"></script>
+<script src="auth-guard.js?v=1786265489" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1786265489"></script>
 <!-- ⚠️ הגופן מתארח **אצלנו**, לא ב-Google. קישור ל-fonts.googleapis לא
      הספיק: גיליון-הסגנון מגיע משם, אבל קובצי הגופן עצמם מגיעים
      מ-fonts.gstatic.com — ומספיק שאחד מהשניים חסום ברשת המסוננת
      כדי שהמסך ייפול לגופן-מערכת, והמלל ייצא דק ושונה ממה
      שהמפעילים מכירים. עכשיו אין תלות ברשת חיצונית בכלל. -->
-<link href="heebo.css?v=1786264541" rel="stylesheet">
+<link href="heebo.css?v=1786265489" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -264,7 +264,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1786264541';
+var _BAKED = '1786265489';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -849,8 +849,42 @@ async function openProof(jobKey){
   try {
     pvStatus('⏳ מוריד את הקובץ…');
     var tok = await SolanAuth.idToken(false);
-    var r = await fetch(FN + '/press4Proof?jobKey=' + encodeURIComponent(jobKey),
-                        { headers: { 'Authorization': 'Bearer ' + tok } });
+
+    /* ⚠️ **החלטת-בעלים 09/08/2026 — תפעול גובר על החוק שקבענו.**
+       עד היום כל בית של ה-PDF עבר דרך הפונקציה, והמסך הזה לא נגע
+       ב-Storage. בפועל פרופר של גיליון 70×100 ב-360 DPI הוא עשרות מגה,
+       וההזרמה נקטעה: "פעם נפתח ופעם לא" וטעינה ארוכה מאוד.
+       עכשיו הפונקציה מחזירה **כתובת**, והדפדפן מוריד ישירות — מהיר,
+       בלי קטיעה ובלי תקרת-הזרמה. השער לא זז: אותה בקשה מאומתת, אותן
+       בדיקות-שייכות; מה שהשתנה הוא מי מעביר את הבתים.
+
+       ⚠️ נפילה-לאחור להזרמה **חובה**: ה-Functions והאתר נפרסים בנפרד,
+       ובחלון שביניהם ייתכן מסך חדש מול פונקציה ישנה. בלי זה כל
+       פתיחת-פרופר הייתה נשברת בדיוק בחלון הזה. */
+    var r = null, direct = false;
+    try {
+      var ru = await fetch(FN + '/press4Proof?as=url&jobKey=' + encodeURIComponent(jobKey),
+                           { headers: { 'Authorization': 'Bearer ' + tok } });
+      if (ru.ok) {
+        var ju = null; try { ju = await ru.json(); } catch (e) {}
+        if (ju && ju.url) {
+          pvStatus('⏳ מוריד את הקובץ…');
+          r = await fetch(ju.url);
+          direct = true;
+        }
+      } else if (ru.status !== 404 && ru.status !== 400) {
+        var eu = null; try { eu = await ru.json(); } catch (e) {}
+        throw new Error(errText((eu && eu.error) || ('HTTP ' + ru.status)));
+      }
+    } catch (e) {
+      if (e && e.__fromGate) throw e;
+      r = null;               /* פונקציה ישנה או כשל-רשת → מסלול ההזרמה */
+    }
+
+    if (!r) {
+      r = await fetch(FN + '/press4Proof?jobKey=' + encodeURIComponent(jobKey),
+                      { headers: { 'Authorization': 'Bearer ' + tok } });
+    }
     if (!r.ok) {
       var e1 = null; try { e1 = await r.json(); } catch (e) {}
       throw new Error(errText((e1 && e1.error) || ('HTTP ' + r.status)));
