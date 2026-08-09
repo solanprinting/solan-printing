@@ -36,16 +36,16 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1786257176"></script>
-<script src="auth-client.js?v=1786257176"></script>
-<script src="auth-guard.js?v=1786257176" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1786257176"></script>
+<script src="firebase-auth.bundle.js?v=1786259789"></script>
+<script src="auth-client.js?v=1786259789"></script>
+<script src="auth-guard.js?v=1786259789" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1786259789"></script>
 <!-- ⚠️ הגופן מתארח **אצלנו**, לא ב-Google. קישור ל-fonts.googleapis לא
      הספיק: גיליון-הסגנון מגיע משם, אבל קובצי הגופן עצמם מגיעים
      מ-fonts.gstatic.com — ומספיק שאחד מהשניים חסום ברשת המסוננת
      כדי שהמסך ייפול לגופן-מערכת, והמלל ייצא דק ושונה ממה
      שהמפעילים מכירים. עכשיו אין תלות ברשת חיצונית בכלל. -->
-<link href="heebo.css?v=1786257176" rel="stylesheet">
+<link href="heebo.css?v=1786259789" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -264,7 +264,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1786257176';
+var _BAKED = '1786259789';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -744,6 +744,93 @@ function pvNote(t, hideAfter){
   }, hideAfter);
 }
 
+/* ⚠️ הרינדור חולץ מ-openProof כדי ש**גם** קובץ מקומי יעבור בו.
+   שני עותקים היו סוטים זה מזה — ומסלול-הגיבוי הוא בדיוק זה שאסור
+   שיישבר, כי אליו פונים כשהרגיל כבר נכשל. */
+async function pvShowBuffer(buf, label) {
+  pvStatus('⏳ פותח את הקובץ…');
+  /* ⚠️ pdf.js נטען דרך PdfEngine — אותו מנוע ואותן מראות כמו בכל מסלולי
+     האישור, כי חלק מהמראות חסומות ברשת כשרה. */
+  await PdfEngine.ensure({ win: window }).catch(function(){});
+  if (!window.pdfjsLib) throw new Error('מנוע התצוגה נחסם ברשת. פנו למנהל.');
+
+  var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  var n = pdf.numPages;
+  _pv = { imgs: [], idx: 0, zoom: 1, spread: false, total: n, url: null,
+          sharp: [], pdf: pdf };
+  var built = false;
+
+  /* ⚠️ שני שלבים, וזה העיקר: רינדור ב-2900px לוקח שניות לעמוד, ופרופר
+     של גיליון-דפוס 70×100 הוא 145 מגה-פיקסל. לחכות לחדות לפני שמציגים
+     משהו זה מסך שחור ארוך, והמפעיל חושב שנתקע.
+     שלב א' — כל העמודים ב-{FAST}px, מהיר; העמוד הראשון על המסך מיד.
+     שלב ב' — אותם עמודים ב-{SHARP}px ברקע, מחליפים בשקט.
+     זה בדיוק מה שמסך הדפסים עושה עם הקאש ו-_opTruthUpgrade, רק שכאן
+     אין קאש מוכן ולכן השלב המהיר מיוצר מאותו קובץ. */
+  var FAST = 1100, SHARP = 2900;
+
+  async function renderAt(p, targetH) {
+    var page = await pdf.getPage(p);
+    var v1 = page.getViewport({ scale: 1 });
+    var vpt = page.getViewport({ scale: Math.min(4.0, targetH / v1.height) });
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.floor(vpt.width));
+    c.height = Math.max(1, Math.floor(vpt.height));
+    var cx = c.getContext('2d');
+    try { cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high'; } catch (e) {}
+    cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);   /* רקע לבן — JPEG בלי שקיפות */
+    await page.render({ canvasContext: cx, viewport: vpt }).promise;
+    try { page.cleanup(); } catch (e) {}
+    return c.toDataURL('image/jpeg', 0.96);
+  }
+  var alive = function(){ return !!document.getElementById('ov') && !!_pv; };
+
+  /* ── שלב א' ── */
+  for (var p = 1; p <= n; p++) {
+    if (!alive()) { try { pdf.cleanup(); } catch (e) {} return; }
+    _pv.imgs.push(await renderAt(p, FAST));
+    _pv.sharp.push(false);
+    if (!built) {
+      built = true;
+      var l = document.getElementById('pv-load'); if (l) l.remove();
+      pvBuild(ov, label);
+    }
+    pvRender();
+    /* הפסקה קצרה: מחזירה שליטה לדפדפן כדי שהמסך יגיב ללחיצות
+       בזמן שהשאר נטען. */
+    await new Promise(function(r){ setTimeout(r, 0); });
+  }
+  if (!_pv.imgs.length) throw new Error('לא ניתן להציג את הפרופר.');
+  if (n > 1) pvNote('⏳ מחדד…');
+
+  /* ── שלב ב' — חידוד ברקע, תמיד מהעמוד שעל המסך והלאה ──
+     ⚠️ לא לולאה קבועה: המפעיל מדפדף בזמן החידוד, ומה שהוא מסתכל עליו
+     עכשיו הוא מה שצריך להתחדד ראשון. */
+  (async function sharpen(){
+    while (alive()) {
+      var pick = -1, best = Infinity;
+      for (var i = 0; i < _pv.sharp.length; i++) {
+        if (_pv.sharp[i]) continue;
+        var d = Math.abs(i - _pv.idx);
+        if (d < best) { best = d; pick = i; }
+      }
+      if (pick < 0) break;
+      try {
+        var hi = await renderAt(pick + 1, SHARP);
+        if (!alive()) return;
+        _pv.imgs[pick] = hi;
+        _pv.sharp[pick] = true;
+        /* מציירים מחדש רק אם העמוד שהתחדד הוא זה שעל המסך */
+        if (pick === _pv.idx || (_pv.spread && pick === _pv.idx + 1)) pvRender();
+      } catch (e) {
+        _pv.sharp[pick] = true;                 /* עמוד שנכשל לא ינסה לנצח */
+      }
+      await new Promise(function(r){ setTimeout(r, 0); });
+    }
+    if (alive()) { pvNote('✓ מהקובץ המקורי', 3500); try { pdf.cleanup(); } catch (e) {} }
+  })();
+}
+
 async function openProof(jobKey){
   pvClose();
   var ov = document.createElement('div'); ov.id = 'ov';
@@ -771,91 +858,121 @@ async function openProof(jobKey){
     var buf = await r.arrayBuffer();
     if (!document.getElementById('ov')) return;      /* המפעיל סגר בינתיים */
 
-    pvStatus('⏳ פותח את הקובץ…');
-    /* ⚠️ pdf.js נטען דרך PdfEngine — אותו מנוע ואותן מראות כמו בכל מסלולי
-       האישור, כי חלק מהמראות חסומות ברשת כשרה. */
-    await PdfEngine.ensure({ win: window }).catch(function(){});
-    if (!window.pdfjsLib) throw new Error('מנוע התצוגה נחסם ברשת. פנו למנהל.');
-
-    var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-    var n = pdf.numPages;
-    _pv = { imgs: [], idx: 0, zoom: 1, spread: false, total: n, url: null,
-            sharp: [], pdf: pdf };
-    var built = false;
-
-    /* ⚠️ שני שלבים, וזה העיקר: רינדור ב-2900px לוקח שניות לעמוד, ופרופר
-       של גיליון-דפוס 70×100 הוא 145 מגה-פיקסל. לחכות לחדות לפני שמציגים
-       משהו זה מסך שחור ארוך, והמפעיל חושב שנתקע.
-       שלב א' — כל העמודים ב-{FAST}px, מהיר; העמוד הראשון על המסך מיד.
-       שלב ב' — אותם עמודים ב-{SHARP}px ברקע, מחליפים בשקט.
-       זה בדיוק מה שמסך הדפסים עושה עם הקאש ו-_opTruthUpgrade, רק שכאן
-       אין קאש מוכן ולכן השלב המהיר מיוצר מאותו קובץ. */
-    var FAST = 1100, SHARP = 2900;
-
-    async function renderAt(p, targetH) {
-      var page = await pdf.getPage(p);
-      var v1 = page.getViewport({ scale: 1 });
-      var vpt = page.getViewport({ scale: Math.min(4.0, targetH / v1.height) });
-      var c = document.createElement('canvas');
-      c.width = Math.max(1, Math.floor(vpt.width));
-      c.height = Math.max(1, Math.floor(vpt.height));
-      var cx = c.getContext('2d');
-      try { cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high'; } catch (e) {}
-      cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);   /* רקע לבן — JPEG בלי שקיפות */
-      await page.render({ canvasContext: cx, viewport: vpt }).promise;
-      try { page.cleanup(); } catch (e) {}
-      return c.toDataURL('image/jpeg', 0.96);
-    }
-    var alive = function(){ return !!document.getElementById('ov') && !!_pv; };
-
-    /* ── שלב א' ── */
-    for (var p = 1; p <= n; p++) {
-      if (!alive()) { try { pdf.cleanup(); } catch (e) {} return; }
-      _pv.imgs.push(await renderAt(p, FAST));
-      _pv.sharp.push(false);
-      if (!built) {
-        built = true;
-        var l = document.getElementById('pv-load'); if (l) l.remove();
-        pvBuild(ov, label);
-      }
-      pvRender();
-      /* הפסקה קצרה: מחזירה שליטה לדפדפן כדי שהמסך יגיב ללחיצות
-         בזמן שהשאר נטען. */
-      await new Promise(function(r){ setTimeout(r, 0); });
-    }
-    if (!_pv.imgs.length) throw new Error('לא ניתן להציג את הפרופר.');
-    if (n > 1) pvNote('⏳ מחדד…');
-
-    /* ── שלב ב' — חידוד ברקע, תמיד מהעמוד שעל המסך והלאה ──
-       ⚠️ לא לולאה קבועה: המפעיל מדפדף בזמן החידוד, ומה שהוא מסתכל עליו
-       עכשיו הוא מה שצריך להתחדד ראשון. */
-    (async function sharpen(){
-      while (alive()) {
-        var pick = -1, best = Infinity;
-        for (var i = 0; i < _pv.sharp.length; i++) {
-          if (_pv.sharp[i]) continue;
-          var d = Math.abs(i - _pv.idx);
-          if (d < best) { best = d; pick = i; }
-        }
-        if (pick < 0) break;
-        try {
-          var hi = await renderAt(pick + 1, SHARP);
-          if (!alive()) return;
-          _pv.imgs[pick] = hi;
-          _pv.sharp[pick] = true;
-          /* מציירים מחדש רק אם העמוד שהתחדד הוא זה שעל המסך */
-          if (pick === _pv.idx || (_pv.spread && pick === _pv.idx + 1)) pvRender();
-        } catch (e) {
-          _pv.sharp[pick] = true;                 /* עמוד שנכשל לא ינסה לנצח */
-        }
-        await new Promise(function(r){ setTimeout(r, 0); });
-      }
-      if (alive()) { pvNote('✓ מהקובץ המקורי', 3500); try { pdf.cleanup(); } catch (e) {} }
-    })();
+    await pvShowBuffer(buf, label);
   } catch (e) {
-    pvClose();
-    throw e;
+    /* ⚠️ **התקלה שדווחה 09/08/2026.** עד כאן ה-catch רק סגר וזרק למעלה,
+       והמסך הציג את הטקסט הגולמי — "Failed to fetch" באנגלית, בלי שום
+       דבר שאפשר לעשות איתו. לדפס זה חסר-משמעות, ובקיוסק אין קונסול
+       שיגיד יותר.
+       ⚠️ "Failed to fetch" אינו סטטוס: הוא TypeError של fetch, כלומר
+       הבקשה **לא הגיעה לשרת בכלל** — רשת חסומה, origin שאינו מורשה,
+       או חיבור שנקטע באמצע הורדה גדולה. לכן כאן מוצג מסלול-גיבוי
+       ואבחון, ולא ניסוח יפה יותר לאותה שגיאה. */
+    pvProofFail(e, label, function () { openProof(jobKey); });
   }
+}
+
+/* ═══ מסך-כשל לפרופר במסך המכונה ═══════════════════════════════════════
+   ⚠️ המסך הזה רץ ב-Assigned Access: אין F12 ואי-אפשר להדביק שם סקריפט.
+   כל מה שהדפס יכול לעשות חייב להיות על המסך. */
+function pvProofFail(err, label, retryFn) {
+  var raw = String((err && err.message) || err || '');
+  var isNet = /Failed to fetch|NetworkError|Load failed|network/i.test(raw);
+  var msg = isNet ? 'אין חיבור לשרת הקבצים' : (raw || 'לא הצלחנו לפתוח את הפרופר');
+  var hint = isNet
+    ? 'הקובץ לא הגיע למחשב הזה. אפשר לפתוח את הפרופר ישירות מהמחשב, ובינתיים להראות למנהל את "פרטי תקלה".'
+    : 'אפשר לנסות שוב, או לפתוח את הפרופר ישירות מהמחשב.';
+  var code = isNet ? 'P4-NET' : 'P4-ERR';
+
+  pvClose();
+  var ov = document.createElement('div'); ov.id = 'ov';
+  ov.innerHTML =
+      '<div style="margin:auto;max-width:min(92vw,460px);background:#fff;border-radius:16px;padding:26px 22px;'
+    + 'text-align:center;font-family:inherit;direction:rtl">'
+    + '<div style="font-size:2.4rem;line-height:1;margin-bottom:10px">⚠️</div>'
+    + '<div style="font-size:1.05rem;font-weight:900;color:#0f172a;margin-bottom:6px">' + esc(msg) + '</div>'
+    + '<div style="font-size:.86rem;color:#475569;line-height:1.5;margin-bottom:4px">' + esc(hint) + '</div>'
+    + '<div style="font-size:.78rem;color:#94a3b8;margin-bottom:16px">' + esc(label || 'פרופר')
+    + ' · מספר תקלה ' + code + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:center">'
+    + '<button id="p4-retry" style="background:#1a1a4e;color:#fff;border:none;border-radius:10px;padding:11px 20px;'
+    + 'font-size:.92rem;font-weight:800;cursor:pointer;font-family:inherit">🔄 נסה שוב</button>'
+    + '<button id="p4-close" style="background:#f1f5f9;color:#334155;border:1.5px solid #cbd5e1;border-radius:10px;'
+    + 'padding:11px 20px;font-size:.92rem;font-weight:800;cursor:pointer;font-family:inherit">סגור</button></div>'
+    + '<button id="p4-local" style="width:100%;margin-top:14px;background:#0f766e;color:#fff;border:none;'
+    + 'border-radius:10px;padding:12px;font-size:.92rem;font-weight:800;cursor:pointer;font-family:inherit">'
+    + '📂 פתח פרופר מהמחשב</button>'
+    + '<div style="font-size:.74rem;color:#94a3b8;margin-top:6px;line-height:1.45">'
+    + 'נפתח חלון בחירת-קובץ. נווט לתיקיית הפרופרים ובחר את הקובץ.</div>'
+    + '<button id="p4-diag" style="margin-top:12px;background:none;border:none;color:#64748b;font-size:.8rem;'
+    + 'font-weight:700;text-decoration:underline;cursor:pointer;font-family:inherit">🔧 פרטי תקלה</button>'
+    + '<div id="p4-diag-rows" style="text-align:right;font-size:.86rem;line-height:1.9;color:#0f172a;margin-top:10px"></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  document.getElementById('p4-close').onclick = pvClose;
+  document.getElementById('p4-retry').onclick = function () { pvClose(); if (retryFn) retryFn(); };
+  document.getElementById('p4-local').onclick = pvOpenLocal;
+  document.getElementById('p4-diag').onclick = function () { pvDiag(); };
+  /* ⚠️ **בלי console.** סנטינל ב-press4-tests אוסר פלט-קונסול בקובץ הזה,
+     והוא צודק: במסך קיוסק אין קונסול, ולכן שורה כזו היא קוד-מת שנותן
+     תחושת-בטחון מזויפת. כל מה שצריך להיאמר — נאמר על המסך. */
+}
+
+/* ⚠️ **הנתון שסוגר את האבחון הוא origin.** ‏CORS של press4Proof מוגבל
+   ל-https://solanprinting.github.io בדיוק; קיוסק שהופעל בכתובת אחרת
+   (http, מראה, או עותק מקומי) ייחסם בדפדפן — וזה נראה בדיוק כמו
+   "Failed to fetch" של רשת חסומה. השורה הראשונה כאן מבדילה ביניהם. */
+function pvDiag() {
+  var rows = document.getElementById('p4-diag-rows');
+  if (!rows) return;
+  rows.innerHTML = '';
+  function add(h) { var d = document.createElement('div'); d.innerHTML = h; rows.appendChild(d); }
+
+  add('כתובת המסך: <b>' + esc(location.origin) + '</b>');
+  add('מורשה בשרת: <b>https://solanprinting.github.io</b>');
+  if (location.origin !== 'https://solanprinting.github.io') {
+    add('<b style="color:#b91c1c">⚠️ הכתובת אינה תואמת — זו הסיבה</b>');
+  }
+  try {
+    var u = (SolanAuth && SolanAuth.auth && SolanAuth.auth().currentUser) || null;
+    add('מחובר: <b>' + (u ? esc(u.uid).slice(0, 28) : 'לא') + '</b>');
+  } catch (e) { add('מחובר: <b>?</b>'); }
+
+  /* ⚠️ **אין כאן בדיקת-Storage, ובכוונה.** למסך-המכונה אין ולא תהיה גישה
+     ישירה ל-Storage — הפרופר מגיע דרך press4Proof בלבד, וסנטינל ב-
+     press4-tests אוכף שהשם של דלי-האחסון כלל לא מופיע בקובץ הזה —
+     ולכן גם ההערה הזו נמנעת מלכתוב אותו.
+     הניסיון הראשון שלי כן בדק אותה; השער עצר אותי, ובצדק: זו הפרה של
+     עקרון-היסוד של המסך, וגם בדיקה חסרת-טעם — הוא לא פונה לשם ממילא. */
+  [['שרת הפעולות', FN + '/press4Proof'],
+   ['האתר', 'https://solanprinting.github.io/solan-printing/version.txt']
+  ].forEach(function (h) {
+    var t0 = Date.now(), ctl;
+    try { ctl = AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined; } catch (e) { ctl = undefined; }
+    fetch(h[1] + (h[1].indexOf('?') >= 0 ? '&' : '?') + 'cb=' + Date.now(), ctl ? { signal: ctl } : {})
+      .then(function (r) { add('✅ ' + esc(h[0]) + ' — נענה (' + r.status + ') · ' + (Date.now() - t0) + 'ms'); },
+            function () { add('❌ <b>' + esc(h[0]) + ' — אין תשובה</b> · ' + (Date.now() - t0) + 'ms'); });
+  });
+}
+
+/* ⚠️ מסלול-גיבוי ללא רשת. קישור ל-file:// חסום מדף https ואינו אפשרי
+   בקיוסק; בורר-הקבצים של הדפדפן כן נפתח ומגיע לאותה תיקייה. */
+function pvOpenLocal() {
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.pdf,application/pdf,image/jpeg,image/png,.jpg,.jpeg,.png';
+  inp.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
+  document.body.appendChild(inp);
+  inp.onchange = function () {
+    var f = inp.files && inp.files[0];
+    try { inp.remove(); } catch (e) {}
+    if (!f) return;
+    pvClose();
+    f.arrayBuffer().then(function (buf) { pvShowBuffer(buf, f.name || 'פרופר מהמחשב'); })
+      .catch(function (e) { pvProofFail(e, f.name || 'קובץ מקומי', null); });
+  };
+  setTimeout(function () { try { if (inp.parentNode) inp.remove(); } catch (e) {} }, 60000);
+  inp.click();
 }
 
 /* ⚠️ **ברמת-העל, ולא בתוך boot().** נמדד בייצור (03/08/2026):
