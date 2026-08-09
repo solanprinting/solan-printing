@@ -30,6 +30,51 @@
   };
   var norm = function (v) { return clean(v).toLowerCase().replace(/["'׳״]/g, '').replace(/\s+/g, ' '); };
 
+  /* ── תאריך ─────────────────────────────────────────────────────────────
+     ⚠️ **הבאג שנמדד בייבוא אמיתי (09/08/2026).** הגיליון נקרא עם
+     ‏cellDates:false, ולכן תא-תאריך מגיע כ**מספר סידורי** של אקסל
+     (‏45678) ולא כתאריך. המרה ל-String נתנה "45678", והתצוגה נפלה
+     לתאריך של היום — כלומר כל ההצעות נראו כאילו הופקו היום.
+
+     ⚠️ הבסיס הוא 1899-12-30 ולא 01-01: אקסל סופר את 1900 כשנה מעוברת
+     אף שאינה, וזו הדרך המקובלת לפצות על כך.
+     ⚠️ מזהה גם dd/mm/yyyy — הצורה הנפוצה בייצוא ישראלי — ומחזיר תמיד
+     ‏yyyy-mm-dd, שזה מה שהאפליקציה מצפה לו. */
+  function normDate(v) {
+    if (v instanceof Date && !isNaN(v)) return iso(v);
+    var n = (typeof v === 'number') ? v : (/^\d+(\.\d+)?$/.test(clean(v)) ? parseFloat(clean(v)) : NaN);
+    if (isFinite(n) && n > 20000 && n < 80000) {
+      var d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000);
+      return iso(d);
+    }
+    var t = clean(v);
+    if (!t) return '';
+    var m = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+    if (m) {
+      var yy = m[3].length === 2 ? ('20' + m[3]) : m[3];
+      return yy + '-' + pad(m[2]) + '-' + pad(m[1]);
+    }
+    var m2 = t.match(/^(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})/);
+    if (m2) return m2[1] + '-' + pad(m2[2]) + '-' + pad(m2[3]);
+    return t;
+  }
+  function pad(x) { return String(x).length < 2 ? '0' + x : String(x); }
+  function iso(d) {
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+  }
+
+  /* ── התאמת עובד ────────────────────────────────────────────────────────
+     ⚠️ הסינון היה `q.employee === 'אמיר'` — השוואה מדויקת. בייצוא כתוב
+     "אמיר כהן" או עם רווח נגרר, ולכן ההצעות שיובאו לא הופיעו תחת אף
+     עובד. השוואה סובלנית: אחד מכיל את השני. */
+  function matchesEmployee(quoteEmp, filterEmp) {
+    var a = norm(filterEmp);
+    if (!a) return true;
+    var b = norm(quoteEmp);
+    if (!b) return false;
+    return b === a || b.indexOf(a) >= 0 || a.indexOf(b) >= 0;
+  }
+
   /* השדות שאנחנו יודעים לקלוט, והמילים שמזהות כל אחד.
      ⚠️ הסדר חשוב: 'customerEmail' לפני 'customer', אחרת "אימייל לקוח"
      היה נתפס כשם-הלקוח. */
@@ -94,7 +139,7 @@
         customer: customer,
         customerEmail: clean(get(row, 'customerEmail')),
         employee: clean(get(row, 'employee')),
-        date: clean(get(row, 'date')),
+        date: normDate(get(row, 'date')),
         notes: clean(get(row, 'status')),
         items: [{ desc: desc, qty: 1, price: total }],
         vatPct: o.vatPct === undefined ? 0 : o.vatPct,
@@ -153,5 +198,6 @@
   }
 
   return { FIELDS: FIELDS, detectColumns: detectColumns, rowsToQuotes: rowsToQuotes,
+           normDate: normDate, matchesEmployee: matchesEmployee,
            planMerge: planMerge, applyMerge: applyMerge, search: search };
 });
