@@ -193,8 +193,16 @@
   /* ── תכנון ההחלה ───────────────────────────────────────────────────────
      ⚠️ מחזיר תוכנית ולא מבצע. כך אפשר להראות למשתמש **בדיוק** מה יקרה
      לפני שקורה, וגם לבדוק את ההחלטה בלי מלאי אמיתי. */
-  function planApply(rows, inventory) {
+  function planApply(rows, inventory, opts) {
     var inv = inventory || [];
+    /* ⚠️ **מצב-הורדה** (תעודת משלוח) עובר באותו מנגנון בדיוק כמו
+       ההוספה — אותו מיפוי-שורות, אותו זיכרון-שמות, אותו איחוד-כפילויות.
+       מימוש מקביל היה מייצר שני מסלולים שמתפצלים בהתנהגות עם הזמן,
+       וחצי מהבדיקות היו מכסות רק אחד מהם.
+       ⚠️ ההבדל היחיד מהותי: **אי אפשר להוריד מנייר שאינו במלאי.**
+       "פריט חדש" הוא שגיאה במצב-הורדה, לא יצירה — יצירת פריט בכמות
+       שלילית היא מלאי מומצא. */
+    var deduct = !!(opts && opts.mode === 'deduct');
     var adds = [], creates = [], skipped = [], errors = [], merged = [];
     var addByIdx = {}, createByName = {};
 
@@ -223,6 +231,7 @@
       if (r.action === 'new') {
         var nm = clean(r.newName || r.raw);
         if (!nm) { errors.push({ i: i, raw: r.raw, why: 'פריט חדש בלי שם' }); return; }
+        if (deduct) { errors.push({ i: i, raw: r.raw, why: 'אי אפשר להוריד מנייר שאינו במלאי' }); return; }
         var ck = nm.toLowerCase();
         if (createByName[ck]) { mergeInto(createByName[ck], r, i, qty, price); return; }
         var c = { i: i, name: nm, qty: qty, price: price };
@@ -238,7 +247,7 @@
       addByIdx[idx] = a; adds.push(a);
     });
     return { adds: adds, creates: creates, skipped: skipped, errors: errors,
-             merged: merged, total: (rows || []).length };
+             merged: merged, mode: deduct ? 'deduct' : 'add', total: (rows || []).length };
   }
 
   /* ── בדיקת כפילויות במלאי ──────────────────────────────────────────────
@@ -286,11 +295,24 @@
      ⚠️ מקבל את המלאי ומחזיר אותו מעודכן; הכתיבה לאחסון היא של הקורא.
      ⚠️ שורת-חשבונית נוספת **תמיד** כשיש מספר-מסמך, גם בכמות 0 (שורת-מחיר
      בלבד) — כך שהמחיר נשמר וההיסטוריה שלמה. */
-  function applyPlan(plan, inventory, docMeta) {
+  function applyPlan(plan, inventory, docMeta, opts) {
     var inv = inventory || [];
     var meta = docMeta || {};
     var key = clean(meta.docNum), date = clean(meta.date), order = clean(meta.orderNum);
     var touched = [];
+    var deduct = !!((opts && opts.mode === 'deduct') || (plan && plan.mode === 'deduct'));
+
+    /* ⚠️ **חוק-הכפילויות חל גם על ההורדה.** אותה תעודת-משלוח על אותו
+       נייר היא שורת-ניכוי אחת; צילום שני של אותה תעודה מחליף ואינו
+       מוסיף. בלי זה סריקה חוזרת של תעודה הייתה מורידה את הסחורה
+       פעמיים — כלומר מלאי שנראה אזל בזמן שהוא על המדף. */
+    function addDeductRow(item, qty) {
+      if (!qty) return;
+      if (!item.deductions) item.deductions = [];
+      var ex = key ? item.deductions.find(function (v) { return v && v.inv === key; }) : null;
+      if (ex) { ex.qty = qty; ex.date = date || ex.date; if (order) ex.orderNum = order; }
+      else { item.deductions.push({ date: date, inv: key, orderNum: order, qty: qty }); }
+    }
 
     /* ⚠️ **חוק-התחום (בעלים, 09/08/2026): כל חשבונית היא שורה בפני עצמה.**
        נייר מחשבונית חדשה נכנס תחת **אותו סוג נייר** במלאי — "כרומו מט 80"
@@ -345,10 +367,13 @@
       var item = inv[a.idx];
       if (!item) return;
       opening(item);                 /* ⚠️ **לפני** ההוספה — אחריה ההפרש כבר מזוהם */
-      addInvoiceRow(item, a.qty, a.price);
+      if (deduct) addDeductRow(item, a.qty);
+      else addInvoiceRow(item, a.qty, a.price);
       recalc(item);
       touched.push({ name: item.name, qty: a.qty, created: false });
     });
+    /* ⚠️ במצב-הורדה ‎creates‎ ריק תמיד (‎planApply‎ הפך אותו לשגיאה),
+       אבל הלולאה נשמרת אחת — שני מסלולים היו מתפצלים עם הזמן. */
     plan.creates.forEach(function (c) {
       var item = { name: c.name, qty: 0, invoices: [], _openingQty: 0 };
       inv.push(item);
@@ -356,7 +381,7 @@
       recalc(item);
       touched.push({ name: item.name, qty: c.qty, created: true });
     });
-    return { inventory: inv, touched: touched,
+    return { inventory: inv, touched: touched, mode: deduct ? 'deduct' : 'add',
              added: plan.adds.length, created: plan.creates.length,
              skipped: plan.skipped.length, errors: plan.errors.length,
              merged: (plan.merged || []).length,
@@ -367,7 +392,11 @@
      רק הצלחות הוא בדיוק איך שארבע שורות נעלמות בלי שאיש ישים לב. */
   function summaryText(res) {
     var parts = [];
-    if (res.added) parts.push('עודכנו ' + res.added);
+    /* ⚠️ "עודכנו" ו"הורדו" הן פעולות הפוכות. סיכום שאומר "עודכנו 3"
+       אחרי תעודת-משלוח משאיר את המשתמש בלי לדעת אם המלאי גדל או קטן. */
+    if (res.added) {
+      parts.push(res.mode === 'deduct' ? ('הורדו מ-' + res.added + ' פריטים') : ('עודכנו ' + res.added));
+    }
     if (res.created) parts.push('נוצרו ' + res.created + ' פריטים חדשים');
     if (res.skipped) parts.push('דילגת על ' + res.skipped);
     /* ⚠️ איחוד מדווח במפורש: המשתמש הזין שתי שורות וקיבל אחת, ואם לא
