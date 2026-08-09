@@ -159,6 +159,11 @@
        כרטיסים. ההבדל בינו לבין staff אינו כאן אלא ברשימת-המסכים
        וב-UI, ובעיקר בחוקי ה-RTDB. */
     if (c.accountType === 'staff' && c.role === 'office' && c.staffId) return 'office';
+    /* ⚠️ prepress (קדם דפוס, P1) — קהל נפרד ולא 'staff': הוא מייצר ועורך
+       כרטיסים/פרופרים/תור, אבל **אינו** רואה נתונים פנימיים כספיים
+       (internalData=false), בדיוק כמו office. חייב staffId (אחרת נופל
+       ל-legacy — אין ייצור/עריכה). ההפרדה מ-staff מונעת ירושה גורפת. */
+    if (c.accountType === 'staff' && c.role === 'prepress' && c.staffId) return 'prepress';
     if (c.accountType === 'customer' && c.portalId) return 'customer';
     return 'legacy';
   }
@@ -170,6 +175,12 @@
     /* ⚠️ office מייצר ועורך כרטיסים, אבל internalData=false: מחירים,
        עלויות ונתונים כספיים אינם בתחום התפקיד — גם לא "רק להצצה". */
     office:   { produce: true,  edit: true,  internalData: false },
+    /* ⚠️ prepress — מפורש, **לא יורש staff באופן גורף**. מייצר ועורך
+       (כרטיסים/פרופרים/תור), אך internalData=false (בלי מחירים/מלאי-כספי/
+       חשבוניות). דגל-יכולת מפורש prepress=true למסכים מעורבים שרוצים
+       לזהות קדם-דפוס בלי לקרוא claims. ⚠️ internalData אינו גבול-אבטחה —
+       הוא נוחות-UI; הכספים מוגנים בחוקי-RTDB (admin-only), לא כאן. */
+    prepress: { produce: true,  edit: true,  internalData: false, prepress: true },
     /* מפעיל המכונה: מדפיס — ותו לא. אין עריכה ואין נתונים פנימיים. */
     press4:   { produce: true,  edit: false, internalData: false },
     customer: { produce: false, edit: false, internalData: false },

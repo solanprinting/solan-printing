@@ -19,13 +19,47 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  /* ⚠️ **הפסיק אינו תמיד מפריד-אלפים.** ספקים כותבים "199,88" באותה
+     שכיחות שכותבים "1,234.56". הניסוח הקודם מחק כל פסיק, ולכן "199,88"
+     נקרא כ-19,988 — פי-100 מהאמת, ובשקט. שלוש ספרות אחרי פסיק = מפריד
+     אלפים; ספרה או שתיים = נקודה עשרונית. */
   var num = function (v) {
     if (typeof v === 'number') return isFinite(v) ? v : 0;
-    var s = String(v == null ? '' : v).replace(/[^\d.,-]/g, '').replace(/,/g, '');
+    var s = String(v == null ? '' : v).replace(/[^\d.,-]/g, '');
+    if (/^-?\d+,\d{1,2}$/.test(s)) s = s.replace(',', '.');
+    else s = s.replace(/,/g, '');
     var n = parseFloat(s);
     return isFinite(n) ? n : 0;
   };
   var clean = function (s) { return String(s == null ? '' : s).trim(); };
+
+  /* ── יחידת-המחיר ───────────────────────────────────────────────────────
+     ⚠️ **הבאג שדווח (09/08/2026): ‏199.88 נכנס כ-200.** הפרומפט ביקש
+     מה-AI "מחיר ליחידה", בעוד שבחשבונית המחיר כתוב **לאלף גיליונות**.
+     כלומר הורינו למודל להמיר — והוא עשה מה שמודלים עושים כשמבקשים מהם
+     חשבון בעל-פה: עיגל. מחיר נייר הוא נתון-חוזה ולא הערכה, ופער של
+     0.12 ₪ לאלף מכפיל את עצמו בכל תמחור עתידי.
+
+     ⚠️ התיקון הוא **שלילת החשבון מהמודל**: הוא מעתיק את המספר כלשונו
+     ומציין באיזו יחידה הוא כתוב. ההמרה נעשית כאן, בקוד דטרמיניסטי.
+
+     ⚠️ וכשהיחידה אינה ידועה — **אין ניחוש**. המספר נכנס כמות-שהוא
+     לעמודת "לאלף" ומסומן ‎uncertain‎ כדי שהטופס יבליט אותו. ניחוש שקט
+     הוא בדיוק איך שמחיר נכנס פי-1000 מהאמת בלי שאיש מבחין. */
+  function toPer1000(price, unit, qty) {
+    var p = num(price), u = clean(unit).toLowerCase();
+    if (!p) return { price: 0, uncertain: false };
+    if (u === 'per1000' || u === 'לאלף' || u === 'per_1000') return { price: p, uncertain: false };
+    if (u === 'perunit' || u === 'per_unit' || u === 'ליחידה' || u === 'לגיליון') {
+      return { price: p * 1000, uncertain: false };
+    }
+    /* סה"כ-שורה: מחיר-לאלף = סה"כ ÷ כמות × 1000. בלי כמות אין המרה. */
+    if (u === 'total' || u === 'סהכ' || u === 'סה"כ') {
+      var q = num(qty);
+      return q > 0 ? { price: (p / q) * 1000, uncertain: false } : { price: p, uncertain: true };
+    }
+    return { price: p, uncertain: true };
+  }
 
   /* ── קליטת התשובה מה-AI ────────────────────────────────────────────────
      ⚠️ מקבל **שתי** צורות: המבנה החדש (‏items[]) והישן (‏paperName יחיד).
@@ -45,11 +79,27 @@
     raw.forEach(function (it) {
       var name = clean(it && (it.name || it.paperName || it.description));
       var qty = num(it && it.qty);
-      var price = num(it && (it.price_per_sheet !== undefined ? it.price_per_sheet : it.price));
+      /* ⚠️ ‎price_per_sheet‎ הוא השדה של המלאי שלנו, ולכן היחידה שלו
+         ידועה בוודאות. ‎price‎/‎price_per_unit‎ מגיעים מה-AI, ושם היחידה
+         היא **בדיוק הדבר שאי אפשר להניח** — לכן בלי ‎priceUnit‎ מפורש
+         המספר נכנס כמות-שהוא ומסומן. הכפלה-בעיוור פי-1000 של מספר
+         שכבר היה לאלף היא טעות של פי-מיליון בערך המלאי. */
+      var rawPrice, unit;
+      if (it && it.price_per_sheet !== undefined) { rawPrice = it.price_per_sheet; unit = 'perUnit'; }
+      else {
+        rawPrice = (it && it.price !== undefined) ? it.price : (it && it.price_per_unit);
+        unit = it && (it.priceUnit || it.price_unit);
+      }
+      /* ⚠️ **הטקסט כפי שנכתב בחשבונית נשמר.** בלעדיו אין למשתמש שום
+         דרך לראות שהמספר בטופס אינו מה שמופיע במסמך — וזו בדיוק הדרך
+         שבה 199.88 הפך ל-200 בלי שאיש הבחין. */
+      var conv = toPer1000(rawPrice, unit, qty);
       /* ⚠️ שורה בלי שם ובלי כמות אינה שורה — היא רעש-זיהוי (כותרת, סה"כ,
          מע"מ). הכנסתה לטבלה הייתה מכריחה את המשתמש לדלג עליה ידנית. */
       if (!name && qty <= 0) return;
-      lines.push({ raw: name, qty: qty, price: price });
+      lines.push({ raw: name, qty: qty, price: conv.price,
+                   priceRaw: clean(it && (it.priceRaw || it.price_raw)) || (rawPrice == null ? '' : String(rawPrice)),
+                   priceUncertain: conv.uncertain });
     });
     return { doc: doc, lines: lines };
   }
@@ -145,24 +195,91 @@
      לפני שקורה, וגם לבדוק את ההחלטה בלי מלאי אמיתי. */
   function planApply(rows, inventory) {
     var inv = inventory || [];
-    var adds = [], creates = [], skipped = [], errors = [];
+    var adds = [], creates = [], skipped = [], errors = [], merged = [];
+    var addByIdx = {}, createByName = {};
+
+    /* ⚠️ **חוק-הבעלים (09/08/2026): אסור שיהיו כפילויות במלאי — אותו סוג
+       נייר עם אותו מספר-חשבונית לא יכול להופיע פעמיים.**
+
+       ⚠️ הניסוח הקודם היה מפר אותו **בשקט ובכיוון הגרוע**: שתי שורות
+       בטופס שממופות לאותו פריט היו מייצרות שתי קריאות ל-‎addInvoiceRow‎
+       עם אותו מספר-מסמך, והשנייה הייתה **דורסת** את הראשונה. חשבונית עם
+       שני סעיפים של אותו נייר הייתה נכנסת בכמות של סעיף אחד בלבד.
+
+       ⚠️ ההבחנה הקריטית: **שתי שורות באותה החלה = איחוד** (שני סעיפים
+       של חשבונית אחת), אבל **סריקה חוזרת מאוחרת = החלפה** (אותו מסמך
+       שוב, אסור לצבור). שני מקרים שנראים זהים בנתונים ודורשים הפוך. */
+    function mergeInto(t, r, i, qty, price) {
+      t.qty += qty;
+      var conflict = !!(price && t.price && Math.abs(price - t.price) > 1e-9);
+      if (!t.price && price) t.price = price;
+      merged.push({ i: i, raw: clean(r.raw), into: t.name, qty: qty,
+                    price: price, kept: t.price, conflict: conflict });
+    }
+
     (rows || []).forEach(function (r, i) {
       var qty = num(r.qty), price = num(r.price);
       if (r.action === 'skip') { skipped.push({ i: i, raw: r.raw, why: 'דילוג' }); return; }
       if (r.action === 'new') {
         var nm = clean(r.newName || r.raw);
         if (!nm) { errors.push({ i: i, raw: r.raw, why: 'פריט חדש בלי שם' }); return; }
-        creates.push({ i: i, name: nm, qty: qty, price: price });
+        var ck = nm.toLowerCase();
+        if (createByName[ck]) { mergeInto(createByName[ck], r, i, qty, price); return; }
+        var c = { i: i, name: nm, qty: qty, price: price };
+        createByName[ck] = c; creates.push(c);
         return;
       }
       var idx = Number(r.targetIdx);
       /* ⚠️ אינדקס שאינו קיים הוא **שגיאה**, לא דילוג: פירושו שהמלאי השתנה
          מאז שהטבלה נבנתה, והוספה לאינדקס שגוי מזינה נייר אחר. */
       if (!(idx >= 0 && idx < inv.length)) { errors.push({ i: i, raw: r.raw, why: 'פריט-יעד לא נמצא' }); return; }
-      adds.push({ i: i, idx: idx, name: clean(inv[idx].name), qty: qty, price: price });
+      if (addByIdx[idx] !== undefined) { mergeInto(addByIdx[idx], r, i, qty, price); return; }
+      var a = { i: i, idx: idx, name: clean(inv[idx].name), qty: qty, price: price };
+      addByIdx[idx] = a; adds.push(a);
     });
     return { adds: adds, creates: creates, skipped: skipped, errors: errors,
-             total: (rows || []).length };
+             merged: merged, total: (rows || []).length };
+  }
+
+  /* ── בדיקת כפילויות במלאי ──────────────────────────────────────────────
+     ⚠️ **הבעלים ביקש התראה, לא חסימה — וזה נכון.** חשבונית אחת *יכולה*
+     בהחלט לכסות שני סוגי נייר, וזה המצב הרגיל. לכן אותו מספר-חשבונית על
+     שני פריטים אינו באג בפני עצמו; הוא **הצורה שבה מיפוי שגוי נראה**.
+
+     ⚠️ ולכן ההתראה מדורגת. שתי רשומות עם **אותה כמות ואותו מחיר** תחת
+     אותו מספר-חשבונית הן כמעט תמיד אותו סעיף שמופה פעמיים — זה חשד ממשי.
+     אותו מספר עם כמויות שונות הוא חשבונית רב-סעיפית תקינה. התראה שצועקת
+     על שניהם באותה עוצמה מאמנת את המשתמש להתעלם ממנה. */
+  function findDuplicates(inventory) {
+    var dupRows = [], cross = [], byInv = {};
+    (inventory || []).forEach(function (item, idx) {
+      var seen = {};
+      ((item && item.invoices) || []).forEach(function (r, j) {
+        var k = clean(r && r.inv);
+        if (!k) return;
+        /* אותו פריט + אותו מספר-חשבונית פעמיים = הפרה של חוק-הברזל.
+           נמנע מעכשיו והלאה, אבל נתונים ישנים יכולים להחזיק אותו. */
+        if (seen[k] !== undefined) {
+          dupRows.push({ idx: idx, name: clean(item.name), inv: k, rows: [seen[k], j] });
+        } else { seen[k] = j; }
+        (byInv[k] = byInv[k] || []).push({ idx: idx, name: clean(item.name),
+                                           qty: num(r.qty), price: num(r.price) });
+      });
+    });
+    Object.keys(byInv).forEach(function (k) {
+      var g = byInv[k], names = {};
+      g.forEach(function (x) { names[x.name] = 1; });
+      if (Object.keys(names).length < 2) return;
+      var suspect = g.some(function (a, i) {
+        return g.some(function (b, j) {
+          return j > i && a.name !== b.name && a.qty > 0 &&
+                 a.qty === b.qty && a.price === b.price;
+        });
+      });
+      cross.push({ inv: k, items: g, suspect: suspect });
+    });
+    return { dupRows: dupRows, cross: cross,
+             suspect: cross.filter(function (c) { return c.suspect; }) };
   }
 
   /* ── החלה ──────────────────────────────────────────────────────────────
@@ -241,7 +358,9 @@
     });
     return { inventory: inv, touched: touched,
              added: plan.adds.length, created: plan.creates.length,
-             skipped: plan.skipped.length, errors: plan.errors.length };
+             skipped: plan.skipped.length, errors: plan.errors.length,
+             merged: (plan.merged || []).length,
+             conflicts: (plan.merged || []).filter(function (m) { return m.conflict; }) };
   }
 
   /* סיכום לקריאה אנושית. ⚠️ מזכיר במפורש דילוגים ושגיאות — סיכום שמונה
@@ -251,11 +370,15 @@
     if (res.added) parts.push('עודכנו ' + res.added);
     if (res.created) parts.push('נוצרו ' + res.created + ' פריטים חדשים');
     if (res.skipped) parts.push('דילגת על ' + res.skipped);
+    /* ⚠️ איחוד מדווח במפורש: המשתמש הזין שתי שורות וקיבל אחת, ואם לא
+       נאמר לו — הוא יחפש את השורה החסרה ויסיק שמשהו נשמט. */
+    if (res.merged) parts.push('אוחדו ' + res.merged + ' שורות לאותו נייר');
     if (res.errors) parts.push('⚠️ ' + res.errors + ' לא נוספו');
     return parts.length ? parts.join(' · ') : 'לא נוסף דבר';
   }
 
   return { normalizeLines: normalizeLines, matchLine: matchLine, suggest: suggest,
-           aliasKey: aliasKey, learn: learn, fromAlias: fromAlias,
-           planApply: planApply, applyPlan: applyPlan, summaryText: summaryText };
+           aliasKey: aliasKey, learn: learn, fromAlias: fromAlias, toPer1000: toPer1000,
+           planApply: planApply, applyPlan: applyPlan, summaryText: summaryText,
+           findDuplicates: findDuplicates };
 });

@@ -17,11 +17,11 @@
      בלבד. אין כאן שמירה ידנית של סיסמה, טוקן או מזהה — הדבר היחיד שנשמר
      מקומית הוא דגל "זכור אותי" (session/local), וזו אינה זהות.
      ═══════════════════════════════════════════════════════════════════════ -->
-<!-- ⚠️ ?v=1785763969 מוחלף בחותמת-הפריסה ע"י upload.ps1. בלי זה מטמון
+<!-- ⚠️ ?v=1786292753 מוחלף בחותמת-הפריסה ע"י upload.ps1. בלי זה מטמון
      ה-CDN של GitHub Pages (‏~10 דקות) ממשיך להגיש auth-client.js ישן,
      והתיקון שנפרס פשוט לא רץ אצל המשתמש. נתפס בפיילוט. -->
-<script src="firebase-auth.bundle.js?v=1785763969"></script>
-<script src="auth-client.js?v=1785763969"></script>
+<script src="firebase-auth.bundle.js?v=1786292753"></script>
+<script src="auth-client.js?v=1786292753"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
@@ -88,12 +88,27 @@ var FN_BASE = 'https://europe-west1-solan-printing.cloudfunctions.net';
 var $ = function(id){ return document.getElementById(id); };
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN. אם נפרסה גרסה חדשה — מרעננים פעם אחת
    לפני שמאתחלים משהו, אחרת המסך ירוץ עם auth-client ישן. נתפס בפיילוט. */
-var _BAKED = '1785763969';
+var _BAKED = '1786292753';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 function boot(){
 var ORIGIN = location.origin;
 var RETURN = AuthClient.returnFrom(location.search, ORIGIN, null);
+
+/* ⚠️ גשר-סשן לפורטל הישן: לקוח-slug (דרך II) עובר ל-customer-portal.html
+   שמזדהה ב-REST דרך portal-context.js. שם אין SDK, ולכן שומרים כאן את
+   ה-refresh-token של הסשן ל-localStorage['solanPortalRT'] כדי שהסשן
+   יימשך. **לא** שומרים k ולא סוד-פורטל — רק refresh-token תקין של
+   Firebase, בדיוק כמו סשן-אנונימי. */
+function _stashPortalRt(claims){
+  try {
+    if (claims && claims.portalSlug && claims.accountType === 'customer') {
+      var u = SolanAuth.auth() && SolanAuth.auth().currentUser;
+      var rt = u && (u.refreshToken || (u.stsTokenManager && u.stsTokenManager.refreshToken));
+      if (rt) localStorage.setItem('solanPortalRT', rt);
+    }
+  } catch(e){}
+}
 var INVITE = (/[?&]invite=([^&#]+)/.exec(location.search) || [])[1] || '';
 
 function show(kind, text){ var m = $('msg'); m.className = 'msg ' + (kind || ''); m.textContent = text || ''; }
@@ -121,6 +136,7 @@ SolanAuth.onAuthStateChanged(async function(user){
   var claims = await SolanAuth.claims(false).catch(function(){ return {}; });
   var route = AuthClient.routeFor(claims, RETURN);
   if (route.kind === 'pending') { show('err', AuthClient.errorText('pending')); $('who').style.display = 'block'; return; }
+  _stashPortalRt(claims);
   location.replace(route.to);
 });
 
@@ -156,6 +172,7 @@ $('f').addEventListener('submit', async function(ev){
       var claims = await SolanAuth.claims(true);
       var route = AuthClient.routeFor(claims, RETURN);
       if (route.kind === 'pending') { show('err', AuthClient.errorText('pending')); busy(false); return; }
+      _stashPortalRt(claims);
       location.replace(route.to);
       return;
     }

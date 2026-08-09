@@ -98,6 +98,32 @@
   var OFFICE_HOME  = STAFF_HOME;
   var OFFICE_PAGES = [STAFF_HOME];
 
+  /* ⚠️ prepress (קדם דפוס, P1) — קהל משלו, בדיוק כמו office/press4, ולא
+     "עובד עם פחות". רשימת-**היתר סגורה**: מסך שאינו כאן חסום כברירת-מחדל
+     (fail-closed), ולכן כל מסך-חדש-בעתיד נחסם עד הוספה מפורשת. אין קיצור
+     של "הכול חוץ מהמסכים הכספיים" — זו הייתה רשימת-איסור, שנכשלת לכיוון
+     המסוכן. הצדקת כל מסך (ראה דוח P1):
+       · index.html            — מסך-העבודה הראשי: כרטיסים, תור, הזמנות-
+                                  תפעוליות, ומצב-8-צבעים (?machineView=8).
+                                  הלשוניות הכספיות (מחירים/מלאי/חשבוניות)
+                                  מוסתרות ע"י capsFor(prepress).internalData=false
+                                  ומודול-ההרשאות (permissions.js), והצמתים
+                                  הכספיים חסומים בשרת (admin-only) — P2 יוסיף
+                                  את prepress לצמתים התפעוליים.
+       · proof-admin.html      — ניהול פרופרים/אישורי-לקוחות (customerProofs).
+       · customer-fold-preview.html — מסך-האישורים המקופל (נטען כ-iframe
+                                  מ-index; מותר גם ישירות).
+       · imposition-tool.html  — בדיקות-קבצים ואימפוזיציה.
+       · press4.html           — מסך-הדפס-4: **צפייה ב-P1 בלבד**. שערי-ה-
+                                  Functions (assertQueueActor) עדיין דורשים
+                                  מכונה-או-admin, ולכן prepress פותח אך אינו
+                                  מפעיל — הרשאות תפעוליות ב-P2.
+     ⚠️ **לא** ברשימה (במכוון): framework-orders/clerk (תעודות-משלוח כספיות),
+        portal-admin (ניהול-משתמשים/פורטלים), וכל מסך חשבוניות/מחירים/
+        מלאי-כספי/הגדרות. אלה חסומים ל-prepress ומחזירים אותו הביתה. */
+  var PREPRESS_HOME  = STAFF_HOME;
+  var PREPRESS_PAGES = [STAFF_HOME, 'proof-admin.html', 'customer-fold-preview.html', 'imposition-tool.html', 'press4.html'];
+
   /* סוג החשבון לפי ה-claims. ⚠️ חשבון שנוצר בלי הזמנה — 'pending':
      לא נכשל בשקט ולא מגיע לשום מסך. */
   function kindOf(claims) {
@@ -113,8 +139,14 @@
        העובדים, וכל פעולה שלו הייתה נרשמת בלי בעלים. בלי staffId הוא
        נשאר pending — כלומר חסום, ולא "עובד עם פחות". */
     if (c.accountType === 'staff' && c.role === 'office') return c.staffId ? 'office' : 'pending';
+    /* ⚠️ prepress **חייב** staffId, בדיוק כמו office: בלעדיו אין בעלים
+       לפעולה, והחשבון נשאר pending (חסום), לא "עובד עם פחות". קהל נפרד
+       ולא 'staff' — אחרת mayOpen היה מחזיר true לכל מסכי בית-הדפוס. */
+    if (c.accountType === 'staff' && c.role === 'prepress') return c.staffId ? 'prepress' : 'pending';
     if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker')) return 'staff';
-    if (c.accountType === 'customer' && c.portalId) return 'customer';
+    /* ⚠️ לקוח בשתי צורות: portalId (portal-view) או portalSlug (הפורטל
+       הישן, דרך II). כל אחת מספיקה. */
+    if (c.accountType === 'customer' && (c.portalId || c.portalSlug)) return 'customer';
     return 'pending';
   }
 
@@ -133,6 +165,9 @@
     if (k === 'customer') return CUSTOMER_PAGES.indexOf(pageOf(page)) >= 0;
     if (k === 'press4')   return PRESS4_PAGES.indexOf(pageOf(page)) >= 0;
     if (k === 'office')   return OFFICE_PAGES.indexOf(pageOf(page)) >= 0;
+    /* ⚠️ prepress — רשימת-היתר סגורה משלו (fail-closed). כולל press4.html
+       (צפייה ב-P1); ההרשאה התפעולית שם עדיין נחסמת בשער-ה-Function. */
+    if (k === 'prepress') return PREPRESS_PAGES.indexOf(pageOf(page)) >= 0;
     /* ⚠️ 'staff' כאן הוא admin או worker, ו-return true גורף היה נותן גם
        ל-worker את מסך המכונה. המסך פתוח ל-press4 ול-admin בלבד. */
     if (PRESS4_PAGES.indexOf(pageOf(page)) >= 0) return (claims || {}).role === 'admin';
@@ -147,10 +182,16 @@
   function routeFor(claims, requested) {
     var k = kindOf(claims);
     if (k === 'pending') return { kind: 'pending', to: null };
-    var home = (k === 'staff')  ? STAFF_HOME
-             : (k === 'office') ? OFFICE_HOME
-             : (k === 'press4') ? PRESS4_HOME
-             : (CUSTOMER_HOME + '?p=' + encodeURIComponent((claims || {}).portalId));
+    /* ⚠️ לקוח-slug (דרך II) הולך לפורטל **הישן המלא** customer-portal.html;
+       לקוח-portalId (portal-view) נשאר במסלולו. שניהם 'customer'. */
+    var custHome = (claims && claims.portalSlug)
+      ? 'customer-portal.html'
+      : (CUSTOMER_HOME + '?p=' + encodeURIComponent((claims || {}).portalId));
+    var home = (k === 'staff')    ? STAFF_HOME
+             : (k === 'office')   ? OFFICE_HOME
+             : (k === 'prepress') ? PREPRESS_HOME
+             : (k === 'press4')   ? PRESS4_HOME
+             : custHome;
     if (requested && mayOpen(claims, requested)) return { kind: k, to: requested };
     return { kind: k, to: home };
   }

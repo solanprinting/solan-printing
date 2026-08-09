@@ -14,8 +14,8 @@
      ⚠️ קישור-ההזמנה מוצג **פעם אחת בלבד** ואינו נשמר בשום מקום — לא במסד,
      לא בלוג, ולא כאן. אם נסגר החלון, מפיקים הזמנה חדשה.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1785763969"></script>
-<script src="auth-client.js?v=1785763969"></script>
+<script src="firebase-auth.bundle.js?v=1786292753"></script>
+<script src="auth-client.js?v=1786292753"></script>
 <style>
   .prow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #eef0f5}
   .prow:last-child{border-bottom:0}
@@ -132,6 +132,7 @@
       <select id="srole">
         <option value="worker" selected>עובד רגיל — worker</option>
         <option value="office">משרד — office</option>
+        <option value="prepress">קדם דפוס — prepress</option>
         <option value="admin">מנהל — admin</option>
       </select>
       <button class="btn" id="mkstaff">פתח חשבון עובד</button>
@@ -202,6 +203,25 @@
         <button class="btn sec" id="copy">📋 העתק</button>
       </div>
     </div>
+
+    <!-- ⚠️ הזמנה לפורטל ותיק (דרך II): בחירת slug קיים מרשימה בלבד — לא
+         הקלדת שם חופשי. ה-slug הוא המזהה היחיד שנשמר בהזמנה. -->
+    <div class="card">
+      <h2>📰 הזמנה לפורטל ותיק (חשבון-מייל)</h2>
+      <label for="islug">בחרו פורטל קיים</label>
+      <select id="islug" dir="rtl"><option value="">— טוען פורטלים… —</option></select>
+      <label for="islugmail">כתובת המייל של הלקוח</label>
+      <input id="islugmail" type="email" placeholder="name@example.com" dir="ltr">
+      <button class="btn" id="mkinvSlug">הפק קישור הזמנה</button>
+      <div class="msg" id="ismsg"></div>
+      <div class="timing" id="istime"></div>
+      <div id="slinkbox" class="hidden">
+        <div class="warn">⚠️ הקישור מוצג <b>פעם אחת בלבד</b>. חד-פעמי, פג אחרי 7 ימים,
+          ותקף רק למי שנכנס בדיוק עם כתובת המייל שלמעלה. הלקוח יגיע לפורטל המלא.</div>
+        <input class="link" id="slink" readonly onclick="this.select()">
+        <button class="btn sec" id="scopy">📋 העתק</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -218,7 +238,7 @@ var $ = function(id){ return document.getElementById(id); };
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1785763969';
+var _BAKED = '1786292753';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 function boot(){
@@ -545,6 +565,41 @@ $('copy').addEventListener('click', function(){
   navigator.clipboard.writeText($('link').value).then(function(){
     $('copy').textContent = '✓ הועתק';
     setTimeout(function(){ $('copy').textContent = '📋 העתק'; }, 1800);
+  }).catch(function(){});
+});
+
+/* ── הזמנה לפורטל ותיק (דרך II) ─────────────────────────────────────────── */
+/* ⚠️ בורר-slug מרשימת customerPortals — בחירה בלבד, לא הקלדה חופשית. */
+(async function _loadPortalsForInvite(){
+  try {
+    var tok = await SolanAuth.idToken(false);
+    var db = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+    var obj = await (await fetch(db + '/customerPortals.json?auth=' + tok + '&shallow=true')).json();
+    var sel = $('islug'); if (!sel) return;
+    var slugs = Object.keys(obj || {}).sort();
+    sel.innerHTML = '<option value="">— בחרו פורטל —</option>' +
+      slugs.map(function(s){ return '<option value="' + s.replace(/"/g,'&quot;') + '">' + s + '</option>'; }).join('');
+  } catch(e){ var sel=$('islug'); if(sel) sel.innerHTML='<option value="">— שגיאת-טעינה —</option>'; }
+})();
+
+$('mkinvSlug').addEventListener('click', async function(){
+  var slug = $('islug').value, email = $('islugmail').value.trim();
+  if (!slug || !email) { show('ismsg','err','בחרו פורטל והזינו מייל'); return; }
+  $('mkinvSlug').disabled = true; show('ismsg','',''); $('slinkbox').classList.add('hidden');
+  try {
+    var res = await call('createPortalLinkInvite', { portalSlug: slug, email: email }, 'istime');
+    var base = location.origin + location.pathname.replace(/portal-admin\.html$/, 'login.html');
+    $('slink').value = base + '?invite=' + encodeURIComponent(res.inviteToken);
+    $('slinkbox').classList.remove('hidden');
+    show('ismsg','ok','הקישור מוכן לפורטל "' + (res.portalName || slug) + '". שלחו אותו ללקוח.');
+  } catch (e) { show('ismsg','err', e.message); }
+  $('mkinvSlug').disabled = false;
+});
+$('scopy').addEventListener('click', function(){
+  $('slink').select();
+  navigator.clipboard.writeText($('slink').value).then(function(){
+    $('scopy').textContent = '✓ הועתק';
+    setTimeout(function(){ $('scopy').textContent = '📋 העתק'; }, 1800);
   }).catch(function(){});
 });
 }   /* boot() */
