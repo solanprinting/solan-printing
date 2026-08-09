@@ -36,16 +36,16 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1786276602"></script>
-<script src="auth-client.js?v=1786276602"></script>
-<script src="auth-guard.js?v=1786276602" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1786276602"></script>
+<script src="firebase-auth.bundle.js?v=1786278400"></script>
+<script src="auth-client.js?v=1786278400"></script>
+<script src="auth-guard.js?v=1786278400" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1786278400"></script>
 <!-- ⚠️ הגופן מתארח **אצלנו**, לא ב-Google. קישור ל-fonts.googleapis לא
      הספיק: גיליון-הסגנון מגיע משם, אבל קובצי הגופן עצמם מגיעים
      מ-fonts.gstatic.com — ומספיק שאחד מהשניים חסום ברשת המסוננת
      כדי שהמסך ייפול לגופן-מערכת, והמלל ייצא דק ושונה ממה
      שהמפעילים מכירים. עכשיו אין תלות ברשת חיצונית בכלל. -->
-<link href="heebo.css?v=1786276602" rel="stylesheet">
+<link href="heebo.css?v=1786278400" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -264,7 +264,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1786276602';
+var _BAKED = '1786278400';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -798,6 +798,9 @@ async function pvShowBuffer(buf, label) {
       /* ⚠️ **זה הרגע שהדפס מרגיש** — לא סיום ההורדה ולא סיום הרינדור
          של כל העמודים, אלא הרגע שבו משהו מופיע על המסך. */
       try { if (window._p4Mark) window._p4Mark('first'); } catch (e) {}
+      /* ⚠️ אחרי הצגת העמוד הראשון, לא בסוף כל הרינדור: מה שמעניין את
+         הדפס הוא כמה הוא חיכה עד שראה משהו. */
+      try { pvSlowNote(); } catch (e) {}
     }
     pvRender();
     /* הפסקה קצרה: מחזירה שליטה לדפדפן כדי שהמסך יגיב ללחיצות
@@ -862,6 +865,37 @@ async function pvFetchProgress(url) {
            arrayBuffer: function () { return Promise.resolve(buf.buffer); } };
 }
 
+/* ⚠️ **התקלה בתכנון שלי (09/08/2026).** שמתי את "פרטי תקלה" מאחורי
+   מסך-הכשל — אבל הדפס דיווח שאין תקלה כלל, רק טעינה ארוכה. כלומר
+   הכלי שנועד להסביר את האיטיות היה נגיש רק כשהמסך **נכשל**, ובדיוק
+   במצב שבו הוא נחוץ אי-אפשר היה להגיע אליו.
+   מעכשיו: טעינה שנמשכה יותר מ-SLOW_MS מציגה את המדידה **לבד**, בלי
+   שאיש ילחץ על דבר. זה גם מרגיע — הדפס רואה שהמערכת עבדה ולא נתקעה. */
+var PV_SLOW_MS = 2500;
+
+function pvTimingLine() {
+  var t = window._p4Timing;
+  if (!t) return '';
+  var seg = [];
+  if (t.bytes) seg.push('הורדה ' + (t.bytes / 1000).toFixed(1) + 'ש׳');
+  if (t.parsed) seg.push('פתיחה ' + ((t.parsed - t.bytes) / 1000).toFixed(1) + 'ש׳');
+  if (t.first) seg.push('עמוד ראשון ' + (t.first / 1000).toFixed(1) + 'ש׳');
+  if (t.size) seg.push(pvMB(t.size));
+  return seg.join(' · ');
+}
+
+/* מוצג אחרי טעינה איטית. ⚠️ מציין במפורש אם הייתה תצוגה מהירה — זה
+   ההבדל בין "הפרופר כבד" לבין "אין לו מטמון", ושתי הסיבות דורשות
+   תיקון אחר לגמרי. */
+function pvSlowNote() {
+  var t = window._p4Timing;
+  if (!t) return;
+  var ms = t.first || t.parsed || t.bytes || 0;
+  if (ms < PV_SLOW_MS) return;
+  var why = (t.preview && t.preview !== 'יש') ? ' · ללא תצוגה מהירה' : '';
+  pvNote('⏱ נפתח ב-' + (ms / 1000).toFixed(1) + 'ש׳ · ' + pvTimingLine() + why, 0);
+}
+
 function pvShowCached(imgs, label) {
   var ov = document.getElementById('ov');
   if (!ov) return;
@@ -871,6 +905,8 @@ function pvShowCached(imgs, label) {
   pvBuild(ov, label);
   pvRender();
   pvNote('תצוגה מהירה — טוען את הקובץ המקורי…', 2500);
+  /* גם כאן: אם אפילו המטמון לקח זמן, זה נתון חשוב. */
+  try { setTimeout(pvSlowNote, 2600); } catch (e) {}
 }
 
 /* מוריד את המקור ברקע ומחליף לתמונה החדה.
