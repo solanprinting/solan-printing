@@ -36,16 +36,16 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1786274366"></script>
-<script src="auth-client.js?v=1786274366"></script>
-<script src="auth-guard.js?v=1786274366" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1786274366"></script>
+<script src="firebase-auth.bundle.js?v=1786275683"></script>
+<script src="auth-client.js?v=1786275683"></script>
+<script src="auth-guard.js?v=1786275683" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1786275683"></script>
 <!-- ⚠️ הגופן מתארח **אצלנו**, לא ב-Google. קישור ל-fonts.googleapis לא
      הספיק: גיליון-הסגנון מגיע משם, אבל קובצי הגופן עצמם מגיעים
      מ-fonts.gstatic.com — ומספיק שאחד מהשניים חסום ברשת המסוננת
      כדי שהמסך ייפול לגופן-מערכת, והמלל ייצא דק ושונה ממה
      שהמפעילים מכירים. עכשיו אין תלות ברשת חיצונית בכלל. -->
-<link href="heebo.css?v=1786274366" rel="stylesheet">
+<link href="heebo.css?v=1786275683" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -264,7 +264,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1786274366';
+var _BAKED = '1786275683';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -837,6 +837,31 @@ async function pvShowBuffer(buf, label) {
 
 /* מציג את מטמון-התמונות מיד. אותו מבנה _pv בדיוק כמו pvShowBuffer,
    עם sharp=false — כלומר "עדיין לא מהמקור". */
+/* ⚠️ הורדה עם חיווי-התקדמות. ספינר עם טקסט קבוע נראה תקוע, והדפס
+   מדווח "לא נפתח" על הורדה שרצה כרגיל. אם השרת לא מדווח גודל
+   (תגובה chunked) — מציגים כמה ירד עד כה, בלי אחוזים מומצאים. */
+async function pvFetchProgress(url) {
+  var r = await fetch(url);
+  if (!r.ok || !r.body || !r.body.getReader) return r;
+  var total = Number(r.headers.get('Content-Length') || 0) || 0;
+  var reader = r.body.getReader(), chunks = [], got = 0, last = 0;
+  while (true) {
+    var st = await reader.read();
+    if (st.done) break;
+    chunks.push(st.value); got += st.value.length;
+    if (Date.now() - last > 200) {
+      last = Date.now();
+      pvStatus(total ? ('⏳ מוריד… ' + Math.round(got / total * 100) + '%  (' + pvMB(got) + ' מתוך ' + pvMB(total) + ')')
+                     : ('⏳ מוריד… ' + pvMB(got)));
+    }
+  }
+  var buf = new Uint8Array(got), off = 0;
+  chunks.forEach(function (c) { buf.set(c, off); off += c.length; });
+  /* מחזיר אובייקט תואם-Response למי שקורא arrayBuffer/headers */
+  return { ok: true, status: r.status, headers: r.headers,
+           arrayBuffer: function () { return Promise.resolve(buf.buffer); } };
+}
+
 function pvShowCached(imgs, label) {
   var ov = document.getElementById('ov');
   if (!ov) return;
@@ -949,11 +974,17 @@ async function openProof(jobKey){
              (‏JPEG מרונדר מראש). הצגתו אינה דורשת pdf.js ואינה דורשת רינדור,
              ולכן העמוד הראשון עולה תוך שבריר מהזמן. המקור יורד אחר-כך
              ברקע ומחליף לתמונה החדה. */
+          /* ⚠️ בלי הרישום הזה אי-אפשר לדעת **למה** לא הופיעה תצוגה
+             מהירה: אין מטמון לפרופר הזה, או שהורדתו נכשלה. שתי סיבות
+             שונות לגמרי, ושתיהן נראות על המסך כ"נטען לאט". */
+          window._p4Timing.preview = ju.pagesUrl ? 'יש' : 'אין מטמון לפרופר הזה';
           if (ju.pagesUrl) {
             try {
               var pr = await fetch(ju.pagesUrl);
+              if (!pr.ok) window._p4Timing.preview = 'המטמון לא נטען (' + pr.status + ')';
               if (pr.ok) {
                 var pimgs = await pr.json();
+                if (!Array.isArray(pimgs) || !pimgs.length) window._p4Timing.preview = 'המטמון ריק';
                 if (Array.isArray(pimgs) && pimgs.length) {
                   _mark('first');
                   pvShowCached(pimgs, label);
@@ -965,7 +996,7 @@ async function openProof(jobKey){
           }
 
           pvStatus('⏳ מוריד את הקובץ…');
-          r = await fetch(ju.url);
+          r = await pvFetchProgress(ju.url);
           direct = true;
         }
       } else if (ru.status !== 404 && ru.status !== 400) {
@@ -1107,6 +1138,19 @@ function pvDiag() {
 
   /* ⚠️ המדידה קודמת למארחים: כשהקובץ מגיע חלקי, שלוש שורות של "נענה"
      רק מסתירות את הנתון היחיד שמסביר את התקלה. */
+  /* ⚠️ המדידה נרשמה מהיום הראשון ומעולם לא הוצגה — כלומר הייתה חסרת
+     ערך בדיוק במסך שאין בו קונסול. זה מה שמסביר "נפתח לאט". */
+  var tm = window._p4Timing;
+  if (tm) {
+    add('תצוגה מהירה: <b>' + esc(tm.preview || '—') + '</b>');
+    var seg = [];
+    if (tm.gate) seg.push('שער ' + tm.gate + 'ms');
+    if (tm.bytes) seg.push('הורדה ' + tm.bytes + 'ms');
+    if (tm.parsed) seg.push('פענוח ' + tm.parsed + 'ms');
+    if (tm.first) seg.push('<b>עמוד ראשון ' + tm.first + 'ms</b>');
+    if (seg.length) add('זמנים: ' + seg.join(' · '));
+    if (tm.size) add('גודל הקובץ: <b>' + esc(pvMB(tm.size)) + '</b> · מקור: ' + esc(tm.source || '—'));
+  }
   var f = window._p4LastFacts;
   if (f) {
     add('התקבל: <b>' + esc(pvMB(f.got)) + '</b>'

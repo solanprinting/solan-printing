@@ -93,12 +93,48 @@
     return bestScore >= 2 ? { idx: best, score: 40 } : { idx: -1, score: 0 };
   }
 
+  /* ── זיכרון-שמות: "ללמד את הבוט" ─────────────────────────────────────
+     ⚠️ ספק כותב "בריסטול 250 לבן" ובמלאי רשום "בריסטול 250 גר לבן".
+     שום מתאם לא יגשר על זה — וגם לא צריך: ברגע שהמשתמש הכריע פעם אחת,
+     ההכרעה נשמרת ובפעם הבאה השורה מזוהה לבד. זה מה שהופך את הטופס
+     מעבודה חוזרת לעבודה חד-פעמית לכל ספק.
+
+     ⚠️ המפתח מנורמל (רווחים/גרשיים/רישיות) כדי שהבדל-הקלדה לא ייצור
+     שני זיכרונות נפרדים לאותו דבר.
+     ⚠️ הזיכרון מצביע על **שם** ולא על אינדקס: אינדקס משתנה בכל מיון או
+     מחיקה, ואז הלמידה הייתה מפנה לנייר אחר. */
+  function aliasKey(name) {
+    return clean(name).toLowerCase().replace(/['"*]/g, '').replace(/\s+/g, ' ');
+  }
+  function learn(aliases, rawName, targetName) {
+    var a = aliases || {};
+    var k = aliasKey(rawName), v = clean(targetName);
+    if (!k || !v) return a;
+    a[k] = v;
+    return a;
+  }
+  /* מחזיר אינדקס לפי הזיכרון, או -1. ⚠️ שם שנשמר ואחר-כך נמחק מהמלאי
+     מחזיר -1 ולא מתאים בכוח — אחרת הלמידה הייתה שולחת לפריט שאינו קיים. */
+  function fromAlias(aliases, rawName, inventory) {
+    var a = aliases || {}, k = aliasKey(rawName);
+    if (!k || !a[k]) return -1;
+    var want = clean(a[k]).toLowerCase();
+    var inv = inventory || [];
+    for (var i = 0; i < inv.length; i++) {
+      if (clean(inv[i] && inv[i].name).toLowerCase() === want) return i;
+    }
+    return -1;
+  }
+
   /* כל השורות עם ההצעה שלהן. ‏action: 'match' | 'new' | 'skip'. */
-  function suggest(lines, inventory) {
+  function suggest(lines, inventory, aliases) {
     return (lines || []).map(function (ln) {
-      var m = matchLine(ln.raw, inventory);
+      /* ⚠️ הזיכרון **קודם** למתאם: הכרעה אנושית קודמת גוברת על ניחוש
+         אוטומטי, וזו כל הנקודה של הלימוד. */
+      var ai = fromAlias(aliases, ln.raw, inventory);
+      var m = ai >= 0 ? { idx: ai, score: 100, learned: true } : matchLine(ln.raw, inventory);
       return { raw: ln.raw, qty: ln.qty, price: ln.price,
-               targetIdx: m.idx, score: m.score,
+               targetIdx: m.idx, score: m.score, learned: !!m.learned,
                newName: m.idx < 0 ? ln.raw : '',
                action: m.idx >= 0 ? 'match' : (ln.raw ? 'new' : 'skip') };
     });
@@ -182,5 +218,6 @@
   }
 
   return { normalizeLines: normalizeLines, matchLine: matchLine, suggest: suggest,
+           aliasKey: aliasKey, learn: learn, fromAlias: fromAlias,
            planApply: planApply, applyPlan: applyPlan, summaryText: summaryText };
 });
