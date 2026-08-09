@@ -36,16 +36,16 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1786259789"></script>
-<script src="auth-client.js?v=1786259789"></script>
-<script src="auth-guard.js?v=1786259789" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1786259789"></script>
+<script src="firebase-auth.bundle.js?v=1786261556"></script>
+<script src="auth-client.js?v=1786261556"></script>
+<script src="auth-guard.js?v=1786261556" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1786261556"></script>
 <!-- ⚠️ הגופן מתארח **אצלנו**, לא ב-Google. קישור ל-fonts.googleapis לא
      הספיק: גיליון-הסגנון מגיע משם, אבל קובצי הגופן עצמם מגיעים
      מ-fonts.gstatic.com — ומספיק שאחד מהשניים חסום ברשת המסוננת
      כדי שהמסך ייפול לגופן-מערכת, והמלל ייצא דק ושונה ממה
      שהמפעילים מכירים. עכשיו אין תלות ברשת חיצונית בכלל. -->
-<link href="heebo.css?v=1786259789" rel="stylesheet">
+<link href="heebo.css?v=1786261556" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -264,7 +264,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1786259789';
+var _BAKED = '1786261556';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -855,8 +855,32 @@ async function openProof(jobKey){
       var e1 = null; try { e1 = await r.json(); } catch (e) {}
       throw new Error(errText((e1 && e1.error) || ('HTTP ' + r.status)));
     }
+    /* ⚠️ **מה שנמדד 09/08/2026.** הדפס קיבל "Invalid PDF structure" —
+       כלומר ההורדה הצליחה (‏r.ok אמיתי) אבל הבייטים אינם PDF תקין. שני
+       מקורות אפשריים, ושניהם נראים זהים לחלוטין על המסך:
+         · הקובץ הגיע **חלקי** — ‏pipeProof הורס את התגובה כשה-stream
+           נכשל, אבל הכותרות כבר נשלחו; הלקוח מקבל 200 עם חצי קובץ.
+           פרופר של גיליון 70×100 ב-360 DPI נמדד בפרויקט הזה כ-71MB.
+         · מה שהגיע אינו PDF בכלל.
+       בלי המדידה כאן אי-אפשר להבחין ביניהם, ו-"Invalid PDF structure"
+       שולח לחפש בדיוק במקום הלא-נכון. */
+    var expect = Number(r.headers.get('Content-Length') || 0) || 0;
     var buf = await r.arrayBuffer();
     if (!document.getElementById('ov')) return;      /* המפעיל סגר בינתיים */
+
+    var got = buf.byteLength;
+    var head4 = '';
+    try { head4 = String.fromCharCode.apply(null, new Uint8Array(buf, 0, Math.min(4, got))); } catch (e) {}
+    var facts = { expect: expect, got: got, head: head4, ctype: r.headers.get('Content-Type') || '' };
+
+    if (expect && got < expect) {
+      var e2 = new Error('הקובץ הגיע חלקי — ' + pvMB(got) + ' מתוך ' + pvMB(expect));
+      e2.facts = facts; throw e2;
+    }
+    if (head4 !== '%PDF') {
+      var e3 = new Error('מה שהתקבל אינו קובץ PDF');
+      e3.facts = facts; throw e3;
+    }
 
     await pvShowBuffer(buf, label);
   } catch (e) {
@@ -875,14 +899,34 @@ async function openProof(jobKey){
 /* ═══ מסך-כשל לפרופר במסך המכונה ═══════════════════════════════════════
    ⚠️ המסך הזה רץ ב-Assigned Access: אין F12 ואי-אפשר להדביק שם סקריפט.
    כל מה שהדפס יכול לעשות חייב להיות על המסך. */
+/* מגה-בייט קריא. ⚠️ הדפס משווה שני מספרים על המסך — "3.1 מתוך 71.4" —
+   ולכן ספרה אחת אחרי הנקודה, לא בייטים גולמיים. */
+function pvMB(b) {
+  var n = Number(b) || 0;
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB'
+       : n >= 1024    ? Math.round(n / 1024) + 'KB'
+                      : n + ' בתים';
+}
+
 function pvProofFail(err, label, retryFn) {
   var raw = String((err && err.message) || err || '');
+  var facts = (err && err.facts) || null;
   var isNet = /Failed to fetch|NetworkError|Load failed|network/i.test(raw);
-  var msg = isNet ? 'אין חיבור לשרת הקבצים' : (raw || 'לא הצלחנו לפתוח את הפרופר');
+  /* ⚠️ "Invalid PDF structure" הוא מה ש-pdf.js אומר, ולא מה שקרה. ברוב
+     המקרים הקובץ פשוט הגיע חלקי — וזו אבחנה אחרת לגמרי. */
+  var isPdf = /Invalid PDF|PDF structure|InvalidPDFException/i.test(raw);
+  var msg = isNet ? 'אין חיבור לשרת הקבצים'
+          : isPdf ? 'הקובץ לא הגיע במלואו'
+                  : (raw || 'לא הצלחנו לפתוח את הפרופר');
   var hint = isNet
     ? 'הקובץ לא הגיע למחשב הזה. אפשר לפתוח את הפרופר ישירות מהמחשב, ובינתיים להראות למנהל את "פרטי תקלה".'
+    : isPdf
+    ? 'ההורדה נקטעה באמצע והקובץ שהתקבל פגום. זה קורה בפרופרים גדולים. פתחו אותו מהמחשב, והראו למנהל את "פרטי תקלה".'
     : 'אפשר לנסות שוב, או לפתוח את הפרופר ישירות מהמחשב.';
-  var code = isNet ? 'P4-NET' : 'P4-ERR';
+  var code = isNet ? 'P4-NET' : isPdf ? 'P4-CUT' : 'P4-ERR';
+  /* ⚠️ המדידה נשמרת ל-pvDiag: בלעדיה "פרטי תקלה" מראה רק מארחים,
+     ודווקא המספרים האלה הם מה שמכריע בין קטוע לפגום. */
+  window._p4LastFacts = facts;
 
   pvClose();
   var ov = document.createElement('div'); ov.id = 'ov';
@@ -928,6 +972,18 @@ function pvDiag() {
   rows.innerHTML = '';
   function add(h) { var d = document.createElement('div'); d.innerHTML = h; rows.appendChild(d); }
 
+  /* ⚠️ המדידה קודמת למארחים: כשהקובץ מגיע חלקי, שלוש שורות של "נענה"
+     רק מסתירות את הנתון היחיד שמסביר את התקלה. */
+  var f = window._p4LastFacts;
+  if (f) {
+    add('התקבל: <b>' + esc(pvMB(f.got)) + '</b>'
+      + (f.expect ? ' מתוך <b>' + esc(pvMB(f.expect)) + '</b>' : ' (השרת לא דיווח גודל)'));
+    if (f.expect && f.got < f.expect) {
+      add('<b style="color:#b91c1c">⚠️ הקובץ נקטע — הגיעו '
+        + Math.round(f.got / f.expect * 100) + '% ממנו</b>');
+    }
+    add('סוג: <b>' + esc(f.ctype || '—') + '</b> · פתיחה: <b>' + esc(f.head || '—') + '</b>');
+  }
   add('כתובת המסך: <b>' + esc(location.origin) + '</b>');
   add('מורשה בשרת: <b>https://solanprinting.github.io</b>');
   if (location.origin !== 'https://solanprinting.github.io') {
