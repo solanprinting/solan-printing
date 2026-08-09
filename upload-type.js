@@ -65,7 +65,53 @@
   var ALLOWED_UPLOAD = [PDF, JPEG, PNG];
   var ALLOWED_INTERNAL = [PDF, JPEG, PNG, JSON_];
 
+  /* ═══ תקרות-גודל ═══════════════════════════════════════════════════════
+     ⚠️ **התקלה שזה סוגר (09/08/2026).** לקוח שלח עיתון של 48 עמודים במשקל
+     210MB. תקרת-ה-PDF בחוקי-האחסון הייתה 200MB, ולכן Storage החזיר 403 —
+     וקוד-ההעלאה עוצר מיד ב-403 בלי ניסיון חוזר, ובצדק.
+     מה שהיה שבור הוא **ההודעה**: הלקוח קיבל "נסו שוב בעוד מספר דקות",
+     והוא יכול לנסות עד מחר — זה לעולם לא יעבוד. שום בדיקת-גודל לא רצה
+     בצד-הלקוח לפני ההעלאה, ולכן הכשל התגלה רק אחרי שהקובץ כולו נשלח.
+
+     ⚠️ 300MB — החלטת-בעלים 09/08/2026, אחרי שנמדד קובץ אמיתי של 210MB.
+     המדידה שעליה נקבעו 200MB (הגדול ביותר בדלי היה 123MB) כבר אינה
+     מייצגת.
+
+     ⚠️ הערכים כאן הם **מקור-האמת היחיד**, ו-upload-type-tests משווה אותם
+     למספרים שבתוך storage.rules. בלי זה שני הצדדים סוטים בשקט: הלקוח
+     מאשר קובץ שהשרת ידחה, או חוסם קובץ שהשרת היה מקבל. */
+  var MB = 1024 * 1024;
+  var MAX_PDF_BYTES   = 300 * MB;
+  var MAX_IMAGE_BYTES =  25 * MB;
+  var MAX_JSON_BYTES  =  25 * MB;
+
+  function maxBytesFor(contentType) {
+    if (contentType === PDF) return MAX_PDF_BYTES;
+    if (contentType === JSON_) return MAX_JSON_BYTES;
+    if (contentType === JPEG || contentType === PNG) return MAX_IMAGE_BYTES;
+    return 0;
+  }
+
+  function fmtMB(b) {
+    var n = Number(b) || 0;
+    return (n / MB).toFixed(n >= 10 * MB ? 0 : 1) + 'MB';
+  }
+
+  /* בדיקה **לפני** ההעלאה. ההודעה אומרת את האמת — מה הגודל, מה המותר —
+     ולא "נסו שוב", שהוא עצה שלא יכולה לעבוד. */
+  function checkSize(bytes, contentType, name) {
+    var max = maxBytesFor(contentType);
+    var n = Number(bytes) || 0;
+    if (!max || n <= max) return { ok: true };
+    return { ok: false, code: 'too_large', size: n, max: max,
+             message: 'הקובץ גדול מדי' + (name ? ' (' + name + ')' : '') + ' — ' + fmtMB(n) +
+                      '. הגודל המרבי לשליחה הוא ' + fmtMB(max) + '.' };
+  }
+
   return { normalize: normalize, extOf: extOf,
            PDF: PDF, JPEG: JPEG, PNG: PNG, JSON: JSON_,
-           ALLOWED_UPLOAD: ALLOWED_UPLOAD, ALLOWED_INTERNAL: ALLOWED_INTERNAL };
+           ALLOWED_UPLOAD: ALLOWED_UPLOAD, ALLOWED_INTERNAL: ALLOWED_INTERNAL,
+           MAX_PDF_BYTES: MAX_PDF_BYTES, MAX_IMAGE_BYTES: MAX_IMAGE_BYTES,
+           MAX_JSON_BYTES: MAX_JSON_BYTES,
+           maxBytesFor: maxBytesFor, checkSize: checkSize, fmtMB: fmtMB };
 });

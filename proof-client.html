@@ -16,7 +16,11 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
      כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-context.js?v=1786261556"></script>
+<!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
+     המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
+     לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
+<script src="upload-type.js?v=1786264541"></script>
+<script src="portal-context.js?v=1786264541"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi1"></script>
 <script src="page-swap.js"></script>
@@ -1824,6 +1828,15 @@ $('approve').onclick = async () => {
       } else if (pct >= 100) { eta = '\nמסיים…'; }
       showOverlay('מעלה לדפוס…' + eta, true, pct);
     };
+    /* ⚠️ **בדיקת-גודל לפני ההעלאה.** בלעדיה הלקוח שולח את הקובץ כולו,
+       ממתין דקות, ורק אז מקבל 403 — עם הודעה שמזמינה אותו לנסות שוב.
+       ‏UploadType הוא מקור-האמת, והמספר שלו מסונכרן עם storage.rules
+       (‏upload-type-tests אוכף). fail-open אם המודול לא נטען: עדיף
+       להעלות ולהיכשל מאשר לחסום לקוח בגלל סקריפט חסר. */
+    if (window.UploadType && UploadType.checkSize) {
+      const _sz = UploadType.checkSize(pdfBytes.byteLength, UploadType.PDF);
+      if (!_sz.ok) { const _e = new Error(_sz.message); _e.tooLarge = true; _e.size = _sz.size; _e.max = _sz.max; throw _e; }
+    }
     if (mode === 'full') {
       const path = `customerProofs/${folder}/${proofId}/full.pdf`;
       const fileUrl = await uploadBytes(path, pdfBytes, onUp);
@@ -2094,6 +2107,21 @@ function _pcUploadSuccess(msg, onClose, facts){
    מספר-התקלה 4-ספרות אקראי (UPL-XXXX) — אינו נגזר מ-token/UID/customer/path. */
 function _uplFail(e, op){
   var id = 'UPL-' + (1000 + Math.floor(Math.random() * 9000));
+  /* ⚠️ קובץ גדול מדי אינו כשל חולף. ההודעה הכללית ("נסו שוב בעוד מספר
+     דקות") היא עצה שלא יכולה לעבוד — הלקוח ינסה עד מחר. כאן הוא מקבל
+     את הגודל, את המותר, ומה לעשות. אין "נסה שוב", כי אין מה לנסות.
+     ⚠️ זה **אינו** מפר את היגיינת-השגיאות: גודל-קובץ אינו קוד-HTTP,
+     אינו נתיב, אינו טוקן ואינו שם-שירות. */
+  if (e && e.tooLarge) {
+    try { console.error('[SOLAN upload-fail] ' + id, { op: op || 'upload', reason: 'too_large', size: e.size, max: e.max }); } catch(_){}
+    _showResult('fail',
+      '<div style="max-width:430px;margin:0 auto">' + esc(e.message || 'הקובץ גדול מדי') +
+      '<br><br>אפשר לשמור את ה-PDF באיכות נמוכה יותר, או לשלוח את העיתון בכמה חלקים.</div>',
+      'מספר תקלה: ' + id,
+      [ { label:'חזרה', primary:true, onClick:function(){ show('status', false); show('editor', true); } },
+        { label:'חזרה לפורטל', onClick:_uplBackDest } ]);
+    return;
+  }
   try { console.error('[SOLAN upload-fail] ' + id, { op: op || 'upload', httpStatus: (e && e.code) || 0, message: (e && e.message) || String(e) }); } catch(_){}
   _showResult('fail',
     '<div style="max-width:430px;margin:0 auto">לא הצלחנו לשלוח את הקבצים. הקבצים עדיין לא נשלחו לבית הדפוס. נסו שוב בעוד מספר דקות. אם הבעיה חוזרת, פנו לבית הדפוס.</div>',
