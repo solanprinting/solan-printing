@@ -175,30 +175,68 @@
     var key = clean(meta.docNum), date = clean(meta.date), order = clean(meta.orderNum);
     var touched = [];
 
+    /* ⚠️ **חוק-התחום (בעלים, 09/08/2026): כל חשבונית היא שורה בפני עצמה.**
+       נייר מחשבונית חדשה נכנס תחת **אותו סוג נייר** במלאי — "כרומו מט 80"
+       הולך עם שאר הכרומו מט 80 — אבל כ**שורת-חשבונית נפרדת**, כי לכל
+       חשבונית תמחור משלה. מיזוג שתי חשבוניות לשורה אחת מאבד את ההפרדה
+       הזו, ואיתה את היכולת לדעת מה שילמנו על כל מנה.
+
+       ⚠️ מיזוג קורה **רק** כשזו אותה חשבונית ממש (אותו מספר-מסמך על
+       אותו נייר) — כלומר סריקה חוזרת של אותו מסמך. ואז הכמות **מוחלפת
+       ולא נצברת**: הניסוח הראשון שלי עשה ‎ex.qty += qty‎, כך שצילום שני
+       של אותה חשבונית היה מכפיל את המלאי בשקט. זה גרוע יותר מהבעיה
+       שדווחה, והוא נתפס רק כשישבתי לנסח את החוק במפורש.
+
+       ⚠️ חשבונית בלי מספר-מסמך אינה מתמזגת עם כלום — אין לה זהות,
+       ועדיף שורה כפולה שרואים מאשר שתי חשבוניות שנדבקו זו לזו. */
     function addInvoiceRow(item, qty, price) {
       if (!key && !price && !qty) return;
       if (!item.invoices) item.invoices = [];
       var ex = key ? item.invoices.find(function (v) { return v && v.inv === key; }) : null;
       if (ex) {
-        ex.qty = num(ex.qty) + qty;
+        ex.qty = qty;
+        ex.date = date || ex.date;
+        if (order) ex.orderNum = order;
         if (price) ex.price = price;
       } else {
         item.invoices.push({ date: date, inv: key, orderNum: order, qty: qty, price: price });
       }
     }
 
+    /* ⚠️ הכמות הכוללת נגזרת **מסכום השורות פחות הניכויים**, ולא מחיבור
+       עיוור. חיבור לערך הקודם היה סוטה מהאמת בכל תיקון ידני של שורה.
+
+       ⚠️ **יתרה פותחת.** פריט ותיק במלאי יכול להחזיק כמות שאינה מגובה
+       בשורות-חשבונית — מלאי שהוזן ידנית או לפני שהמעקב הזה קיים. חישוב
+       מהשורות בלבד היה **מאפס אותה בשקט** בפעם הראשונה שנוגעים בפריט.
+       לכן ההפרש הבלתי-מוסבר נלכד פעם אחת ונשמר. נתפס בבדיקה שנכשלה. */
+    function opening(item) {
+      if (item._openingQty === undefined) {
+        var tin = (item.invoices || []).reduce(function (s, x) { return s + num(x && x.qty); }, 0);
+        var tout = (item.deductions || []).reduce(function (s, x) { return s + num(x && x.qty); }, 0);
+        item._openingQty = Math.max(0, num(item.qty) - (tin - tout));
+      }
+      return num(item._openingQty);
+    }
+    function recalc(item) {
+      var tin = (item.invoices || []).reduce(function (s, x) { return s + num(x && x.qty); }, 0);
+      var tout = (item.deductions || []).reduce(function (s, x) { return s + num(x && x.qty); }, 0);
+      item.qty = Math.max(0, num(item._openingQty) + tin - tout);
+    }
+
     plan.adds.forEach(function (a) {
       var item = inv[a.idx];
       if (!item) return;
+      opening(item);                 /* ⚠️ **לפני** ההוספה — אחריה ההפרש כבר מזוהם */
       addInvoiceRow(item, a.qty, a.price);
-      item.qty = num(item.qty) + a.qty;
+      recalc(item);
       touched.push({ name: item.name, qty: a.qty, created: false });
     });
     plan.creates.forEach(function (c) {
-      var item = { name: c.name, qty: 0, invoices: [] };
+      var item = { name: c.name, qty: 0, invoices: [], _openingQty: 0 };
       inv.push(item);
       addInvoiceRow(item, c.qty, c.price);
-      item.qty = num(item.qty) + c.qty;
+      recalc(item);
       touched.push({ name: item.name, qty: c.qty, created: true });
     });
     return { inventory: inv, touched: touched,
