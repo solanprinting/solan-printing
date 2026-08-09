@@ -15,7 +15,7 @@
 // fetched with a cache-bust query (always fresh); when its value differs
 // from the version baked into this file, we reload with a ?_v= query that
 // bypasses the CDN and pulls the new HTML immediately.
-window.APP_VERSION = '1786255267';
+window.APP_VERSION = '1786257176';
 (function(){
   if (String(window.APP_VERSION).indexOf('APP_VERSION') > -1) return; // dev/local — not deployed
   function checkVersion(){
@@ -1608,9 +1608,9 @@ div[id^="view-"] input:focus, div[id^="view-"] select:focus, div[id^="view-"] te
      ומחזיר אותו בדיוק לכתובת שממנה בא (returnTo).
      ⚠️ מסך ה-PIN נשאר כבחירת-זהות פנימית אחרי ההתחברות במייל — הוא אינו
      מעניק שום הרשאת Firebase. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786255267"></script>
-<script src="auth-client.js?v=1786255267"></script>
-<script src="auth-guard.js?v=1786255267" data-page="krtis-avoda.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1786257176"></script>
+<script src="auth-client.js?v=1786257176"></script>
+<script src="auth-guard.js?v=1786257176" data-page="krtis-avoda.html" data-mode="enforce"></script>
 <script>
 try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch(e){}
 try { if (window.LibLoader) LibLoader.autoFill(['xlsx','jspdf','html2canvas','pdfjs','qrcode','jsbarcode']); } catch(e){}
@@ -1627,26 +1627,26 @@ window._pdfEngineReady = (window.PdfEngine
      ב-_fbGet / _fbPut / _fbSnapshot, ו-async או defer היו מפילים את כולם. -->
 <!-- שער-התפקיד של המשרד. ⚠️ **לפני** solan-data.js: ‏_fbGet/_fbPut שם
      קוראים ל-OfficeCards, ולכן הוא חייב להיות מוגדר קודם. -->
-<script src="office-cards.js?v=1786255267"></script>
+<script src="office-cards.js?v=1786257176"></script>
 <!-- ⚠️ הדרך היחידה שבה המסך נוגע בתור המכונות. אין כתיבה ישירה. -->
-<script src="queue-client.js?v=1786255267"></script>
-<script src="solan-data.js?v=1786255267"></script>
+<script src="queue-client.js?v=1786257176"></script>
+<script src="solan-data.js?v=1786257176"></script>
 <!-- ⚠️ מנגנון הסנכרון — צורך את _fbGet/_fbPut מ-solan-data.js,
      ולכן חייב לבוא **אחריו** ולפני הבלוק הגדול. -->
-<script src="solan-sync.js?v=1786255267"></script>
-<script src="solan-toast.js?v=1786255267"></script>
-<script src="solan-persist.js?v=1786255267"></script>
+<script src="solan-sync.js?v=1786257176"></script>
+<script src="solan-toast.js?v=1786257176"></script>
+<script src="solan-persist.js?v=1786257176"></script>
 <!-- שכבת ה-AI (חילוץ 6B). צורכת את solan-data.js ואת showToast, ולכן אחריהם.
      ⚠️ חמש שורות האתחול של פרוקסי-הענן נשארו במיקומן המקורי בבלוק הגדול,
      כדי שקריאת-הרשת בזמן-הטעינה לא תוקדם לכאן. -->
-<script src="solan-ai.js?v=1786255267"></script>
+<script src="solan-ai.js?v=1786257176"></script>
 <!-- מנוע ההחלטות Prepress (חילוץ 7). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-prepress.js?v=1786255267"></script>
+<script src="solan-prepress.js?v=1786257176"></script>
 <!-- מנוע הלמידה (חילוץ 8). צורך את showToast, ולכן אחרי solan-toast. -->
-<script src="solan-learn.js?v=1786255267"></script>
+<script src="solan-learn.js?v=1786257176"></script>
 <!-- השלמה-אוטומטית (חילוץ 9). אין לו תלות בשכבה מוקדמת;
      המיקום נקבע רק כדי שיהיה לפני הבלוק הגדול. -->
-<script src="solan-autocomplete.js?v=1786255267"></script>
+<script src="solan-autocomplete.js?v=1786257176"></script>
 </head>
 <body>
 
@@ -23857,7 +23857,10 @@ function _opFetchProof(url) {
     return fetch(url).then(function (r) {
       if (r.ok) return r;
       var e = new Error('proof-http-' + r.status);
-      e.status = r.status; e.authTried = authTried; e.prevStatus = prevStatus || null;
+      /* ⚠️ הכתובת נוסעת על השגיאה כדי ש"פרטי תקלה" יוכל לבדוק את **הקובץ
+         עצמו** ולא רק את המארח. בקיוסק זה ההבדל בין "הרשת חוסמת הכל"
+         לבין "הקובץ הזה בלבד נדחה". */
+      e.status = r.status; e.authTried = authTried; e.prevStatus = prevStatus || null; e.url = url;
       throw e;
     });
   }
@@ -23991,13 +23994,76 @@ function _opProofFail(err, label, retryFn) {
     + 'padding:11px 20px;font-size:.92rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">🔄 נסה שוב</button>'
     + '<button id="op-proof-close" style="background:#f1f5f9;color:#334155;border:1.5px solid #cbd5e1;border-radius:10px;'
     + 'padding:11px 20px;font-size:.92rem;font-weight:800;cursor:pointer;font-family:Heebo,sans-serif">סגור</button>'
-    + '</div>';
+    + '</div>'
+    /* ⚠️ הכפתור הזה הוא **הכלי היחיד** שיש לדפס. ראה _opProofDiag. */
+    + '<button id="op-proof-diag" style="margin-top:12px;background:none;border:none;color:#64748b;'
+    + 'font-size:.8rem;font-weight:700;text-decoration:underline;cursor:pointer;font-family:Heebo,sans-serif">'
+    + '🔧 פרטי תקלה</button>';
   ov.appendChild(box);
   var rb = document.getElementById('op-proof-retry');
   if (rb) rb.onclick = function () { _opCloseProof(); if (typeof retryFn === 'function') retryFn(); };
   var cb = document.getElementById('op-proof-close');
   if (cb) cb.onclick = function () { _opCloseProof(); };
+  var db = document.getElementById('op-proof-diag');
+  if (db) db.onclick = function () { _opProofDiag(box, (err && err.url) || null); };
   try { console.warn('proof open failed', code, err); } catch (e) {}
+}
+
+/* ═══ "פרטי תקלה" — אבחון על המסך עצמו ═══════════════════════════════════
+   ⚠️ **למה זה קיים.** מסך-הדפס רץ ב-Assigned Access: אין F12, אין קונסול,
+   ואי-אפשר להדביק שם סקריפט. כל כלי-אבחון שדורש DevTools הוא חסר-ערך
+   בדיוק במחשב שבו התקלה קורית — ולכן הדרך היחידה לדעת מה נכשל הייתה
+   לנחש מרחוק.
+
+   ⚠️ ארבע שורות בגופן קריא, כדי שאפשר יהיה להקריא אותן בטלפון:
+   האתר · המסד · **מארח-הקבצים** · הקובץ עצמו. השלישי הוא זה שמבדיל בין
+   "אין הרשאה" לבין "הרשת חוסמת" — שני מצבים שנראים על המסך זהים לחלוטין.
+
+   ⚠️ סטטוס 400/401/403/404 הוא **הצלחה** כאן: המארח נענה. כישלון אמיתי
+   הוא היעדר-תשובה, וזו החתימה של סינון-רשת. */
+function _opProofDiag(box, fileUrl) {
+  if (!box) return;
+  box.innerHTML = '<div style="font-size:1.05rem;font-weight:900;color:#0f172a;margin-bottom:12px">🔧 פרטי תקלה</div>'
+    + '<div id="op-diag-rows" style="text-align:right;font-size:.92rem;line-height:1.95;color:#0f172a"></div>'
+    + '<div style="margin-top:16px"><button id="op-diag-close" style="background:#f1f5f9;color:#334155;'
+    + 'border:1.5px solid #cbd5e1;border-radius:10px;padding:11px 22px;font-size:.92rem;font-weight:800;'
+    + 'cursor:pointer;font-family:Heebo,sans-serif">סגור</button></div>';
+  var cl = document.getElementById('op-diag-close');
+  if (cl) cl.onclick = function () { _opCloseProof(); };
+
+  var rows = document.getElementById('op-diag-rows');
+  function add(html) { if (rows) { var d = document.createElement('div'); d.innerHTML = html; rows.appendChild(d); } }
+
+  add('גרסת מסך: <b>' + escHtml(String(window.APP_VERSION || '?')) + '</b>');
+  try {
+    var tp = window._fbAuthToken ? window._fbAuthToken() : null;
+    if (!tp || typeof tp.then !== 'function') add('זהות: <b>אין אסימון</b>');
+    else tp.then(function (t) {
+      if (!t) { add('זהות: <b>אין אסימון</b>'); return; }
+      var p = {};
+      try { p = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); } catch (e) {}
+      add('זהות: <b>' + escHtml((p.firebase || {}).sign_in_provider || '?') + '</b>'
+        + (p.role ? ' · ' + escHtml(String(p.role)) : ''));
+    }, function () { add('זהות: <b>שגיאה</b>'); });
+  } catch (e) { add('זהות: <b>שגיאה</b>'); }
+
+  var HOSTS = [
+    ['האתר', 'https://solanprinting.github.io/solan-printing/version.txt'],
+    ['מסד הנתונים', 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app/.json?shallow=true'],
+    ['קובצי הפרופר', 'https://firebasestorage.googleapis.com/v0/b/' + _PROOF_BUCKET + '/o/zz-probe'],
+  ];
+  if (fileUrl) HOSTS.push(['הקובץ עצמו', fileUrl]);
+
+  HOSTS.forEach(function (h) {
+    var t0 = Date.now(), ctl;
+    try { ctl = AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined; } catch (e) { ctl = undefined; }
+    var u = h[1] + (h[1].indexOf('?') >= 0 ? '&' : '?') + 'cb=' + Date.now();
+    fetch(u, ctl ? { signal: ctl } : {}).then(function (r) {
+      add('✅ ' + escHtml(h[0]) + ' — נענה (' + r.status + ') · ' + (Date.now() - t0) + 'ms');
+    }, function () {
+      add('❌ <b>' + escHtml(h[0]) + ' — אין תשובה</b> · ' + (Date.now() - t0) + 'ms');
+    });
+  });
 }
 function _opProofImagesOverlay(pagesUrl, pdfUrl, type, label) {
   _opSpinStyle();
@@ -24546,13 +24612,19 @@ function _opViewProof(cardId, runKey) {
   // פרופר ישן (legacy) — base64 ב-RTDB
   showToast('📄 טוען פרופר...');
   var path = legacyKey ? 'proofs/' + cardId + '/' + legacyKey : 'proofs/' + cardId;
+  /* ⚠️ המסלול הישן (פרופר base64 ב-RTDB). עד היום לא היה לו `catch` **בכלל**:
+     דחייה של _fbGet נעלמה בשקט, ונשארה רק ההודעה "טוען פרופר…" שלא
+     הסתיימה לעולם. אותה תבנית שתוקנה למעלה — כאן היא נשארה. */
+  var _lbl = runKey || 'פרופר';
   window._fbGet(path).then(function(p) {
     if ((!p || !p.data) && legacyKey) { path = 'proofs/' + cardId; return window._fbGet(path); }  // נסה גם את הפרופר היחיד
     return p;
   }).then(function(p) {
     if (!p || !p.data) { showToast('⚠️ אין פרופר מצורף'); return; }
-    try { _opRenderPdfToImages(URL.createObjectURL(_dataUrlToBlob(p.data)), p.type, runKey || 'פרופר'); }
-    catch(e) { showToast('⚠️ שגיאה בטעינת הפרופר'); }
+    try { _opRenderPdfToImages(URL.createObjectURL(_dataUrlToBlob(p.data)), p.type, _lbl); }
+    catch(e) { _opProofFail(e, _lbl, function(){ _opViewProof(cardId, runKey); }); }
+  }).catch(function(e){
+    _opProofFail(e, _lbl, function(){ _opViewProof(cardId, runKey); });
   });
 }
 
