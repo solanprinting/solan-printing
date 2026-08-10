@@ -13,15 +13,15 @@
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786357320"></script>
-<script src="proof-fetch.js?v=1786357320"></script>
+<script src="portal-context.js?v=1786358265"></script>
+<script src="proof-fetch.js?v=1786358265"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786357320"></script>
-<script src="auth-client.js?v=1786357320"></script>
-<script src="auth-guard.js?v=1786357320" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786358265"></script>
+<script src="auth-client.js?v=1786358265"></script>
+<script src="auth-guard.js?v=1786358265" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -79,6 +79,14 @@
      הוא בקירוב מה שיצא מהמכונה. זה המצב שבו "אישרתי מה שראיתי" נכון. */
   #viewer.actual #spread { overflow:auto; max-height:84vh; align-items:flex-start; justify-content:center; }
   #viewer.actual #spread .zoomWrap { display:flex; }
+  /* ── שכבת-הווקטור ────────────────────────────────────────────────────
+     ⚠️ הקנבס יושב **מעל** התמונה ולא במקומה: כך אם הציור נכשל או מתעכב,
+     מה שנשאר על המסך הוא הראסטר התקין ולא מסך ריק. הוא נחשף רק כשיש
+     בו תוכן. */
+  .vecclip { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+  .vecclip canvas { position:absolute; top:0; height:100%; display:block; }
+  .vecwrap { position:relative; display:block; }
+  .vecwrap canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
   #viewer.actual #spread img,
   #viewer.actual #spread .mediacrop { height:var(--actual-h,80vh); width:auto; max-width:none; }
   #vnav { display:flex; align-items:center; justify-content:center; gap:14px; margin:10px 0; flex-wrap:wrap; }
@@ -864,6 +872,9 @@ function toggleViewMode(){
      נמתחת עד שהרינדור החדש ינחת — כלומר המעבר היה נראה **גרוע יותר**
      בדיוק ברגע שבו המשתמש ביקש איכות. */
   try { _hi.clear(); } catch(e){}
+  /* ⚠️ גם מצב-הווקטור מתאפס: הרוחב שנרשם שייך למצב הקודם, ובלי איפוס
+     המעבר היה משאיר קנבס שצויר לרוחב אחר לגמרי. */
+  try { _vecAt.clear(); } catch(e){}
   if (_viewMode === 'spread' && vIndex > 0 && vIndex % 2 === 0) vIndex -= 1;
   _applyViewMode();
   try { if (window._pvZoomReset) window._pvZoomReset(); } catch(e){}
@@ -920,14 +931,102 @@ function renderViewer(){
       const fb = `border:1.4px dashed #e11d48;`
         + (f.skip === 'left' ? 'border-left:none;' : '') + (f.skip === 'right' ? 'border-right:none;' : '');
       const fst = `left:${f.left.toFixed(2)}%;top:${f.top.toFixed(2)}%;width:${f.width.toFixed(2)}%;height:${f.height.toFixed(2)}%;${fb}`;
-      return `<div class="page"><div class="cropwrap"><div class="mediacrop" style="${mc}"></div><div class="trimframe" style="${fst}"></div>${_cropMarksHtml(f)}</div><div class="pgnum">עמוד ${i+1}</div></div>`;
+      /* ⚠️ מיכל-הווקטור נוסף **רק** במצב-הקריאה, ותמיד מעל הראסטר.
+         בכפולה המארקאפ נשאר בדיוק כפי שהיה. */
+      const vc = (_viewMode === 'wide')
+        ? `<div class="vecclip"></div>` : '';
+      const va = (_viewMode === 'wide')
+        ? ` data-vec="${i}" data-vec-w="${sp.sizeW.toFixed(3)}" data-vec-x="${sp.posX.toFixed(3)}"` : '';
+      return `<div class="page"><div class="cropwrap"${va}><div class="mediacrop" style="${mc}"></div>${vc}<div class="trimframe" style="${fst}"></div>${_cropMarksHtml(f)}</div><div class="pgnum">עמוד ${i+1}</div></div>`;
+    }
+    if (_viewMode === 'wide') {
+      return `<div class="page"><span class="vecwrap" data-vec="${i}" data-vec-w="100" data-vec-x="0">`
+           + `<img src="${srcFor(i)}" alt=""><span class="vecclip"></span></span>`
+           + `<div class="pgnum">עמוד ${i+1}</div></div>`;
     }
     return `<div class="page"><img src="${srcFor(i)}" alt=""><div class="pgnum">עמוד ${i+1}</div></div>`;
   }).join('') + '</div>';
   if (window._pvZoomApply) _pvZoomApply();   // שומר על מצב-הזום גם אחרי רינדור-מחדש
   _renderPageWarn();
   _ensureHi(s);      // העמודים שעל המסך → רינדור חוזר באיכות-שיא (מחליף כשמוכן)
+  try { _vectorize(s); } catch(e){}   /* מצב-קריאה: ציור וקטורי מעל הראסטר */
 }
+/* ═══ ציור וקטורי ישיר (מצב "עמוד לרוחב המסך" בלבד) ═══════════════════
+   ⚠️ **למה זה קיים.** הצופה ממיר כל עמוד לתמונה (‏4096 פיקסלים ≈ 323dpi)
+   ואז מגדיל אותה. עד זום ×3.4 זה שקול לקורא-PDF; מעבר לזה הטקסט נמתח,
+   כי פיקסלים אינם נוצרים יש-מאין. ‏pdf.js יודע לצייר את הווקטור ישירות
+   בכל רמת-זום — וזה מה שסוגר את הפער.
+
+   ⚠️ **מבודד למצב אחד בכוונה.** הכפולה היא המסך שלקוחות משתמשים בו
+   היום; שינוי מנוע-התצוגה שלה הוא סיכון-רגרסיה על מסלול עובד. כאן
+   הסיכון מוגבל למצב שנוסף אתמול.
+
+   ⚠️ **הקנבס מתווסף מעל הראסטר ולא מחליף אותו.** כשל בציור, מסמך שלא
+   נטען, או מכשיר חלש — משאירים על המסך את התמונה התקינה. מסך ריק
+   במקום עמוד גרוע מעמוד מרוכך. */
+let _vecBusy = new Set(), _vecAt = new Map();   // i → רוחב-הקנבס שצויר
+const VEC_REDO = 1.25;                          // ציור-מחדש רק כשהצורך גדל מהותית
+
+async function _renderCanvas(pageNo, cssW, dpr){
+  const page = await _pdfDoc.getPage(pageNo);
+  const v1 = page.getViewport({ scale: 1 });
+  let scale = (cssW * dpr) / v1.width;
+  scale = _capCanvasScale(scale, v1);
+  const vp = page.getViewport({ scale });
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.floor(vp.width));
+  c.height = Math.max(1, Math.floor(vp.height));
+  const cx = c.getContext('2d');
+  /* ⚠️ רקע לבן מפורש — אותו כלל כמו בראסטר: עמוד עם שקיפות נראה אחרת
+     על קנבס שקוף, ובדפדוף על רקע כהה זה נראה כמו פגם בקובץ. */
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: cx, viewport: vp }).promise;
+  page.cleanup();
+  return c;
+}
+
+/* מצייר את העמודים המוצגים בווקטור, לפי הרוחב שהם תופסים בפועל. */
+async function _vectorize(list){
+  if (_viewMode !== 'wide' || !_pdfDoc || _fromCache) return;
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  const z = Math.max(1, (typeof window._pvZoomScale === 'function' ? window._pvZoomScale() : 1) || 1);
+  for (const i of list) {
+    if (_vecBusy.has(i)) continue;
+    const host = document.querySelector('[data-vec="' + i + '"]');
+    if (!host) continue;
+    /* רוחב-התמונה בפועל: במסלול-החיתוך התמונה רחבה מהמסגרת (‏sizeW>100). */
+    const boxW = host.getBoundingClientRect().width;
+    if (!(boxW > 0)) continue;
+    const sizeW = parseFloat(host.getAttribute('data-vec-w') || '100');
+    const cssW = boxW * (sizeW / 100) * z;
+    const prev = _vecAt.get(i) || 0;
+    if (prev && cssW <= prev * VEC_REDO) continue;      /* כבר חד מספיק */
+    _vecBusy.add(i);
+    try {
+      const c = await _renderCanvas(i + 1, cssW, dpr);
+      /* ⚠️ בדיקה מחדש אחרי ה-await: העמוד עלול כבר לא להיות על המסך
+         (המשתמש דפדף), והכנסת קנבס לעמוד שהוחלף היא ציור על עמוד אחר. */
+      if (_viewMode !== 'wide' || showingPages().indexOf(i) < 0) { _vecBusy.delete(i); continue; }
+      const live = document.querySelector('[data-vec="' + i + '"]');
+      if (!live) { _vecBusy.delete(i); continue; }
+      const clip = live.querySelector('.vecclip, .vecwrap');
+      if (clip) {
+        c.style.width = (sizeW === 100) ? '100%' : (sizeW.toFixed(3) + '%');
+        if (sizeW !== 100) {
+          /* מיקום זהה לסמנטיקה של background-position באחוזים:
+             היסט = (רוחב-מסגרת − רוחב-תמונה) × posX/100. */
+          const posX = parseFloat(live.getAttribute('data-vec-x') || '0');
+          c.style.left = (((100 - sizeW) * posX) / 100).toFixed(3) + '%';
+        }
+        clip.innerHTML = '';
+        clip.appendChild(c);
+        _vecAt.set(i, cssW);
+      }
+    } catch (e) { /* נשאר הראסטר שמתחת */ }
+    _vecBusy.delete(i);
+  }
+}
+
 // חישוב אזור התצוגה (חיתוך שדרה בלבד) + מיקום מסגרת ה-trim בתוך העמוד, לפי TrimBox
 function _pageNetSpec(tf, spine){
   if (window.PageSpine) return PageSpine.netSpec(tf, spine);
@@ -1060,6 +1159,7 @@ $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) 
         העמודים גדלו זה-לתוך-זה והעמוד השמאלי עלה על הימני.
      הפתרון לשניהם: מגדילים את הכפולה כ**יחידה אחת** (.zoomWrap שעוטפת את שני
      העמודים). כך היחס והמפגש בשדרה נשמרים בכל רמת-זום. */
+  var _vecT = null;
   function zoomEl(){ return sp.querySelector('.zoomWrap'); }
   function apply(){
     var t = zoomEl();
@@ -1084,6 +1184,11 @@ $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) 
     var prev=sc; sc=Math.min(6, Math.max(1, sc*(e.deltaY<0?1.15:1/1.15)));
     if(sc===1){ tx=0; ty=0; } else { var k=sc/prev; tx*=k; ty*=k; }
     apply();
+    /* ⚠️ ציור-מחדש אחרי שהזום נח, ורק במצב-הקריאה: זה מה שהופך את
+       ההגדלה לחדה-באמת במקום למתוחה. השהיה, כי גלגלת יורה עשרות
+       אירועים ורינדור לכל אחד היה משתק את הדפדפן. */
+    clearTimeout(_vecT);
+    _vecT = setTimeout(function(){ try { _vectorize(showingPages()); } catch(e){} }, 260);
   }, {passive:false});
   sp.addEventListener('mousedown', function(e){ if(!on||sc<=1) return; e.preventDefault(); drag={x:e.clientX-tx,y:e.clientY-ty}; });
   window.addEventListener('mousemove', function(e){ if(!drag) return; tx=e.clientX-drag.x; ty=e.clientY-drag.y; apply(); });
