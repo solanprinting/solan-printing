@@ -13,15 +13,15 @@
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786352554"></script>
-<script src="proof-fetch.js?v=1786352554"></script>
+<script src="portal-context.js?v=1786354418"></script>
+<script src="proof-fetch.js?v=1786354418"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786352554"></script>
-<script src="auth-client.js?v=1786352554"></script>
-<script src="auth-guard.js?v=1786352554" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786354418"></script>
+<script src="auth-client.js?v=1786354418"></script>
+<script src="auth-guard.js?v=1786354418" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -60,6 +60,27 @@
   /* מספר עמוד — תווית עזר מתחת לעמוד ובשקיפות (לא חלק מהעיתון) */
   #spread .pgnum { line-height:1; color:#6b7280; opacity:.5; font-size:.82rem; font-weight:700; }
   #spread .ph { color:#6b7280; font-size:.95rem; padding:50px; }
+  /* ── מצב-קריאה: עמוד יחיד ברוחב מלא + גלילה ───────────────────────────
+     ⚠️ **זה מה שפותר את הקריאוּת, לא רזולוציית-הרינדור.** נמדד: עמוד
+     שנדחס לגובה-החלון יוצא ~735 פיקסלים, ובגודל הזה טקסט 6pt הוא 5.2
+     פיקסלים — בלתי-קריא לחלוטין, ולא משנה כמה פיקסלים רונדרו במקור
+     (נוסה 4200 ולא עזר; הדפדפן הקטין 5.71:1 וזרק 83% מהפרטים).
+     ברוחב-מלא אותו עמוד יוצא ~2,600 פיקסלים: טקסט 18.6 פיקסלים ו-QR
+     של 132 — מעל סף-הסריקה של מצלמה. הגלילה היא המחיר, והיא בדיוק
+     איך שבודקים פרופר במציאות. */
+  #viewer.wide #spread { overflow:auto; max-height:84vh; align-items:flex-start; justify-content:flex-start; }
+  #viewer.wide #spread .zoomWrap { display:block; width:100%; }
+  #viewer.wide #spread .page { display:block; width:100%; }
+  #viewer.wide #spread img,
+  #viewer.wide #spread .mediacrop { height:auto; width:100%; max-width:none; }
+  #viewer.wide #spread .cropwrap { display:block; width:100%; }
+  /* ── גודל מקורי: העמוד בגודלו הפיזי על המסך ─────────────────────────
+     ⚠️ הגובה נקבע ב-JS מהמידות במ"מ של העבודה (‏96dpi), ולכן מה שרואים
+     הוא בקירוב מה שיצא מהמכונה. זה המצב שבו "אישרתי מה שראיתי" נכון. */
+  #viewer.actual #spread { overflow:auto; max-height:84vh; align-items:flex-start; justify-content:center; }
+  #viewer.actual #spread .zoomWrap { display:flex; }
+  #viewer.actual #spread img,
+  #viewer.actual #spread .mediacrop { height:var(--actual-h,80vh); width:auto; max-width:none; }
   #vnav { display:flex; align-items:center; justify-content:center; gap:14px; margin:10px 0; flex-wrap:wrap; }
   #vnav button { font-size:1rem; padding:8px 16px; border:1.5px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; }
   #vnav button:disabled { opacity:.35; cursor:default; }
@@ -111,10 +132,9 @@
     <button id="vfs">⛶ מסך מלא</button>
     <button id="vzoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button>
     <button id="vgeom" title="משווה את גיאומטריית שני העמודים — כדי לדעת אם סטייה בחיבור נובעת מהתצוגה או מהקובץ">📐 בדיקת התאמה</button>
-    <button id="vqual" title="מראה באיזו רזולוציה העמוד מרונדר כרגע, ומאפשר להשוות מול איכות מרבית">🔬 איכות</button>
+    <button id="vmode" title="כפולה = שני עמודים בגודל החלון · קריאה = עמוד אחד ברוחב מלא, גדול פי-3.5 וקריא">📖 מצב: כפולה</button>
   </div>
-  <div id="qualPanel" style="display:none;max-width:760px;width:96%;margin:0 auto 12px;padding:12px 14px;
-       background:#fff;border:1.5px solid var(--line);border-radius:10px;font-size:.84rem;direction:rtl"></div>
+
   <div id="geomPanel" style="display:none;max-width:760px;width:96%;margin:0 auto 12px;padding:12px 14px;
        background:#fff;border:1.5px solid var(--line);border-radius:10px;font-size:.84rem;direction:rtl"></div>
   <div id="pgWarn"></div>
@@ -734,19 +754,16 @@ const _hi = new Map(), _hiBusy = new Set();
    (‏48vw לעמוד), ובמסך רחב הרוחב הוא שקובע. הנחה במקום מדידה הייתה
    מרנדרת בגובה שאינו הגובה שעל המסך. */
 function _hiTargetH(){
-  let cssH = 0;
-  try {
-    const el = document.querySelector('#spread .zoomWrap img, #spread .zoomWrap .mediacrop');
-    if (el) cssH = el.getBoundingClientRect().height;
-  } catch(e){}
-  if (!(cssH > 0)) cssH = Math.round((window.innerHeight || 900) * 0.8);
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const z = Math.max(1, (typeof window._pvZoomScale === 'function' ? window._pvZoomScale() : 1) || 1);
-  /* ⚠️ מצב-השוואה: כופה את התקרה, כדי שאפשר יהיה לראות בעין אם
-     הרינדור-לפי-התצוגה באמת עדיף — ולא להסתמך על הטענה שלי. */
-  if (window._pvForceMax) return HI_MAX_H;
-  return Math.min(HI_MAX_H, Math.ceil(cssH * dpr * z * HI_HEADROOM));
+  /* ⚠️ **איכות מרבית תמיד (החלטת-בעלים 10/08/2026).** כאן ישב חישוב
+     שגזר את היעד מגודל-התצוגה × צפיפות-המסך × הזום, ותיבת-סימון
+     אפשרה לכפות מקסימום לצורך השוואה. הבעלים השווה והכריע: מקסימום
+     תמיד. החישוב הוסר ולא הושאר מנוטרל — קוד-מת שנראה כמו לוגיקה
+     פעילה הוא מלכודת לכל מי שיקרא את זה בעוד חודש.
+     ⚠️ "מקסימום" אינו בלי-גבול: _capCanvasScale חוסם ב-4096 לצלע
+     וב-14 מגה-פיקסל, ולכן טלפון אינו קורס. */
+  return HI_MAX_H;
 }
+
 
 /* ⚠️ ‏WebP שומר מעברים חדים הרבה טוב מ-JPEG באותו גודל-קובץ, וזה בדיוק
    מה שקובע אם QR נקרא. נפילה-לאחור ל-JPEG כשהדפדפן אינו מקודד WebP —
@@ -783,15 +800,69 @@ async function _ensureHi(list){
       _hi.set(i, { src: src, h: want });
       while (_hi.size > HI_MAX) _hi.delete(_hi.keys().next().value);
       if (showingPages().indexOf(i) >= 0) renderViewer();     // מוצג עדיין → מחליפים בתמונה החדה
-      try { if ($('qualPanel') && $('qualPanel').style.display !== 'none') _renderQualPanel(); } catch(e){}
     } catch(e){ /* נשאר באיכות-הבסיס */ }
     finally { _hiBusy.delete(i); }
   }
 }
 
 // דפדוף כפולה RTL
+/* ── מצב-תצוגה ─────────────────────────────────────────────────────────
+   ⚠️ **הכפולה נשארת ברירת-המחדל.** היא הדרך הנכונה לראות איך העיתון
+   ייראה פתוח, ובה בודקים חיבורים מעבר לשדרה. מצב-הקריאה נועד לדבר
+   אחר לגמרי: לקרוא את האותיות הקטנות ולסרוק QR — ושם עמוד יחיד
+   ברוחב מלא הוא היחיד שמגיע לגודל הנדרש.
+   ⚠️ הבחירה נזכרת במכשיר: מי שעבר למצב-קריאה עשה זאת כי הוא צריך
+   לקרוא, וכפיית חזרה לכפולה בכל עמוד הייתה עבודה חוזרת. */
+/* שלושה מצבים: כפולה (ברירת-מחדל) · קריאה (עמוד ברוחב מלא) · גודל מקורי. */
+const VIEW_MODES = ['spread', 'wide', 'actual'];
+const VIEW_LABEL = { spread: '📖 מצב: כפולה', wide: '📖 מצב: קריאה', actual: '📖 מצב: גודל מקורי' };
+let _viewMode = 'spread';
+try { var _vm = localStorage.getItem('solanProofViewMode');
+      if (VIEW_MODES.indexOf(_vm) >= 0) _viewMode = _vm; } catch(e){}
+
+/* ⚠️ **גודל מקורי = הגודל הפיזי, לא "100% של הקובץ".** מ"מ → פיקסלים
+   לפי 96dpi, שזו ההנחה הסטנדרטית של CSS. מסך אמיתי סוטה מזה ב-10-15%,
+   ולכן זה קירוב — אבל קירוב שמקורו במידות העבודה ולא במספר שרירותי.
+   ⚠️ בלי מידות ידועות אין המצאה: נופלים לגובה סביר ומסמנים זאת בכותרת. */
+function _actualPx(){
+  var hmm = Number(_reqHmm) || 0;
+  if (!(hmm > 0)) {
+    try { var m0 = (_pageMeta && (_pageMeta.byIndex || _pageMeta) || [])[0];
+          if (m0 && m0.hmm) hmm = Number(m0.hmm) || 0; } catch(e){}
+  }
+  if (!(hmm > 0)) return 0;
+  return Math.round(hmm * 96 / 25.4);
+}
+
+function _applyViewMode(){
+  const v = $('viewer'), b = $('vmode');
+  if (v) { v.classList.toggle('wide', _viewMode === 'wide');
+           v.classList.toggle('actual', _viewMode === 'actual'); }
+  /* גובה מפורש רק במצב גודל-מקורי; בשאר המצבים ה-CSS שולט. */
+  try {
+    var px = (_viewMode === 'actual') ? _actualPx() : 0;
+    document.documentElement.style.setProperty('--actual-h', px ? (px + 'px') : '80vh');
+  } catch(e){}
+  if (b) b.textContent = VIEW_LABEL[_viewMode] || VIEW_LABEL.spread;
+  try { localStorage.setItem('solanProofViewMode', _viewMode); } catch(e){}
+}
+function toggleViewMode(){
+  _viewMode = VIEW_MODES[(VIEW_MODES.indexOf(_viewMode) + 1) % VIEW_MODES.length];
+  /* ⚠️ המטמון מתנקה: הגודל על המסך משתנה פי-3.5, והתמונה הישנה הייתה
+     נמתחת עד שהרינדור החדש ינחת — כלומר המעבר היה נראה **גרוע יותר**
+     בדיוק ברגע שבו המשתמש ביקש איכות. */
+  try { _hi.clear(); } catch(e){}
+  if (_viewMode === 'spread' && vIndex > 0 && vIndex % 2 === 0) vIndex -= 1;
+  _applyViewMode();
+  try { if (window._pvZoomReset) window._pvZoomReset(); } catch(e){}
+  renderViewer();
+  try { _ensureHi(showingPages()); } catch(e){}
+}
+
 function showingPages(){
   if (!imgs.length) return [];
+  /* במצב-קריאה עמוד אחד בכל פעם — זה כל העניין: הוא מקבל את כל הרוחב. */
+  if (_viewMode !== 'spread') return [Math.min(vIndex, imgs.length - 1)];
   if (vIndex === 0) return [0];
   const left = vIndex % 2 === 1 ? vIndex : vIndex - 1;
   return [left, left + 1].filter(i => i < imgs.length);
@@ -941,79 +1012,26 @@ function toggleGeomCheck(){
    ⚠️ **נבנה כי השאלה "איך אני רואה שהשתפר" היא שאלה הוגנת שלא הייתה
    לה תשובה.** שיפור שאי אפשר למדוד הוא טענה, לא תוצאה. הפאנל מראה את
    המספרים בפועל, ומאפשר לכפות איכות מרבית כדי להשוות בעין. */
-function toggleQualPanel(){
-  var el = $('qualPanel');
-  if (!el) return;
-  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
-  _renderQualPanel();
-  el.style.display = 'block';
-}
 
-function _pvSetForceMax(on){
-  window._pvForceMax = !!on;
-  _hi.clear();                       /* מרנדרים מחדש בשני המצבים */
-  try { _ensureHi(showingPages()); } catch(e){}
-  _renderQualPanel();
-}
 
-function _renderQualPanel(){
-  var el = $('qualPanel');
-  if (!el) return;
-  var cssH = 0;
-  try {
-    var im = document.querySelector('#spread .zoomWrap img, #spread .zoomWrap .mediacrop');
-    if (im) cssH = Math.round(im.getBoundingClientRect().height);
-  } catch(e){}
-  var dpr = Math.min(2, window.devicePixelRatio || 1);
-  var z = Math.max(1, (typeof window._pvZoomScale === 'function' ? window._pvZoomScale() : 1) || 1);
-  var want = _hiTargetH();
-  var shown = showingPages();
-  var got = shown.length ? (_hi.get(shown[0]) || null) : null;
-  var rows = [
-    ['גובה העמוד על המסך', cssH ? (cssH + ' פיקסלים') : 'לא נמדד'],
-    ['צפיפות המסך', '\u00d7' + dpr],
-    ['זום נוכחי', '\u00d7' + z.toFixed(2)],
-    ['רזולוציית רינדור מבוקשת', want + ' פיקסלים'],
-    ['מה שמוצג בפועל', got ? (got.h + ' פיקסלים') : 'עדיין באיכות-בסיס (1500)'],
-    ['קידוד', _lastEncoding]
-  ];
-  var ratio = (got && cssH) ? (got.h / (cssH * dpr)) : 0;
-  var h = '<div style="font-weight:800;margin-bottom:8px">\u1f52c איכות הרינדור הנוכחית</div>'
-    + '<table style="width:100%;border-collapse:collapse;font-size:.82rem">';
-  rows.forEach(function(r){
-    h += '<tr style="border-bottom:1px solid var(--line)">'
-       + '<td style="padding:5px;color:#555">' + r[0] + '</td>'
-       + '<td style="padding:5px;font-weight:700">' + r[1] + '</td></tr>';
-  });
-  h += '</table>';
-  /* ⚠️ היחס הוא המדד היחיד שאומר משהו: פחות מ-1 = מתיחה (מרוכך),
-     סביב 1 = פיקסל-לפיקסל, הרבה מעל 1 = הקטנה (גם היא מרככת). */
-  if (ratio) {
-    var verdict = ratio < 0.95 ? ['#b91c1c', 'התמונה נמתחת — חסרים פיקסלים ברזולוציה הנוכחית.']
-                : ratio > 2.2  ? ['#b45309', 'הקטנה גדולה — הדפדפן ממוצע פיקסלים, וזה מרכך פרטים דקים.']
-                : ['#0f766e', 'סביב פיקסל-לפיקסל — הרזולוציה תואמת את מה שמוצג.'];
-    h += '<div style="margin-top:9px;padding:8px 10px;border-radius:7px;background:#f8fafc;color:' + verdict[0] + '">'
-       + 'יחס רינדור/תצוגה: <b>' + ratio.toFixed(2) + '</b> — ' + verdict[1] + '</div>';
-  }
-  h += '<div style="margin-top:10px;padding:9px 11px;background:#eff6ff;border-radius:8px;color:#1e3a8a">'
-     + '<label style="display:flex;gap:8px;align-items:center;cursor:pointer">'
-     + '<input type="checkbox" ' + (window._pvForceMax ? 'checked' : '')
-     + ' onchange="_pvSetForceMax(this.checked)"> '
-     + '<span><b>כפה איכות מרבית (' + HI_MAX_H + ' פיקסלים)</b> — סמנו, המתינו לרינדור, והשוו בעין. '
-     + 'אם כך נראה טוב יותר, אמרו לי ואקבע את זה כברירת-מחדל.</span></label></div>';
-  el.innerHTML = h;
-}
 
 function step(d){
-  if (vIndex === 0) vIndex = d > 0 ? 1 : 0;
-  else vIndex = Math.max(0, Math.min(vIndex + d*2, imgs.length - 1));
-  if (vIndex > 0 && vIndex % 2 === 0) vIndex -= 1;
+  /* ⚠️ במצב-קריאה מתקדמים עמוד אחד; בכפולה שניים. דילוג-כפול במצב
+     עמוד-יחיד היה מדלג על מחצית העיתון בלי שהמשתמש יבחין. */
+  if (_viewMode !== 'spread') {
+    vIndex = Math.max(0, Math.min(vIndex + d, imgs.length - 1));
+  } else {
+    if (vIndex === 0) vIndex = d > 0 ? 1 : 0;
+    else vIndex = Math.max(0, Math.min(vIndex + d*2, imgs.length - 1));
+    if (vIndex > 0 && vIndex % 2 === 0) vIndex -= 1;
+  }
   renderViewer();
 }
 $('vprev').onclick = () => step(-1);
 $('vnext').onclick = () => step(+1);
 $('vgeom').onclick = toggleGeomCheck;
-$('vqual').onclick = toggleQualPanel;
+$('vmode').onclick = toggleViewMode;
+_applyViewMode();
 $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) document.exitFullscreen(); else (v.requestFullscreen||v.webkitRequestFullscreen).call(v); };
 /* הכפתורים "📄 הקובץ המקורי" ו-"⚙️ מנוע תצוגה ישן" הוסרו מהסרגל לבקשת הבעלים
    (2026-07-30) — המנוע העדכני מצייר נכון, ולכן הם היו רעש. הפונקציות נשארות:
@@ -1046,13 +1064,6 @@ $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) 
      של 3000 פיקסלים — כלומר דווקא ההגדלה, שנועדה לבדוק את הפרטים
      הקטנים, הציגה אותם מרוככים. */
   window._pvZoomScale = function(){ return sc; };
-  /* רינדור-מחדש אחרי שהזום נח, לא בכל גלגול */
-  var _zt = null;
-  function _zoomSettled(){
-    clearTimeout(_zt);
-    _zt = setTimeout(function(){ try { _ensureHi(showingPages()); } catch(e){} }, 220);
-  }
-  window._pvZoomSettled = _zoomSettled;
   window._pvZoomReset = reset;                       // מעבר-עמוד מאפס
   window._pvZoomApply = apply;                       // רינדור-מחדש (איכות-שיא) לא מאבד את הזום
   btn.onclick=function(){ on=!on; if(!on) reset(); else apply(); };
@@ -1060,7 +1071,7 @@ $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) 
     if(!on) return; e.preventDefault();
     var prev=sc; sc=Math.min(6, Math.max(1, sc*(e.deltaY<0?1.15:1/1.15)));
     if(sc===1){ tx=0; ty=0; } else { var k=sc/prev; tx*=k; ty*=k; }
-    apply(); _zoomSettled();
+    apply();
   }, {passive:false});
   sp.addEventListener('mousedown', function(e){ if(!on||sc<=1) return; e.preventDefault(); drag={x:e.clientX-tx,y:e.clientY-ty}; });
   window.addEventListener('mousemove', function(e){ if(!drag) return; tx=e.clientX-drag.x; ty=e.clientY-drag.y; apply(); });
@@ -1070,11 +1081,28 @@ $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) 
 })();
 /* מקלדת מודעת-כיוון: ב-RTL חץ-שמאל מתקדם; ב-LTR חץ-ימין מתקדם.
    (הכיוון משנה רק ניווט/סדר — לעולם לא משקף תוכן.) */
+/* ⚠️ **ניווט מקלדת מלא (בקשת-בעלים 10/08/2026).** חצי-כיוון בלבד לא
+   הספיקו: במצבי-הגלילה החצים האנכיים שייכים לגלילה, ולכן הדפדוף עבר
+   ל-PageUp/PageDown, והוסף קיצור-קצה (Home/End) לעיתון של 48 עמודים.
+   ⚠️ מדלגים כשהפוקוס בשדה-קלט או כשמקש-צירוף לחוץ — אחרת הקלדה
+   בתיבה כלשהי הייתה מדפדפת את העיתון מתחת לידיים. */
 document.addEventListener('keydown', e => {
-  const fwd = (_readDir === 'ltr') ? 'ArrowRight' : 'ArrowLeft';
-  const back = (_readDir === 'ltr') ? 'ArrowLeft' : 'ArrowRight';
-  if (e.key === fwd) step(+1);
-  if (e.key === back) step(-1);
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const el = document.activeElement;
+  if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return;
+  const fwd  = (_readDir === 'ltr') ? 'ArrowRight' : 'ArrowLeft';
+  const back = (_readDir === 'ltr') ? 'ArrowLeft'  : 'ArrowRight';
+  let d = 0;
+  if (e.key === fwd || e.key === 'PageDown' || e.key === ' ') d = +1;
+  else if (e.key === back || e.key === 'PageUp') d = -1;
+  else if (e.key === 'Home') { vIndex = 0; renderViewer(); e.preventDefault(); return; }
+  else if (e.key === 'End')  { vIndex = Math.max(0, imgs.length - 1);
+                               if (_viewMode === 'spread' && vIndex > 0 && vIndex % 2 === 0) vIndex -= 1;
+                               renderViewer(); e.preventDefault(); return; }
+  else if (e.key === 'm' || e.key === 'M') { toggleViewMode(); e.preventDefault(); return; }
+  if (!d) return;
+  e.preventDefault();
+  step(d);
 });
 
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
