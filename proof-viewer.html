@@ -13,15 +13,15 @@
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786360782"></script>
-<script src="proof-fetch.js?v=1786360782"></script>
+<script src="portal-context.js?v=1786362682"></script>
+<script src="proof-fetch.js?v=1786362682"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786360782"></script>
-<script src="auth-client.js?v=1786360782"></script>
-<script src="auth-guard.js?v=1786360782" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786362682"></script>
+<script src="auth-client.js?v=1786362682"></script>
+<script src="auth-guard.js?v=1786362682" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -994,6 +994,19 @@ async function _renderCanvas(pageNo, cssW, dpr){
 }
 
 /* מצייר את העמודים המוצגים בווקטור, לפי הרוחב שהם תופסים בפועל. */
+/* מדידת-רוחב שממתינה לפריסה. ⚠️ שתי מסגרות ולא אחת: הראשונה
+   מסיימת את הסגנון, השנייה את הפריסה בפועל. מדידה בין השתיים
+   מחזירה מספר שנראה תקין ואינו. */
+async function _vecBox(host){
+  let w = host.getBoundingClientRect().width;
+  if (w > 0) return w;
+  await new Promise(function(r){
+    if (typeof requestAnimationFrame !== 'function') { setTimeout(r, 32); return; }
+    requestAnimationFrame(function(){ requestAnimationFrame(r); });
+  });
+  return host.getBoundingClientRect().width;
+}
+
 async function _vectorize(list){
   /* ⚠️ **הורחב לכפולה בבקשת-הבעלים.** קודם זה היה מבודד למצב-הקריאה
      כדי לא לגעת במסלול שלקוחות משתמשים בו. הבעלים בדק את מצב-הקריאה
@@ -1007,12 +1020,21 @@ async function _vectorize(list){
     if (_vecBusy.has(i)) continue;
     const host = document.querySelector('[data-vec="' + i + '"]');
     if (!host) continue;
-    /* רוחב-התמונה בפועל: במסלול-החיתוך התמונה רחבה מהמסגרת (‏sizeW>100). */
-    const boxW = host.getBoundingClientRect().width;
+    /* ⚠️ **מדידה אחרי שהפריסה התייצבה (הבאג: חד לשנייה ואז מטושטש).**
+       המעטפת היא inline-block שרוחבה נגזר מה-<img> שבתוכה. מיד אחרי
+       בנייה-מחדש התמונה עדיין לא פורסה, ולכן המדידה החזירה רוחב
+       זעיר — והקנבס צויר קטן ונמתח ל-100%. כלומר הציור "הצליח"
+       והתוצאה הייתה מטושטשת יותר ממה שהיה קודם. */
+    const boxW = await _vecBox(host);
     if (!(boxW > 0)) continue;
     const sizeW = parseFloat(host.getAttribute('data-vec-w') || '100');
     const cssW = boxW * (sizeW / 100) * z;
     const prev = _vecAt.get(i) || 0;
+    /* ⚠️ **לעולם לא מחליפים קנבס חד בקנבס מטושטש יותר.** גם אם
+       המדידה תישבר שוב מסיבה אחרת, המשתמש לא יראה איכות יורדת —
+       וזה מה שהוא דיווח עליו. מעבר-מצב מאפס את _vecAt, ולכן הקטנה
+       לגיטימית (קריאה→כפולה) עדיין מציירת מחדש. */
+    if (prev && cssW < prev) continue;
     /* ⚠️ **הבאג שדווח (10/08/2026): בכפולה עמוד אחד התחדד
        והשני לא.** כשרינדור-הראסטר באיכות-שיא נוחת, הוא קורא
        ל-renderViewer — וזה בונה מחדש את כל ה-innerHTML ומוחק את
