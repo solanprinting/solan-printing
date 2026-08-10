@@ -13,15 +13,15 @@
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786359764"></script>
-<script src="proof-fetch.js?v=1786359764"></script>
+<script src="portal-context.js?v=1786360782"></script>
+<script src="proof-fetch.js?v=1786360782"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786359764"></script>
-<script src="auth-client.js?v=1786359764"></script>
-<script src="auth-guard.js?v=1786359764" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786360782"></script>
+<script src="auth-client.js?v=1786360782"></script>
+<script src="auth-guard.js?v=1786360782" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -818,7 +818,12 @@ async function _ensureHi(list){
       const src = await renderPage(_pdfDoc, i + 1, want, HI_Q);
       _hi.set(i, { src: src, h: want });
       while (_hi.size > HI_MAX) _hi.delete(_hi.keys().next().value);
-      if (showingPages().indexOf(i) >= 0) renderViewer();     // מוצג עדיין → מחליפים בתמונה החדה
+      /* ⚠️ בנייה-מחדש **רק** כשאין קנבס-ווקטור על העמוד. משהווקטור
+         מצויר הוא מה שנראה, והראסטר הוא רק שכבת-הנפילה שמתחתיו —
+         ובנייה-מחדש הייתה מוחקת את הקנבס ומאלצת ציור נוסף על כל
+         נחיתת-ראסטר. בכפולה זה שלושה ציורים במקום שניים. */
+      const hasVec = !!document.querySelector('[data-vec="' + i + '"] canvas');
+      if (!hasVec && showingPages().indexOf(i) >= 0) renderViewer();   // מוצג עדיין → מחליפים בתמונה החדה
     } catch(e){ /* נשאר באיכות-הבסיס */ }
     finally { _hiBusy.delete(i); }
   }
@@ -1008,7 +1013,18 @@ async function _vectorize(list){
     const sizeW = parseFloat(host.getAttribute('data-vec-w') || '100');
     const cssW = boxW * (sizeW / 100) * z;
     const prev = _vecAt.get(i) || 0;
-    if (prev && cssW <= prev * VEC_REDO) continue;      /* כבר חד מספיק */
+    /* ⚠️ **הבאג שדווח (10/08/2026): בכפולה עמוד אחד התחדד
+       והשני לא.** כשרינדור-הראסטר באיכות-שיא נוחת, הוא קורא
+       ל-renderViewer — וזה בונה מחדש את כל ה-innerHTML ומוחק את
+       הקנבס שכבר צויר. הסף שלמטה אמנם אמר "כבר חד מספיק",
+       ולכן העמוד לא צויר שוב. שני העמודים נוחתים בזמנים
+       שונים, ולכן בדיוק אחד מהם שרד.
+
+       ⚠️ התיקון: הדילוג מותר רק כשהקנבס **אמנם נמצא ב-DOM**.
+       זיכרון שמעיד על מצב ה-DOM בלי לבדוק אותו הוא הנחה, וכאן
+       ההנחה הייתה שגויה בדיוק במקרה הנפוץ. */
+    const drawn = !!host.querySelector('canvas');
+    if (drawn && prev && cssW <= prev * VEC_REDO) continue;      /* כבר חד מספיק */
     _vecBusy.add(i);
     try {
       const c = await _renderCanvas(i + 1, cssW, dpr);
