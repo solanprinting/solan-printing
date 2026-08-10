@@ -13,15 +13,15 @@
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786358265"></script>
-<script src="proof-fetch.js?v=1786358265"></script>
+<script src="portal-context.js?v=1786359764"></script>
+<script src="proof-fetch.js?v=1786359764"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786358265"></script>
-<script src="auth-client.js?v=1786358265"></script>
-<script src="auth-guard.js?v=1786358265" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786359764"></script>
+<script src="auth-client.js?v=1786359764"></script>
+<script src="auth-guard.js?v=1786359764" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -85,7 +85,12 @@
      בו תוכן. */
   .vecclip { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
   .vecclip canvas { position:absolute; top:0; height:100%; display:block; }
-  .vecwrap { position:relative; display:block; }
+  /* ⚠️ בכפולה התמונה היא ‎height:80vh;width:auto‎ — כלומר הרוחב נגזר
+     מהיחס. מעטפת ‎display:block‎ הייתה נמתחת לכל הרוחב והקנבס היה נמשך
+     איתה, ולכן ‎inline-block‎ שמתכווץ לגודל התמונה. במצב-הקריאה הכיוון
+     הפוך והמעטפת חייבת לתפוס את כל הרוחב. */
+  .vecwrap { position:relative; display:inline-block; line-height:0; }
+  #viewer.wide .vecwrap { display:block; width:100%; }
   .vecwrap canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
   #viewer.actual #spread img,
   #viewer.actual #spread .mediacrop { height:var(--actual-h,80vh); width:auto; max-width:none; }
@@ -931,20 +936,18 @@ function renderViewer(){
       const fb = `border:1.4px dashed #e11d48;`
         + (f.skip === 'left' ? 'border-left:none;' : '') + (f.skip === 'right' ? 'border-right:none;' : '');
       const fst = `left:${f.left.toFixed(2)}%;top:${f.top.toFixed(2)}%;width:${f.width.toFixed(2)}%;height:${f.height.toFixed(2)}%;${fb}`;
-      /* ⚠️ מיכל-הווקטור נוסף **רק** במצב-הקריאה, ותמיד מעל הראסטר.
-         בכפולה המארקאפ נשאר בדיוק כפי שהיה. */
-      const vc = (_viewMode === 'wide')
-        ? `<div class="vecclip"></div>` : '';
-      const va = (_viewMode === 'wide')
-        ? ` data-vec="${i}" data-vec-w="${sp.sizeW.toFixed(3)}" data-vec-x="${sp.posX.toFixed(3)}"` : '';
+      /* ⚠️ מיכל-הווקטור בכל המצבים, ותמיד **מעל** הראסטר. ה-mediacrop
+         נשאר במקומו ולא הוחלף — הוא מה שנראה כל עוד הציור לא הסתיים,
+         ומה שנשאר אם הוא נכשל. */
+      const vc = `<div class="vecclip"></div>`;
+      const va = ` data-vec="${i}" data-vec-w="${sp.sizeW.toFixed(3)}" data-vec-x="${sp.posX.toFixed(3)}"`;
       return `<div class="page"><div class="cropwrap"${va}><div class="mediacrop" style="${mc}"></div>${vc}<div class="trimframe" style="${fst}"></div>${_cropMarksHtml(f)}</div><div class="pgnum">עמוד ${i+1}</div></div>`;
     }
-    if (_viewMode === 'wide') {
-      return `<div class="page"><span class="vecwrap" data-vec="${i}" data-vec-w="100" data-vec-x="0">`
-           + `<img src="${srcFor(i)}" alt=""><span class="vecclip"></span></span>`
-           + `<div class="pgnum">עמוד ${i+1}</div></div>`;
-    }
-    return `<div class="page"><img src="${srcFor(i)}" alt=""><div class="pgnum">עמוד ${i+1}</div></div>`;
+    /* ⚠️ ה-img נשאר בתוך המעטפת ולא הוסר: הוא מה שמוצג עד שהציור
+       הווקטורי מוכן, ומה שנשאר אם הוא נכשל. */
+    return `<div class="page"><span class="vecwrap" data-vec="${i}" data-vec-w="100" data-vec-x="0">`
+         + `<img src="${srcFor(i)}" alt=""><span class="vecclip"></span></span>`
+         + `<div class="pgnum">עמוד ${i+1}</div></div>`;
   }).join('') + '</div>';
   if (window._pvZoomApply) _pvZoomApply();   // שומר על מצב-הזום גם אחרי רינדור-מחדש
   _renderPageWarn();
@@ -987,7 +990,12 @@ async function _renderCanvas(pageNo, cssW, dpr){
 
 /* מצייר את העמודים המוצגים בווקטור, לפי הרוחב שהם תופסים בפועל. */
 async function _vectorize(list){
-  if (_viewMode !== 'wide' || !_pdfDoc || _fromCache) return;
+  /* ⚠️ **הורחב לכפולה בבקשת-הבעלים.** קודם זה היה מבודד למצב-הקריאה
+     כדי לא לגעת במסלול שלקוחות משתמשים בו. הבעלים בדק את מצב-הקריאה
+     והחליט להרחיב — ולכן ההגנות נשארות **בדיוק** אותן הגנות: הקנבס
+     מעל הראסטר, כשל משאיר את התמונה, ואימות שהעמוד עדיין מוצג. הן
+     חשובות כאן יותר, לא פחות. */
+  if (!_pdfDoc || _fromCache) return;
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   const z = Math.max(1, (typeof window._pvZoomScale === 'function' ? window._pvZoomScale() : 1) || 1);
   for (const i of list) {
@@ -1006,7 +1014,7 @@ async function _vectorize(list){
       const c = await _renderCanvas(i + 1, cssW, dpr);
       /* ⚠️ בדיקה מחדש אחרי ה-await: העמוד עלול כבר לא להיות על המסך
          (המשתמש דפדף), והכנסת קנבס לעמוד שהוחלף היא ציור על עמוד אחר. */
-      if (_viewMode !== 'wide' || showingPages().indexOf(i) < 0) { _vecBusy.delete(i); continue; }
+      if (showingPages().indexOf(i) < 0) { _vecBusy.delete(i); continue; }
       const live = document.querySelector('[data-vec="' + i + '"]');
       if (!live) { _vecBusy.delete(i); continue; }
       const clip = live.querySelector('.vecclip, .vecwrap');
