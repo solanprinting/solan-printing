@@ -37,12 +37,21 @@
   var FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
   var APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
   var $ = function(id){ return document.getElementById(id); };
-  function fail(msg){
+  /* ⚠️ **הכותרת נגזרת מהכשל ואינה קבועה (10/08/2026).** קודם היא הייתה
+     תמיד "הקישור לא נמצא" — גם כשהקישור תקין לחלוטין והרשת היא שחסמה.
+     זה שלח לקוחות לבקש קישור חדש מבית-הדפוס, וגם הוא נכשל, כי הבעיה
+     מעולם לא הייתה בקישור. */
+  function fail(info){
+    var i = (typeof info === 'string') ? { title: 'הקישור לא נמצא', msg: info } : (info || {});
     $('sp').style.display='none';
-    $('t').textContent = 'הקישור לא נמצא';
-    $('m').textContent = msg;
-    $('act').innerHTML = '<a class="btn" href="tel:039042333">📞 התקשרו לבית הדפוס — 03-9042333</a>';
+    $('t').textContent = i.title || 'הקישור לא נמצא';
+    $('m').textContent = i.msg || '';
+    /* ⚠️ ברשת חסומה גם "נסו שוב" חסר-ערך — ולכן מוצעת רשת אחרת. */
+    $('act').innerHTML = (i.blocked
+        ? '<div style="margin-bottom:10px;font-size:.9rem;color:#475569">נסו לפתוח את הקישור מרשת אחרת</div>' : '')
+      + '<a class="btn" href="tel:039042333">📞 התקשרו לבית הדפוס — 03-9042333</a>';
   }
+  var FI = function(o){ return (window.ShortLink && ShortLink.failInfo) ? ShortLink.failInfo(o) : String(o); };
   // אימות אנונימי — אותו מנגנון כמו בשאר הדפים (חוקי-הקריאה דורשים auth)
   function token(){
     return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + APIKEY,
@@ -52,18 +61,23 @@
       .catch(function(){ return null; });
   }
   var code = window.ShortLink ? ShortLink.codeFromUrl(location.href) : '';
-  if (!code) { fail('הקישור אינו תקין. בקשו קישור מעודכן מבית הדפוס.'); return; }
+  if (!code) { fail(FI({ badCode: true })); return; }
+  /* ⚠️ הסטטוס נשמר: בלעדיו 401 ו"אין רשומה" נראים זהים לקורא, וזו
+     בדיוק הסיבה שהתקלה דווחה כ"הקישור לא נמצא". */
+  var _status = 0;
   token().then(function(t){
     var u = FBURL + '/' + ShortLink.nodePath(code) + '.json' + (t ? ('?auth=' + t) : '');
-    return fetch(u).then(function(r){ return r.ok ? r.json() : null; });
+    return fetch(u).then(function(r){ _status = r.status; return r.ok ? r.json() : null; });
   }).then(function(rec){
-    if (!rec || !rec.url) { fail('הקישור פג או שאינו קיים. בקשו קישור מעודכן מבית הדפוס.'); return; }
+    if (!rec || !rec.url) { fail(FI({ status: _status })); return; }
     /* יעד בטוח בלבד — הקישור הקצר לא ישמש להפניה לאתר זר */
     var target = ShortLink.safeTarget(rec.url, location.origin);
     if (!target) { fail('הקישור אינו תקין.'); return; }
     location.replace(target);
   }).catch(function(){
-    fail('אין חיבור כרגע. נסו שוב בעוד רגע.');
+    /* ⚠️ זריקה = לא הצלחנו **להגיע** לשרת (סינון-רשת, נתק). זה אינו
+       "הקישור לא נמצא", והצגתו ככזו היא מה שהטעתה את הלקוח. */
+    fail(FI({ threw: true }));
   });
 })();
 </script>
