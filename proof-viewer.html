@@ -13,15 +13,15 @@
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786354418"></script>
-<script src="proof-fetch.js?v=1786354418"></script>
+<script src="portal-context.js?v=1786357320"></script>
+<script src="proof-fetch.js?v=1786357320"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786354418"></script>
-<script src="auth-client.js?v=1786354418"></script>
-<script src="auth-guard.js?v=1786354418" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786357320"></script>
+<script src="auth-client.js?v=1786357320"></script>
+<script src="auth-guard.js?v=1786357320" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -132,11 +132,17 @@
     <button id="vfs">⛶ מסך מלא</button>
     <button id="vzoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button>
     <button id="vgeom" title="משווה את גיאומטריית שני העמודים — כדי לדעת אם סטייה בחיבור נובעת מהתצוגה או מהקובץ">📐 בדיקת התאמה</button>
-    <button id="vmode" title="כפולה = שני עמודים בגודל החלון · קריאה = עמוד אחד ברוחב מלא, גדול פי-3.5 וקריא">📖 מצב: כפולה</button>
+    <button id="vmode" title="משנה רק את הגודל על המסך — לא את הקובץ ולא את מה שיודפס. שתי עמודים = איך העיתון ייראה פתוח · עמוד לרוחב המסך = גדול פי-3.5, לקריאת אותיות קטנות וסריקת QR · בגודל ההדפסה = כמו שיצא מהמכונה">📖 שתי עמודים</button>
   </div>
 
   <div id="geomPanel" style="display:none;max-width:760px;width:96%;margin:0 auto 12px;padding:12px 14px;
        background:#fff;border:1.5px solid var(--line);border-radius:10px;font-size:.84rem;direction:rtl"></div>
+  <!-- ⚠️ נאמר במפורש ולא רק ב-title: לקוח שמאשר עיתון להדפסה חייב לדעת
+       שהבורר אינו נוגע בקובץ. הנחה שהוא "יבין מההקשר" היא בדיוק איך
+       שנוצר החשש ש"בחרתי איכות נמוכה והעיתון יודפס ככה". -->
+  <div style="text-align:center;font-size:.78rem;color:#6b7280;margin:-4px 0 8px">
+    מצב התצוגה משנה רק את הגודל על המסך — הקובץ שיודפס זהה בכל המצבים.
+  </div>
   <div id="pgWarn"></div>
 </div>
 
@@ -815,7 +821,13 @@ async function _ensureHi(list){
    לקרוא, וכפיית חזרה לכפולה בכל עמוד הייתה עבודה חוזרת. */
 /* שלושה מצבים: כפולה (ברירת-מחדל) · קריאה (עמוד ברוחב מלא) · גודל מקורי. */
 const VIEW_MODES = ['spread', 'wide', 'actual'];
-const VIEW_LABEL = { spread: '📖 מצב: כפולה', wide: '📖 מצב: קריאה', actual: '📖 מצב: גודל מקורי' };
+/* ⚠️ **השמות תוקנו אחרי שאלה של הבעלים: "מה זה איכות קריאה? זו
+   האיכות שתודפס?" — והשאלה מוצדקת, כי השם שנתתי היה מטעה.** אף מצב
+   כאן אינו נוגע לקובץ ואינו משנה מה יודפס; כולם משנים רק את **הגודל
+   על המסך**, כמו לקרב את הדף לעיניים. שם שמרמז על "איכות" מזמין
+   לקוח לחשוב שהוא בוחר באיזו איכות העיתון יודפס — וזו טעות מסוכנת
+   בדיוק במסך שבו הוא מאשר להדפסה. */
+const VIEW_LABEL = { spread: '📖 שתי עמודים', wide: '🔍 עמוד לרוחב המסך', actual: '📐 בגודל ההדפסה' };
 let _viewMode = 'spread';
 try { var _vm = localStorage.getItem('solanProofViewMode');
       if (VIEW_MODES.indexOf(_vm) >= 0) _viewMode = _vm; } catch(e){}

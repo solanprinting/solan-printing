@@ -9,8 +9,8 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786354418"></script>
-<script src="portal-context.js?v=1786354418"></script>
+<script src="portal-download.js?v=1786357320"></script>
+<script src="portal-context.js?v=1786357320"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -235,19 +235,50 @@ const $ = id => document.getElementById(id);
    מאשר כפתור שלא עושה כלום. */
 var _dlReg = {};
 
+/* ⚠️ **משיכה עם התקדמות, לא fetch אטום (דיווח-בעלים 10/08/2026).**
+   fetch הוא הכל-או-כלום: על קובץ של 275MB הכפתור נשאר "מוריד" עשרות
+   שניות בלי שום סימן חיים, והלקוח מסיק שזה נתקע ונוטש. XHR מדווח
+   onprogress, ולכן אפשר להראות מספר שגדל — וזו ההוכחה היחידה שמשהו קורה.
+   ⚠️ responseType='blob' ולא ברירת-המחדל: קובץ בינארי שעובר דרך
+   responseText נהרס בשקט ונשמר פגום. */
+function _dlWithProgress(url, onProg){
+  return new Promise(function(resolve, reject){
+    try {
+      var x = new XMLHttpRequest();
+      x.open('GET', url);
+      x.responseType = 'blob';
+      x.onprogress = function(e){
+        try { onProg(e.loaded || 0, (e.lengthComputable && e.total) ? e.total : 0); } catch(_){}
+      };
+      x.onload = function(){
+        (x.status >= 200 && x.status < 300) ? resolve(x.response) : reject(new Error('HTTP ' + x.status));
+      };
+      x.onerror = function(){ reject(new Error('network')); };
+      x.onabort = function(){ reject(new Error('aborted')); };
+      x.send();
+    } catch(e){ reject(e); }
+  });
+}
+
 async function portalDownload(btn, key){
   var it = _dlReg[key];
   if (!it) { toast('\u26a0 הקובץ לא נמצא'); return; }
   var old = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = 'מוריד…'; }
+  if (btn) { btn.disabled = true; btn.textContent = PortalDownload.progressLabel(0, 0); }
   try {
-    var r = await fetch(it.url);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    /* ⚠️ אזהרת-גודל אחרי שידוע הגודל ולא לפני: הקובץ נמשך לזיכרון לפני
-       שהוא נשמר, וטלפון עלול פשוט להיכשל באמצע. */
-    var len = Number(r.headers.get('content-length') || 0);
-    if (PortalDownload.warnBig(len) && btn) btn.textContent = 'מוריד ' + Math.round(len/1048576) + 'MB…';
-    var blob = await r.blob();
+    /* ⚠️ עדכון מקוצב: onprogress יורה עשרות פעמים בשנייה, וכתיבה
+       לכל אירוע עולה יותר ממה שהיא מוסיפה. */
+    var _tick = 0;
+    var blob = await _dlWithProgress(it.url, function(loaded, total){
+      if (!btn) return;
+      var now = Date.now();
+      if (now - _tick < 120) return;
+      _tick = now;
+      btn.textContent = PortalDownload.progressLabel(loaded, total);
+    });
+    /* ⚠️ שלב-השמירה מסומן בנפרד: על קובץ גדול יש עוד המתנה מורגשת
+       אחרי שהמשיכה הסתיימה, ובלי המילה הזו היא נראית כמו תקיעה. */
+    if (btn) btn.textContent = '\u2b07 שומר\u2026';
     var u = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = u; a.download = it.name;
