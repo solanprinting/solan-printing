@@ -13,15 +13,15 @@
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786350138"></script>
-<script src="proof-fetch.js?v=1786350138"></script>
+<script src="portal-context.js?v=1786351134"></script>
+<script src="proof-fetch.js?v=1786351134"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786350138"></script>
-<script src="auth-client.js?v=1786350138"></script>
-<script src="auth-guard.js?v=1786350138" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786351134"></script>
+<script src="auth-client.js?v=1786351134"></script>
+<script src="auth-guard.js?v=1786351134" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -217,7 +217,23 @@ _fbAuthToken().catch(function(){});
    2) העמודים שמוצגים *כרגע* מרונדרים שוב באיכות-שיא (עד 3000 פיקסל גובה),
       עם מטמון-זיכרון קטן (LRU) — כך שהזום מגיע לרזולוציה אמיתית בלי לקרוס. */
 const BASE_H = 1500, BASE_Q = 0.88;
-const HI_H   = 3000, HI_Q   = 0.95, HI_MAX = 6;
+/* ⚠️ **הרינדור מכוון לפיקסלים שבאמת מוצגים, לא למספר קבוע
+   (10/08/2026, דיווח-בעלים: "הטקסט לא ברור עד שעושים זום").**
+
+   ‏HI_H היה קבוע 3000. עמוד מוצג בגובה ~864 פיקסלים, כלומר הדפדפן הקטין
+   ‏3.5:1 — והקטנה גדולה מרככת דווקא את מה שצריך להיות חד: קווים דקים,
+   טקסט קטן ומודולים של QR. ומצד שני, בזום 6× נדרשים ~5,200 פיקסלים
+   ו-3000 נמתחו כלפי מעלה. אותו מספר קבוע היה גם גדול מדי וגם קטן מדי.
+
+   ⚠️ עכשיו היעד נגזר מהמדידה בפועל: גובה-התצוגה × צפיפות-המסך × הזום,
+   בתוספת מרווח קטן כדי שזום קל לא ידרוש רינדור חדש מיד.
+
+   ⚠️ והקידוד כמעט-חסר-אבדן: JPEG ב-0.95 מייצר טבעות סביב מעברים חדים
+   של שחור-לבן — בדיוק הצורה של טקסט קטן ושל QR. הטבעות האלה הן שהופכות
+   קוד לבלתי-קריא למצלמה גם כשיש מספיק פיקסלים. */
+const HI_MAX_H = 4200, HI_Q = 0.97, HI_MAX = 6;
+const HI_HEADROOM = 1.25;      // מרווח לזום קל בלי רינדור חוזר
+const HI_REDO_RATIO = 1.35;    // מרנדרים מחדש רק כשהצורך גדל מהותית
 const RENDER_SCALE_CAP = 5;
 let _fromCache = false;      // האם מה שמוצג כרגע הוא מטמון (תצוגה מהירה) ולא רינדור-אמת
 let _cacheImgs = null;       // מה שהמטמון הכיל — להשוואה מול הקובץ בסיום הרינדור
@@ -700,23 +716,59 @@ async function renderPage(pdf, pageNo, targetH, q){
   cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);
   await page.render({ canvasContext: cx, viewport: vp }).promise;
   page.cleanup();
-  return c.toDataURL('image/jpeg', q || BASE_Q);
+  /* ⚠️ מעבר-הבסיס נשאר JPEG (מהיר וקטן — הוא מציין-מקום); העמוד המוצג
+     עובר בקידוד שומר-קצוות. */
+  return (q && q >= 0.96) ? _encode(c, q) : c.toDataURL('image/jpeg', q || BASE_Q);
 }
 
 /* ── שלב 2: איכות-שיא לעמודים שמוצגים כרגע ──────────────────────────────
    מטמון LRU קטן בזיכרון בלבד; לא נשמר ולא מועלה לשום מקום. */
 let _pdfDoc = null, _baseDone = false;
 const _hi = new Map(), _hiBusy = new Set();
-function srcFor(i){ return _hi.get(i) || imgs[i]; }
+
+/* גובה-הרינדור הדרוש **עכשיו**: מה שבאמת מוצג × צפיפות-המסך × הזום.
+   ⚠️ נמדד מה-DOM ולא מחושב מ-vh: הגובה בפועל מוגבל גם ב-max-width
+   (‏48vw לעמוד), ובמסך רחב הרוחב הוא שקובע. הנחה במקום מדידה הייתה
+   מרנדרת בגובה שאינו הגובה שעל המסך. */
+function _hiTargetH(){
+  let cssH = 0;
+  try {
+    const el = document.querySelector('#spread .zoomWrap img, #spread .zoomWrap .mediacrop');
+    if (el) cssH = el.getBoundingClientRect().height;
+  } catch(e){}
+  if (!(cssH > 0)) cssH = Math.round((window.innerHeight || 900) * 0.8);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const z = Math.max(1, (typeof window._pvZoomScale === 'function' ? window._pvZoomScale() : 1) || 1);
+  return Math.min(HI_MAX_H, Math.ceil(cssH * dpr * z * HI_HEADROOM));
+}
+
+/* ⚠️ ‏WebP שומר מעברים חדים הרבה טוב מ-JPEG באותו גודל-קובץ, וזה בדיוק
+   מה שקובע אם QR נקרא. נפילה-לאחור ל-JPEG כשהדפדפן אינו מקודד WebP —
+   ובדיקה על **התוצאה** ולא על הדפדפן, כי toDataURL מחזיר PNG בשקט
+   כשהפורמט אינו נתמך. */
+function _encode(canvas, q){
+  try {
+    const w = canvas.toDataURL('image/webp', q);
+    if (w && w.indexOf('data:image/webp') === 0) return w;
+  } catch(e){}
+  return canvas.toDataURL('image/jpeg', q);
+}
+
+function srcFor(i){ const e = _hi.get(i); return (e && e.src) || imgs[i]; }
+
 async function _ensureHi(list){
   if (!_pdfDoc || !_baseDone || _fromCache) return;   // לא מתחרים במעבר-הבסיס
+  const want = _hiTargetH();
   for (const i of list){
-    if (_hi.has(i)) { const v = _hi.get(i); _hi.delete(i); _hi.set(i, v); continue; }   // רענון LRU
+    const cur = _hi.get(i);
+    /* ⚠️ רינדור-מחדש רק כשהצורך גדל **מהותית**: בלי הסף הזה כל תזוזת-זום
+       קטנה הייתה מפעילה רינדור מלא, והמסך היה מהבהב במקום להתחדד. */
+    if (cur && cur.h >= want / HI_REDO_RATIO) { _hi.delete(i); _hi.set(i, cur); continue; }
     if (_hiBusy.has(i)) continue;
     _hiBusy.add(i);
     try {
-      const src = await renderPage(_pdfDoc, i + 1, HI_H, HI_Q);
-      _hi.set(i, src);
+      const src = await renderPage(_pdfDoc, i + 1, want, HI_Q);
+      _hi.set(i, { src: src, h: want });
       while (_hi.size > HI_MAX) _hi.delete(_hi.keys().next().value);
       if (showingPages().indexOf(i) >= 0) renderViewer();     // מוצג עדיין → מחליפים בתמונה החדה
     } catch(e){ /* נשאר באיכות-הבסיס */ }
@@ -909,6 +961,17 @@ $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) 
     btn.style.background = on ? '#c9a84c' : ''; btn.style.color = on ? '#1a1a2e' : '';
   }
   function reset(){ sc=1; tx=0; ty=0; apply(); }
+  /* ⚠️ הסקאלה נחשפת כדי שהרינדור יכוון אליה. בלעדיה זום 6× מתח תמונה
+     של 3000 פיקסלים — כלומר דווקא ההגדלה, שנועדה לבדוק את הפרטים
+     הקטנים, הציגה אותם מרוככים. */
+  window._pvZoomScale = function(){ return sc; };
+  /* רינדור-מחדש אחרי שהזום נח, לא בכל גלגול */
+  var _zt = null;
+  function _zoomSettled(){
+    clearTimeout(_zt);
+    _zt = setTimeout(function(){ try { _ensureHi(showingPages()); } catch(e){} }, 220);
+  }
+  window._pvZoomSettled = _zoomSettled;
   window._pvZoomReset = reset;                       // מעבר-עמוד מאפס
   window._pvZoomApply = apply;                       // רינדור-מחדש (איכות-שיא) לא מאבד את הזום
   btn.onclick=function(){ on=!on; if(!on) reset(); else apply(); };
@@ -916,7 +979,7 @@ $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) 
     if(!on) return; e.preventDefault();
     var prev=sc; sc=Math.min(6, Math.max(1, sc*(e.deltaY<0?1.15:1/1.15)));
     if(sc===1){ tx=0; ty=0; } else { var k=sc/prev; tx*=k; ty*=k; }
-    apply();
+    apply(); _zoomSettled();
   }, {passive:false});
   sp.addEventListener('mousedown', function(e){ if(!on||sc<=1) return; e.preventDefault(); drag={x:e.clientX-tx,y:e.clientY-ty}; });
   window.addEventListener('mousemove', function(e){ if(!drag) return; tx=e.clientX-drag.x; ty=e.clientY-drag.y; apply(); });
