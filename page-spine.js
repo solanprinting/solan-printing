@@ -178,7 +178,62 @@
     return null;
   }
 
-  return { spineFor: spineFor, spineForIndex: spineForIndex, bleedSide: bleedSide,
+  /* ── השוואת גיאומטריה בין שני עמודי-כפולה ────────────────────────────
+     ⚠️ **למה זו מדידה ולא תיקון (10/08/2026, דיווח-בעלים).** בעמודים
+     שיש בהם חיבור-גרפיקה מעבר לשדרה, האמנות לא התחברה בדיוק — סטייה של
+     כמה מ"מ, נראית בפס אדום שחוצה את הכפולה. לסטייה כזו שני מקורות
+     הפוכים לחלוטין:
+
+       א. לשני העמודים גיאומטריה שונה (MediaBox/TrimBox/בליד) — אז
+          הצופה מציג אותם בקנה-מידה שונה, וזו תקלה **בתצוגה**.
+       ב. הגיאומטריה זהה — אז הצופה נאמן, והסטייה נמצאת **בקובץ**.
+
+     ⚠️ ותיקון-יישור עיוור במקרה ב׳ הוא הנזק הגרוע מהשניים: הוא היה
+     מיישר את התצוגה ומסתיר פגם שיודפס שגוי. לכן קודם מודדים.
+
+     היחידות מ"מ, והסף 0.2 מ"מ — מתחת לזה זה רעש-עיגול של PDF ולא
+     הפרש אמיתי. */
+  var GEOM_TOL_MM = 0.2;
+
+  function _mediaMM(tf) {
+    if (!tf || !(tf.h > 0) || !(tf.w > 0)) return null;
+    return { w: tf.wmm / tf.w, h: tf.hmm / tf.h };
+  }
+
+  function compareGeometry(a, b) {
+    var out = { ok: false, same: null, fields: [], verdict: '' };
+    var ma = _mediaMM(a), mb = _mediaMM(b);
+    if (!a || !b || !ma || !mb) {
+      out.verdict = 'אין נתוני-גיאומטריה לאחד העמודים — אי אפשר להכריע.';
+      return out;
+    }
+    out.ok = true;
+    var cmp = [
+      { key: 'גובה גיליון (מדיה)', a: ma.h, b: mb.h },
+      { key: 'גובה קו-חיתוך',      a: a.hmm, b: b.hmm },
+      /* ⚠️ הבליד העליון הוא החשוד המרכזי: הוא זה שמזיז את כל האמנות
+         כלפי מטה כשהעמודים מיושרים לפי גבול-המדיה ולא לפי החיתוך. */
+      { key: 'בליד עליון',          a: a.t * ma.h,  b: b.t * mb.h },
+      { key: 'בליד תחתון',          a: (1 - a.t - a.h) * ma.h, b: (1 - b.t - b.h) * mb.h },
+      { key: 'רוחב גיליון (מדיה)', a: ma.w, b: mb.w },
+      { key: 'רוחב קו-חיתוך',      a: a.wmm, b: b.wmm }
+    ];
+    var worst = 0;
+    cmp.forEach(function (c) {
+      var d = Math.abs(c.a - c.b);
+      if (d > worst) worst = d;
+      out.fields.push({ key: c.key, a: c.a, b: c.b, diff: d, differs: d > GEOM_TOL_MM });
+    });
+    out.same = worst <= GEOM_TOL_MM;
+    out.worstMM = worst;
+    out.verdict = out.same
+      ? 'הגיאומטריה של שני העמודים זהה. הצופה מציג אותם באותו קנה-מידה, ולכן הסטייה נמצאת **בקובץ עצמו** — לא בתצוגה.'
+      : ('הגיאומטריה שונה בין העמודים (עד ' + worst.toFixed(2) + ' מ"מ). ההפרש הזה הוא שמזיז את האמנות בתצוגה.');
+    return out;
+  }
+
+  return { compareGeometry: compareGeometry, GEOM_TOL_MM: GEOM_TOL_MM,
+           spineFor: spineFor, spineForIndex: spineForIndex, bleedSide: bleedSide,
            isMirrorPair: isMirrorPair, netSpec: netSpec, normDir: normDir,
            isOversize: isOversize, logicalTrimFrac: logicalTrimFrac, resolveBleed: resolveBleed,
            BLEED_TOL_MM: BLEED_TOL_MM, splitProvenance: splitProvenance, metaForProv: metaForProv,

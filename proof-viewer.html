@@ -13,15 +13,15 @@
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786348294"></script>
-<script src="proof-fetch.js?v=1786348294"></script>
+<script src="portal-context.js?v=1786350138"></script>
+<script src="proof-fetch.js?v=1786350138"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786348294"></script>
-<script src="auth-client.js?v=1786348294"></script>
-<script src="auth-guard.js?v=1786348294" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786350138"></script>
+<script src="auth-client.js?v=1786350138"></script>
+<script src="auth-guard.js?v=1786350138" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -110,7 +110,10 @@
     <button id="vnext">הבא ›</button>
     <button id="vfs">⛶ מסך מלא</button>
     <button id="vzoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button>
+    <button id="vgeom" title="משווה את גיאומטריית שני העמודים — כדי לדעת אם סטייה בחיבור נובעת מהתצוגה או מהקובץ">📐 בדיקת התאמה</button>
   </div>
+  <div id="geomPanel" style="display:none;max-width:760px;width:96%;margin:0 auto 12px;padding:12px 14px;
+       background:#fff;border:1.5px solid var(--line);border-radius:10px;font-size:.84rem;direction:rtl"></div>
   <div id="pgWarn"></div>
 </div>
 
@@ -751,6 +754,7 @@ function renderViewer(){
   $('vprev').textContent = (_readDir === 'ltr') ? '‹ הקודם' : 'הקודם ›';
   $('vnext').textContent = (_readDir === 'ltr') ? 'הבא ›' : '‹ הבא';
   const two = s.length === 2;
+  _geomShown = s.slice(); _geomMetas = metas;   /* הקשר לבדיקת-ההתאמה */
   // עוטף את הכפולה ביחידה אחת (.zoomWrap) — הזום מוחל עליה, לא על כל עמוד בנפרד
   spread.innerHTML = '<div class="zoomWrap">' + s.map((i, pos) => {
     const tf = metas[i];
@@ -808,6 +812,66 @@ function _cropMarksHtml(f){
   }
   return out;
 }
+/* ── בדיקת-התאמה בין שני עמודי הכפולה ──────────────────────────────────
+   ⚠️ **זו מדידה, לא תיקון — וזה מכוון (10/08/2026, דיווח-בעלים).**
+   בעמודים שיש בהם חיבור-גרפיקה מעבר לשדרה נראתה סטייה של כמה מ"מ.
+   לסטייה כזו שני מקורות הפוכים: או שלעמודים גיאומטריה שונה והתצוגה
+   מעוותת, או שהגיאומטריה זהה והסטייה נמצאת בקובץ עצמו.
+
+   ⚠️ תיקון-יישור עיוור הוא הנזק הגרוע מהשניים: הוא מיישר את המסך
+   ומסתיר פגם שיודפס שגוי. לכן קודם מכריעים, ורק אז מתקנים — ואת
+   ההכרעה רואים על המסך, לא בקונסולה. */
+var _geomShown = [];      // אינדקסי העמודים בכפולה הנוכחית
+var _geomMetas = null;    // ה-meta שלהם
+
+function _mmTxt(v){ return (isFinite(v) ? v.toFixed(2) : '?') + ' מ"מ'; }
+
+function toggleGeomCheck(){
+  var el = $('geomPanel');
+  if (!el) return;
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  var html = '';
+  if (!_geomShown || _geomShown.length !== 2) {
+    html = '<div style="color:#92400e">\u26a0 בדיקת ההתאמה עובדת על כפולה (שני עמודים זה לצד זה). עברו לכפולה ונסו שוב.</div>';
+  } else {
+    var a = _geomMetas ? _geomMetas[_geomShown[0]] : null;
+    var b = _geomMetas ? _geomMetas[_geomShown[1]] : null;
+    var r = PageSpine.compareGeometry(a, b);
+    if (!r.ok) {
+      html = '<div style="color:#92400e">\u26a0 ' + r.verdict + '</div>';
+    } else {
+      var col = r.same ? '#b91c1c' : '#0f766e';
+      html = '<div style="font-weight:800;margin-bottom:8px;color:' + col + '">'
+           + (r.same ? '\u26d4 ' : '\u2713 ') + r.verdict.replace(/\*\*/g, '') + '</div>'
+           + '<table style="width:100%;border-collapse:collapse;font-size:.82rem">'
+           + '<thead><tr style="background:#f6f6f9;color:#555"><th style="padding:5px;text-align:right">מידה</th>'
+           + '<th style="padding:5px;text-align:right">עמוד ' + (_geomShown[0]+1) + '</th>'
+           + '<th style="padding:5px;text-align:right">עמוד ' + (_geomShown[1]+1) + '</th>'
+           + '<th style="padding:5px;text-align:right">הפרש</th></tr></thead><tbody>';
+      r.fields.forEach(function(f){
+        html += '<tr style="border-bottom:1px solid var(--line);'
+             + (f.differs ? 'background:#fef3c7;font-weight:700' : '') + '">'
+             + '<td style="padding:5px">' + f.key + '</td>'
+             + '<td style="padding:5px">' + _mmTxt(f.a) + '</td>'
+             + '<td style="padding:5px">' + _mmTxt(f.b) + '</td>'
+             + '<td style="padding:5px">' + _mmTxt(f.diff) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      /* ⚠️ המסקנה המעשית נאמרת במפורש. טבלת-מספרים בלי "אז מה עכשיו"
+         משאירה את המשתמש עם אותה שאלה שאיתה הוא בא. */
+      html += r.same
+        ? '<div style="margin-top:9px;padding:8px 10px;background:#fee2e2;border-radius:7px;color:#991b1b">'
+          + 'שני העמודים נמדדים זהה, ולכן התצוגה אינה מקור הסטייה. '
+          + 'האמנות עצמה ממוקמת אחרת בשני העמודים — יש לתקן בקובץ אצל מי שהכין אותו, '
+          + 'אחרת החיבור יצא כך גם בדפוס.</div>'
+        : '<div style="margin-top:9px;padding:8px 10px;background:#ecfdf5;border-radius:7px;color:#065f46">'
+          + 'ההפרש המסומן הוא שמזיז את האמנות בתצוגה. שלחו לי את הצילום הזה ואיישר את הצופה לפי קו-החיתוך.</div>';
+    }
+  }
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+
 function step(d){
   if (vIndex === 0) vIndex = d > 0 ? 1 : 0;
   else vIndex = Math.max(0, Math.min(vIndex + d*2, imgs.length - 1));
@@ -816,6 +880,7 @@ function step(d){
 }
 $('vprev').onclick = () => step(-1);
 $('vnext').onclick = () => step(+1);
+$('vgeom').onclick = toggleGeomCheck;
 $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) document.exitFullscreen(); else (v.requestFullscreen||v.webkitRequestFullscreen).call(v); };
 /* הכפתורים "📄 הקובץ המקורי" ו-"⚙️ מנוע תצוגה ישן" הוסרו מהסרגל לבקשת הבעלים
    (2026-07-30) — המנוע העדכני מצייר נכון, ולכן הם היו רעש. הפונקציות נשארות:
