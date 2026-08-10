@@ -9,8 +9,9 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786368804"></script>
-<script src="portal-context.js?v=1786368804"></script>
+<script src="portal-download.js?v=1786371300"></script>
+<script src="page-add.js?v=1786371300"></script>
+<script src="portal-context.js?v=1786371300"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -400,7 +401,11 @@ async function loadNotices(){
   var hasApprove = open.some(function(n){ return n.type==='approve'; });
   $('notices-acts').innerHTML =
     (hasApprove ? '<button class="btn btn-approve" style="padding:9px 14px" onclick="_portalApproveFromNotice()">✓ אשר את הפרופר לדפוס</button>' : '')
-    + '<button class="btn btn-primary" style="padding:9px 14px" onclick="_newNewspaper()">📎 צרף קבצים / שלח עמוד חדש</button>';
+    /* ⚠️ **הכפתור נגזר מהדרישה ואינו קבוע (10/08/2026).** קודם הוא תמיד
+       פתח את מסלול העיתון-החדש — עם שם-עיתון ומספר-גיליון — גם כשבית
+       הדפוס ביקש רק להחליף עמוד בעיתון קיים. הלקוח נשאל שאלות שכבר ענה
+       עליהן, ובמקרה הרע יצר עיתון שני במקום לתקן את הקיים. */
+    + (function(){ _lastNotices = open; return _noticeActionHtml(open); })();
   $('notices').classList.remove('hidden');
 }
 // מאשר פרופר-אפוגי ממתין ישירות מהדרישה (אם יש בדיוק אחד); אחרת מפנה להיסטוריה
@@ -446,6 +451,11 @@ async function loadHistory(){
     return;
   }
   const list = _portalFilterProofs(all, SLUG);
+  /* ⚠️ נשמר כדי שהדרישות יוכלו לגזור את הגיליון הפתוח. הדרישות
+     נטענות במקביל לעבודות, ולכן הן מרונדרות שוב אחרי שהרשימה
+     קיימת — אחרת הכפתור היה נקבע לפני שידענו מה פתוח. */
+  window._portalProofs = list;
+  try { if (typeof _refreshNoticeAction === 'function') _refreshNoticeAction(); } catch(e){}
   _renderHelloStats(list);
   if (!list.length){ $('history').innerHTML = '<div class="empty">אין עדיין עיתונים 🗞️</div>'; return; }
   $('history').innerHTML = list.map(function(p){
@@ -609,6 +619,42 @@ async function approveApogee(id){
 
 // ── העלאת קבצים חדשים לדפוס — מקובצים תחת עיתון/גיליון אחד ──
 // עיתון חדש עם הדפדוף ועריכת-העמודים (מערכת proof-client הקיימת) — יוצר רשומה ופותח את העורך
+/* ⚠️ הפעולה נבחרת במודול הבדוק ולא כאן: החלטה שמפוזרת בין הדף למודול
+   מתפצלת ברגע שאחד מהם משתנה. */
+function _noticeActionHtml(open){
+  var rep = (open || []).filter(function(n){ return PageAdd.kindOf(n) === 'replace'; });
+  /* היעד הראשון מבין דרישות-ההחלפה הפתוחות; אין → מסלול רגיל. */
+  /* ⚠️ הגיליון הפתוח מועבר כנפילה-לאחור: דרישה שנוצרה לפני שהיעד
+     נשמר עדיין תגיע לגיליון הנכון, במקום לפתוח עיתון חדש. */
+  var act = PageAdd.actionFor(rep[0] || {}, PageAdd.activeProof(_portalProofs || []));
+  if (act.action === 'addPages') {
+    _pendingAdd = act.target;
+    return '<button class="btn btn-primary" style="padding:9px 14px" onclick="_openAddPages()" title="'
+         + esc(act.title) + '">' + esc(act.label) + '</button>';
+  }
+  return '<button class="btn btn-primary" style="padding:9px 14px" onclick="_newNewspaper()"'
+       + (act.title ? (' title="' + esc(act.title) + '"') : '') + '>' + esc(act.label) + '</button>';
+}
+
+var _pendingAdd = null;
+var _lastNotices = null;
+/* מרנדר מחדש את כפתור-הדרישה אחרי שרשימת-העבודות הגיעה. */
+function _refreshNoticeAction(){
+  if (!_lastNotices || !_lastNotices.length) return;
+  var el = document.getElementById('notices-acts');
+  if (!el) return;
+  var keep = el.innerHTML.indexOf('_portalApproveFromNotice') >= 0
+    ? '<button class="btn btn-approve" style="padding:9px 14px" onclick="_portalApproveFromNotice()">✓ אשר את הפרופר לדפוס</button>' : '';
+  el.innerHTML = keep + _noticeActionHtml(_lastNotices);
+}
+function _openAddPages(){
+  var u = PageAdd.editorUrl(_pendingAdd, location.href);
+  /* ⚠️ בלי כתובת אין ניווט: שליחה לעורך בלי מזהה פותחת מסך שגיאה,
+     ועדיף ליפול למסלול הידני מאשר להציג ללקוח כשל. */
+  if (!u) { _newNewspaper(); return; }
+  location.href = u;
+}
+
 async function _newNewspaper(){
   var meta = await _askNewspaper(0);   // 0 = לפני העלאה; בוחרים שם עיתון + גיליון
   if (!meta) return;

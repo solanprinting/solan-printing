@@ -36,12 +36,12 @@ window.addEventListener('appinstalled', function(){
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786368804"></script>
-<script src="auth-client.js?v=1786368804"></script>
+<script src="firebase-auth.bundle.js?v=1786371300"></script>
+<script src="auth-client.js?v=1786371300"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786368804" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786371300" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1743,6 +1743,13 @@ function sendNotice(customer){
     + '<div style="background:#fff;border-radius:14px;max-width:450px;width:100%;padding:20px 22px;box-shadow:0 14px 44px rgba(0,0,0,.35)">'
     + '<div style="font-weight:900;font-size:1.05rem;color:#2d3561;margin-bottom:8px">📢 דרישה ללקוח — ' + escapeHtml(customer) + '</div>'
     + '<div id="notice-open" style="margin-bottom:10px"></div>'
+    /* ⚠️ **בורר-היעד (10/08/2026).** הדרישה נשמרה עד היום כטקסט בלבד,
+       ולכן כשהלקוח לחץ עליה המערכת לא ידעה לאיזה עיתון היא מתייחסת —
+       ונפלה למסלול "עיתון חדש" עם שאלות שם וגיליון. בלי היעד אי אפשר
+       היה לא לשאול. */
+    + '<div style="font-size:.78rem;color:#666;margin-bottom:4px">לאיזה עיתון הדרישה מתייחסת?</div>'
+    + '<select id="notice-target" style="width:100%;padding:8px;border:1.5px solid #cbd5e1;border-radius:8px;'
+    +   'font-family:inherit;font-size:.85rem;margin-bottom:10px">' + _noticeTargets(customer) + '</select>'
     + '<div style="font-size:.78rem;color:#666;margin-bottom:6px">בחר תבנית מהירה או כתוב חופשי:</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
     +   '<button type="button" data-tpl="יש פרופר לאישור לדפוס" style="'+bs+'">📖 פרופר לאישור</button>'
@@ -1775,12 +1782,40 @@ function sendNotice(customer){
     document.getElementById('notice-modal').remove();
     const id = 'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
     const type = /פרופר|אשר|אישור/.test(t) ? 'approve' : (/החלפ|החליף|עמוד/.test(t) ? 'replace' : 'note');
-    await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:t, type:type, at:Date.now(), done:false }) });
+    /* ⚠️ היעד נשמר בדרישה עצמה. בלעדיו הלקוח נשלח ליצור עיתון **שני**
+       במקום לתקן את הקיים — וזו התקלה שדווחה. */
+    const tv = (document.getElementById('notice-target') || {}).value || '';
+    const tp = tv.split('|');
+    const body = { text:t, type:type, at:Date.now(), done:false };
+    if (tp[0]) { body.proofId = tp[0]; if (tp[1]) body.partId = tp[1]; }
+    await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     msg('✓ הדרישה נשלחה ללקוח');
   };
   _noticeLoadOpen(slug);   // מציג דרישות פתוחות + כפתור "בוצע"
 }
 // טוען דרישות פתוחות של הלקוח ומאפשר לסמן שבוצעו
+/* רשימת העיתונים והריצות של הלקוח, לבחירת יעד-הדרישה.
+   ⚠️ "בלי שיוך" נשאר כאפשרות ראשונה ולא מוסר: יש דרישות כלליות
+   ("חסר קובץ") שאינן שייכות לעיתון מסוים, וכפייה לבחור הייתה גורמת
+   לבחירה שרירותית — כלומר יעד שגוי, שגרוע מיעד חסר. */
+function _noticeTargets(customer){
+  var rows = (_allRows || []).filter(function(p){
+    return _slug(p.customer || '') === _slug(customer || '') && !p._deleted;
+  }).sort(function(a,b){ return (b.createdAt||0) - (a.createdAt||0); }).slice(0, 25);
+  var out = ['<option value="">— בלי שיוך לעיתון מסוים —</option>'];
+  rows.forEach(function(p){
+    var nm = escapeHtml((p.title || 'עיתון') + (p.issue ? (' · גיליון ' + p.issue) : ''));
+    out.push('<option value="' + escapeHtml(p.id) + '">' + nm + '</option>');
+    var parts = p.parts && typeof p.parts === 'object' ? p.parts : null;
+    if (parts) Object.keys(parts).forEach(function(pid){
+      var r = parts[pid] || {};
+      out.push('<option value="' + escapeHtml(p.id) + '|' + escapeHtml(pid) + '">'
+             + '&nbsp;&nbsp;↳ ' + nm + ' · ' + escapeHtml(r.name || pid) + '</option>');
+    });
+  });
+  return out.join('');
+}
+
 async function _noticeLoadOpen(slug){
   const box = document.getElementById('notice-open'); if (!box) return;
   let obj = null; try { obj = await (await fetch(await _au(`${_FBURL}/customerNotices/${slug}.json`))).json(); } catch(e){}
