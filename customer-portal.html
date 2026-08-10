@@ -9,7 +9,8 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-context.js?v=1786351780"></script>
+<script src="portal-download.js?v=1786352554"></script>
+<script src="portal-context.js?v=1786352554"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -225,6 +226,41 @@ async function _auProofs(){
 _fbAuthToken();
 
 const $ = id => document.getElementById(id);
+/* ── הורדה למחשב של הלקוח ───────────────────────────────────────────────
+   ⚠️ **דרך blob ולא קישור ישיר.** תגית ‎<a download>‎ אינה קובעת שם-קובץ
+   בכתובת חוצת-מקור — הדפדפן מתעלם מהשם, ולעיתים פותח את הקובץ בלשונית
+   במקום להוריד. הקובץ נמשך, נשמר כ-blob מקומי, ורק אז מורד — וכך השם
+   באמת נשמר.
+   ⚠️ ונפילה-לאחור לפתיחה ישירה: עדיף קובץ שנפתח בלשונית עם שם מכוער
+   מאשר כפתור שלא עושה כלום. */
+var _dlReg = {};
+
+async function portalDownload(btn, key){
+  var it = _dlReg[key];
+  if (!it) { toast('\u26a0 הקובץ לא נמצא'); return; }
+  var old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'מוריד…'; }
+  try {
+    var r = await fetch(it.url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    /* ⚠️ אזהרת-גודל אחרי שידוע הגודל ולא לפני: הקובץ נמשך לזיכרון לפני
+       שהוא נשמר, וטלפון עלול פשוט להיכשל באמצע. */
+    var len = Number(r.headers.get('content-length') || 0);
+    if (PortalDownload.warnBig(len) && btn) btn.textContent = 'מוריד ' + Math.round(len/1048576) + 'MB…';
+    var blob = await r.blob();
+    var u = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = u; a.download = it.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(u); }, 4000);
+    toast('\u2713 ' + it.name);
+  } catch(e){
+    try { window.open(it.url, '_blank', 'noopener'); toast('נפתח בלשונית חדשה'); }
+    catch(x){ toast('\u26a0 ההורדה נכשלה — נסו שוב'); }
+  }
+  if (btn) { btn.textContent = old; btn.disabled = false; }
+}
+
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function showOv(t,on,pct){ $('ovText').textContent=t; $('ov').style.display=on?'flex':'none'; if(pct==null){ $('ovBar').style.display='none'; } else { $('ovBar').style.display='block'; $('ovBar').firstElementChild.style.width=Math.round(pct)+'%'; } }
 function toast(m){ var t=document.createElement('div'); t.className='toast'; t.textContent=m; document.body.appendChild(t); setTimeout(function(){ t.remove(); }, 3200); }
@@ -409,6 +445,21 @@ async function loadHistory(){
       // עיתון proof-client — דפדוף + עריכת עמודים (המערכת המוכרת ללקוח)
       var _hasContent = p.fileUrl || p.parts || p.status === 'approved';
       if (_hasContent) acts += '<a class="btn btn-v" target="_blank" rel="noopener" href="proof-viewer.html?id='+encodeURIComponent(p._id)+'">👁 דפדף בעיתון</a>';
+      /* ⚠️ **ההורדה חסרה כאן עד היום (בקשת-בעלים 10/08/2026).** בפורטל
+         הייתה הורדה לפרופר-אפוגי ולקבצים מהזרימה הישנה, אבל דווקא
+         המסלול הנפוץ — עיתון של proof-client עם ריצות — אפשר היה
+         לדפדף בו ולא להוריד אותו.
+         ⚠️ כפתור נפרד לכל ריצה, כי ריצה היא קובץ בפני עצמו; ריצה בלי
+         קובץ אינה מוצגת כלל — כפתור שמוביל לכלום גרוע מהיעדרו. */
+      try {
+        (PortalDownload.items(p) || []).forEach(function(it, di){
+          if (it.kind === 'apogee' || it.kind === 'file') return;   /* מטופלים בענפים אחרים */
+          _dlReg[p._id + '|' + di] = it;
+          acts += '<button class="btn btn-dl" onclick="portalDownload(this,\''
+               + esc(p._id) + '|' + di + '\')" title="' + esc(it.name) + '">\u2b07 '
+               + esc(it.kind === 'full' ? 'הורד את העיתון' : ('הורד ' + it.label)) + '</button>';
+        });
+      } catch(e){}
       if (!(p.apogeeApprovedAt || p.status === 'approved') && !isDone) acts += '<a class="btn btn-primary" href="proof-client.html?id='+encodeURIComponent(p._id)+'&back='+encodeURIComponent(location.href)+'">✏️ ערוך / העלה</a>';
     }
     var cnt = p.fileCount || (p.files ? Object.keys(p.files).length : 0);
