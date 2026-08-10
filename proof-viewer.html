@@ -13,15 +13,15 @@
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786363760"></script>
-<script src="proof-fetch.js?v=1786363760"></script>
+<script src="portal-context.js?v=1786364428"></script>
+<script src="proof-fetch.js?v=1786364428"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786363760"></script>
-<script src="auth-client.js?v=1786363760"></script>
-<script src="auth-guard.js?v=1786363760" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786364428"></script>
+<script src="auth-client.js?v=1786364428"></script>
+<script src="auth-guard.js?v=1786364428" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -979,6 +979,25 @@ function renderViewer(){
    ⚠️ **הקנבס מתווסף מעל הראסטר ולא מחליף אותו.** כשל בציור, מסמך שלא
    נטען, או מכשיר חלש — משאירים על המסך את התמונה התקינה. מסך ריק
    במקום עמוד גרוע מעמוד מרוכך. */
+/* ⚠️ **כבוי (10/08/2026) — הניסיון נכשל, והכשל היה בתכנון שלי.**
+
+   הרעיון היה נכון בתיאוריה: ‏pdf.js מצייר וקטור ולכן חד בכל זום.
+   מה שפספסתי הוא **באיזו רזולוציה** הוא צויר. הקנבס רונדר בדיוק
+   בגודל התצוגה — ‏537×735 — בעוד שהתמונה שמתחתיו היא 4096 פיקסלים,
+   כלומר פי-5.6 יותר פרטים. הקנבס "החד" כיסה תמונה חדה בהרבה.
+
+   ⚠️ זה בדיוק מה שדווח שלוש פעמים: "חד בשנייה הראשונה ואז מטושטש".
+   הראסטר הוא שהיה חד; הווקטור שלי כיסה אותו והוריד את האיכות.
+   שלושת התיקונים שניסיתי (תזמון, בנייה-מחדש, מגן-הורדה) נגעו כולם
+   במנגנון — ואף אחד מהם לא בשאלה אם הקנבס בכלל טוב יותר.
+
+   ⚠️ ווקטור **כן** מנצח בזום גבוה, אבל אז צריך לרנדר אותו בגודל
+   הזום ולא בגודל התצוגה — וזה בדיוק מה שהראסטר כבר עושה עם 4096.
+   כלומר בטווח שבו משתמשים בפועל אין לו יתרון.
+
+   הקוד נשאר עם מתג יחיד, כדי שאפשר יהיה לחזור אליו אם אי-פעם
+   נרנדר לפי הזום. **אין לפתוח אותו בלי לתקן קודם את הרזולוציה.** */
+const VECTOR_ENABLED = false;
 let _vecBusy = new Set(), _vecAt = new Map();   // i → רוחב-הקנבס שצויר
 const VEC_REDO = 1.25;                          // ציור-מחדש רק כשהצורך גדל מהותית
 
@@ -1038,6 +1057,7 @@ async function _vectorize(list){
      והחליט להרחיב — ולכן ההגנות נשארות **בדיוק** אותן הגנות: הקנבס
      מעל הראסטר, כשל משאיר את התמונה, ואימות שהעמוד עדיין מוצג. הן
      חשובות כאן יותר, לא פחות. */
+  if (!VECTOR_ENABLED) return;
   if (!_pdfDoc || _fromCache) return;
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   const z = Math.max(1, (typeof window._pvZoomScale === 'function' ? window._pvZoomScale() : 1) || 1);
