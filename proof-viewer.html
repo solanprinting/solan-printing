@@ -10,14 +10,18 @@
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
 <script src="page-spine.js?v=bidi1"></script>
-<script src="proof-fetch.js?v=1786347476"></script>
+<!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
+     ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
+     הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
+<script src="portal-context.js?v=1786348294"></script>
+<script src="proof-fetch.js?v=1786348294"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786347476"></script>
-<script src="auth-client.js?v=1786347476"></script>
-<script src="auth-guard.js?v=1786347476" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786348294"></script>
+<script src="auth-client.js?v=1786348294"></script>
+<script src="auth-guard.js?v=1786348294" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -434,15 +438,41 @@ async function _loadTrimsBg(){
   } catch(e){ return fail('שגיאה בטעינה.'); }
 
   if (_denied) {
+    /* ⚠️ **הזהות של הלקוח מגיעה מ-PortalContext ולא מ-SolanGuard.** אלה
+       שתי מערכות-זהות נפרדות על אותו מקור: הפורטל נכנס דרך
+       signInWithCustomToken ב-REST ושומר refresh-token ב-localStorage,
+       ואילו SolanGuard הוא שומר-הצוות. proof-viewer טען רק את השני —
+       ולכן **הזהות של הלקוח מעולם לא הגיעה לכאן**, וכל לקוח נדחה.
+       זה השורש; זיהוי-הדחייה שלמעלה רק הפך אותו לגלוי.
+
+       ⚠️ נקרא authToken() ישירות ולא ready(): ready מפעיל גם את
+       שומר-הגרסה של הפורטל, שעלול לרענן את הדף — באמצע דפדוף בעיתון זו
+       הפרעה ולא שירות. authToken משחזר את הסשן מה-refresh-token לבדו.
+
+       ⚠️ שם-הלקוח נגזר מה**אסימון** ולא מהכתובת, ולכן אי אפשר לבקש את
+       עיתוניו של לקוח אחר על-ידי שינוי פרמטר. */
     try {
-      const _st = (window.SolanGuard && SolanGuard.state) ? SolanGuard.state() : null;
-      const _cl = (_st && _st.claims) || null;
-      _ident = !!(_cl && (_cl.portalCustomer || _cl.accountType));
-      const _cust = _cl && _cl.portalCustomer;
+      let _tok = null, _cust = '';
+      if (window.PortalContext) {
+        try { _tok = await PortalContext.authToken(); } catch(e){ _tok = null; }
+        if (_tok) {
+          try { const _c = PortalContext.decodeClaims(_tok); _cust = (_c && _c.portalCustomer) || ''; }
+          catch(e){ _cust = ''; }
+        }
+      }
+      if (!_cust) {                 /* מסלול-הצוות: הזהות יושבת בשומר */
+        const _st = (window.SolanGuard && SolanGuard.state) ? SolanGuard.state() : null;
+        const _cl = (_st && _st.claims) || null;
+        _cust = (_cl && _cl.portalCustomer) || '';
+        if (_cl && _cl.accountType) _ident = true;
+      }
+      if (_tok || _cust) _ident = true;
       if (_cust) {
         const _q = 'orderBy=' + encodeURIComponent('"customer"')
                  + '&equalTo=' + encodeURIComponent(JSON.stringify(String(_cust)));
-        const _qr = await (await fetch(await _au(`${_FBURL}/customerProofs.json?` + _q))).json();
+        let _url = `${_FBURL}/customerProofs.json?` + _q;
+        _url = _tok ? (_url + '&auth=' + _tok) : (await _au(_url));
+        const _qr = await (await fetch(_url)).json();
         rec = ProofFetch.pickById(_qr, proofId);
         if (rec) _denied = false;
       }
