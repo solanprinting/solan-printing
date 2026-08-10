@@ -10,13 +10,14 @@
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
 <script src="page-spine.js?v=bidi1"></script>
+<script src="proof-fetch.js?v=1786347476"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786346289"></script>
-<script src="auth-client.js?v=1786346289"></script>
-<script src="auth-guard.js?v=1786346289" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786347476"></script>
+<script src="auth-client.js?v=1786347476"></script>
+<script src="auth-guard.js?v=1786347476" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -412,10 +413,45 @@ async function _loadTrimsBg(){
 
 (async function init(){
   if (!proofId) return fail('לא נמצא מזהה בכתובת.');
-  let rec;
-  try { rec = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json(); }
-  catch(e){ return fail('שגיאה בטעינה.'); }
-  if (!rec) return fail('העיתון לא נמצא או הוסר.');
+  /* ⚠️ **התקלה שתוקנה כאן (10/08/2026, לקוח חסום).** הקריאה הזו היא
+     **לפי מזהה**, והחוקים החיים מתירים ללקוח לקרוא את customerProofs רק
+     כ**שאילתה מסוננת** לפי שמו. כלומר כל לקוח קיבל 401 — ו-RTDB מחזיר
+     על 401 גוף JSON תקין {"error":"Permission denied"}, שהוא אובייקט
+     **אמיתי**. הבדיקה if (!rec) לא תפסה אותו, והזרימה נפלה לענף האחרון:
+     "עדיין לא הועלה/אושר קובץ לעיתון זה".
+
+     ⚠️ כלומר שגיאת-הרשאה הוצגה ללקוח כ"בית-הדפוס עוד לא העלה" — הודעה
+     ששלחה אותו להמתין, ואת בית-הדפוס לחפש קובץ שלא היה חסר מעולם.
+
+     ⚠️ הנפילה-לאחור עוברת ב**אותה שאילתה מסוננת שהפורטל כבר משתמש בה**,
+     ולכן אין כאן שום הרחבת-הרשאות ובידוד-בין-לקוחות נשמר במלואו. */
+  let rec = null, _denied = false, _ident = false;
+  try {
+    const _r = await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`));
+    const _b = await _r.json().catch(function(){ return null; });
+    if (!_r.ok || ProofFetch.isDenied(_b)) _denied = true;
+    else if (ProofFetch.isRecord(_b)) rec = _b;
+  } catch(e){ return fail('שגיאה בטעינה.'); }
+
+  if (_denied) {
+    try {
+      const _st = (window.SolanGuard && SolanGuard.state) ? SolanGuard.state() : null;
+      const _cl = (_st && _st.claims) || null;
+      _ident = !!(_cl && (_cl.portalCustomer || _cl.accountType));
+      const _cust = _cl && _cl.portalCustomer;
+      if (_cust) {
+        const _q = 'orderBy=' + encodeURIComponent('"customer"')
+                 + '&equalTo=' + encodeURIComponent(JSON.stringify(String(_cust)));
+        const _qr = await (await fetch(await _au(`${_FBURL}/customerProofs.json?` + _q))).json();
+        rec = ProofFetch.pickById(_qr, proofId);
+        if (rec) _denied = false;
+      }
+    } catch(e){ /* נשארים עם הדיווח הכן שלמטה */ }
+  }
+
+  if (!rec) {
+    return fail(ProofFetch.diagnose({ denied: _denied, hasIdentity: _ident, record: rec }).msg);
+  }
   $('sub').textContent = [rec.customer, rec.title].filter(Boolean).join(' · ') || 'סולן הדפסות';
   /* ── כיוון-דפדוף + נתוני-גלישה לכל עמוד (מקור-אמת: הרשומה) ──
      עבודה ישנה בלי readingDirection → 'rtl' (בלי migration, בלי רגרסיה).
