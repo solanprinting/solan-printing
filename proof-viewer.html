@@ -13,15 +13,15 @@
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786351134"></script>
-<script src="proof-fetch.js?v=1786351134"></script>
+<script src="portal-context.js?v=1786351780"></script>
+<script src="proof-fetch.js?v=1786351780"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786351134"></script>
-<script src="auth-client.js?v=1786351134"></script>
-<script src="auth-guard.js?v=1786351134" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786351780"></script>
+<script src="auth-client.js?v=1786351780"></script>
+<script src="auth-guard.js?v=1786351780" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -111,7 +111,10 @@
     <button id="vfs">⛶ מסך מלא</button>
     <button id="vzoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button>
     <button id="vgeom" title="משווה את גיאומטריית שני העמודים — כדי לדעת אם סטייה בחיבור נובעת מהתצוגה או מהקובץ">📐 בדיקת התאמה</button>
+    <button id="vqual" title="מראה באיזו רזולוציה העמוד מרונדר כרגע, ומאפשר להשוות מול איכות מרבית">🔬 איכות</button>
   </div>
+  <div id="qualPanel" style="display:none;max-width:760px;width:96%;margin:0 auto 12px;padding:12px 14px;
+       background:#fff;border:1.5px solid var(--line);border-radius:10px;font-size:.84rem;direction:rtl"></div>
   <div id="geomPanel" style="display:none;max-width:760px;width:96%;margin:0 auto 12px;padding:12px 14px;
        background:#fff;border:1.5px solid var(--line);border-radius:10px;font-size:.84rem;direction:rtl"></div>
   <div id="pgWarn"></div>
@@ -739,6 +742,9 @@ function _hiTargetH(){
   if (!(cssH > 0)) cssH = Math.round((window.innerHeight || 900) * 0.8);
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const z = Math.max(1, (typeof window._pvZoomScale === 'function' ? window._pvZoomScale() : 1) || 1);
+  /* ⚠️ מצב-השוואה: כופה את התקרה, כדי שאפשר יהיה לראות בעין אם
+     הרינדור-לפי-התצוגה באמת עדיף — ולא להסתמך על הטענה שלי. */
+  if (window._pvForceMax) return HI_MAX_H;
   return Math.min(HI_MAX_H, Math.ceil(cssH * dpr * z * HI_HEADROOM));
 }
 
@@ -746,11 +752,17 @@ function _hiTargetH(){
    מה שקובע אם QR נקרא. נפילה-לאחור ל-JPEG כשהדפדפן אינו מקודד WebP —
    ובדיקה על **התוצאה** ולא על הדפדפן, כי toDataURL מחזיר PNG בשקט
    כשהפורמט אינו נתמך. */
+/* ⚠️ הפורמט שהתקבל בפועל נרשם. "ניסינו WebP" ו"קיבלנו WebP" הם שני
+   דברים שונים — הדפדפן מחזיר PNG בשקט כשהוא אינו תומך, ובלי הרישום
+   הזה אי אפשר לדעת מה באמת על המסך. */
+let _lastEncoding = '—';
 function _encode(canvas, q){
   try {
     const w = canvas.toDataURL('image/webp', q);
-    if (w && w.indexOf('data:image/webp') === 0) return w;
+    if (w && w.indexOf('data:image/webp') === 0) { _lastEncoding = 'WebP ' + q; return w; }
+    if (w && w.indexOf('data:image/png') === 0)  { _lastEncoding = 'PNG (הדפדפן לא קידד WebP)'; return w; }
   } catch(e){}
+  _lastEncoding = 'JPEG ' + q;
   return canvas.toDataURL('image/jpeg', q);
 }
 
@@ -771,6 +783,7 @@ async function _ensureHi(list){
       _hi.set(i, { src: src, h: want });
       while (_hi.size > HI_MAX) _hi.delete(_hi.keys().next().value);
       if (showingPages().indexOf(i) >= 0) renderViewer();     // מוצג עדיין → מחליפים בתמונה החדה
+      try { if ($('qualPanel') && $('qualPanel').style.display !== 'none') _renderQualPanel(); } catch(e){}
     } catch(e){ /* נשאר באיכות-הבסיס */ }
     finally { _hiBusy.delete(i); }
   }
@@ -924,6 +937,73 @@ function toggleGeomCheck(){
   el.style.display = 'block';
 }
 
+/* ── פאנל-איכות: מה באמת מרונדר, ואפשרות להשוות ──────────────────────
+   ⚠️ **נבנה כי השאלה "איך אני רואה שהשתפר" היא שאלה הוגנת שלא הייתה
+   לה תשובה.** שיפור שאי אפשר למדוד הוא טענה, לא תוצאה. הפאנל מראה את
+   המספרים בפועל, ומאפשר לכפות איכות מרבית כדי להשוות בעין. */
+function toggleQualPanel(){
+  var el = $('qualPanel');
+  if (!el) return;
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  _renderQualPanel();
+  el.style.display = 'block';
+}
+
+function _pvSetForceMax(on){
+  window._pvForceMax = !!on;
+  _hi.clear();                       /* מרנדרים מחדש בשני המצבים */
+  try { _ensureHi(showingPages()); } catch(e){}
+  _renderQualPanel();
+}
+
+function _renderQualPanel(){
+  var el = $('qualPanel');
+  if (!el) return;
+  var cssH = 0;
+  try {
+    var im = document.querySelector('#spread .zoomWrap img, #spread .zoomWrap .mediacrop');
+    if (im) cssH = Math.round(im.getBoundingClientRect().height);
+  } catch(e){}
+  var dpr = Math.min(2, window.devicePixelRatio || 1);
+  var z = Math.max(1, (typeof window._pvZoomScale === 'function' ? window._pvZoomScale() : 1) || 1);
+  var want = _hiTargetH();
+  var shown = showingPages();
+  var got = shown.length ? (_hi.get(shown[0]) || null) : null;
+  var rows = [
+    ['גובה העמוד על המסך', cssH ? (cssH + ' פיקסלים') : 'לא נמדד'],
+    ['צפיפות המסך', '\u00d7' + dpr],
+    ['זום נוכחי', '\u00d7' + z.toFixed(2)],
+    ['רזולוציית רינדור מבוקשת', want + ' פיקסלים'],
+    ['מה שמוצג בפועל', got ? (got.h + ' פיקסלים') : 'עדיין באיכות-בסיס (1500)'],
+    ['קידוד', _lastEncoding]
+  ];
+  var ratio = (got && cssH) ? (got.h / (cssH * dpr)) : 0;
+  var h = '<div style="font-weight:800;margin-bottom:8px">\u1f52c איכות הרינדור הנוכחית</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.82rem">';
+  rows.forEach(function(r){
+    h += '<tr style="border-bottom:1px solid var(--line)">'
+       + '<td style="padding:5px;color:#555">' + r[0] + '</td>'
+       + '<td style="padding:5px;font-weight:700">' + r[1] + '</td></tr>';
+  });
+  h += '</table>';
+  /* ⚠️ היחס הוא המדד היחיד שאומר משהו: פחות מ-1 = מתיחה (מרוכך),
+     סביב 1 = פיקסל-לפיקסל, הרבה מעל 1 = הקטנה (גם היא מרככת). */
+  if (ratio) {
+    var verdict = ratio < 0.95 ? ['#b91c1c', 'התמונה נמתחת — חסרים פיקסלים ברזולוציה הנוכחית.']
+                : ratio > 2.2  ? ['#b45309', 'הקטנה גדולה — הדפדפן ממוצע פיקסלים, וזה מרכך פרטים דקים.']
+                : ['#0f766e', 'סביב פיקסל-לפיקסל — הרזולוציה תואמת את מה שמוצג.'];
+    h += '<div style="margin-top:9px;padding:8px 10px;border-radius:7px;background:#f8fafc;color:' + verdict[0] + '">'
+       + 'יחס רינדור/תצוגה: <b>' + ratio.toFixed(2) + '</b> — ' + verdict[1] + '</div>';
+  }
+  h += '<div style="margin-top:10px;padding:9px 11px;background:#eff6ff;border-radius:8px;color:#1e3a8a">'
+     + '<label style="display:flex;gap:8px;align-items:center;cursor:pointer">'
+     + '<input type="checkbox" ' + (window._pvForceMax ? 'checked' : '')
+     + ' onchange="_pvSetForceMax(this.checked)"> '
+     + '<span><b>כפה איכות מרבית (' + HI_MAX_H + ' פיקסלים)</b> — סמנו, המתינו לרינדור, והשוו בעין. '
+     + 'אם כך נראה טוב יותר, אמרו לי ואקבע את זה כברירת-מחדל.</span></label></div>';
+  el.innerHTML = h;
+}
+
 function step(d){
   if (vIndex === 0) vIndex = d > 0 ? 1 : 0;
   else vIndex = Math.max(0, Math.min(vIndex + d*2, imgs.length - 1));
@@ -933,6 +1013,7 @@ function step(d){
 $('vprev').onclick = () => step(-1);
 $('vnext').onclick = () => step(+1);
 $('vgeom').onclick = toggleGeomCheck;
+$('vqual').onclick = toggleQualPanel;
 $('vfs').onclick = () => { const v=$('viewer'); if (document.fullscreenElement) document.exitFullscreen(); else (v.requestFullscreen||v.webkitRequestFullscreen).call(v); };
 /* הכפתורים "📄 הקובץ המקורי" ו-"⚙️ מנוע תצוגה ישן" הוסרו מהסרגל לבקשת הבעלים
    (2026-07-30) — המנוע העדכני מצייר נכון, ולכן הם היו רעש. הפונקציות נשארות:
