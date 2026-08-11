@@ -9,10 +9,11 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786442575"></script>
-<script src="page-add.js?v=1786442575"></script>
-<script src="portal-context.js?v=1786442575"></script>
-<script src="portal-return.js?v=1786442575"></script>
+<script src="portal-download.js?v=1786444800"></script>
+<script src="page-add.js?v=1786444800"></script>
+<script src="portal-context.js?v=1786444800"></script>
+<script src="portal-return.js?v=1786444800"></script>
+<script src="portal-chat.js?v=1786444800"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -82,6 +83,27 @@
   #ovBar>div { height:100%; width:0; background:linear-gradient(90deg,#2d3561,#16a34a); transition:width .15s; }
   .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:#111827; color:#fff; padding:11px 18px; border-radius:10px; font-weight:700; z-index:90; box-shadow:0 6px 20px rgba(0,0,0,.3); }
   .hidden { display:none !important; }
+  /* ── מצב-מראה לבית-הדפוס (‎?view=shop‎) ──────────────────────────────
+     ⚠️ ה-CSS **אינו** ההגנה — הפונקציות עצמן חוסמות. הסתרה לבדה נשענת
+     על כך שלא שכחנו כפתור, וזה בדיוק סוג-ההגנה שנשבר בשקט. */
+  .shopBanner { background:#fffbeb; border:2px solid #fcd34d; border-radius:12px;
+    padding:10px 14px; margin-bottom:14px; font-size:.88rem; font-weight:800; color:#92400e; }
+  body.shopview #upload-card, body.shopview #chat-card,
+  body.shopview .btn-approve, body.shopview .btn-primary { display:none !important; }
+  /* ── שיחה עם בית-הדפוס ── */
+  .chatBox { max-height:330px; overflow-y:auto; display:flex; flex-direction:column; gap:7px;
+    padding:10px; background:#f8f9fc; border:1px solid #e5e7eb; border-radius:10px; }
+  .chatDay { align-self:center; font-size:.72rem; color:#9ca3af; font-weight:800; margin:5px 0 1px; }
+  .chatMsg { max-width:84%; padding:8px 11px; border-radius:13px; font-size:.9rem; line-height:1.5;
+    white-space:pre-wrap; word-break:break-word; }
+  /* ⚠️ בפריסת RTL ‏flex-start הוא צד ימין: הודעות **הצד השני** מימין,
+     שלי משמאל — הסידור שכל אחד מכיר מווטסאפ בעברית. */
+  .chatMsg.theirs { align-self:flex-start; background:#fff; border:1px solid #e5e7eb; }
+  .chatMsg.mine { align-self:flex-end; background:#e0e7ff; border:1px solid #c7d2fe; }
+  .chatMeta { font-size:.68rem; color:#9ca3af; margin-top:3px; }
+  .chatSend { display:flex; gap:8px; margin-top:9px; align-items:flex-end; }
+  .chatSend textarea { flex:1; padding:9px 11px; border:1.5px solid #e5e7eb; border-radius:10px;
+    font-family:inherit; font-size:.92rem; resize:vertical; }
 </style>
 </head>
 <body>
@@ -122,7 +144,7 @@
       <div id="notices-acts" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="upload-card">
       <h2>📤 העלאת עיתון לדפוס</h2>
       <div style="font-size:.84rem;color:#6b7280;margin-bottom:11px">העלו את קובצי העיתון, <b>דפדפו בו וסדרו את העמודים</b>, ואשרו לדפוס — בדיוק כמו תמיד.</div>
       <button id="new-np-btn" class="btn btn-primary" style="width:100%;padding:14px;font-size:1rem">➕ העלה עיתון חדש — עם דפדוף ועריכת עמודים</button>
@@ -132,6 +154,21 @@
         <input type="file" id="up-input" accept="application/pdf" multiple hidden>
         <div id="up-list"></div>
       </details>
+    </div>
+
+    <!-- ⚠️ **שיחה עם בית-הדפוס (בקשת-בעלים 11/08/2026).** עד היום הערוץ
+         היחיד לכיוון הלקוח היה "דרישה" — הודעה חד-כיוונית שאפשר רק לבצע.
+         אין דרך לשאול "העמוד השני — זה נכון?" ולקבל תשובה, ולכן הכל עבר
+         לטלפון ונעלם. ⚠️ שיחה **אינה** דרישה: דרישה ממתינה לביצוע
+         ונסגרת, הודעה היא טקסט. הן נשארות שני אזורים נפרדים. -->
+    <div class="card" id="chat-card">
+      <h2>💬 שיחה עם בית הדפוס</h2>
+      <div style="font-size:.82rem;color:#6b7280;margin-bottom:9px">כל שאלה על הגיליון — כאן. אנחנו רואים ועונים.</div>
+      <div id="chat-box" class="chatBox"><div class="empty" style="padding:8px">טוען…</div></div>
+      <div class="chatSend">
+        <textarea id="chat-input" rows="2" placeholder="כתבו הודעה לבית הדפוס…"></textarea>
+        <button id="chat-send" class="btn btn-dl" style="padding:11px 18px;font-weight:800">שלח</button>
+      </div>
     </div>
 
     <div class="card">
@@ -203,6 +240,8 @@ window._appCheckToken = function(){
 try { window._appCheckToken(); } catch(e){}
 let _fbTok=null,_fbTokExp=0,_fbTokP=null;
 async function _fbAuthToken(){
+  /* ⚠️ מצב-מראה: אסימון-העובד בלבד, ובלי ליצור/לשחזר שום סשן-לקוח. */
+  if (typeof _shopView !== 'undefined' && _shopView) return await _shopTokenReady();
   /* ⚠️ שכבת-הזהות: כשקיים סשן-פורטל (קישור-ותיק שהוחלף / חשבון-מייל),
      האסימון מגיע ממנו — עם ה-claims של הלקוח. הזדהות אנונימית נשארת
      כנפילה-לאחור בלבד (מסך שנפתח בלי זהות). */
@@ -330,6 +369,47 @@ const params = new URLSearchParams(location.search);
 /* ⚠️ ‏let ולא const: אחרי PortalContext.ready() ה-SLUG וה-CUST מגיעים
    מה-claims (מקור-אמת שרתי), לא מהכתובת. הכתובת משמשת רק כדי לדעת
    *איזה* קישור-ותיק להחליף. */
+/* ── מצב-מראה לבית-הדפוס ────────────────────────────────────────────────
+   ⚠️ **בקשת-בעלים 11/08/2026:** "כשבוחרים לקוח, הלקוח יוצג לדפוס כמו
+   שמוצג ללקוחות." המסך הזה מוטמע במסך-הדפוס כדי שהתצוגה תהיה **אותה
+   תצוגה** ולא העתק שיסטה ממנה בשינוי הבא.
+   ⚠️ אבל פעולות-הלקוח מושבתות: אישור-לדפוס, עריכה והעלאה **בשם הלקוח**
+   הן התקלה שאי אפשר להסביר אחר-כך — "מי אישר?". החסימה בקוד, לא ב-CSS. */
+var _shopView = params.get('view') === 'shop';
+/* ── זהות במצב-מראה ─────────────────────────────────────────────────────
+   ⚠️ **לא נוגעים ב-PortalContext כאן, ובכוונה.** הוא שומר refresh-token
+   של הלקוח תחת מפתח **יחיד** ב-localStorage. טעינת הפורטל של לקוח א׳
+   בתוך מסך-הדפוס הייתה כותבת את הסשן שלו לדפדפן של בית-הדפוס, ולחיצה
+   על לקוח ב׳ הייתה דורסת אותו — ואז proof-client שנפתח אחר-כך היה
+   משחזר את הזהות של הלקוח האחרון שנצפה. החלפת-זהות שקטה, בדיוק
+   המשפחה של התקלות שכבר עלו לנו ביום עבודה.
+   ⚠️ ולכן הזהות כאן היא של **העובד**: מסך-הדפוס מוסר את האסימון שלו
+   ב-postMessage באותו origin. אסימון של העובד, בדפדפן של העובד — ואף
+   פעם לא אסימון של לקוח. */
+var _shopTok = null, _shopTokWait = null;
+if (_shopView){
+  window.addEventListener('message', function(e){
+    /* ⚠️ origin זר נדחה לפני שנוגעים בתוכן: הודעה מחלון אחר אינה מקור-זהות. */
+    if (e.origin !== location.origin) return;
+    if (!e.data || e.data.type !== 'solanShopToken' || !e.data.token) return;
+    _shopTok = String(e.data.token);
+    if (_shopTokWait){ var f = _shopTokWait; _shopTokWait = null; f(_shopTok); }
+  });
+  try { (window.parent || window).postMessage({ type:'solanShopTokenPlease' }, location.origin); } catch(e){}
+}
+function _shopTokenReady(){
+  if (_shopTok) return Promise.resolve(_shopTok);
+  return new Promise(function(res){
+    _shopTokWait = res;
+    /* ⚠️ פסק-זמן: בלעדיו המסך תקוע על "טוען" לנצח אם ההודעה לא הגיעה —
+       וזה נראה בדיוק כמו נתונים שנעלמו. */
+    setTimeout(function(){ if (_shopTokWait){ _shopTokWait = null; res(null); } }, 8000);
+  });
+}
+function _shopViewBlock(){
+  alert('👁 תצוגת בית-הדפוס — כפי שהלקוח רואה.\n\nפעולות בשם הלקוח (אישור · עריכה · העלאה) מושבתות כאן במכוון.');
+  return false;
+}
 let CUST = params.get('cust') || '';
 let KEY  = params.get('k') || '';
 let SLUG = _slug(CUST);
@@ -340,13 +420,25 @@ let _portalRec = null;
   /* ⚠️ שכבת-הזהות **לפני הכול**: מחליפה קישור-ותיק ב-Custom Token או
      משחזרת סשן-מייל, ומסירה את ה-k מהכתובת. אחרי ready — ה-SLUG וה-
      customer מגיעים מה-claims. */
-  try { await PortalContext.ready(); } catch(e){}
-  if (PortalContext.ok){
-    SLUG = PortalContext.slug;
-    CUST = PortalContext.customer || CUST;
+  /* ⚠️ במצב-מראה **אין** נגיעה בשכבת-הזהות של הלקוח (ראה ההערה למעלה):
+     ה-SLUG נגזר מהשם שבכתובת, והקריאות נושאות את אסימון-העובד. */
+  if (!_shopView){
+    try { await PortalContext.ready(); } catch(e){}
+    if (PortalContext.ok){
+      SLUG = PortalContext.slug;
+      CUST = PortalContext.customer || CUST;
+    }
   }
   if (!CUST || !SLUG){ return gate('הקישור חסר פרטי לקוח.'); }
-  if (!PortalContext.ok){
+  if (_shopView){
+    document.body.classList.add('shopview');
+    var _sb = document.createElement('div');
+    _sb.className = 'shopBanner';
+    _sb.textContent = '👁 תצוגת בית-הדפוס — זה בדיוק מה שהלקוח רואה. פעולות בשם הלקוח מושבתות.';
+    var _wr = document.querySelector('.wrap');
+    if (_wr) _wr.insertBefore(_sb, _wr.firstChild);
+  }
+  if (!_shopView && !PortalContext.ok){
     /* ⚠️ אין יותר נפילה-לאחור לקריאה-אנונימית של customerPortals + השוואת-
        token בצד-הלקוח. חוקי customerProofs (05/08/2026) דוחים כל קריאה
        שאינה נושאת auth.token.portalCustomer מאומת-שרת — אסימון אנונימי
@@ -368,6 +460,9 @@ let _portalRec = null;
   $('gate').classList.add('hidden'); $('app').classList.remove('hidden');
   showOv('', false);
   wireUpload();
+  /* ⚠️ השיחה מופעלת בנפרד מהעבודות ולא בתוך ה-Promise.all: משיכת-שיחה
+     שנכשלת אינה אמורה למנוע מהלקוח לראות את הגיליונות שלו. */
+  try { _chatStart(); } catch(e){ console.warn('הפעלת השיחה נכשלה', e); }
   await Promise.all([ loadNotices(), loadHistory() ]);
 })();
 
@@ -416,6 +511,7 @@ async function loadNotices(){
 }
 // מאשר פרופר-אפוגי ממתין ישירות מהדרישה (אם יש בדיוק אחד); אחרת מפנה להיסטוריה
 async function _portalApproveFromNotice(){
+  if (_shopView) return _shopViewBlock();
   var all = null;
   try { all = await _pReadOrFail(await _auProofs()); }
   catch(e){ console.error('בדיקת הפרופרים נכשלה', e); toast('לא הצלחנו לבדוק מול בית-הדפוס — נסו שוב'); return; }
@@ -614,6 +710,7 @@ function _unlock(key){ _busy[key] = false; }
 
 // ── אישור פרופר-אפוגי ──
 async function approveApogee(id){
+  if (_shopView) return _shopViewBlock();
   /* שכבת-הגנה שנייה: גם אם הדף פתוח מאתמול והכפתור עדיין על המסך — בודקים
      מול הרשומה העדכנית שהעבודה לא הושלמה בינתיים. */
   try {
@@ -684,6 +781,7 @@ function _refreshNoticeAction(){
   el.innerHTML = keep + _noticeActionHtml(_lastNotices);
 }
 function _openAddPages(){
+  if (_shopView) return _shopViewBlock();
   var u = PageAdd.editorUrl(_pendingAdd, location.href);
   /* ⚠️ בלי כתובת אין ניווט: שליחה לעורך בלי מזהה פותחת מסך שגיאה,
      ועדיף ליפול למסלול הידני מאשר להציג ללקוח כשל. */
@@ -692,6 +790,7 @@ function _openAddPages(){
 }
 
 async function _newNewspaper(){
+  if (_shopView) return _shopViewBlock();
   var meta = await _askNewspaper(0);   // 0 = לפני העלאה; בוחרים שם עיתון + גיליון
   if (!meta) return;
   if (!_lock('newnp')) return;
@@ -706,6 +805,103 @@ async function _newNewspaper(){
   } catch(e){ showOv('',false); toast('⚠️ ' + ERR_SAVE_JOB); }
   finally { _unlock('newnp'); }
 }
+/* ═══════════ שיחה עם בית-הדפוס ═══════════════════════════════════════════
+   ⚠️ אין חיבור-חי; מושכים כל ‎POLL_MS‎ בזמן שהלשונית פתוחה, ולא כשהיא
+   ברקע. ההפרש נמדד בשניות ולא ברענון-ידני — וזו כל הכוונה ב"באותו הרגע".
+   ⚠️ במצב-מראה השיחה כבויה: לבית-הדפוס יש את אותה שיחה במסך שלו, ושתי
+   תיבות-קלט לאותה שיחה באותו מסך הן דרך בטוחה לכתוב בשם הלקוח. */
+var _chatMsgs = [], _chatTimer = null, _chatSeenAt = 0, _chatSending = false;
+function _chatNode(){ return `${_FBURL}/${PortalChat.chatPath(SLUG)}`; }
+/* ⚠️ ‎force‎ = הטעינה הראשונה. פורטל שנפתח בלשונית-רקע (הלקוח לחץ על
+   קישור והלשונית נפתחה מאחור) היה נשאר על "טוען…" עד שיעבור אליה. */
+async function loadChat(force){
+  if (_shopView) return;
+  if (document.hidden && !force) return;       /* לשונית ברקע — אין טעם */
+  var obj = null;
+  try { obj = await (await fetch(await _au(_chatNode() + '.json'))).json(); }
+  catch(e){ console.warn('טעינת השיחה נכשלה', e); return; }
+  _chatSeenAt = Number((obj && obj._seen && obj._seen.customer) || 0);
+  _chatMsgs = PortalChat.list(obj);
+  _chatRender();
+  _chatMarkSeen();
+}
+function _chatRender(){
+  var box = $('chat-box'); if (!box) return;
+  if (!_chatMsgs.length){
+    box.innerHTML = '<div class="empty" style="padding:8px">אין עדיין הודעות. אפשר לכתוב לבית-הדפוס כאן.</div>';
+    return;
+  }
+  /* ⚠️ גלילה-לתחתית **רק** אם היינו בתחתית. גלילה בזמן שהלקוח קורא הודעה
+     ישנה היא בדיוק מה שגורם לו לאבד את המקום בכל משיכה. */
+  var atBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 45;
+  var now = Date.now();
+  box.innerHTML = PortalChat.groupByDay(_chatMsgs, now).map(function(g){
+    return '<div class="chatDay">' + esc(g.label) + '</div>' + g.items.map(function(m){
+      var mine = (m.side === PortalChat.CUSTOMER);
+      return '<div class="chatMsg ' + (mine ? 'mine' : 'theirs') + '">' + esc(m.text)
+        + '<div class="chatMeta">' + (mine ? 'אני' : ('בית הדפוס' + (m.by ? (' · ' + esc(m.by)) : '')))
+        + ' · ' + PortalChat.timeLabel(m.at) + '</div></div>';
+    }).join('');
+  }).join('');
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+/* ⚠️ סימון-הצפייה נכתב רק כשיש מה לסמן, ורק לחותמת של **הצד שלי**:
+   כתיבה בשם הצד השני הייתה מעלימה לו הודעות מהתג. */
+async function _chatMarkSeen(){
+  var last = PortalChat.lastMessage(_chatMsgs);
+  if (!last || Number(last.at) <= _chatSeenAt) return;
+  var at = Number(last.at); _chatSeenAt = at;
+  try {
+    await fbWrite(await _au(`${_FBURL}/${PortalChat.seenPath(SLUG, PortalChat.CUSTOMER)}.json`),
+      { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(at) }, 'chat:seen');
+  } catch(e){ console.warn('סימון-צפייה בשיחה נכשל (לא חיוני)', e); }
+}
+async function _chatSend(){
+  if (_shopView) return;
+  var ta = $('chat-input'); if (!ta) return;
+  var v = PortalChat.validate(ta.value);
+  /* ⚠️ נעצר **לפני** השליחה: הודעה ריקה שנשלחת מייצרת שורה ריקה אצל
+     בית-הדפוס, ואיש אינו יודע אם משהו נמחק. */
+  if (!v.ok){ toast('⚠️ ' + v.message); return; }
+  if (_chatSending) return;
+  _chatSending = true;
+  var btn = $('chat-send'), was = btn ? btn.textContent : '';
+  if (btn){ btn.disabled = true; btn.textContent = 'שולח…'; }
+  var at = Date.now();
+  try {
+    await fbWrite(await _au(_chatNode() + '/' + PortalChat.msgId(at) + '.json'),
+      { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(PortalChat.build({ side: PortalChat.CUSTOMER, text: v.text, by: CUST, at: at })) },
+      'chat:send');
+    ta.value = '';
+    await loadChat();
+  } catch(e){
+    /* ⚠️ כשל אינו נבלע: הטקסט **נשאר** בתיבה כדי שלא ייעלם, ונאמר במפורש
+       שההודעה לא נשלחה. "שלחתי ולא ענו" מתוך הודעה שלא יצאה הוא הנזק
+       הגרוע ביותר שערוץ-תקשורת יכול לעשות. */
+    toast('⚠️ ההודעה לא נשלחה — ההודעה נשארה בתיבה, נסו שוב');
+    console.error('שליחת הודעה נכשלה', e);
+  } finally {
+    _chatSending = false;
+    if (btn){ btn.disabled = false; btn.textContent = was || 'שלח'; }
+  }
+}
+function _chatStart(){
+  if (_shopView) return;
+  var b = $('chat-send'); if (b) b.onclick = _chatSend;
+  var ta = $('chat-input');
+  /* ⚠️ ‏Enter שולח · Shift+Enter שורה-חדשה — הצפייה המקובלת בכל שיחה. */
+  if (ta) ta.onkeydown = function(e){
+    if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); _chatSend(); }
+  };
+  loadChat(true);
+  if (_chatTimer) clearInterval(_chatTimer);
+  _chatTimer = setInterval(loadChat, PortalChat.POLL_MS);
+  /* ⚠️ חזרה מהרקע מושכת מיד: המתנה של עד ‎POLL_MS‎ אחרי החזרה ללשונית
+     נראית כמו שיחה שלא מתעדכנת. */
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) loadChat(true); });
+}
+
 function wireUpload(){
   var nb = $('new-np-btn'); if (nb) nb.onclick = _newNewspaper;
   var drop = $('up-drop'), inp = $('up-input');
@@ -821,6 +1017,7 @@ function _pfConfirm(issues){
   });
 }
 async function handleUpload(fileList){
+  if (_shopView) return _shopViewBlock();
   var files = Array.prototype.slice.call(fileList).filter(function(f){ return f.type==='application/pdf' || /\.pdf$/i.test(f.name||''); });
   if (!files.length){ toast('נא לבחור קובצי PDF'); return; }
   var meta = await _askNewspaper(files.length);

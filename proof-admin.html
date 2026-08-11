@@ -33,16 +33,17 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
+<script src="portal-chat.js?v=1786444800"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786442575"></script>
-<script src="auth-client.js?v=1786442575"></script>
+<script src="firebase-auth.bundle.js?v=1786444800"></script>
+<script src="auth-client.js?v=1786444800"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786442575" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786444800" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -326,6 +327,62 @@ window.addEventListener('appinstalled', function(){
   .ibxToast { position:fixed; bottom:18px; right:18px; z-index:99; background:#2d3561; color:#fff;
     padding:12px 18px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.25); font-weight:700; max-width:320px; }
   @media (max-width:640px){ .ibxCards{flex-direction:column} .ibxCard{max-width:none} .ibxToast{left:12px;right:12px;max-width:none} }
+  /* ═══ מבנה-פורטל 2 (בקשת-בעלים 11/08/2026) ═══════════════════════════
+     "בצד ימין שמות הלקוחות, בחירה לפי ימים וגם חיפוש ידני; כשבוחרים
+     לקוח הוא יוצג לדפוס כמו שמוצג ללקוחות; ובצד שמאל צ׳אט."
+     ⚠️ הימים ירדו מרצועה-עליונה לתוך סרגל-הצד: הרצועה תפסה שורה שלמה
+     ודחפה את התוכן למטה, והבחירה נעשית פעם ביום. */
+  .pvBody2 { display:grid; grid-template-columns:280px minmax(0,1fr) 320px; align-items:stretch;
+             border:1px solid var(--line); border-radius:12px; overflow:hidden; min-height:74vh; }
+  .pvDayChips { display:flex; flex-wrap:wrap; gap:4px; padding:8px 10px;
+                background:#faf8f2; border-bottom:1px solid var(--line); }
+  .pvChip { padding:4px 9px; border-radius:8px; border:1.5px solid var(--line); background:#fff;
+            color:#2d3561; font-family:inherit; font-weight:800; font-size:.76rem; cursor:pointer; }
+  .pvChip:hover { background:#f3f4f8; }
+  .pvChip.isToday { border-color:var(--gold,#d4af37); }
+  .pvChip.on { background:var(--press,#2d3561); color:#fff; border-color:var(--press,#2d3561); }
+  .pvChip .c { opacity:.7; font-weight:700; }
+  /* ── מרכז: מה שהלקוח רואה, ולשונית-פעולות לידו ── */
+  .pvTabs { display:flex; gap:6px; align-items:center; padding:7px 10px;
+            background:#faf8f2; border-bottom:1px solid var(--line); }
+  .pvTab { padding:6px 13px; border-radius:8px; border:1.5px solid var(--line); background:#fff;
+           color:#2d3561; font-family:inherit; font-weight:800; font-size:.83rem; cursor:pointer;
+           text-decoration:none; display:inline-block; }
+  .pvTab.on { background:var(--press,#2d3561); color:#fff; border-color:var(--press,#2d3561); }
+  .pvPane { display:none; }
+  .pvPane.on { display:block; }
+  /* ⚠️ המסגרת מקבלת גובה מפורש: iframe בלי גובה מתמוטט ל-150px
+     ומראה פס-גלילה זעיר במקום את הפורטל. */
+  #pvFrame { width:100%; height:74vh; border:0; display:block; background:#fff; }
+  .pvFrameNote { padding:9px 12px; font-size:.8rem; color:#6b7280; background:#fff; }
+  /* ── שמאל: שיחה ── */
+  /* ⚠️ שיחה + כרטיסים-פעילים באותה עמודה: פאנל-הכרטיסים היה כאן לפני
+     השינוי, והסרתו הייתה גורעת יכולת שאיש לא ביקש לגרוע. */
+  .pvLeftCol { display:flex; flex-direction:column; min-height:0;
+               border-inline-start:1px solid var(--line); background:#fff; }
+  .pvLeftCol .mdCards { border:0; border-top:1px solid var(--line); border-radius:0; }
+  .shChat { display:flex; flex-direction:column; flex:1; background:#fff; min-height:0; }
+  .shChatHd { padding:8px 12px; font-weight:800; font-size:.85rem; color:#2d3561;
+              background:#faf8f2; border-bottom:1px solid var(--line);
+              display:flex; align-items:center; gap:7px; }
+  .shChatBox { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:7px;
+               background:#f8f9fc; max-height:52vh; }
+  .shDay { align-self:center; font-size:.7rem; color:#9ca3af; font-weight:800; margin:4px 0 1px; }
+  .shMsg { max-width:88%; padding:7px 10px; border-radius:12px; font-size:.85rem; line-height:1.45;
+           white-space:pre-wrap; word-break:break-word; }
+  /* ⚠️ ‏RTL: flex-start הוא ימין. הודעות הלקוח מימין, שלנו משמאל — הפוך
+     בדיוק מהצד של הלקוח, וזה נכון: אצל כל צד "אני" באותו מקום. */
+  .shMsg.theirs { align-self:flex-start; background:#fff; border:1px solid #e5e7eb; }
+  .shMsg.mine { align-self:flex-end; background:#e0e7ff; border:1px solid #c7d2fe; }
+  .shMeta { font-size:.66rem; color:#9ca3af; margin-top:2px; }
+  .shSend { padding:9px; border-top:1px solid var(--line); display:flex; gap:7px; align-items:flex-end; }
+  .shSend textarea { flex:1; padding:8px 10px; border:1.5px solid var(--line); border-radius:9px;
+                     font-family:inherit; font-size:.87rem; resize:vertical; min-height:44px; }
+  .shSend button { padding:9px 15px; border:0; border-radius:9px; background:var(--press,#2d3561);
+                   color:#fff; font-family:inherit; font-weight:800; cursor:pointer; }
+  .chatDot { background:#dc2626; color:#fff; border-radius:9px; padding:0 6px;
+             font-size:.7rem; font-weight:800; }
+  @media (max-width: 1200px){ .pvBody2 { grid-template-columns:1fr; } #pvFrame { height:60vh; } }
 </style>
 </head>
 <body>
@@ -531,6 +588,10 @@ let _dayCollapsed = {};       // day → true אם קבוצת-היום מקוו�
    ⚠️ מוקם מאחורי דגל ולא מחליף את המסך הקיים: ?ui=portal מפעיל, ?ui=classic
    מכבה, והבחירה נזכרת. כך אפשר לחזור אחורה בלחיצה אחת אם משהו מפריע בעבודה. */
 let _pvDay = null;            // היום שנבחר בניווט (null = היום הנוכחי)
+/* איזו לשונית פתוחה במרכז: תצוגת-הלקוח (ברירת-מחדל) או פעולות-הדפוס.
+   ⚠️ ברירת-המחדל היא **מה שהלקוח רואה** — זו הייתה הבקשה; הפעולות
+   נשארות במרחק לחיצה אחת ולא נעלמות. */
+let _pvTab = 'portal';
 const _uiPortal = (function(){
   try{
     const q = new URLSearchParams(location.search).get('ui');
@@ -733,6 +794,8 @@ async function _autoRefresh(){
     const sig = _rowsSig(rows);
     if (sig === _sig) return;                          // אין שינוי — לא נוגעים במסך
     _sig = sig; _allRows = rows; render(_allRows);
+    /* ⚠️ בליעה מכוונת עם עקבה: תג-שיחה שלא נטען אינו סיבה לעצור רענון. */
+    _shChatUnreadScan().catch(function(e){ console.warn('סריקת-שיחות נכשלה', e); });
     msg(_allRows.length ? (_allRows.length + ' קבצים · ✓ עודכן') : '');
   }catch(e){
     /* ⚠️ ‏catch ריק היה כאן, והוא בלע את אותה חריגת-render כל 15 שניות
@@ -1252,13 +1315,6 @@ function render(rows) {
     const _inDay = (d) => d === '__none__' ? custNames.filter(c => !_dayOf[c])
                                            : custNames.filter(c => _dayOf[c] === d);
     const _newInDay = (d) => _inDay(d).reduce((s, c) => s + _newFilesFor(c), 0);
-    // רצועת-ימים: היום קודם, ואז שאר השבוע במחזור — כך שלא צריך לחפש את היום
-    const dayTabs = _orderedDays.concat(['__none__']).map(d => {
-      const n = _inDay(d).length, nw = _newInDay(d), lbl = d === '__none__' ? 'ללא יום' : d;
-      return `<button class="pvDay${d===day?' on':''}${d===_today?' isToday':''}" data-pvday="${escapeHtml(d)}">
-        ${d===_today?'📌 ':''}${escapeHtml(lbl)} <span class="pvCnt">${n}</span>${nw?`<span class="newDot">🆕 ${nw}</span>`:''}</button>`;
-    }).join('');
-
     // כרטיס-לקוח: כל מה שצריך כדי להחליט אם לפתוח אותו — בלי לפתוח אותו
     const _card = (c, hidden) => {
       const items = byCustomer.get(c) || [];
@@ -1286,21 +1342,65 @@ function render(rows) {
       .map(c => _card(c, list.indexOf(c) < 0)).join('')
       + (list.length ? '' : '<div class="pvEmpty" style="padding:18px;color:#9ca3af;font-size:.86rem">אין לקוחות ליום זה</div>');
 
+    /* שבבי-הימים ירדו לסרגל-הצד: הרצועה העליונה תפסה שורה שלמה, והבחירה
+       נעשית פעם ביום. ⚠️ אותו ‎data-pvday‎ ואותו מטפל — רק המיקום השתנה. */
+    const dayChips = _orderedDays.concat(['__none__']).map(d => {
+      const n = _inDay(d).length, nw = _newInDay(d), lbl = d === '__none__' ? 'ללא יום' : d;
+      return `<button class="pvChip${d===day?' on':''}${d===_today?' isToday':''}" data-pvday="${escapeHtml(d)}" title="${escapeHtml(lbl)} · ${n} לקוחות">
+        ${d===_today?'📌 ':''}${escapeHtml(lbl)} <span class="c">${n}</span>${nw?`<span class="newDot">🆕${nw}</span>`:''}</button>`;
+    }).join('');
+    const _selName = (_selCust && _selCust !== '__today__') ? _selCust : '';
+    /* ⚠️ **התצוגה המוטמעת היא הפורטל האמיתי של הלקוח** ולא העתק שלו:
+       ‎customer-portal.html?view=shop‎. כך "כמו שמוצג ללקוחות" נשאר נכון
+       גם אחרי כל שינוי עתידי בפורטל, בלי שאיש יזכור לעדכן שני מסכים.
+       ⚠️ **בלי טוקן-לקוח בכתובת.** ‏PortalContext שומר refresh-token של
+       הלקוח תחת מפתח יחיד ב-localStorage; טעינה עם טוקן הייתה כותבת סשן
+       של לקוח לדפדפן של בית-הדפוס, ולחיצה על לקוח אחר הייתה דורסת אותו.
+       במצב-מראה הזהות היא של העובד, ומגיעה ב-postMessage. */
+    const frameSrc = _selName
+      ? ('customer-portal.html?view=shop&cust=' + encodeURIComponent(_selName))
+      : '';
     portalHtml = `<div class="pvWrap">
-      <div class="pvDays">${dayTabs}
+      <div class="pvDays">
+        <b style="font-size:.9rem;color:#2d3561">📁 לקוחות ועבודות</b>
         <span class="pvSpacer"></span>
         <button class="pvDay${_selCust==='__today__'?' on':''}" data-cust="__today__" title="מי אמור לשלוח היום ומי טרם שלח">📅 סיכום היום</button>
         <button class="pvSwitch" id="uiClassic" title="חזרה למסך הרשימה הקודם">↩ תצוגה קודמת</button>
       </div>
-      <div class="pvBody">
+      <div class="pvBody2">
         <aside class="pvSide">
           <div class="custFilterWrap"><input id="custFilter" type="search" placeholder="🔍 חיפוש לקוח…" autocomplete="off"></div>
+          <div class="pvDayChips">${dayChips}</div>
           <div class="pvSideTitle">${day==='__none__'?'ללא יום קבוע':day} · ${list.length} לקוחות</div>
           ${listHtml}
           <div id="custNoHit" style="display:none;padding:12px;color:#9ca3af;font-size:.85rem">אין לקוח מתאים</div>
         </aside>
-        <section class="mdMain">${detail}</section>
+        <section class="mdMain" style="border:0;border-radius:0;padding:0">
+          <div class="pvTabs">
+            <button class="pvTab${_pvTab==='portal'?' on':''}" data-pvtab="portal">👁 מה הלקוח רואה</button>
+            <button class="pvTab${_pvTab==='ops'?' on':''}" data-pvtab="ops">🛠 פעולות הדפוס</button>
+            <span class="pvSpacer"></span>
+            ${_selName?`<button class="pvTab" id="pvReload" title="רענן את תצוגת-הלקוח">↻</button>`:''}
+          </div>
+          <div class="pvPane${_pvTab==='portal'?' on':''}" id="pvPortal">
+            ${frameSrc
+              ? `<iframe id="pvFrame" src="${escapeHtml(frameSrc)}" title="הפורטל של ${escapeHtml(_selName)}"></iframe>`
+              : '<div class="pvFrameNote">בחרו לקוח מהרשימה כדי לראות בדיוק מה שהוא רואה בפורטל שלו.</div>'}
+          </div>
+          <div class="pvPane${_pvTab==='ops'?' on':''}" id="pvOps" style="padding:12px">${detail}</div>
+        </section>
+        <div class="pvLeftCol">
+        <aside class="shChat">
+          <div class="shChatHd">💬 <span>${_selName?('שיחה עם '+escapeHtml(_selName)):'שיחה'}</span></div>
+          <div class="shChatBox" id="shChatBox">${_selName?'<div style="color:#9ca3af;font-size:.83rem;padding:8px">טוען…</div>':'<div style="color:#9ca3af;font-size:.83rem;padding:8px">בחרו לקוח כדי לפתוח שיחה.</div>'}</div>
+          ${_selName?`<div class="shSend">
+            <textarea id="shChatInput" rows="2" placeholder="הודעה ללקוח…"></textarea>
+            <button id="shChatSend">שלח</button>
+          </div>
+          <div style="padding:0 9px 9px;font-size:.72rem;color:#9ca3af">‏Enter שולח · Shift+Enter שורה חדשה</div>`:''}
+        </aside>
         ${cardsPanel}
+        </div>
       </div></div>`;
   }
 
@@ -1335,6 +1435,7 @@ function render(rows) {
   /* המעבר חייב להיות דו-כיווני. בגרסה הראשונה היה רק כפתור אחד — מי שלחץ
      "תצוגה קודמת" ננעל עליה, כי הדגל נשמר ב-localStorage ולא הייתה דרך חזרה. */
   const _switchUi = (mode) => { try{ localStorage.setItem('solanShopUi', mode); }catch(e){} location.search = '?ui=' + mode; };
+  try { _pvWire(); } catch(e){ console.warn('חיווט מבנה-הפורטל נכשל', e); }
   const _uc = document.getElementById('uiClassic');
   if (_uc) _uc.onclick = () => _switchUi('classic');
   const _up = document.getElementById('uiPortal');
@@ -1618,6 +1719,190 @@ async function renameCustomer(oldName){
     msg(`✓ עודכן ל־"${next}" (${done} עבודות)` + (slugChanges ? ' · שלח קישור-פורטל חדש' : ''));
   }catch(e){ console.error(e); msg('✗ עדכון נכשל: ' + (e.message||e)); }
 }
+/* ═══════════ מסך-הדפוס במבנה-פורטל: לשוניות · מסגרת · שיחה ═══════════════
+   בקשת-בעלים 11/08/2026. שלושת החלקים כאן קטנים בנפרד, ומשמעותיים יחד:
+   הדפוס רואה בדיוק מה שהלקוח רואה, ויכול לדבר איתו בלי לעבור לטלפון. */
+
+/* ── אסימון למסגרת המוטמעת ────────────────────────────────────────────────
+   ⚠️ **זה אסימון של העובד, ולעולם לא של הלקוח.** ‏PortalContext שומר
+   refresh-token של לקוח תחת מפתח יחיד ב-localStorage, ולכן טעינת הפורטל
+   עם טוקן-לקוח הייתה כותבת סשן-לקוח לדפדפן של בית-הדפוס — ולחיצה על
+   לקוח אחר הייתה דורסת אותו. ‏proof-client שהיה נפתח אחר-כך היה משחזר
+   את הזהות של הלקוח האחרון שנצפה. כאן: אסימון-העובד, בדפדפן-העובד. */
+window.addEventListener('message', async function(e){
+  /* ⚠️ origin זר נדחה לפני שנוגעים בתוכן. */
+  if (e.origin !== location.origin) return;
+  if (!e.data || e.data.type !== 'solanShopTokenPlease') return;
+  let t = null;
+  try { t = await _fbAuthToken(); } catch(err){ console.warn('אסימון למסגרת נכשל', err); }
+  if (!t || !e.source) return;
+  try { e.source.postMessage({ type:'solanShopToken', token: t }, location.origin); } catch(err){}
+});
+
+/* ── שיחה ─────────────────────────────────────────────────────────────────
+   ⚠️ מושכים כל ‎POLL_MS‎ ורק כשהלשונית פעילה. אין חיבור-חי; ההפרש נמדד
+   בשניות ולא ברענון-ידני, וזו הכוונה ב"יראו באותו הרגע". */
+var _shChat = { slug:'', name:'', msgs:[], seen:0, timer:null, sending:false };
+var _shUnread = {};           /* slug → כמה הודעות-לקוח לא נקראו */
+
+function _shChatNode(slug){ return `${_FBURL}/${PortalChat.chatPath(slug)}`; }
+
+/* ⚠️ ‎force‎ = טעינה ראשונה אחרי בחירת-לקוח. בלעדיו הטעינה נדלגת כשהלשונית
+   אינה בפוקוס (נתפס בבדיקת-דפדפן 11/08/2026), והתיבה נשארת על "טוען…"
+   עד המשיכה הבאה — נראה בדיוק כמו שיחה תקועה. המשיכה המחזורית **כן**
+   מדלגת כשהלשונית ברקע, וזו הכוונה. */
+async function _shChatLoad(force){
+  if (!_shChat.slug) return;
+  if (document.hidden && !force) return;
+  var obj = null;
+  try { obj = await (await fetch(await _au(_shChatNode(_shChat.slug) + '.json'))).json(); }
+  catch(e){ console.warn('טעינת השיחה נכשלה', e); return; }
+  _shChat.seen = Number((obj && obj._seen && obj._seen.shop) || 0);
+  _shChat.msgs = PortalChat.list(obj);
+  _shChatRender();
+  _shChatMarkSeen();
+}
+function _shChatRender(){
+  var box = document.getElementById('shChatBox'); if (!box) return;
+  if (!_shChat.msgs.length){
+    box.innerHTML = '<div style="color:#9ca3af;font-size:.83rem;padding:8px">אין עדיין הודעות. כתבו ללקוח כאן — הוא רואה את זה בפורטל שלו.</div>';
+    return;
+  }
+  /* ⚠️ גלילה-לתחתית רק אם היינו בתחתית: גלילה בזמן קריאת הודעה ישנה
+     מאבדת את המקום בכל משיכה. */
+  var atBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 45;
+  var now = Date.now();
+  box.innerHTML = PortalChat.groupByDay(_shChat.msgs, now).map(function(g){
+    return '<div class="shDay">' + escapeHtml(g.label) + '</div>' + g.items.map(function(m){
+      var mine = (m.side === PortalChat.SHOP);
+      return '<div class="shMsg ' + (mine ? 'mine' : 'theirs') + '">' + escapeHtml(m.text)
+        + '<div class="shMeta">' + (mine ? ('אנחנו' + (m.by ? (' · ' + escapeHtml(m.by)) : '')) : escapeHtml(_shChat.name || 'הלקוח'))
+        + ' · ' + PortalChat.timeLabel(m.at) + '</div></div>';
+    }).join('');
+  }).join('');
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+/* ⚠️ חותמת-הצפייה של **הצד שלנו** בלבד: כתיבה לחותמת של הלקוח הייתה
+   מעלימה לו הודעות מהתג בלי שקרא אותן. */
+async function _shChatMarkSeen(){
+  var last = PortalChat.lastMessage(_shChat.msgs);
+  if (!last || Number(last.at) <= _shChat.seen) return;
+  var at = Number(last.at);
+  _shChat.seen = at; _shUnread[_shChat.slug] = 0;
+  try {
+    await fetch(await _au(`${_FBURL}/${PortalChat.seenPath(_shChat.slug, PortalChat.SHOP)}.json`),
+      { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(at) });
+  } catch(e){ console.warn('סימון-צפייה בשיחה נכשל (לא חיוני)', e); }
+}
+async function _shChatSend(){
+  var ta = document.getElementById('shChatInput'); if (!ta || !_shChat.slug) return;
+  var v = PortalChat.validate(ta.value);
+  if (!v.ok){ alert('⚠️ ' + v.message); return; }
+  if (_shChat.sending) return;
+  _shChat.sending = true;
+  var btn = document.getElementById('shChatSend'), was = btn ? btn.textContent : '';
+  if (btn){ btn.disabled = true; btn.textContent = 'שולח…'; }
+  var at = Date.now();
+  try {
+    var r = await fetch(await _au(_shChatNode(_shChat.slug) + '/' + PortalChat.msgId(at) + '.json'),
+      { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(PortalChat.build({ side: PortalChat.SHOP, text: v.text,
+                                                by: 'בית-הדפוס', at: at })) });
+    /* ⚠️ ‏Firebase מחזיר 401/403 כתגובת-HTTP תקינה ולא כחריגה — בלי
+       הבדיקה הזו כל שליחה "מצליחה" והטקסט נמחק מהתיבה. */
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    ta.value = '';
+    await _shChatLoad();
+  } catch(e){
+    /* ⚠️ הטקסט **נשאר** בתיבה. "כתבתי ולא ענו" מתוך הודעה שלא יצאה הוא
+       הנזק הגרוע ביותר שערוץ-תקשורת יכול לעשות. */
+    alert('ההודעה לא נשלחה (' + ((e && e.message) || e) + ').\nההודעה נשארה בתיבה — נסו שוב.');
+    console.error('שליחת הודעה נכשלה', e);
+  } finally {
+    _shChat.sending = false;
+    if (btn){ btn.disabled = false; btn.textContent = was || 'שלח'; }
+  }
+}
+/* פותח שיחה ללקוח הנבחר. ⚠️ מאפס טיימר קודם: שני טיימרים על אותה תיבה
+   מכפילים משיכות ומייצרים הבהוב. */
+function _shChatOpen(customer){
+  if (_shChat.timer){ clearInterval(_shChat.timer); _shChat.timer = null; }
+  _shChat.slug = customer ? _slug(customer) : '';
+  _shChat.name = customer || '';
+  _shChat.msgs = []; _shChat.seen = 0;
+  if (!_shChat.slug) return;
+  var b = document.getElementById('shChatSend'); if (b) b.onclick = _shChatSend;
+  var ta = document.getElementById('shChatInput');
+  if (ta) ta.onkeydown = function(e){
+    if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); _shChatSend(); }
+  };
+  _shChatLoad(true);
+  _shChat.timer = setInterval(_shChatLoad, PortalChat.POLL_MS);
+}
+
+/* ⚠️ חזרה מהרקע מושכת מיד: המתנה של עד POLL_MS אחרי מעבר-לשונית
+   נראית כמו שיחה שאינה מתעדכנת. */
+document.addEventListener('visibilitychange', function(){
+  if (!document.hidden && _shChat.slug) _shChatLoad(true);
+});
+
+/* ── תג "יש הודעה חדשה" לכל לקוח ברשימה ───────────────────────────────────
+   ⚠️ נמשך פעם אחת לכל רענון-רשימה, ולא פר-לקוח: קריאה לכל לקוח בנפרד
+   הייתה מכפילה את התעבורה במספר הלקוחות. */
+async function _shChatUnreadScan(){
+  if (document.hidden) return;
+  var all = null;
+  try { all = await (await fetch(await _au(`${_FBURL}/portalChat.json`))).json(); }
+  catch(e){ return; }                       /* אין תג — אבל גם אין רעש */
+  var next = {};
+  Object.keys(all || {}).forEach(function(slug){
+    var node = all[slug] || {};
+    var seen = Number((node._seen && node._seen.shop) || 0);
+    var n = PortalChat.unread(PortalChat.list(node), PortalChat.SHOP, seen);
+    if (n) next[slug] = n;
+  });
+  _shUnread = next;
+  _shChatPaintDots();
+}
+function _shChatPaintDots(){
+  document.querySelectorAll('.pvCust[data-cust]').forEach(function(el){
+    var n = _shUnread[_slug(el.dataset.cust || '')] || 0;
+    var old = el.querySelector('.chatDot');
+    if (old) old.remove();
+    if (!n) return;
+    var top = el.querySelector('.pvcTop');
+    if (!top) return;
+    var sp = document.createElement('span');
+    sp.className = 'chatDot'; sp.textContent = '💬 ' + n;
+    sp.title = 'הודעות שטרם נקראו מהלקוח';
+    top.appendChild(sp);
+  });
+}
+
+/* ── חיווט אחרי כל רינדור ─────────────────────────────────────────────────
+   ⚠️ נקרא מתוך render, כי ה-innerHTML נבנה מחדש בכל רענון-אוטומטי
+   וכל המטפלים נמחקים איתו. */
+function _pvWire(){
+  document.querySelectorAll('[data-pvtab]').forEach(function(b){
+    b.onclick = function(){ _pvTab = b.dataset.pvtab; render(_allRows); };
+  });
+  var rl = document.getElementById('pvReload');
+  if (rl) rl.onclick = function(){
+    var f = document.getElementById('pvFrame');
+    /* ⚠️ הצבה-מחדש של src ולא reload(): ‏contentWindow.location חסום
+       בחלק מהדפדפנים גם באותו origin כשהמסגרת עוד נטענת. */
+    if (f) f.src = f.src;
+  };
+  _shChatOpen((_selCust && _selCust !== '__today__') ? _selCust : '');
+  /* ⚠️ סריקה ראשונה בטעינה: בלעדיה התגים מופיעים רק אחרי הרענון הבא,
+     והמסך נראה כאילו אין הודעות חדשות בכלל. */
+  if (!_shChatUnreadScan._ran){
+    _shChatUnreadScan._ran = 1;
+    _shChatUnreadScan().catch(function(e){ console.warn('סריקת-שיחות ראשונה נכשלה', e); });
+  }
+  _shChatPaintDots();
+}
+
 async function portalLink(customer){
   const slug = _slug(customer); if (!slug){ alert('שם לקוח חסר'); return; }
   msg('מכין קישור פורטל…');
