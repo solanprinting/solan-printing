@@ -33,17 +33,17 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786448082"></script>
+<script src="portal-chat.js?v=1786458398"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786448082"></script>
-<script src="auth-client.js?v=1786448082"></script>
+<script src="firebase-auth.bundle.js?v=1786458398"></script>
+<script src="auth-client.js?v=1786458398"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786448082" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786458398" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -363,20 +363,6 @@ window.addEventListener('appinstalled', function(){
   .pvChip.on { background:var(--press,#2d3561); color:#fff; border-color:var(--press,#2d3561); }
   .pvChip .c { opacity:.7; font-weight:700; }
   /* ── מרכז: מה שהלקוח רואה, ולשונית-פעולות לידו ── */
-  .pvTabs { display:flex; gap:7px; align-items:center; padding:12px 15px 11px;
-            border-bottom:1px solid #f0f0f0; }
-  /* כפתורים בסגנון ‎.btn-v‎ של הפורטל: גלולה רכה, בלי מסגרת קשיחה */
-  .pvTab { padding:8px 15px; border-radius:9px; border:0; background:#eef2ff;
-           color:var(--press,#2d3561); font-family:inherit; font-weight:800; font-size:.85rem;
-           cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:5px; }
-  .pvTab:hover { background:#e0e7ff; }
-  .pvTab.on { background:var(--press,#2d3561); color:#fff; }
-  .pvPane { display:none; }
-  .pvPane.on { display:block; }
-  /* ⚠️ המסגרת מקבלת גובה מפורש: iframe בלי גובה מתמוטט ל-150px
-     ומראה פס-גלילה זעיר במקום את הפורטל. */
-  #pvFrame { width:100%; height:74vh; border:0; display:block; background:#fff; }
-  .pvFrameNote { padding:9px 12px; font-size:.8rem; color:#6b7280; background:#fff; }
   /* ── שמאל: שיחה ── */
   /* ⚠️ שיחה + כרטיסים-פעילים באותה עמודה: פאנל-הכרטיסים היה כאן לפני
      השינוי, והסרתו הייתה גורעת יכולת שאיש לא ביקש לגרוע. */
@@ -404,7 +390,7 @@ window.addEventListener('appinstalled', function(){
   .shSend button:disabled { opacity:.45; cursor:default; }
   .chatDot { background:#dc2626; color:#fff; border-radius:9px; padding:0 6px;
              font-size:.7rem; font-weight:800; }
-  @media (max-width: 1200px){ .pvBody2 { grid-template-columns:1fr; } #pvFrame { height:60vh; } }
+  @media (max-width: 1200px){ .pvBody2 { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
@@ -610,10 +596,6 @@ let _dayCollapsed = {};       // day → true אם קבוצת-היום מקוו�
    ⚠️ מוקם מאחורי דגל ולא מחליף את המסך הקיים: ?ui=portal מפעיל, ?ui=classic
    מכבה, והבחירה נזכרת. כך אפשר לחזור אחורה בלחיצה אחת אם משהו מפריע בעבודה. */
 let _pvDay = null;            // היום שנבחר בניווט (null = היום הנוכחי)
-/* איזו לשונית פתוחה במרכז: תצוגת-הלקוח (ברירת-מחדל) או פעולות-הדפוס.
-   ⚠️ ברירת-המחדל היא **מה שהלקוח רואה** — זו הייתה הבקשה; הפעולות
-   נשארות במרחק לחיצה אחת ולא נעלמות. */
-let _pvTab = 'portal';
 const _uiPortal = (function(){
   try{
     const q = new URLSearchParams(location.search).get('ui');
@@ -1372,16 +1354,6 @@ function render(rows) {
         ${d===_today?'📌 ':''}${escapeHtml(lbl)} <span class="c">${n}</span>${nw?`<span class="newDot">🆕${nw}</span>`:''}</button>`;
     }).join('');
     const _selName = (_selCust && _selCust !== '__today__') ? _selCust : '';
-    /* ⚠️ **התצוגה המוטמעת היא הפורטל האמיתי של הלקוח** ולא העתק שלו:
-       ‎customer-portal.html?view=shop‎. כך "כמו שמוצג ללקוחות" נשאר נכון
-       גם אחרי כל שינוי עתידי בפורטל, בלי שאיש יזכור לעדכן שני מסכים.
-       ⚠️ **בלי טוקן-לקוח בכתובת.** ‏PortalContext שומר refresh-token של
-       הלקוח תחת מפתח יחיד ב-localStorage; טעינה עם טוקן הייתה כותבת סשן
-       של לקוח לדפדפן של בית-הדפוס, ולחיצה על לקוח אחר הייתה דורסת אותו.
-       במצב-מראה הזהות היא של העובד, ומגיעה ב-postMessage. */
-    const frameSrc = _selName
-      ? ('customer-portal.html?view=shop&cust=' + encodeURIComponent(_selName))
-      : '';
     portalHtml = `<div class="pvWrap">
       <div class="pvDays">
         <b style="font-size:.9rem;color:#2d3561">📁 לקוחות ועבודות</b>
@@ -1398,20 +1370,7 @@ function render(rows) {
           ${listHtml}
           <div id="custNoHit" style="display:none;padding:12px;color:#9ca3af;font-size:.85rem">אין לקוח מתאים</div>
         </aside>
-        <section class="mdMain">
-          <div class="pvTabs">
-            <button class="pvTab${_pvTab==='portal'?' on':''}" data-pvtab="portal">👁 מה הלקוח רואה</button>
-            <button class="pvTab${_pvTab==='ops'?' on':''}" data-pvtab="ops">🛠 פעולות הדפוס</button>
-            <span class="pvSpacer"></span>
-            ${_selName?`<button class="pvTab" id="pvReload" title="רענן את תצוגת-הלקוח">↻</button>`:''}
-          </div>
-          <div class="pvPane${_pvTab==='portal'?' on':''}" id="pvPortal">
-            ${frameSrc
-              ? `<iframe id="pvFrame" src="${escapeHtml(frameSrc)}" title="הפורטל של ${escapeHtml(_selName)}"></iframe>`
-              : '<div class="pvFrameNote">בחרו לקוח מהרשימה כדי לראות בדיוק מה שהוא רואה בפורטל שלו.</div>'}
-          </div>
-          <div class="pvPane${_pvTab==='ops'?' on':''}" id="pvOps" style="padding:12px">${detail}</div>
-        </section>
+        <section class="mdMain" style="padding:12px">${detail}</section>
         <div class="pvLeftCol">
         <aside class="shChat">
           <div class="shChatHd">💬 <span>${_selName?('שיחה עם '+escapeHtml(_selName)):'שיחה'}</span></div>
@@ -1746,22 +1705,6 @@ async function renameCustomer(oldName){
    בקשת-בעלים 11/08/2026. שלושת החלקים כאן קטנים בנפרד, ומשמעותיים יחד:
    הדפוס רואה בדיוק מה שהלקוח רואה, ויכול לדבר איתו בלי לעבור לטלפון. */
 
-/* ── אסימון למסגרת המוטמעת ────────────────────────────────────────────────
-   ⚠️ **זה אסימון של העובד, ולעולם לא של הלקוח.** ‏PortalContext שומר
-   refresh-token של לקוח תחת מפתח יחיד ב-localStorage, ולכן טעינת הפורטל
-   עם טוקן-לקוח הייתה כותבת סשן-לקוח לדפדפן של בית-הדפוס — ולחיצה על
-   לקוח אחר הייתה דורסת אותו. ‏proof-client שהיה נפתח אחר-כך היה משחזר
-   את הזהות של הלקוח האחרון שנצפה. כאן: אסימון-העובד, בדפדפן-העובד. */
-window.addEventListener('message', async function(e){
-  /* ⚠️ origin זר נדחה לפני שנוגעים בתוכן. */
-  if (e.origin !== location.origin) return;
-  if (!e.data || e.data.type !== 'solanShopTokenPlease') return;
-  let t = null;
-  try { t = await _fbAuthToken(); } catch(err){ console.warn('אסימון למסגרת נכשל', err); }
-  if (!t || !e.source) return;
-  try { e.source.postMessage({ type:'solanShopToken', token: t }, location.origin); } catch(err){}
-});
-
 /* ── שיחה ─────────────────────────────────────────────────────────────────
    ⚠️ מושכים כל ‎POLL_MS‎ ורק כשהלשונית פעילה. אין חיבור-חי; ההפרש נמדד
    בשניות ולא ברענון-ידני, וזו הכוונה ב"יראו באותו הרגע". */
@@ -1923,16 +1866,6 @@ function _shChatPaintDots(){
    ⚠️ נקרא מתוך render, כי ה-innerHTML נבנה מחדש בכל רענון-אוטומטי
    וכל המטפלים נמחקים איתו. */
 function _pvWire(){
-  document.querySelectorAll('[data-pvtab]').forEach(function(b){
-    b.onclick = function(){ _pvTab = b.dataset.pvtab; render(_allRows); };
-  });
-  var rl = document.getElementById('pvReload');
-  if (rl) rl.onclick = function(){
-    var f = document.getElementById('pvFrame');
-    /* ⚠️ הצבה-מחדש של src ולא reload(): ‏contentWindow.location חסום
-       בחלק מהדפדפנים גם באותו origin כשהמסגרת עוד נטענת. */
-    if (f) f.src = f.src;
-  };
   _shChatOpen((_selCust && _selCust !== '__today__') ? _selCust : '');
   /* ⚠️ סריקה ראשונה בטעינה: בלעדיה התגים מופיעים רק אחרי הרענון הבא,
      והמסך נראה כאילו אין הודעות חדשות בכלל. */
