@@ -9,11 +9,11 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786444800"></script>
-<script src="page-add.js?v=1786444800"></script>
-<script src="portal-context.js?v=1786444800"></script>
-<script src="portal-return.js?v=1786444800"></script>
-<script src="portal-chat.js?v=1786444800"></script>
+<script src="portal-download.js?v=1786448082"></script>
+<script src="page-add.js?v=1786448082"></script>
+<script src="portal-context.js?v=1786448082"></script>
+<script src="portal-return.js?v=1786448082"></script>
+<script src="portal-chat.js?v=1786448082"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -817,13 +817,26 @@ function _chatNode(){ return `${_FBURL}/${PortalChat.chatPath(SLUG)}`; }
 async function loadChat(force){
   if (_shopView) return;
   if (document.hidden && !force) return;       /* לשונית ברקע — אין טעם */
-  var obj = null;
-  try { obj = await (await fetch(await _au(_chatNode() + '.json'))).json(); }
-  catch(e){ console.warn('טעינת השיחה נכשלה', e); return; }
+  var obj = null, st = 0;
+  try { var r = await fetch(await _au(_chatNode() + '.json')); st = r.status; obj = await r.json(); }
+  catch(e){ console.warn('טעינת השיחה נכשלה', e); _chatFail(0, null); return; }
+  /* ⚠️ **דחיית-הרשאה מגיעה כגוף-JSON תקין**, ולכן היא נראית כמו שיחה
+     ריקה אם לא בודקים. זו הייתה התקלה: הודעות לא הגיעו והמסך שתק. */
+  if (!(st >= 200 && st < 300) || PortalChat.denied(obj)){ _chatFail(st, obj); return; }
   _chatSeenAt = Number((obj && obj._seen && obj._seen.customer) || 0);
   _chatMsgs = PortalChat.list(obj);
   _chatRender();
   _chatMarkSeen();
+}
+/* מציג את הכשל במקום שבו השיחה אמורה להיות, ומשבית את השליחה — כפתור
+   שנראה פעיל ואינו שולח הוא גרוע מכפתור מושבת. */
+function _chatFail(status, body){
+  var box = $('chat-box');
+  if (box) box.innerHTML = '<div style="padding:9px;color:#b91c1c;font-size:.85rem;font-weight:700">⚠️ '
+    + esc(PortalChat.errorText(status, body)) + '</div>';
+  var b = $('chat-send'), ta = $('chat-input');
+  if (b) b.disabled = true;
+  if (ta) ta.placeholder = 'השיחה אינה זמינה כרגע';
 }
 function _chatRender(){
   var box = $('chat-box'); if (!box) return;
@@ -869,18 +882,22 @@ async function _chatSend(){
   if (btn){ btn.disabled = true; btn.textContent = 'שולח…'; }
   var at = Date.now();
   try {
-    await fbWrite(await _au(_chatNode() + '/' + PortalChat.msgId(at) + '.json'),
+    var rs = await fetch(await _au(_chatNode() + '/' + PortalChat.msgId(at) + '.json'),
       { method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(PortalChat.build({ side: PortalChat.CUSTOMER, text: v.text, by: CUST, at: at })) },
-      'chat:send');
+        body: JSON.stringify(PortalChat.build({ side: PortalChat.CUSTOMER, text: v.text, by: CUST, at: at })) });
+    /* ⚠️ ‏Firebase מחזיר 401/403 כתגובת-HTTP תקינה ולא כחריגה. */
+    if (!rs.ok) { var e2 = new Error(PortalChat.errorText(rs.status)); e2._st = rs.status; throw e2; }
     ta.value = '';
-    await loadChat();
+    await loadChat(true);
   } catch(e){
     /* ⚠️ כשל אינו נבלע: הטקסט **נשאר** בתיבה כדי שלא ייעלם, ונאמר במפורש
        שההודעה לא נשלחה. "שלחתי ולא ענו" מתוך הודעה שלא יצאה הוא הנזק
        הגרוע ביותר שערוץ-תקשורת יכול לעשות. */
-    toast('⚠️ ההודעה לא נשלחה — ההודעה נשארה בתיבה, נסו שוב');
+    /* ⚠️ ההודעה אומרת **למה**: "נסו שוב" על חסימת-הרשאות מזמין לנסות
+       עשר פעמים משהו שלא יעבוד עד שינוי-חוקים. */
+    toast('⚠️ ' + ((e && e.message) || 'ההודעה לא נשלחה') + ' — הטקסט נשאר בתיבה');
     console.error('שליחת הודעה נכשלה', e);
+    if (e && (e._st === 401 || e._st === 403)) _chatFail(e._st, null);
   } finally {
     _chatSending = false;
     if (btn){ btn.disabled = false; btn.textContent = was || 'שלח'; }

@@ -67,6 +67,25 @@
     return { side: side, text: str(o.text), by: str(o.by), at: num(o.at) };
   }
 
+  /* ⚠️ **‏RTDB מחזיר דחיית-הרשאה כגוף-JSON תקין**: ‎{"error":"Permission
+     denied"}‎ עם קוד 401. ‏list() על גוף כזה מחזיר מערך ריק, והמסך אומר
+     "אין עדיין הודעות" — כלומר חוק שחוסם נראה **בדיוק** כמו שיחה ריקה.
+     זו הייתה התקלה שדווחה ב-11/08/2026: הודעות נשלחו ולא הגיעו, ובשני
+     הצדדים המסך היה שקט לגמרי. מכאן והלאה דחייה נאמרת בקול. */
+  function denied(body) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+    return typeof body.error === 'string' && body.error.length > 0;
+  }
+  /* הודעת-כשל אחידה לשני הצדדים. ⚠️ אומרת מה לעשות, לא רק מה קרה. */
+  function errorText(status, body) {
+    var s = num(status);
+    if (s === 401 || s === 403 || denied(body))
+      return 'השיחה חסומה בהרשאות השרת (קוד ' + (s || 401) + '). ההודעות אינן נשלחות ואינן מתקבלות עד שחוקי-הגישה יעודכנו.';
+    if (s >= 500) return 'השרת אינו זמין כרגע (קוד ' + s + '). נסו שוב בעוד רגע.';
+    if (s) return 'השיחה נכשלה (קוד ' + s + ').';
+    return 'אין חיבור לשרת — השיחה אינה מתעדכנת.';
+  }
+
   /* ⚠️ ‎_seen‎ יושב באותו צומת כמו ההודעות, ולכן הוא **חייב** להיות מסונן
      החוצה. בלעדי הסינון הוא היה מופיע כהודעה ריקה בראש השיחה. */
   function list(obj) {
@@ -156,6 +175,7 @@
     SHOP: SHOP, CUSTOMER: CUSTOMER, MAX_LEN: MAX_LEN, POLL_MS: POLL_MS, KEEP: KEEP,
     chatPath: chatPath, seenPath: seenPath, msgId: msgId,
     validate: validate, build: build, list: list,
+    denied: denied, errorText: errorText,
     unread: unread, lastMessage: lastMessage, preview: preview,
     timeLabel: timeLabel, dayLabel: dayLabel, groupByDay: groupByDay,
     noticeType: noticeType, asNotice: asNotice

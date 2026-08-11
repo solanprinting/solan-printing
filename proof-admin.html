@@ -33,17 +33,17 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786444800"></script>
+<script src="portal-chat.js?v=1786448082"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786444800"></script>
-<script src="auth-client.js?v=1786444800"></script>
+<script src="firebase-auth.bundle.js?v=1786448082"></script>
+<script src="auth-client.js?v=1786448082"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786444800" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786448082" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -104,7 +104,12 @@ window.addEventListener('appinstalled', function(){
   .psDone { background:#f0fdf4; border:1.5px solid #86efac; color:#166534; }
   .psOk { background:#16a34a !important; color:#fff !important; }
   .psNo { background:#b91c1c !important; color:#fff !important; }
-  .custFilterWrap { padding:7px 8px; border-bottom:1px solid var(--line); background:#faf8f2; }
+  /* ⚠️ במבנה-הפורטל תיבת-החיפוש יושבת בתוך כרטיס, ולכן בלי רקע-אפור
+     וקו-מפריד — הם מה שגרם לסרגל להיראות כטבלה ולא ככרטיס. */
+  .custFilterWrap { padding:0 13px 10px; }
+  .pvSide .custFilterWrap input { width:100%; padding:9px 12px; border:1.5px solid var(--line);
+     border-radius:10px; font-family:inherit; font-size:.86rem; background:#f8f9fc; }
+  .pvSide .custFilterWrap input:focus { outline:none; border-color:var(--gold); background:#fff; }
   .custFilterWrap input { width:100%; box-sizing:border-box; padding:6px 9px; font-family:inherit; font-size:.85rem;
     border:1.5px solid #cbd5e1; border-radius:8px; }
   .custFilterWrap input:focus { outline:none; border-color:#2d3561; }
@@ -152,8 +157,9 @@ window.addEventListener('appinstalled', function(){
   tr.pbMuted td { opacity:.62; }
   /* ── מבנה-פורטל: ימי-השבוע כניווט ראשי ─────────────────────────────── */
   .pvWrap { display:flex; flex-direction:column; gap:0; }
-  .pvDays { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:9px 12px;
-            background:#faf8f2; border:1px solid var(--line); border-radius:12px 12px 0 0; }
+  .pvDays { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:12px 16px;
+            background:#fff; border:1px solid var(--line); border-radius:14px;
+            box-shadow:0 2px 10px rgba(0,0,0,.05); margin-bottom:14px; }
   .pvSpacer { flex:1; }
   .pvDay { display:inline-flex; align-items:center; gap:5px; padding:7px 13px; border-radius:9px;
            border:1.5px solid var(--line); background:#fff; color:#2d3561; font-family:inherit;
@@ -167,16 +173,20 @@ window.addEventListener('appinstalled', function(){
               color:#6b7280; font-family:inherit; font-size:.78rem; cursor:pointer; }
   .pvBody { display:grid; grid-template-columns:290px 1fr 220px; align-items:start;
             border:1px solid var(--line); border-top:none; border-radius:0 0 12px 12px; overflow:hidden; }
-  .pvSide { border-inline-end:1px solid var(--line); background:#fff; max-height:72vh; overflow:auto; }
-  .pvSideTitle { padding:8px 13px; font-weight:800; color:#6b7280; font-size:.82rem;
-                 background:#faf8f2; border-bottom:1px solid var(--line); }
+  .pvSide { background:#fff; max-height:76vh; overflow:auto; padding-bottom:8px; }
+  .pvSideTitle { padding:4px 15px 8px; font-weight:800; color:#9ca3af; font-size:.78rem; }
   /* כרטיס-לקוח: מצב העבודה נקרא בלי להיכנס פנימה.
      ⚠️ display:block הכרחי — הכרטיס נושא גם את המחלקה .custItem (בשביל החיפוש
      והקליק המשותפים), ו-.custItem מגדירה display:flex. בלי הדריסה הזו שלוש
      שורות-הכרטיס נפרסות זו לצד זו ונצבטות בעמודה של 290px. */
-  .pvCust { display:block; padding:10px 13px; border-bottom:1px solid #eee; cursor:pointer; transition:background .12s; }
-  .pvCust:hover { background:#faf8f2; }
-  .pvCust.on { background:var(--press,#2d3561); color:#fff; }
+  /* ⚠️ כרטיס-לקוח ולא שורת-טבלה: מרווח + פינות + הרמה בריחוף — אותה
+     תחושה של שורות-הגיליונות בפורטל, במקום רשימה צפופה עם קווים. */
+  .pvCust { display:block; margin:0 10px 7px; padding:11px 13px; border:1px solid var(--line);
+            border-radius:12px; cursor:pointer; background:#fff;
+            transition:background .12s, box-shadow .12s, transform .12s; }
+  .pvCust:hover { background:#fffdf6; border-color:var(--gold); box-shadow:0 2px 8px rgba(45,53,97,.08); }
+  .pvCust.on { background:var(--press,#2d3561); color:#fff; border-color:var(--press,#2d3561);
+               box-shadow:0 3px 12px rgba(45,53,97,.25); }
   .pvCust.on .pvcFoot, .pvCust.on .pvcAct { color:rgba(255,255,255,.75); }
   .pvCust.hasNew { border-inline-start:4px solid #dc2626; }
   .pvcTop { display:flex; justify-content:space-between; align-items:center; gap:6px; }
@@ -332,23 +342,35 @@ window.addEventListener('appinstalled', function(){
      לקוח הוא יוצג לדפוס כמו שמוצג ללקוחות; ובצד שמאל צ׳אט."
      ⚠️ הימים ירדו מרצועה-עליונה לתוך סרגל-הצד: הרצועה תפסה שורה שלמה
      ודחפה את התוכן למטה, והבחירה נעשית פעם ביום. */
-  .pvBody2 { display:grid; grid-template-columns:280px minmax(0,1fr) 320px; align-items:stretch;
-             border:1px solid var(--line); border-radius:12px; overflow:hidden; min-height:74vh; }
-  .pvDayChips { display:flex; flex-wrap:wrap; gap:4px; padding:8px 10px;
-                background:#faf8f2; border-bottom:1px solid var(--line); }
-  .pvChip { padding:4px 9px; border-radius:8px; border:1.5px solid var(--line); background:#fff;
+  /* ⚠️ **שפת-העיצוב של פורטל הלקוחות (בקשת-בעלים 11/08/2026):** "אני רוצה
+     שהמסך שלי יהיה מעוצב בסגנון של הפורטל של הלקוחות." הצבעים והכותרת
+     כבר היו משותפים; מה שנראה זר היה אזור-העבודה — רשת אחת עם מסגרות
+     קשיחות וקווים פנימיים. כאן הוא הופך לשלושה **כרטיסים** מרווחים,
+     באותם רדיוס-14, צל-רך וכותרות-אמוג׳י כמו ‎.card‎ בפורטל. */
+  .pvBody2 { display:grid; grid-template-columns:282px minmax(0,1fr) 330px; align-items:start;
+             gap:14px; min-height:74vh; }
+  .pvBody2 > .pvSide, .pvBody2 > .mdMain, .pvBody2 > .pvLeftCol {
+    background:#fff; border:1px solid var(--line); border-radius:14px;
+    box-shadow:0 2px 10px rgba(0,0,0,.05); overflow:hidden; padding:0; }
+  /* כותרת-מקטע בסגנון ‎.card h2‎ של הפורטל */
+  .pvH { font-size:.95rem; font-weight:900; color:var(--press); margin:0;
+         padding:13px 15px 9px; display:flex; align-items:center; gap:8px; }
+  .pvDayChips { display:flex; flex-wrap:wrap; gap:5px; padding:0 13px 11px; }
+  .pvChip { padding:5px 11px; border-radius:999px; border:1px solid var(--line); background:#f8f9fc;
             color:#2d3561; font-family:inherit; font-weight:800; font-size:.76rem; cursor:pointer; }
-  .pvChip:hover { background:#f3f4f8; }
+  .pvChip:hover { background:#fffdf6; border-color:var(--gold); }
   .pvChip.isToday { border-color:var(--gold,#d4af37); }
   .pvChip.on { background:var(--press,#2d3561); color:#fff; border-color:var(--press,#2d3561); }
   .pvChip .c { opacity:.7; font-weight:700; }
   /* ── מרכז: מה שהלקוח רואה, ולשונית-פעולות לידו ── */
-  .pvTabs { display:flex; gap:6px; align-items:center; padding:7px 10px;
-            background:#faf8f2; border-bottom:1px solid var(--line); }
-  .pvTab { padding:6px 13px; border-radius:8px; border:1.5px solid var(--line); background:#fff;
-           color:#2d3561; font-family:inherit; font-weight:800; font-size:.83rem; cursor:pointer;
-           text-decoration:none; display:inline-block; }
-  .pvTab.on { background:var(--press,#2d3561); color:#fff; border-color:var(--press,#2d3561); }
+  .pvTabs { display:flex; gap:7px; align-items:center; padding:12px 15px 11px;
+            border-bottom:1px solid #f0f0f0; }
+  /* כפתורים בסגנון ‎.btn-v‎ של הפורטל: גלולה רכה, בלי מסגרת קשיחה */
+  .pvTab { padding:8px 15px; border-radius:9px; border:0; background:#eef2ff;
+           color:var(--press,#2d3561); font-family:inherit; font-weight:800; font-size:.85rem;
+           cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:5px; }
+  .pvTab:hover { background:#e0e7ff; }
+  .pvTab.on { background:var(--press,#2d3561); color:#fff; }
   .pvPane { display:none; }
   .pvPane.on { display:block; }
   /* ⚠️ המסגרת מקבלת גובה מפורש: iframe בלי גובה מתמוטט ל-150px
@@ -358,15 +380,14 @@ window.addEventListener('appinstalled', function(){
   /* ── שמאל: שיחה ── */
   /* ⚠️ שיחה + כרטיסים-פעילים באותה עמודה: פאנל-הכרטיסים היה כאן לפני
      השינוי, והסרתו הייתה גורעת יכולת שאיש לא ביקש לגרוע. */
-  .pvLeftCol { display:flex; flex-direction:column; min-height:0;
-               border-inline-start:1px solid var(--line); background:#fff; }
-  .pvLeftCol .mdCards { border:0; border-top:1px solid var(--line); border-radius:0; }
+  .pvLeftCol { display:flex; flex-direction:column; min-height:0; background:#fff; }
+  .pvLeftCol .mdCards { border:0; border-top:1px solid #f0f0f0; border-radius:0; box-shadow:none; }
   .shChat { display:flex; flex-direction:column; flex:1; background:#fff; min-height:0; }
-  .shChatHd { padding:8px 12px; font-weight:800; font-size:.85rem; color:#2d3561;
-              background:#faf8f2; border-bottom:1px solid var(--line);
-              display:flex; align-items:center; gap:7px; }
-  .shChatBox { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:7px;
-               background:#f8f9fc; max-height:52vh; }
+  .shChatHd { padding:13px 15px 10px; font-weight:900; font-size:.95rem; color:var(--press,#2d3561);
+              display:flex; align-items:center; gap:8px; }
+  .shChatBox { flex:1; overflow-y:auto; padding:11px; display:flex; flex-direction:column; gap:7px;
+               background:#f8f9fc; border-top:1px solid #f0f0f0;
+               border-bottom:1px solid #f0f0f0; max-height:52vh; }
   .shDay { align-self:center; font-size:.7rem; color:#9ca3af; font-weight:800; margin:4px 0 1px; }
   .shMsg { max-width:88%; padding:7px 10px; border-radius:12px; font-size:.85rem; line-height:1.45;
            white-space:pre-wrap; word-break:break-word; }
@@ -375,11 +396,12 @@ window.addEventListener('appinstalled', function(){
   .shMsg.theirs { align-self:flex-start; background:#fff; border:1px solid #e5e7eb; }
   .shMsg.mine { align-self:flex-end; background:#e0e7ff; border:1px solid #c7d2fe; }
   .shMeta { font-size:.66rem; color:#9ca3af; margin-top:2px; }
-  .shSend { padding:9px; border-top:1px solid var(--line); display:flex; gap:7px; align-items:flex-end; }
-  .shSend textarea { flex:1; padding:8px 10px; border:1.5px solid var(--line); border-radius:9px;
-                     font-family:inherit; font-size:.87rem; resize:vertical; min-height:44px; }
-  .shSend button { padding:9px 15px; border:0; border-radius:9px; background:var(--press,#2d3561);
+  .shSend { padding:11px; display:flex; gap:8px; align-items:flex-end; }
+  .shSend textarea { flex:1; padding:9px 11px; border:1.5px solid var(--line); border-radius:10px;
+                     font-family:inherit; font-size:.87rem; resize:vertical; min-height:46px; }
+  .shSend button { padding:10px 17px; border:0; border-radius:9px; background:var(--press,#2d3561);
                    color:#fff; font-family:inherit; font-weight:800; cursor:pointer; }
+  .shSend button:disabled { opacity:.45; cursor:default; }
   .chatDot { background:#dc2626; color:#fff; border-radius:9px; padding:0 6px;
              font-size:.7rem; font-weight:800; }
   @media (max-width: 1200px){ .pvBody2 { grid-template-columns:1fr; } #pvFrame { height:60vh; } }
@@ -1369,13 +1391,14 @@ function render(rows) {
       </div>
       <div class="pvBody2">
         <aside class="pvSide">
+          <h2 class="pvH">📁 הלקוחות שלי</h2>
           <div class="custFilterWrap"><input id="custFilter" type="search" placeholder="🔍 חיפוש לקוח…" autocomplete="off"></div>
           <div class="pvDayChips">${dayChips}</div>
           <div class="pvSideTitle">${day==='__none__'?'ללא יום קבוע':day} · ${list.length} לקוחות</div>
           ${listHtml}
           <div id="custNoHit" style="display:none;padding:12px;color:#9ca3af;font-size:.85rem">אין לקוח מתאים</div>
         </aside>
-        <section class="mdMain" style="border:0;border-radius:0;padding:0">
+        <section class="mdMain">
           <div class="pvTabs">
             <button class="pvTab${_pvTab==='portal'?' on':''}" data-pvtab="portal">👁 מה הלקוח רואה</button>
             <button class="pvTab${_pvTab==='ops'?' on':''}" data-pvtab="ops">🛠 פעולות הדפוס</button>
@@ -1754,13 +1777,27 @@ function _shChatNode(slug){ return `${_FBURL}/${PortalChat.chatPath(slug)}`; }
 async function _shChatLoad(force){
   if (!_shChat.slug) return;
   if (document.hidden && !force) return;
-  var obj = null;
-  try { obj = await (await fetch(await _au(_shChatNode(_shChat.slug) + '.json'))).json(); }
-  catch(e){ console.warn('טעינת השיחה נכשלה', e); return; }
+  var obj = null, st = 0;
+  try { var r = await fetch(await _au(_shChatNode(_shChat.slug) + '.json')); st = r.status; obj = await r.json(); }
+  catch(e){ console.warn('טעינת השיחה נכשלה', e); _shChatFail(0, null); return; }
+  /* ⚠️ **דחיית-הרשאה מגיעה כגוף-JSON תקין** ‎{"error":"Permission denied"}‎,
+     ולכן בלי הבדיקה הזו היא נראית בדיוק כמו שיחה ריקה — וזו הייתה
+     התקלה שדווחה: הודעות לא הגיעו, ובשני הצדדים המסך שתק. */
+  if (!(st >= 200 && st < 300) || PortalChat.denied(obj)){ _shChatFail(st, obj); return; }
   _shChat.seen = Number((obj && obj._seen && obj._seen.shop) || 0);
   _shChat.msgs = PortalChat.list(obj);
   _shChatRender();
   _shChatMarkSeen();
+}
+/* מציג את הכשל במקום שבו השיחה אמורה להיות, ומשבית את השליחה — כפתור
+   שנראה פעיל ואינו שולח גרוע מכפתור מושבת. */
+function _shChatFail(status, body){
+  var box = document.getElementById('shChatBox');
+  if (box) box.innerHTML = '<div style="padding:9px;color:#b91c1c;font-size:.84rem;font-weight:700">⚠️ '
+    + escapeHtml(PortalChat.errorText(status, body)) + '</div>';
+  var b = document.getElementById('shChatSend'), ta = document.getElementById('shChatInput');
+  if (b) b.disabled = true;
+  if (ta) ta.placeholder = 'השיחה אינה זמינה כרגע';
 }
 function _shChatRender(){
   var box = document.getElementById('shChatBox'); if (!box) return;
@@ -1810,14 +1847,17 @@ async function _shChatSend(){
                                                 by: 'בית-הדפוס', at: at })) });
     /* ⚠️ ‏Firebase מחזיר 401/403 כתגובת-HTTP תקינה ולא כחריגה — בלי
        הבדיקה הזו כל שליחה "מצליחה" והטקסט נמחק מהתיבה. */
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) { var e2 = new Error(PortalChat.errorText(r.status)); e2._st = r.status; throw e2; }
     ta.value = '';
-    await _shChatLoad();
+    await _shChatLoad(true);
   } catch(e){
     /* ⚠️ הטקסט **נשאר** בתיבה. "כתבתי ולא ענו" מתוך הודעה שלא יצאה הוא
-       הנזק הגרוע ביותר שערוץ-תקשורת יכול לעשות. */
-    alert('ההודעה לא נשלחה (' + ((e && e.message) || e) + ').\nההודעה נשארה בתיבה — נסו שוב.');
+       הנזק הגרוע ביותר שערוץ-תקשורת יכול לעשות.
+       ⚠️ וההודעה אומרת **למה**: "נסו שוב" על חסימת-הרשאות מזמין לנסות
+       עשר פעמים משהו שלא יעבוד עד שינוי-חוקים. */
+    alert('⚠️ ' + ((e && e.message) || 'ההודעה לא נשלחה'));
     console.error('שליחת הודעה נכשלה', e);
+    if (e && (e._st === 401 || e._st === 403)) _shChatFail(e._st, null);
   } finally {
     _shChat.sending = false;
     if (btn){ btn.disabled = false; btn.textContent = was || 'שלח'; }
