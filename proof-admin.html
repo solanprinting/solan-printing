@@ -32,16 +32,17 @@ window.addEventListener('appinstalled', function(){
 <script src="portal-batch.js"></script>
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
+<script src="page-replace.js"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786371300"></script>
-<script src="auth-client.js?v=1786371300"></script>
+<script src="firebase-auth.bundle.js?v=1786440386"></script>
+<script src="auth-client.js?v=1786440386"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786371300" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786440386" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -704,14 +705,20 @@ function _rowsSig(rows){
     /* shopSeenAt/pendingPages נכללים כי הם מזינים את חיווי "🆕 חדש", את פס-הסטטוס
        ואת תג העמודים-החסרים. בלעדיהם קדם-הדפוס מסמן "ראיתי" במכשיר אחד והמסך
        השני ממשיך להראות אדום עד רענון ידני. */
+    /* ⚠️ ‏version/correctedAt של **ריצה** נכללים (10/08/2026): בלעדיהם
+       החלפת-עמוד בריצה לא משנה את החתימה, השורה אינה מצוירת מחדש,
+       ותג "עבר תיקון" אינו מופיע עד רענון ידני — כלומר תיקון שהגיע
+       בשקט, בדיוק מה שהמנגנון בא למנוע. */
     var parts = p.parts ? Object.keys(p.parts).map(function(k){ var t=p.parts[k];
-      return k+':'+(t.approvedAt||0)+':'+(t.fileUrl?1:0)+':'+(t.shopSeenAt||0)+':'+((t.pendingPages||[]).join('.')); }).sort().join(',') : '';
+      return k+':'+(t.approvedAt||0)+':'+(t.fileUrl?1:0)+':'+(t.shopSeenAt||0)+':'+((t.pendingPages||[]).join('.'))
+             +':'+(t.version||1)+':'+(t.correctedAt||0)+':'+(t.correctionSeenAt||0); }).sort().join(',') : '';
     var files = p.files ? Object.keys(p.files).sort().join(',') : '';
     // בקשות החלפת-עמודים בחתימה — אחרת בקשה חדשה מלקוח לא מופיעה עד רענון ידני
     var crs = p.changeRequests ? Object.keys(p.changeRequests).map(function(k){
       var r = p.changeRequests[k]; return k + ':' + (r && r.status) + ':' + ((r && r.decidedAt) || 0);
     }).sort().join(',') : '';
     return [p.id, p.updatedAt||0, p.approvedAt||0, p.apogeeApprovedAt||0, p.version||1,
+            p.correctedAt||0, p.correctionSeenAt||0,
             p.shopSeenAt||0, p.completedAt||0, p.closedAt||0, (p.pendingPages||[]).join('.'),
             p.readyNotice?1:0, parts, files, crs].join('|');
   }).sort().join(';'); }catch(e){ return String(Math.random()); }
@@ -797,6 +804,20 @@ function render(rows) {
     return '';
   };
   const psReqOf = (p, target) => ((p && p.changeRequests) || {})[target] || null;
+  /* ⚠️ **תג "עבר תיקון" (10/08/2026).** כשהלקוח מחליף עמוד לפי דרישה,
+     הגרסה הקודמת עוברת לארכיון והיחידה מצביעה על החדשה. בלי תג גלוי
+     התיקון מגיע בשקט — וקדם-הדפוס ממשיך עם הקובץ שכבר הוריד. */
+  const prTag = (unit) => {
+    const s2 = window.PageReplace ? PageReplace.correctedTag(unit) : '';
+    if (!s2) return '';
+    const open = s2.indexOf('להוריד מחדש') >= 0;
+    const st = open ? 'background:#fee2e2;color:#b91c1c;border:1.5px solid #fca5a5'
+                    : 'background:#dcfce7;color:#166534;border:1.5px solid #86efac';
+    const hist = window.PageReplace ? PageReplace.versionsOf(unit) : [];
+    const ttl = 'הלקוח החליף עמודים לפי דרישת בית-הדפוס. הגרסה הקודמת סומנה "עבר תיקון" והוסרה — היא אינה להדפסה.'
+      + (hist.length ? (' · ' + hist.map(v => 'גרסה ' + v.version + ' הוחלפה ' + fmt(v.supersededAt)).join(' · ')) : '');
+    return `<span class="psTag" style="${st}" title="${escapeHtml(ttl)}">${escapeHtml(s2)}</span>`;
+  };
   // עדכון-לקוח-שמוכן: תג "עודכן" אם כבר הודענו, או כפתור לעדכן עבודה שכבר הושלמה
   /* ✏️ עריכת פרטי הגיליון בבית-הדפוס: שם-לקוח, שם-עבודה וגודל-עמוד.
      בקשת-בעלים (2026-07-30): "עדיף שאני אערוך את הפרטים של הלקוח ואיזה גודל
@@ -873,7 +894,7 @@ function render(rows) {
           <a href="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}" target="_blank">👁 צפה</a>
           <button data-link="${base}proof-viewer.html?id=${p.id}&part=${pt.pid}">📤 לעובדים</button>
           ${seenBtn(p, pt.pid)}${genCell(pt.fileUrl, jobName(p, pt.name), p.id, pt.pid)}
-          ${psCell(p.id, pt.pid, psReqOf(p, pt.pid))}
+          ${prTag(pt)}${psCell(p.id, pt.pid, psReqOf(p, pt.pid))}
           <button data-moverun="${p.id}|${pt.pid}" title="הלקוח העלה לגיליון הלא-נכון? העבר את הריצה לגיליון אחר">⇄ העבר לגיליון</button>
           <button class="del" data-delpart="${p.id}|${pt.pid}|${encodeURIComponent(pt.filePath||'')}" title="מחק ריצה">🗑</button>
         </div></td></tr>`).join('');
@@ -929,7 +950,7 @@ function render(rows) {
       <td><div class="acts">
         <a href="${clientLink}" target="_blank">🔗 פתח</a>
         <button data-link="${clientLink}" title="דף ההעלאה של הלקוח — הוא יכול להוסיף/להחליף עמודים ולאשר">📤 קישור העלאה ללקוח</button>
-        ${view}${toWorkers}${seenBtn(p, null)}${gen}${psCell(p.id, 'full', psReqOf(p, 'full'))}${notifyBtn(p)}
+        ${view}${toWorkers}${seenBtn(p, null)}${gen}${prTag(p)}${psCell(p.id, 'full', psReqOf(p, 'full'))}${notifyBtn(p)}
         ${editBtn(p)}${closeBtn(p)}
         <button class="del" data-deljob="${p.id}" title="מחק עבודה">🗑</button>
       </div></td></tr>`;

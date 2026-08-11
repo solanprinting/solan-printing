@@ -38,11 +38,18 @@
 
   /* היעד שהדרישה מצביעה עליו. ⚠️ ריצה היא **חלק** מעיתון: בלי proofId
      ה-partId חסר-משמעות, ולכן הוא נבלע יחד איתו ולא נשמר לבדו. */
+  /* ⚠️ מזהה-הדרישה נוסע יחד עם היעד (10/08/2026): בלעדיו העורך אינו יכול
+     לסגור את הדרישה אחרי שהעמוד הוחלף, והלקוח רואה את אותה בקשה שוב
+     ושוב אחרי שכבר ענה עליה. הפורטל מסמן את המפתח כ-_id. */
+  function noticeIdOf(notice) {
+    var n = notice || {};
+    return clean(n._id) || clean(n.id) || null;
+  }
   function targetOf(notice) {
     var n = notice || {};
     var proofId = clean(n.proofId);
     if (!proofId) return null;
-    return { proofId: proofId, partId: clean(n.partId) || null };
+    return { proofId: proofId, partId: clean(n.partId) || null, noticeId: noticeIdOf(n) };
   }
 
   /* ── הגיליון הפתוח כרגע ────────────────────────────────────────────────
@@ -95,7 +102,7 @@
       /* ⚠️ ‎id‎ או ‎_id‎: הפורטל מסמן את המזהה כ-_id והדפוס כ-id.
          קריאת אחד בלבד הייתה עובדת במסך אחד ונכשלת בשני. */
       var oid = openProof && (openProof.id || openProof._id);
-      var act = oid ? { proofId: String(oid), partId: null } : null;
+      var act = oid ? { proofId: String(oid), partId: null, noticeId: noticeIdOf(notice) } : null;
       if (act) {
         return { action: 'addPages', target: act, fromOpen: true,
                  label: '➕ הוספת עמוד/ים',
@@ -122,6 +129,9 @@
     if (!clean(t.proofId)) return '';
     var u = 'proof-client.html?id=' + encodeURIComponent(t.proofId) + '&mode=addpages';
     if (t.partId) u += '&part=' + encodeURIComponent(t.partId);
+    /* ⚠️ ‎nid‎ הוא מה שמאפשר לעורך לסגור את הדרישה בסוף. בלעדיו התיקון
+       מגיע לבית-הדפוס והדרישה נשארת פתוחה — הלקוח מתבקש שוב על אותו עמוד. */
+    if (t.noticeId) u += '&nid=' + encodeURIComponent(t.noticeId);
     if (clean(backUrl)) u += '&back=' + encodeURIComponent(backUrl);
     return u;
   }
@@ -146,7 +156,7 @@
     return /(^|[?&])mode=addpages(&|$)/.test(s) ? 'addpages' : 'full';
   }
 
-  return { kindOf: kindOf, targetOf: targetOf, actionFor: actionFor,
+  return { kindOf: kindOf, targetOf: targetOf, noticeIdOf: noticeIdOf, actionFor: actionFor,
            isOpenIssue: isOpenIssue, activeProof: activeProof,
            editorUrl: editorUrl, editorHeading: editorHeading, modeFromUrl: modeFromUrl };
 });

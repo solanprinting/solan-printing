@@ -19,11 +19,12 @@
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1786371300"></script>
-<script src="portal-context.js?v=1786371300"></script>
+<script src="upload-type.js?v=1786440386"></script>
+<script src="portal-context.js?v=1786440386"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi1"></script>
 <script src="page-swap.js"></script>
+<script src="page-replace.js?v=1786440386"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -218,6 +219,17 @@
         </div>
         <div class="legend"><b>– – –</b> קו חיתוך נטו (TrimBox)</div>
       </div>
+    </div>
+    <!-- ⚠️ שער-הדפדוף (בקשת-בעלים 10/08/2026): במסלול "הוספת
+         עמוד/ים" הלקוח נדרש לדפדף שוב בכל העמודים ולהצהיר שהסדר נכון,
+         לפני שכפתור-האישור נפתח. מוסתר לגמרי במסלולים האחרים. -->
+    <div id="arGateBox" class="hidden" style="margin:10px 0;padding:11px 14px;border-radius:11px;
+         background:#fffbeb;border:1.5px solid #fcd34d">
+      <div id="arGateMsg" style="font-size:.9rem;font-weight:800;color:#92400e"></div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:.9rem;cursor:pointer">
+        <input type="checkbox" id="arConfirmChk">
+        <span>דפדפתי בכל העמודים לאחר ההחלפה, וסדר העמודים נכון</span>
+      </label>
     </div>
     <div class="bottom">
       <button class="btn back" id="backBtn">↩ חזרה</button>
@@ -507,6 +519,15 @@ const show = (id, on=true) => $(id).classList.toggle('hidden', !on);
 function _refreshApproveState(){
   const b = $('approve'); if (!b) return;
   if (typeof _identityPending !== 'undefined' && _identityPending) { b.disabled = true; b.textContent = '⏳ מתחבר לפורטל…'; return; }
+  /* ⚠️ במסלול-התיקון הכפתור נעול עד שדופדף הכל **ו**סומנה ההצהרה.
+     שתי הדרישות ביחד: דפדוף בלי הצהרה אינו אישור, והצהרה בלי דפדוף
+     היא הצהרה על מה שלא נראה. */
+  if (_arEditing) {
+    var _g = _arGate();
+    b.textContent = '✓ אשר ושלח את הגרסה המתוקנת';
+    b.disabled = (typeof pages === 'undefined' || pages.length === 0) || !_g.ok || !_arOk;
+    return;
+  }
   b.textContent = '✓ אשר ושלח לדפוס';
   b.disabled = (typeof pages === 'undefined' || pages.length === 0);
 }
@@ -520,6 +541,16 @@ const proofId = new URLSearchParams(location.search).get('id');
 try { var _bk = new URLSearchParams(location.search).get('back'); if (_bk){ var _ba=document.getElementById('back-portal-a'), _bw=document.getElementById('back-portal'); if(_ba&&_bw){ _ba.href=_bk; _bw.classList.remove('hidden'); } } } catch(e){}
 let record = null, mode = null;
 
+/* ═════ הוספת עמוד/ים לפי דרישת בית-הדפוס — מצב ═════
+   ⚠️ ‏var ולא let במכוון: ‎_refreshApproveState‎ מוגדר מעל לשורה הזו
+   וקורא את ‎_arEditing‎; ‏let היה זורק ReferenceError ב-TDZ אם אי-פעם
+   ייקרא לפני האתחול — כלומר מסך לבן בלי הודעה. */
+var _arMode = null;       /* {proofId, partId, noticeId} — כשנפתחנו במסלול-התיקון */
+var _arEditing = false;   /* העורך פתוח לתיקון (ולא להעלאה רגילה) */
+var _arTarget = null;     /* 'full' או partId */
+var _arSeen = {};         /* אילו תצוגות דופדפו מאז השינוי האחרון */
+var _arOk = false;        /* הלקוח סימן את ההצהרה */
+
 const sources = new Map();      // fileId → { bytes }
 let pages = [], nextUid = 1, nextFid = 1;   // page: {uid,fileId,pageIndex,src}
 let vIndex = 0;
@@ -530,6 +561,11 @@ let vIndex = 0;
     record = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
     if (!record) return fail('הקישור לא תקין או שהוסר.');
     $('sub').textContent = [record.customer, record.title].filter(Boolean).join(' · ') || 'סולן הדפסות';
+    /* ⚠️ מסלול-התיקון נקרא מהכתובת לפני goHome: במסלול הזה אסור
+       להציג את מסך-הבית ("עיתון מלא / ריצה בודדת") — וודאי לא את
+       מסך "העיתון אושר", שהוא המסך הרגיל לעיתון מאושר. */
+    _arMode = window.PageReplace ? PageReplace.fromUrl(location.search) : null;
+    if (_arMode) { await _arEnter(); return; }
     showOverlay('', false); goHome();
   } catch (e) { console.error(e); fail('שגיאה בטעינה.'); }
 })();
@@ -597,6 +633,26 @@ function _psApprovedScreen(target){
   const eb = document.getElementById('psEditBtn'); if (eb) eb.onclick = () => _psEnterEdit(target);
 }
 
+/* טעינת הקובץ המאושר של יחידה כמקור-יחיד לעריכה.
+   ⚠️ מקור-אמת אחד לשני מסלולי-העריכה — בקשת-לקוח (page-swap)
+   ודרישת-דפוס (page-replace). שני העתקים של אותה טעינה היו נפרדים
+   ברגע שאחד מהם משתנה. */
+async function _loadApprovedInto(src){
+  const bytes = new Uint8Array(await (await fetch(src.fileUrl)).arrayBuffer());
+  pages = []; sources.clear(); vIndex = 0; _psReplaced = {};
+  const fileId = 'f' + (nextFid++);
+  sources.set(fileId, { bytes, name: 'approved.pdf' });
+  const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+  const boxes = await fileBoxes(bytes);
+  for (let i = 1; i <= pdf.numPages; i++){
+    const r = await renderPage(pdf, i, boxes ? boxes[i-1] : null);
+    pages.push({ uid: nextUid++, fileId: fileId, pageIndex: i-1, src: r.src, trimFrac: r.trimFrac, wmm: r.wmm, hmm: r.hmm });
+    showOverlay('טוען עמודים…', true, Math.round(i/pdf.numPages*100));
+  }
+  pdf.cleanup && pdf.cleanup();
+  _psBaseUids = pages.map(p => p.uid);
+}
+
 async function _psRefresh(){
   record = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
 }
@@ -629,20 +685,9 @@ async function _psEnterEdit(target){
   try { await _requireLibs(); } catch(e){ return; }
   showOverlay('טוען את הקובץ שאושר…', true, 0);
   try {
-    const bytes = new Uint8Array(await (await fetch(src.fileUrl)).arrayBuffer());
     mode = (target === 'full') ? 'full' : 'run';
-    pages = []; sources.clear(); vIndex = 0; _psReplaced = {};
-    const fileId = 'f' + (nextFid++);
-    sources.set(fileId, { bytes, name: 'approved.pdf' });
-    const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
-    const boxes = await fileBoxes(bytes);
-    for (let i = 1; i <= pdf.numPages; i++){
-      const r = await renderPage(pdf, i, boxes ? boxes[i-1] : null);
-      pages.push({ uid: nextUid++, fileId: fileId, pageIndex: i-1, src: r.src, trimFrac: r.trimFrac, wmm: r.wmm, hmm: r.hmm });
-      showOverlay('טוען עמודים…', true, Math.round(i/pdf.numPages*100));
-    }
-    pdf.cleanup && pdf.cleanup();
-    _psEditing = true; _psTarget = target; _psBaseUids = pages.map(p => p.uid);
+    await _loadApprovedInto(src);
+    _psEditing = true; _psTarget = target;
     $('editorHint').innerHTML = '✏️ <b>עריכת גרסה חדשה</b> — החליפו או מחקו עמודים בסרגל הצד, בדקו בדפדוף, ואז "אישור ושליחה". '
       + 'הקובץ שאושר קודם נשמר; מה שתאשרו כאן ייווצר כגרסה חדשה.'
       + `<br>${esc(PageSwap.remainingLabel(_psReqOf(target), Date.now()))}`;
@@ -673,7 +718,17 @@ function startEditor(m) {
     + '<br>🎨 <b>שימו לב:</b> ודאו שהקבצים מיוצאים בצבעי <b>CMYK</b> (לא RGB), אחרת ייתכנו הבדלי צבע בדפוס.';
   renderAll(); show('home', false); show('editor', true);
 }
-$('backBtn').onclick = () => { if (!pages.length || confirm('לחזור? עמודים שטרם אושרו יימחקו.')) goHome(); };
+$('backBtn').onclick = () => {
+  /* ⚠️ במסלול-התיקון אסור לחזור למסך-הבית: שם מוצגות "עיתון
+     מלא / ריצה בודדת" — ובדיוק משם נולד העיתון השני במקום תיקון. */
+  if (_arEditing) {
+    if (!confirm('לצאת בלי לשלוח את התיקון? העמודים שהוחלפו לא יישמרו.')) return;
+    var _b = new URLSearchParams(location.search).get('back');
+    if (_b) location.href = _b; else location.reload();
+    return;
+  }
+  if (!pages.length || confirm('לחזור? עמודים שטרם אושרו יימחקו.')) goHome();
+};
 
 // ── העלאה + רינדור פעם אחת לתמונה ──
 $('drop').onclick = () => $('file').click();
@@ -1303,6 +1358,11 @@ function blankPage(uid) {
   const p = pages.find(x => x.uid === uid); if (!p) return;
   p.blank = true; p.fileId = null; p.pageIndex = 0; p.isSpread = false; p.spreadKeep = null; p.trimFrac = null; p.wmm = null; p.hmm = null;
   p.src = _BLANK_IMG; p.displaySrc = null;
+  /* ⚠️ **ריקון הוא החלפה, ותוקן רק ב-10/08/2026.** ‏describeChanges מזהה
+     מחיקה, החלפה ושינוי-סדר — ריקון אינו אף אחד מהם: אותו uid, אותו
+     מקום, אותה ספירה. התוצאה הייתה "לא בוצע שינוי" בדיוק כשבית-הדפוס
+     ביקש להוריד מודעה מעמוד, והלקוח עשה בדיוק את מה שהתבקש. */
+  if (_psEditing || _arEditing) _psReplaced[p.uid] = 1;
   renderAll();
 }
 // העברת עמוד למיקום נבחר (קליק במקום גרירה) — targetPos הוא מיקום 1-מבוסס ברשימת העמודים
@@ -1327,7 +1387,9 @@ $('repInput').onchange = async e => {
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
     sources.set(fileId, { bytes });
     const item = pages.find(p => p.uid === _repUid);
-    if (_psEditing) _psReplaced[item.uid] = 1;   // לתיעוד מול בית-הדפוס: אילו עמודים הוחלפו
+    /* לתיעוד מול בית-הדפוס: אילו עמודים הוחלפו. ⚠️ גם במסלול-התיקון:
+       בלי זה תיאור-השינויים היה מדווח "ללא שינוי" אחרי החלפה אמיתית. */
+    if (_psEditing || _arEditing) _psReplaced[item.uid] = 1;
     item.fileId = fileId; item.pageIndex = 0; item.src = await renderToImg(pdf, 1);
   } catch (e) { console.error(e); }
   _repUid = null; renderAll(); showOverlay('', false);
@@ -1457,6 +1519,9 @@ function renderViewer() {
   const s = _views[vIndex] || [];
   const _lbls = pageLabels();
   $('vlabel').textContent = `עמוד ${s.map(i=>_lbls[i]).join('–')} מתוך ${effPageCount()}`;
+  /* ⚠️ הדפדוף נרשם במקום שבו העמוד באמת מוצג, ולא בלחיצה על
+     "הבא": לחיצה שנעצרה בקצה-הרשימה היתה נספרת כדפדוף. */
+  _arNoteSeen();
   $('vprev').disabled = vIndex <= 0;
   $('vnext').disabled = vIndex >= _views.length - 1;
   /* מיקום העמודים בכפולה + חצי-הניווט לפי כיוון-הקריאה (סדר/מיקום בלבד) */
@@ -1603,7 +1668,12 @@ document.querySelectorAll('input[name="pcdir"]').forEach(r => r.onchange = () =>
   renderAll();
 });
 
-function renderAll() { detectSpreads(); _pcAssignRunPages(); renderSidebar(); renderViewer(); buildWarnings(); buildPreflight(); _pcSyncDirUI(); }
+/* ⚠️ ‎_arTouch‎ יושב כאן ולא בכל פעולת-שינוי בנפרד: כל שינוי
+   בעמודים (מחיקה · ריקון · החלפה · הזזה · גרירה · הוספת קבצים · שינוי
+   כיוון) עובר דרך renderAll, ולכן פעולה שתתווסף בעתיד מקבלת את
+   האיפוס בחינם. ניווט (step / קליק בממוזערת) אינו עובר כאן —
+   ובדין: איפוס בדפדוף היה נועל את השער לנצח. */
+function renderAll() { _arTouch(); detectSpreads(); _pcAssignRunPages(); renderSidebar(); renderViewer(); buildWarnings(); buildPreflight(); _pcSyncDirUI(); }
 
 // ── אישור + העלאה עם מד אחוזים ──
 // ── עמודים חסרים: כמה צפויים · אילו חסרים · השארה ריקים להשלמה ─────────────
@@ -1771,8 +1841,233 @@ async function _psApproveEdited(){
   finally { _uploading = false; releaseWakeLock(); }
 }
 
+/* ═══════════ הוספת עמוד/ים לפי דרישת בית-הדפוס ═══════════════════════════
+   ⚠️ **מה נדרש (בקשת-בעלים 10/08/2026).** כשבית-הדפוס דורש עמוד מתוקן:
+   הלקוח מעלה רק את העמוד/ים שביקשו — בלי שם-עיתון ובלי מספר-גיליון, כי
+   אלה כבר ידועים — ואז **נדרש לדפדף שוב** ולהצהיר שסדר העמודים נכון.
+   רק אז נוצרת גרסה חדשה **במקום** הקודמת; הקודמת עוברת לארכיון מסומנת
+   "עבר תיקון", ולכן נעלמת מהפורטל וממסך-הדפוס ואינה מודפסת בטעות.
+   הלוגיקה הטהורה ב-page-replace.js. */
+
+/* בחירת הריצה — רק כשיש יותר מאחת ואין מזהה בדרישה.
+   ⚠️ זו **אינה** אותה שאלה שהתלוננו עליה: אין כאן שם-עיתון ואין
+   מספר-גיליון, אלא בחירה מבין הריצות שכבר קיימות בגיליון הזה. */
+function _arAskRun(runs){
+  return new Promise(function(resolve){
+    var m = document.createElement('div');
+    m.style.cssText = 'position:fixed;inset:0;z-index:100050;background:rgba(15,23,42,.72);display:flex;'
+      + 'align-items:center;justify-content:center;direction:rtl;font-family:inherit';
+    m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:20px 22px;width:420px;max-width:93vw">'
+      + '<div style="font-weight:800;font-size:1.02rem;margin-bottom:4px">באיזו ריצה להחליף עמודים?</div>'
+      + '<div style="font-size:.83rem;color:#6b7280;margin-bottom:12px">בית-הדפוס ביקש עמוד מתוקן — בחרו את הריצה שאליה הוא שייך.</div>'
+      + runs.map(function(r, i){
+          return '<button data-i="' + i + '" style="display:block;width:100%;text-align:right;margin-bottom:7px;'
+            + 'padding:11px 13px;border:1.5px solid #cbd5e1;border-radius:10px;background:#f8f9fc;'
+            + 'font-family:inherit;font-size:.93rem;font-weight:700;cursor:pointer">'
+            + esc(r.name) + (r.pages ? (' · ' + r.pages + ' עמ׳') : '') + '</button>';
+        }).join('')
+      + '<button data-x="1" style="width:100%;margin-top:5px;padding:9px;border:0;border-radius:9px;'
+      + 'background:#e5e7eb;font-family:inherit;font-size:.88rem;cursor:pointer">ביטול</button></div>';
+    document.body.appendChild(m);
+    m.querySelectorAll('button').forEach(function(b){
+      b.onclick = function(){
+        m.remove();
+        resolve(b.dataset.x ? null : runs[+b.dataset.i].id);
+      };
+    });
+  });
+}
+
+async function _arEnter(){
+  var pick = PageReplace.pickTarget(record, _arMode.partId);
+  /* ⚠️ אין קובץ מאושר = אין מה לתקן, ואסור להמשיך למסלול-התיקון: הוא היה
+     יוצר "גרסה 2" בלי שגרסה 1 קיימת. נופלים למסלול הרגיל, מוצהר. */
+  if (pick.need === 'none'){
+    _arMode = null; showOverlay('', false); goHome();
+    alert('בגיליון הזה עוד אין קובץ מאושר, ולכן אין עמודים להחליף.\nהעלו את העיתון או הריצה כרגיל.');
+    return;
+  }
+  if (pick.need === 'ask'){
+    showOverlay('', false);
+    var chosen = await _arAskRun(pick.runs);
+    if (!chosen){ _arMode = null; goHome(); return; }
+    _arTarget = chosen;
+  } else {
+    _arTarget = pick.target;
+  }
+  /* ⚠️ שער-הכניסה: גיליון שנסגר או הושלם אינו מקבל עמודים — הקובץ יכול
+     להיות כבר על המכונה. עוצרים עם הסבר, ולא מציגים עורך שלא יוכל לשלוח. */
+  var v = PageReplace.canReplace(record, _arTarget);
+  if (!v.ok){ showOverlay('🔒 ' + esc(v.message), true); return; }
+  var unit = PageReplace.unitOf(record, _arTarget);
+  try { await _requireLibs(); } catch(e){ return; }
+  showOverlay('טוען את הקובץ שאושר…', true, 0);
+  try {
+    mode = (_arTarget === 'full') ? 'full' : 'run';
+    await _loadApprovedInto(unit);
+    _arEditing = true; _arSeen = {}; _arOk = false;
+    $('editorHint').innerHTML = '➕ <b>' + esc(_arHeading(unit)) + '</b><br>'
+      + 'החליפו את העמוד/ים שבית-הדפוס ביקש — בסרגל הצד: <b>החלף</b> על העמוד, או גררו קובץ לחלון. '
+      + 'לאחר מכן <b>דפדפו בכל העמודים</b> ואשרו שהסדר נכון.';
+    $('arGateBox').classList.remove('hidden');
+    $('arConfirmChk').checked = false;
+    renderAll(); show('status', false); show('home', false); show('editor', true);
+    showOverlay('', false);
+  } catch(e){ console.error(e); showOverlay('טעינת הקובץ נכשלה: ' + esc(String((e && e.message) || e)), true); }
+}
+
+/* ⚠️ הכותרת אומרת לאיזה גיליון ולאיזו ריצה. "העלו קובץ" בלי הקשר הוא
+   בדיוק מה שגורם להעלאה למקום הלא-נכון. */
+function _arHeading(unit){
+  var out = 'הוספת/החלפת עמוד/ים · ' + ((record && record.title) || 'העיתון');
+  if (record && record.issue) out += ' · גיליון ' + record.issue;
+  if (_arTarget !== 'full' && unit && unit.name) out += ' · ' + unit.name;
+  return out;
+}
+
+/* ── שער-הדפדוף ────────────────────────────────────────────────────────────
+   ⚠️ **הדרישה: "ידרש לדפדף שוב … כדי לאשר שוב את סדר העמודים הנכון".**
+   ולכן: כל שינוי מאפס (נקרא מ-renderAll), וכל תצוגה שמוצגת נספרת. */
+function _arTouch(){
+  if (!_arEditing) return;
+  _arSeen = {}; _arOk = false;
+  var c = document.getElementById('arConfirmChk'); if (c) c.checked = false;
+}
+function _arNoteSeen(){
+  if (!_arEditing) return;
+  _arSeen[vIndex] = 1;
+  _arRefreshGate();
+}
+function _arGate(){
+  if (!window.PageReplace) return { ok: true, label: '' };   /* המודול לא נטען — לא חוסמים לקוח */
+  return PageReplace.browseGate(Object.keys(_arSeen).map(Number), buildViews().length);
+}
+function _arRefreshGate(){
+  var g = _arGate(), el = document.getElementById('arGateMsg');
+  if (el) el.textContent = g.label + (g.ok && !_arOk ? ' — נא לסמן את ההצהרה למטה' : '');
+  var b = $('approve');
+  if (b && _arEditing) b.disabled = !pages.length || !g.ok || !_arOk;
+}
+document.addEventListener('change', function(e){
+  if (!e.target || e.target.id !== 'arConfirmChk') return;
+  _arOk = !!e.target.checked;
+  _arRefreshGate();
+});
+
+/* ── האישור ────────────────────────────────────────────────────────────────
+   הסדר: אימות מול הרשומה החיה → אישור מפורש → הרכבה → העלאה → **ארכיון
+   הגרסה הקודמת** → החלפת היחידה → סגירת הדרישה. */
+async function _arApprove(){
+  var target = _arTarget;
+  var g = _arGate();
+  if (!g.ok){ alert('⚠️ ' + g.label); return; }
+  if (!_arOk){ alert('יש לסמן שדפדפתם בכל העמודים ושסדר העמודים נכון.'); return; }
+  /* ⚠️ הלשונית יכולה להיות פתוחה מאתמול, ובינתיים הגיליון נסגר או הודפס.
+     בודקים מול הרשומה **החיה** ולא מול מה שנטען בטעינת הדף. */
+  try {
+    var fresh = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
+    if (fresh) record = fresh;
+  } catch(e){ /* אין רשת — נסתמך על מה שיש, ההעלאה עצמה תיכשל בקול */ }
+  var v = PageReplace.canReplace(record, target);
+  if (!v.ok){ alert('🔒 ' + v.message); goHome(); return; }
+  var unit = PageReplace.unitOf(record, target);
+  var changes = PageSwap.describeChanges(_psBaseUids, pages.map(function(p){ return p.uid; }),
+                                         Object.keys(_psReplaced).map(Number));
+  /* ⚠️ "לא בוצע שינוי" נעצר כאן: גרסה חדשה שזהה לקודמת מאלצת את בית-הדפוס
+     להוריד מחדש בלי סיבה, ומטשטשת תיקון אמיתי שיבוא אחריה. */
+  if (!changes.replacedCount && !changes.deletedCount && !changes.reordered
+      && changes.pagesBefore === changes.pagesAfter){
+    alert('לא בוצע שינוי בעמודים. החליפו את העמוד שבית-הדפוס ביקש, או חזרו לפורטל.');
+    return;
+  }
+  var version = PageSwap.nextVersion(unit);
+  var warn = PageSwap.pageCountWarning(pages.length);
+  if (!confirm(PageReplace.confirmText({
+        unitName: [record.title, (target === 'full' ? '' : (unit && unit.name))].filter(Boolean).join(' · '),
+        issue: record.issue, changesLabel: PageSwap.changesLabel(changes),
+        version: version, warn: warn }))) return;
+  // ── שער-זהות: אין הרכבה/העלאה במסלול-פורטל בלי זהות אמיתית ──
+  showOverlay('מתחבר לפורטל…', true);
+  var _id = await _ensureIdentity();
+  if (_id.portal && !_id.token){ _uplPortalIdentityFail(); return; }
+  try { await _requireLibs(); }
+  catch(e){
+    if (!/LIBS_BLOCKED/.test(String(e && e.message))){
+      showOverlay('לא הצלחנו לטעון את רכיבי הצפייה: ' + esc(String((e && e.message) || e)), true);
+    }
+    return;
+  }
+  _uploading = true; await acquireWakeLock();
+  try {
+    showOverlay('מרכיב קובץ…', true);
+    var pdfBytes = await _pcComposePdf();
+    var folder = _pcFolder();
+    var basePath = (target === 'full')
+      ? `customerProofs/${folder}/${proofId}/full.pdf`
+      : `customerProofs/${folder}/${proofId}/${target}.pdf`;
+    /* ⚠️ נתיב-מגורסן: הקובץ שאושר קודם **אינו נדרס**. הוא הראיה למה
+       הודפס עד עכשיו, ובלעדיו אין דרך לברר תקלת-דפוס בדיעבד. */
+    var path = PageSwap.versionedPath(basePath, version);
+    if (window.UploadType && UploadType.checkSize){
+      var _sz = UploadType.checkSize(pdfBytes.byteLength, UploadType.PDF);
+      if (!_sz.ok){ var _e = new Error(_sz.message); _e.tooLarge = true; _e.size = _sz.size; _e.max = _sz.max; throw _e; }
+    }
+    var fileUrl = await uploadBytes(path, pdfBytes, function(pct){ showOverlay('מעלה לדפוס…', true, pct); });
+    var cache = await uploadPagesCache(PageSwap.versionedPath(
+      (target === 'full') ? `customerProofs/${folder}/${proofId}/pages.json`
+                          : `customerProofs/${folder}/${proofId}/${target}-pages.json`, version));
+    var at = Date.now();
+    /* ⚠️ **הארכיון נכתב לפני שהיחידה מוחלפת.** בסדר ההפוך, כשל באמצע
+       היה משאיר את הגרסה הקודמת בלי מצביע: הקובץ קיים ב-Storage ואף
+       אחד לא יודע איפה — כלומר גרסה שהודפסה ואי אפשר לשחזר. */
+    await _dbWrite(await _au(`${_FBURL}/${PageReplace.archivePath(proofId, target, PageSwap.currentVersion(unit))}.json`),
+      'PUT', PageReplace.archiveOf(unit, { at: at, version: version,
+        noticeId: (_arMode && _arMode.noticeId) || '', changes: changes }));
+    var fields = Object.assign(
+      PageReplace.newFields(unit, { fileUrl: fileUrl, filePath: path, pageCount: pages.length,
+        fileSize: pdfBytes.byteLength, at: at, version: version }),
+      { spreadCount: 0, readingDirection: _pcReadDir(), pageDisplayMeta: _pcBuildPageMeta(),
+        pagesUrl: cache.url, pagesReadyAt: cache.at });
+    /* ⚠️ **הגרסה החדשה נכנסת במקום הקודמת ולא לידה.** רשומה שנייה הייתה
+       יוצרת רגעים שבהם שתי גרסאות של אותו גיליון חיות במקביל במסך-הדפוס
+       — מסוכן יותר מהמצב לפני התיקון. */
+    if (target === 'full') await patch(Object.assign({ mode: 'full' }, fields));
+    else await _dbWrite(await _au(`${_FBURL}/customerProofs/${proofId}/parts/${target}.json`), 'PATCH', fields);
+    await _arCloseNotice(at, version);
+    await _psRefresh();
+    _arEditing = false;
+    showOverlay('', false);
+    // ✓ הצלחה — רק כאן: Storage + כל כתיבות-RTDB הושלמו
+    _pcUploadSuccess('הגרסה המתוקנת נשלחה לבית-הדפוס (גרסה ' + version + '). '
+      + PageSwap.changesLabel(changes)
+      + '. הגרסה הקודמת סומנה "עבר תיקון" והוסרה — היא לא תודפס.', function(){
+        var _b = new URLSearchParams(location.search).get('back');
+        if (_b) location.href = _b; else goHome();
+      });
+  } catch(e){ _uplFail(e, 'page-replace'); }
+  finally { _uploading = false; releaseWakeLock(); }
+}
+
+/* סגירת הדרישה בבית-הדפוס. ⚠️ נוחות-תצוגה ולכן **אינה חיונית**: כישלון
+   כאן אינו הופך את הגרסה ללא-תקפה, ולכן הוא נבלע — אבל עם עקבה. בלעדיה
+   הלקוח היה רואה את אותה דרישה שוב ושוב אחרי שכבר ענה עליה. */
+async function _arCloseNotice(at, version){
+  var nid = _arMode && _arMode.noticeId;
+  if (!nid) return;
+  try {
+    var slug = '';
+    try { if (window.PortalContext && PortalContext.ok && PortalContext.slug) slug = PortalContext.slug; } catch(e){}
+    if (!slug) slug = String((record && record.customer) || '').trim().toLowerCase()
+      .replace(/[.#$\[\]\/\\]+/g, '').replace(/\s+/g, '_');
+    if (!slug) return;
+    await _dbWrite(await _au(`${_FBURL}/customerNotices/${slug}/${encodeURIComponent(nid)}.json`), 'PATCH',
+      { done: true, doneAt: at, resolvedVersion: version });
+  } catch(e){ console.warn('סגירת הדרישה נכשלה (לא חיוני)', e); }
+}
+
 $('approve').onclick = async () => {
   if (!pages.length) return;
+  if (_arEditing) return _arApprove();         // תיקון לפי דרישת הדפוס
   if (_psEditing) return _psApproveEdited();   // עריכת-גרסה: מסלול נפרד (לא יוצר ריצה חדשה)
   /* שער-גיליון גם כאן: הלשונית יכולה להיות פתוחה מאתמול, והדפוס סגר את הגיליון
      בינתיים. בודקים מול הרשומה העדכנית ולא מול מה שנטען בטעינת הדף. */
