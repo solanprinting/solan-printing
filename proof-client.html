@@ -19,12 +19,13 @@
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1786440386"></script>
-<script src="portal-context.js?v=1786440386"></script>
+<script src="upload-type.js?v=1786442575"></script>
+<script src="portal-context.js?v=1786442575"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi1"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1786440386"></script>
+<script src="page-replace.js?v=1786442575"></script>
+<script src="portal-return.js?v=1786442575"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -538,7 +539,9 @@ function _fmtEta(sec){ sec = Math.max(0, Math.round(sec));
 
 const proofId = new URLSearchParams(location.search).get('id');
 // קישור "חזרה לפורטל" — כשנפתח מתוך פורטל-הלקוח (?back=<url>)
-try { var _bk = new URLSearchParams(location.search).get('back'); if (_bk){ var _ba=document.getElementById('back-portal-a'), _bw=document.getElementById('back-portal'); if(_ba&&_bw){ _ba.href=_bk; _bw.classList.remove('hidden'); } } } catch(e){}
+/* ⚠️ גם כאן היעד מסונן: קישור גלוי ל"חזרה לפורטל" שמצביע לאתר אחר הוא
+   בדיוק אותה פרצה, רק שהלקוח לוחץ עליה מרצונו. */
+try { var _bk = window.PortalReturn ? PortalReturn.backFromUrl(location.search) : ''; if (_bk){ var _ba=document.getElementById('back-portal-a'), _bw=document.getElementById('back-portal'); if(_ba&&_bw){ _ba.href=_bk; _bw.classList.remove('hidden'); } } } catch(e){}
 let record = null, mode = null;
 
 /* ═════ הוספת עמוד/ים לפי דרישת בית-הדפוס — מצב ═════
@@ -723,7 +726,7 @@ $('backBtn').onclick = () => {
      מלא / ריצה בודדת" — ובדיוק משם נולד העיתון השני במקום תיקון. */
   if (_arEditing) {
     if (!confirm('לצאת בלי לשלוח את התיקון? העמודים שהוחלפו לא יישמרו.')) return;
-    var _b = new URLSearchParams(location.search).get('back');
+    var _b = window.PortalReturn ? PortalReturn.backFromUrl(location.search) : '';
     if (_b) location.href = _b; else location.reload();
     return;
   }
@@ -2041,7 +2044,7 @@ async function _arApprove(){
     _pcUploadSuccess('הגרסה המתוקנת נשלחה לבית-הדפוס (גרסה ' + version + '). '
       + PageSwap.changesLabel(changes)
       + '. הגרסה הקודמת סומנה "עבר תיקון" והוסרה — היא לא תודפס.', function(){
-        var _b = new URLSearchParams(location.search).get('back');
+        var _b = window.PortalReturn ? PortalReturn.backFromUrl(location.search) : '';
         if (_b) location.href = _b; else goHome();
       });
   } catch(e){ _uplFail(e, 'page-replace'); }
@@ -2313,7 +2316,15 @@ function _showResult(kind, msgHtml, subText, buttons){
   $('resmodal').classList.add('on');
 }
 function _hideResult(){ $('resmodal').classList.remove('on'); }
-function _uplBackDest(){ var b = new URLSearchParams(location.search).get('back'); if (b) { try { location.href = b; return; } catch(e){} } goHome(); }
+/* ⚠️ **פרצת-הפניה שנסגרה (11/08/2026).** ‎?back=‎ נלקח מהכתובת ונכתב ישירות
+   ל-‎location.href‎ בלי בדיקה. קישור-העלאה שנשלח ללקוח עם ‎back=https://‎ של
+   מישהו אחר היה מעביר אותו לשם מיד אחרי שהעלה קבצים — במסך שנראה כמו המשך
+   התהליך. מותרים נתיבים יחסיים בלבד; הכלל ב-portal-return.js. */
+function _uplBackDest(){
+  var b = window.PortalReturn ? PortalReturn.backFromUrl(location.search) : '';
+  if (b) { try { location.href = b; return; } catch(e){} }
+  goHome();
+}
 
 /* ── מסך-הסטטוס ללקוח ────────────────────────────────────────────────────
    ⚠️ נבנה **אך ורק מנתונים שכבר נכתבו** ברגע השליחה — ‏pageCount, fileSize
@@ -2388,11 +2399,43 @@ function _pcJobName(){
 }
 
 /* הצלחה — מוצגת **רק** אחרי ש-Storage וגם כתיבת-RTDB הושלמו (נקרא מסוף המסלול). */
+/* ⚠️ **חזרה אוטומטית לפורטל (בקשת-בעלים 11/08/2026).** "לאחר שלקוח מעלה
+   ריצה או עיתון הוא ישר יעובר למסך הראשי של הפורטל שלו." עד עכשיו הוא
+   נשאר מול כפתור "סגור" ולא היה לו סימן שהעבודה **קיימת** אצלנו — רק
+   שההעלאה לא נכשלה.
+   ⚠️ ולא קפיצה מיידית: מחיקת אישור-השליחה לפני שנקרא מחזירה את הלקוח
+   לפורטל בלי לדעת אם נשלח משהו. אישור גלוי + מונה קצר + כפתור "עכשיו".
+   ⚠️ הכתובת נושאת ‎job=<id>‎ כדי שהפורטל יבליט את מה שהרגע נשלח. */
 function _pcUploadSuccess(msg, onClose, facts){
   show('home', false); show('editor', false);
+  var _back = window.PortalReturn
+    ? PortalReturn.returnUrl(PortalReturn.backFromUrl(location.search), proofId) : '';
+  var _btns = [];
+  if (_back) _btns.push({ label:'לפורטל שלי עכשיו', primary:true, onClick:function(){ _prNow(_back); } });
+  _btns.push({ label:'סגור', primary:!_back,
+    onClick:function(){ _prStop(); try { onClose ? onClose() : goHome(); } catch(e){ goHome(); } } });
   _showResult('success',
-    '<b>' + esc(msg) + '</b>' + (facts ? _pcSentFactsHtml(facts) : ''), '',
-    [ { label:'סגור', primary:true, onClick:function(){ try { onClose ? onClose() : goHome(); } catch(e){ goHome(); } } } ]);
+    '<b>' + esc(msg) + '</b>' + (facts ? _pcSentFactsHtml(facts) : '')
+    + (_back ? '<div id="prCountdown" style="margin-top:10px;font-size:.86rem;font-weight:700;color:#2d3561">'
+               + esc(PortalReturn.countdownLabel(PortalReturn.AUTO_MS)) + '</div>' : ''), '',
+    _btns);
+  if (_back) _prCountdown(_back);
+}
+/* המונה. ⚠️ נעצר כשמסך-האישור נסגר: מונה שממשיך לרוץ אחרי ש"סגור" נלחץ
+   היה מעביר את הלקוח לפורטל באמצע פעולה אחרת. */
+var _prTimer = null;
+function _prStop(){ if (_prTimer) { clearInterval(_prTimer); _prTimer = null; } }
+function _prNow(url){ _prStop(); location.href = url; }
+function _prCountdown(url){
+  var left = PortalReturn.AUTO_MS;
+  _prStop();
+  _prTimer = setInterval(function(){
+    left -= 500;
+    var el = document.getElementById('prCountdown'), md = document.getElementById('resmodal');
+    if (!el || !md || !md.classList.contains('on')) { _prStop(); return; }
+    if (left <= 0) { _prNow(url); return; }
+    el.textContent = PortalReturn.countdownLabel(left);
+  }, 500);
 }
 
 /* ⚠️ כשל-העלאה מול הלקוח (אירוע 06/08/2026): הודעה ידידותית בלבד + מספר-

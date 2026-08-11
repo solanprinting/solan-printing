@@ -24,9 +24,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786440386"></script>
-<script src="auth-client.js?v=1786440386"></script>
-<script src="auth-guard.js?v=1786440386" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786442575"></script>
+<script src="auth-client.js?v=1786442575"></script>
+<script src="auth-guard.js?v=1786442575" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -1298,8 +1298,17 @@ function workerScreen(){
         window.open(wa,'_blank'); _sent(); };
       $('sndMail').onclick=()=>{ _sent(); };
       $('cpLink').onclick=()=>{ navigator.clipboard&&navigator.clipboard.writeText(link); $('cpLink').textContent='✓ הועתק'; _sent(); };
-      if($('sndPortal')) $('sndPortal').onclick=async()=>{
-        const btn=$('sndPortal'); btn.disabled=true; const was=btn.textContent; btn.textContent='שולח לפורטל…';
+      /* ⚠️ **שליחה אוטומטית לפורטל (בקשת-בעלים 11/08/2026):** "פרופרים
+         שנשלחים בפרופר-ללקוח יגיעו ישירות לפורטל של הלקוח, ומשם הוא יצפה
+         ויאשר." עד היום זו הייתה אחת מחמש אפשרויות-שליחה, שדרשה לחיצה
+         נפרדת — ומי ששכח, הפרופר לא הגיע לשום מקום והלקוח חיכה לקישור
+         שלא נשלח. עכשיו זה קורה מעצמו ברגע שנוצרה הגרסה; וואטסאפ/מייל
+         נשארים לשליחה **נוספת** ולמי שאין לו פורטל.
+         ⚠️ כשל אינו נבלע ואינו מסתפק ב-alert שנעלם: הסטטוס אומר במפורש
+         שהפרופר **לא** בפורטל, והכפתור חוזר כדי לנסות שוב. */
+      async function _cfpToPortal(auto){
+        const btn=$('sndPortal'); const was = btn ? btn.textContent : '';
+        if (btn){ btn.disabled=true; btn.textContent='שולח לפורטל…'; }
         try{
           const pid='fold_'+rec.versionId;
           await _dbPut('customerProofs/'+pid, {
@@ -1310,13 +1319,20 @@ function workerScreen(){
             pageCount: _folded.result.orderedPages.length,
             source:'shop-fold', createdAt: Date.now() });
           _markSent(rec.versionId);
-          btn.textContent='✓ נשלח לפורטל';
-          $('sentInfo').innerHTML='<span class="ok">✓ מופיע בפורטל של '+_esc(_selCustRow.name)+' כ"ממתין לאישורך"</span>';
+          if (btn){ btn.disabled=false; btn.textContent='📥 שלח שוב לפורטל'; }
+          $('sentInfo').innerHTML='<span class="ok">✓ '
+            + (auto ? 'נשלח אוטומטית לפורטל של ' : 'מופיע בפורטל של ')
+            + _esc(_selCustRow.name) + ' — הלקוח רואה "ממתין לאישורך" ויכול לדפדף ולאשר משם</span>';
         }catch(e){
-          btn.disabled=false; btn.textContent=was;
-          alert('השליחה לפורטל נכשלה: '+(e.message||e));   // בלי כשל שקט
+          if (btn){ btn.disabled=false; btn.textContent = was || '📥 שלח לפורטל'; }
+          $('sentInfo').innerHTML='<span class="bad">⚠️ הפרופר <b>לא</b> נשלח לפורטל ('
+            + _esc(String((e&&e.message)||e)) + ') — שלחו בוואטסאפ/מייל, או לחצו שוב.</span>';
+          if (!auto) alert('השליחה לפורטל נכשלה: '+(e.message||e));   // בלי כשל שקט
         }
-      };
+      }
+      if($('sndPortal')) $('sndPortal').onclick=function(){ _cfpToPortal(false); };
+      /* ⚠️ אחרי חיווט-הכפתורים, כדי שכשל יוכל להחזיר אותם למצב שאפשר לנסות שוב. */
+      if (_custHasPortal) _cfpToPortal(true);
       setStep(4);
     }catch(err){ $('linkStatus').innerHTML='<span class="bad">'+(err.message||err)+'</span>'; $('linkBtn').disabled=false; }
   };

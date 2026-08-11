@@ -9,9 +9,10 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786440386"></script>
-<script src="page-add.js?v=1786440386"></script>
-<script src="portal-context.js?v=1786440386"></script>
+<script src="portal-download.js?v=1786442575"></script>
+<script src="page-add.js?v=1786442575"></script>
+<script src="portal-context.js?v=1786442575"></script>
+<script src="portal-return.js?v=1786442575"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -109,6 +110,11 @@
         כל הגיליונות שלכם נשמרים כאן — תמיד אפשר לחזור ולראות.</div>
       <div class="stats" id="hello-stats"></div>
     </div>
+
+    <!-- ⚠️ **פרטי העבודה שהרגע נשלחה (בקשת-בעלים 11/08/2026).** הלקוח
+         מגיע לכאן ישר מהעלאה, ולכן הדבר הראשון שהוא צריך לראות הוא
+         *מה* נשלח ומה קורה עכשיו — לא רשימת-היסטוריה שצריך לחפש בה. -->
+    <div id="job-card" class="card hidden" style="border:2px solid var(--green);background:#f6fbf6"></div>
 
     <div id="notices" class="notice hidden">
       <h2>🔔 דרישות מבית הדפוס</h2>
@@ -424,6 +430,35 @@ window._portalApproveFromNotice = _portalApproveFromNotice;
 
 /* תמונת-מצב קצרה בכרטיס-הפתיחה: כמה גיליונות, מה ממתין לאישור הלקוח, ומה מוכן.
    מוצג רק מה שיש — כדי שהכרטיס לא ייראה ריק או "מרובה-אפסים". */
+/* ⚠️ נקרא אחרי שההיסטוריה נטענה, כי הפרטים נגזרים מהרשומה עצמה ולא
+   מהכתובת: כתובת יכולה להצביע על עבודה שנמחקה, ואז אין מה להציג. */
+function _renderJobCard(list){
+  var box = $('job-card'); if (!box) return;
+  var id = window.PortalReturn ? PortalReturn.highlightId(location.search) : '';
+  if (!id){ box.classList.add('hidden'); return; }
+  var rec = (list || []).filter(function(p){ return String(p._id) === String(id); })[0];
+  /* ⚠️ עבודה שאינה נמצאת — מסתירים בשקט ולא מציגים "לא נמצא": הלקוח
+     הרגע שלח בהצלחה, והודעת-שגיאה כאן נקראת כאילו השליחה נכשלה. */
+  if (!rec){ box.classList.add('hidden'); return; }
+  var s2 = PortalReturn.jobSummary(rec);
+  var rows = [];
+  rows.push('<span class="stat">🗞️ <b>' + esc(s2.title) + '</b>'
+    + (s2.issue ? (' · גיליון ' + esc(s2.issue)) : '') + '</span>');
+  if (s2.pages) rows.push('<span class="stat">📄 <b>' + s2.pages + '</b> עמודים</span>');
+  if (s2.runCount) rows.push('<span class="stat">🧩 <b>' + s2.runCount + '</b> ריצות</span>');
+  if (s2.version > 1) rows.push('<span class="stat">🔁 גרסה <b>' + s2.version + '</b></span>');
+  if (s2.at) rows.push('<span class="stat">🕒 ' + new Date(s2.at).toLocaleString('he-IL') + '</span>');
+  var runList = s2.runs.length
+    ? '<div style="margin-top:9px;font-size:.85rem;color:#374151">' + s2.runs.map(function(r){
+        return '<div>✓ ' + esc(r.name) + (r.pages ? (' — ' + r.pages + ' עמ׳') : '') + '</div>'; }).join('') + '</div>'
+    : '';
+  box.innerHTML = '<h2 style="color:#166534">✓ הקבצים נשלחו לבית הדפוס</h2>'
+    + '<div class="stats" style="margin-top:2px">' + rows.join('') + '</div>'
+    + runList
+    + '<div style="margin-top:10px;font-size:.88rem;color:#374151">' + esc(PortalReturn.nextStep(s2)) + '</div>';
+  box.classList.remove('hidden');
+}
+
 function _renderHelloStats(list){
   var el = $('hello-stats'); if (!el) return;
   var total = list.length;
@@ -457,6 +492,7 @@ async function loadHistory(){
   window._portalProofs = list;
   try { if (typeof _refreshNoticeAction === 'function') _refreshNoticeAction(); } catch(e){}
   _renderHelloStats(list);
+  try { _renderJobCard(list); } catch(e){ console.warn('כרטיס-העבודה נכשל', e); }
   if (!list.length){ $('history').innerHTML = '<div class="empty">אין עדיין עיתונים 🗞️</div>'; return; }
   $('history').innerHTML = list.map(function(p){
     var b = _proofBadge(p);
