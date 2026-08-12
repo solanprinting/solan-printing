@@ -33,17 +33,18 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786514993"></script>
+<script src="portal-chat.js?v=1786516894"></script>
+<script src="shop-issue.js?v=1786516894"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786514993"></script>
-<script src="auth-client.js?v=1786514993"></script>
+<script src="firebase-auth.bundle.js?v=1786516894"></script>
+<script src="auth-client.js?v=1786516894"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786514993" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786516894" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -434,6 +435,49 @@ window.addEventListener('appinstalled', function(){
   .ibxHd .n { background:#dc2626; color:#fff; }
   .ibxCards { padding:0 13px 13px; gap:9px; }
   .ibxCard { border-radius:12px; }
+  /* ═══ כרטיס-גיליון במרכז (בקשת-בעלים 11/08/2026) ══════════════════════
+     "כל גיליון בנפרד, ולא יראו את הקודם פתוח — בלחיצה ייפתח", ולחצנים
+     ברורים שאפשר ללחוץ עליהם.
+     ⚠️ גיליון אחד פתוח בכל רגע: לקוח ותיק הוא עשרות גיליונות, וכשכולם
+     פתוחים זה שעובדים עליו נבלע בהיסטוריה. */
+  .isCard { border:1px solid var(--line); border-radius:13px; margin:0 0 10px;
+            background:#fff; overflow:hidden; transition:box-shadow .12s; }
+  .isCard.on { border-color:#c7d2fe; box-shadow:0 3px 14px rgba(45,53,97,.10); }
+  .isCard.approved { border-inline-start:4px solid var(--green); }
+  .isHd { display:flex; align-items:center; gap:9px; padding:13px 15px; cursor:pointer;
+          flex-wrap:wrap; user-select:none; }
+  .isHd:hover { background:#fffdf6; }
+  .isCard.on .isHd { background:#f8f9fc; border-bottom:1px solid #f0f0f0; }
+  .isChev { color:#9ca3af; font-weight:900; font-size:.85rem; flex:none; }
+  .isTtl { font-weight:900; color:var(--press,#2d3561); font-size:.97rem; flex:1; min-width:130px; }
+  .isMeta { font-size:.78rem; color:#6b7280; }
+  .isBody { padding:13px 15px 15px; }
+  /* יחידות: העיתון המלא וכל ריצה — שורה משלה עם צפייה והורדה צמודות */
+  .isUnit { display:flex; align-items:center; gap:9px; flex-wrap:wrap;
+            padding:10px 12px; border:1px solid var(--line); border-radius:11px;
+            margin-bottom:8px; background:#fbfbfd; }
+  .isUnitNm { font-weight:800; font-size:.89rem; color:#1f2937; flex:1; min-width:110px; }
+  /* ⚠️ לחצנים גדולים ומילוליים. "👁" לבד אינו אומר למי שאינו במסך הזה
+     כל יום מה יקרה בלחיצה. */
+  .isBtn { display:inline-flex; align-items:center; gap:6px; padding:11px 17px;
+           border:0; border-radius:11px; font-family:inherit; font-weight:800;
+           font-size:.88rem; cursor:pointer; text-decoration:none; line-height:1.2; }
+  .isBtn.sm { padding:8px 13px; font-size:.82rem; border-radius:9px; }
+  .isBtn.view { background:#eef2ff; color:var(--press,#2d3561); }
+  .isBtn.view:hover { background:#e0e7ff; }
+  .isBtn.dl { background:#f4f1e6; color:#6b5618; }
+  .isBtn.dl:hover { background:#ece7d3; }
+  .isBtn.ok { background:linear-gradient(135deg,var(--green),#15803d); color:#fff; }
+  .isBtn.ok:hover { filter:brightness(.95); }
+  .isBtn.fix { background:#fff7ed; color:#9a3412; border:1.5px solid #fed7aa; }
+  .isBtn.fix:hover { background:#ffedd5; }
+  .isBtn.done { background:#eef2ff; color:#3730a3; }
+  .isBtn:disabled { opacity:.5; cursor:default; }
+  .isMain { display:flex; gap:9px; flex-wrap:wrap; margin-top:11px; }
+  /* פעולות-משנה: קיימות, אך אינן מתחרות בעין עם הראשיות */
+  .isMore { margin-top:11px; padding-top:11px; border-top:1px dashed var(--line); }
+  .isMore .acts { gap:6px; }
+  .isSeen { font-size:.79rem; color:#166534; font-weight:800; }
 </style>
 </head>
 <body>
@@ -639,6 +683,9 @@ let _dayCollapsed = {};       // day → true אם קבוצת-היום מקוו�
    ⚠️ מוקם מאחורי דגל ולא מחליף את המסך הקיים: ?ui=portal מפעיל, ?ui=classic
    מכבה, והבחירה נזכרת. כך אפשר לחזור אחורה בלחיצה אחת אם משהו מפריע בעבודה. */
 let _pvDay = null;            // היום שנבחר בניווט (null = היום הנוכחי)
+/* ⚠️ הגיליון הפתוח במרכז. ריק = ברירת-המחדל (החדש-הפעיל), ולא "אף אחד" —
+   ‏ShopIssue.openId מחליט, כדי שהכלל יישב במקום אחד ויהיה נבדק. */
+let _openIssue = '';
 const _uiPortal = (function(){
   try{
     const q = new URLSearchParams(location.search).get('ui');
@@ -825,8 +872,11 @@ function _rowsSig(rows){
     var crs = p.changeRequests ? Object.keys(p.changeRequests).map(function(k){
       var r = p.changeRequests[k]; return k + ':' + (r && r.status) + ':' + ((r && r.decidedAt) || 0);
     }).sort().join(',') : '';
+    /* ⚠️ בלי שדות-האישור בחתימה, לחיצה על "אושר להדפסה" במכשיר אחד
+       אינה מופיעה במסך השני עד רענון ידני — וזה בדיוק המצב שבו שניים
+       מאשרים את אותו גיליון. */
     return [p.id, p.updatedAt||0, p.approvedAt||0, p.apogeeApprovedAt||0, p.version||1,
-            p.correctedAt||0, p.correctionSeenAt||0,
+            p.printApprovedAt||0, p.correctedAt||0, p.correctionSeenAt||0,
             p.shopSeenAt||0, p.completedAt||0, p.closedAt||0, (p.pendingPages||[]).join('.'),
             p.readyNotice?1:0, parts, files, crs].join('|');
   }).sort().join(';'); }catch(e){ return String(Math.random()); }
@@ -973,6 +1023,65 @@ function render(rows) {
     if (!t.approvedAt) return '';
     if (t.shopSeenAt) return `<span class="psTag" style="background:#eef2ff;color:#3730a3;border:1.5px solid #c7d2fe" title="${escapeHtml(t.shopSeenBy||'')} · ${fmt(t.shopSeenAt)}">👁 נצפה</span>`;
     return `<button data-seen="${p.id}|${pid || 'full'}" title="עוצר את ההתראה החוזרת, ומעדכן את הלקוח שקיבלנו">👁 ראיתי</button>`;
+  };
+
+  /* ── כרטיס-גיליון (מבנה-פורטל בלבד) ──────────────────────────────────
+     ⚠️ ‎rowHtml‎ נשאר ללא נגיעה — הוא משרת את המסך הקלאסי, שהוא רשת-
+     הביטחון. שני מבנים, שתי פונקציות, אפס "אם זה פורטל אז..." בתוך אחת. */
+  const issueCard = (p, openId) => {
+    const su = ShopIssue.summaryOf(p);
+    const open = (su.id === openId);
+    const units = ShopIssue.unitsOf(p);
+    const seenTime = ShopIssue.seenAt(p);
+    const chev = open ? '▼' : '◀';
+    const head = `<div class="isHd" data-issue="${escapeHtml(su.id)}">
+      <span class="isChev">${chev}</span>
+      <span class="isTtl">${escapeHtml(ShopIssue.titleOf(p))}</span>
+      <span class="badge ${su.status.cls}">${su.status.label}</span>
+      ${su.pendingPages.length?`<span class="psTag psWait">⏳ חסרים עמ׳ ${su.pendingPages.join(', ')}</span>`:''}
+      ${su.corrected?`<span class="psTag psOpen">🔁 עבר תיקון · גרסה ${su.version}</span>`:''}
+      <span class="isMeta">${units.length?(units.length+' קבצים · '):''}${su.pages?(su.pages+' עמ׳ · '):''}${fmt(su.at)}</span>
+    </div>`;
+    if (!open) return `<div class="isCard${ShopIssue.printApproved(p)?' approved':''}">${head}</div>`;
+
+    /* יחידה = העיתון המלא או ריצה. לכל אחת צפייה והורדה משלה, כי הן
+       קבצים נפרדים — כפתור אחד לכולן היה מוריד את הלא-נכון. */
+    const unitRows = units.map(u => {
+      const vLink = `${base}proof-viewer.html?id=${p.id}${u.partId?('&part='+encodeURIComponent(u.partId)):''}`;
+      const dlKey = (function(){ const k='g'+(gi++);
+        _genReg[k] = { fileUrl:u.url, title: jobName(p, u.partId ? u.label : ''), jobId:p.id, partId:u.partId };
+        return k; })();
+      return `<div class="isUnit">
+        <span class="isUnitNm">${u.kind==='full'?'📄':'🧩'} ${escapeHtml(u.label)}${u.pages?` <span style="color:#9ca3af;font-weight:600">· ${u.pages} עמ׳</span>`:''}</span>
+        <a class="isBtn view sm" href="${vLink}" target="_blank">👁 צפייה בדפדוף</a>
+        <button class="isBtn dl sm" data-dl="${dlKey}">⬇ הורדה</button>
+      </div>`;
+    }).join('') || '<div style="color:#9ca3af;font-size:.86rem;padding:6px 2px">טרם התקבלו קבצים לגיליון הזה.</div>';
+
+    /* ⚠️ "אשר קבלה ללקוח" הוא ‎shopSeenAt‎ הקיים — אותו שדה שהפורטל כבר
+       מציג ללקוח כ"בית-הדפוס קיבל את הקבצים". */
+    const seenBlock = seenTime
+      ? `<span class="isSeen">✓ אושרה קבלה ללקוח · ${fmt(seenTime)}</span>`
+      : (su.arrived ? `<button class="isBtn ok" data-seenall="${escapeHtml(su.id)}">✅ אשר קבלה ללקוח</button>` : '');
+
+    return `<div class="isCard on${ShopIssue.printApproved(p)?' approved':''}">${head}
+      <div class="isBody">
+        ${unitRows}
+        <div class="isMain">
+          ${seenBlock}
+          <button class="isBtn ${ShopIssue.printApproved(p)?'done':'ok'}" data-printok="${escapeHtml(su.id)}">${ShopIssue.printApproveLabel(p)}</button>
+          <button class="isBtn fix" data-needfix="${escapeHtml(su.id)}" title="נפתחת דרישה בפורטל הלקוח — הוא יעלה את העמוד המתוקן">🔁 דרוש תיקון</button>
+        </div>
+        <div class="isMore"><div class="acts">
+          <button data-link="${base}proof-client.html?id=${p.id}">📤 קישור העלאה ללקוח</button>
+          <button data-link="${base}proof-viewer.html?id=${p.id}">👁 קישור צפייה לעובדים</button>
+          ${genCell('', jobName(p), p.id, '')}
+          ${notifyBtn(p)}${editBtn(p)}${closeBtn(p)}
+          <button data-donejob="${p.id}" data-on="${p.completedAt?1:0}">${p.completedAt?'↩ החזר לפעילות':'🏁 סמן כהושלם'}</button>
+          ${prTag(p)}${psCell(p.id, 'full', psReqOf(p, 'full'))}
+          <button class="del" data-deljob="${p.id}">🗑 מחק</button>
+        </div></div>
+      </div></div>`;
   };
 
   const rowHtml = p => {
@@ -1325,8 +1434,13 @@ function render(rows) {
         <span style="font-size:.82rem;color:#555">${sel.length} עבודות</span>
         <button id="jobsCollapseAll" style="font-size:.8rem">➖ כווץ הכל</button>
         <button id="jobsExpandAll" style="font-size:.8rem">➕ פתח הכל</button></div>` : ''}
-      ${sel.length ? `<table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
-      <tbody>${sel.map(rowHtml).join('')}</tbody></table>`
+      ${sel.length ? (_uiPortal
+          /* ⚠️ במבנה-הפורטל: כרטיס לכל גיליון, אחד פתוח. במסך הקלאסי
+             הטבלה נשארת בדיוק כשהייתה — הוא רשת-הביטחון. */
+          ? (function(){ const _oid = ShopIssue.openId(sel, _openIssue);
+                         return ShopIssue.sortIssues(sel).map(x => issueCard(x, _oid)).join(''); })()
+          : `<table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
+      <tbody>${sel.map(rowHtml).join('')}</tbody></table>`)
       : '<div style="padding:18px;text-align:center;color:#9ca3af">אין עבודות פעילות ללקוח זה</div>'}
       ${done.length ? `<div style="margin-top:10px;border-top:2px solid var(--line)">
         <div id="doneHdr" style="padding:9px 14px;background:#f0fdf4;cursor:pointer;font-weight:800;color:#166534;display:flex;gap:8px;align-items:center">
@@ -1681,6 +1795,21 @@ function render(rows) {
     return moveRun(parts[0], parts.slice(1).join('|'), b);   // partId יכול להכיל '|'
   }, 'העברת הריצה'));
   document.querySelectorAll('[data-notice]').forEach(b => b.onclick = () => sendNotice(b.dataset.notice));
+  /* ── כרטיסי-הגיליון ─────────────────────────────────────────────────── */
+  /* ⚠️ לחיצה **פותחת** את הגיליון, ואינה מתג. סגירה-מלאה הייתה משאירה
+     מסך בלי שום גיליון פתוח — וזה נראה כמו מסך ריק, לא כמו "הכל מכווץ".
+     גיליון אחד פתוח תמיד; לחיצה על הפתוח פשוט אינה עושה דבר. */
+  document.querySelectorAll('.isHd[data-issue]').forEach(el => el.onclick = (e) => {
+    if (e.target.closest('a,button,select')) return;   /* לחצן בתוך הכותרת אינו קיפול */
+    if (_openIssue === el.dataset.issue) return;
+    _openIssue = el.dataset.issue;
+    render(_allRows);
+  });
+  /* "אשר קבלה ללקוח" — מסמן את הגיליון **וכל ריצותיו**, כי מבחינת הלקוח
+     ההודעה היא "קיבלנו את מה ששלחת", לא "קיבלנו ריצה 2". */
+  document.querySelectorAll('[data-seenall]').forEach(b => b.onclick = () => markSeenAll(b.dataset.seenall, b));
+  document.querySelectorAll('[data-printok]').forEach(b => b.onclick = () => togglePrintApproved(b.dataset.printok, b));
+  document.querySelectorAll('[data-needfix]').forEach(b => b.onclick = () => needFix(b.dataset.needfix));
   // (data-apogee הוסר — השליחה לאישור עברה ללשונית "📤 פרופר ללקוח")
   document.querySelectorAll('[data-unlock]').forEach(b => b.onclick = () => unlockProof(b.dataset.unlock));
   document.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => {
@@ -1919,6 +2048,60 @@ function _pvWire(){
   _shChatPaintDots();
 }
 
+/* ═══════════ פעולות כרטיס-הגיליון ═══════════════════════════════════════ */
+
+/* "אשר קבלה ללקוח" — הגיליון וכל ריצותיו. ⚠️ אותו נתיב ואותם שדות
+   שכפתור "👁 ראיתי" הוותיק כותב, כדי ששני המסכים והפורטל יראו אותו דבר. */
+async function markSeenAll(id, btn){
+  const p = (_allRows || []).find(x => x.id === id); if (!p) return;
+  const stamp = { shopSeenAt: Date.now(), shopSeenBy: 'בית-הדפוס' };
+  if (btn){ btn.disabled = true; btn.textContent = 'מאשר…'; }
+  try {
+    const paths = ['customerProofs/' + id];
+    Object.keys(p.parts || {}).forEach(k => paths.push('customerProofs/' + id + '/parts/' + k));
+    for (const path of paths){
+      const r = await fetch(await _au(`${_FBURL}/${path}.json`),
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(stamp) });
+      /* ⚠️ ‏Firebase מחזיר 401/403 כתגובה תקינה ולא כחריגה — בלי הבדיקה
+         הזו "אושרה קבלה" מוצג בלי שנכתב דבר. */
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+    }
+    Object.assign(p, stamp);
+    msg('✓ הקבלה אושרה ללקוח'); render(_allRows);
+  } catch(e){
+    if (btn){ btn.disabled = false; btn.textContent = '✅ אשר קבלה ללקוח'; }
+    alert('אישור-הקבלה נכשל: ' + ((e && e.message) || e));
+  }
+}
+
+/* "אושר להדפסה" — שדה משלו (‎printApprovedAt/By‎), ומתג דו-כיווני.
+   ⚠️ הלקוח רואה את זה בפורטל, ולכן אישור בטעות חייב להיות הפיך. */
+async function togglePrintApproved(id, btn){
+  const p = (_allRows || []).find(x => x.id === id); if (!p) return;
+  const was = ShopIssue.printApproved(p);
+  if (was && !confirm('לבטל את אישור-ההדפסה? הלקוח יראה שהגיליון חזר להמתנה.')) return;
+  const patch = ShopIssue.printApprovePatch(p, { at: Date.now(), by: 'בית-הדפוס' });
+  if (btn){ btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(patch) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    Object.assign(p, patch);
+    msg(was ? '↩ אישור-ההדפסה בוטל' : '✅ הגיליון אושר להדפסה'); render(_allRows);
+  } catch(e){
+    if (btn){ btn.disabled = false; btn.textContent = ShopIssue.printApproveLabel(p); }
+    alert('העדכון נכשל: ' + ((e && e.message) || e));
+  }
+}
+
+/* "דרוש תיקון" — פותח את דיאלוג-הדרישה הקיים, ממוקד לגיליון הזה.
+   ⚠️ אין כאן מסלול חדש: זו אותה דרישה שהפורטל כבר יודע לפתוח בה
+   "הוספת עמוד/ים" (page-add.js). מסלול שני לאותה פעולה היה מתפצל. */
+function needFix(id){
+  const p = (_allRows || []).find(x => x.id === id); if (!p) return;
+  sendNotice(p.customer || '', { proofId: id, kind: 'replace' });
+}
+
 async function portalLink(customer){
   const slug = _slug(customer); if (!slug){ alert('שם לקוח חסר'); return; }
   msg('מכין קישור פורטל…');
@@ -2057,7 +2240,10 @@ function _pbResult(done, failed){
   };
   document.getElementById('pbClose2').onclick = () => m.remove();
 }
-function sendNotice(customer){
+/* ⚠️ ‎opts‎ נוסף ב-11/08/2026 עבור "🔁 דרוש תיקון": הכפתור נלחץ **על
+   גיליון מסוים**, ובחירה ידנית חוזרת של אותו גיליון היא בדיוק המקום
+   שבו נבחר הלא-נכון. הפרמטר אופציונלי — כל הקוראים הקיימים לא השתנו. */
+function sendNotice(customer, opts){
   const slug = _slug(customer); if (!slug) return;
   const ex = document.getElementById('notice-modal'); if (ex) ex.remove();
   const bs = 'padding:6px 11px;border:1.5px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700;font-size:.8rem';
@@ -2088,6 +2274,17 @@ function sendNotice(customer){
     + '</div></div></div>';
   document.body.insertAdjacentHTML('beforeend', html);
   const ta = document.getElementById('notice-text');
+  /* מיקוד מראש לגיליון שממנו נלחץ, וניסוח-פתיחה שאפשר לערוך.
+     ⚠️ הטקסט אינו נשלח כמו שהוא: הוא רק נקודת-פתיחה, כי דרישה בלי
+     פירוט ("נדרשת החלפת עמוד" — איזה?) שולחת את הלקוח לנחש. */
+  if (opts && opts.proofId){
+    const _sel = document.getElementById('notice-target');
+    if (_sel) _sel.value = opts.proofId;
+    if (opts.kind === 'replace' && ta){
+      ta.value = 'נדרשת החלפת עמוד — ';
+      setTimeout(function(){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 30);
+    }
+  }
   document.querySelectorAll('#notice-modal [data-tpl]').forEach(function(b){ b.onclick = function(){ ta.value = ta.value ? (ta.value + ' · ' + b.dataset.tpl) : b.dataset.tpl; ta.focus(); }; });
   document.getElementById('notice-cancel').onclick = function(){ document.getElementById('notice-modal').remove(); };
   // במקום מעלה-פרופר משלנו — מעבירים ללשונית "📤 פרופר ללקוח" (שם יש רשימת-לקוחות,
