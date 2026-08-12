@@ -48,8 +48,43 @@
   }
 
   var _session = null;   // { idToken, rt, exp }
-  var _ctx = null;       // { ok, mode, slug, customer, orgId }
+  var _ctx = null;       // { ok, mode, slug, customer, orgId, reason }
   var _ready = null;     // Promise (single-flight)
+
+  /* ── סיבת-הכשל אינה נבלעת ────────────────────────────────────────────────
+     ⚠️ עד 12/08/2026 כל מסלולי-הכשל החזירו את אותו ‎{ok:false}‎ חסר-הקשר,
+     והפורטל הציג לכולם "הקישור אינו תקין או פג תוקף". זה שלח לקוחות
+     להתקשר לבית-הדפוס בשני מצבים שבהם הקישור שלהם **תקין לגמרי**:
+     כשהודבקה הכתובת שהועתקה משורת-הכתובות (בלי ‎k‎), וכשה-Function הייתה
+     זמנית למטה. ‎reason‎ נושא את ההבחנה:
+       · ‎'no-link'‎       — אין ‎k‎ בכתובת ואין סשן שמור. הכתובת הועתקה,
+                            או שזה דפדפן/מכשיר אחר. **הקישור עצמו תקין.**
+       · ‎'session-ended'‎ — היה refresh-token, והוא פג/בוטל/נוקה.
+       · ‎'bad-link'‎      — השרת דחה במפורש (permission-denied): ‎k‎ שגוי,
+                            חתוך, או פורטל שאינו קיים.
+       · ‎'temporary'‎     — כל השאר: 500, נתק-רשת, מסנן, CORS, או אסימון
+                            שחזר בלי claims. תקלה אצלנו.
+     ⚠️ **אין כאן דליפת-אנומרציה.** השרת כבר מחזיר תשובה **זהה** ל"פורטל
+     לא קיים" ול-"token שגוי" (‎linkErrorEnvelope‎ ב-functions/portal-link.js),
+     ומבחין רק בין ‎permission-denied‎ ל-‎internal‎ — הבחנה שהוא עושה
+     בכוונה-תחילה. הלקוח כאן רק מפסיק לזרוק אותה לפח.
+     ⚠️ ומחיר ידוע: חסימת-קצב (‎portal_rate_limited‎) עטופה בשרת באותה
+     מעטפת ‎permission-denied‎, ולכן תיראה כאן כ-‎'bad-link'‎. זה מכוון שם
+     (אחרת מנחש היה יודע מתי נחסם) — ואי אפשר לתקן זאת בלקוח בלי לבטל את
+     ההגנה. אל "תשפרו" את זה כאן. */
+  function _fail(reason) {
+    return { ok: false, mode: 'none', slug: '', customer: '', orgId: '', reason: reason };
+  }
+
+  /* ⚠️ ברירת-המחדל היא ‎'temporary'‎ **בכוונה**. להאשים קישור תקין בגלל
+     תקלת-רשת זה לשלוח לקוח לבקש קישור חדש שלא יעזור לו; להפך — לומר
+     "תקלה זמנית" על קישור שבאמת בוטל עולה רענון אחד. הכיוון הבטוח ברור.
+     ⚠️ אומת מול הייצור 12/08/2026: קישור פסול מחזיר בדיוק
+     ‎HTTP 403‎ + ‎{"error":{"status":"PERMISSION_DENIED"}}‎. */
+  function _loginFailReason(e) {
+    if (e && (e.status === 'PERMISSION_DENIED' || e.http === 403)) return 'bad-link';
+    return 'temporary';
+  }
 
   function _saveRt(rt) { try { if (rt) localStorage.setItem(RT_KEY, rt); } catch (e) {} }
   function _clearRt()  { try { localStorage.removeItem(RT_KEY); } catch (e) {} }
@@ -57,7 +92,7 @@
      כישלון-אימות — קישור-חדש שנפל, או refresh שבוטל/פג. */
   function _wipe() {
     _session = null;
-    _ctx = { ok: false, mode: 'none', slug: '', customer: '', orgId: '' };
+    _ctx = _fail('session-ended');
     _clearRt();
   }
 
@@ -70,6 +105,11 @@
     if (!r.ok) {
       var e = new Error((j.error && j.error.message) || 'הקישור אינו תקין');
       e.code = (j.error && j.error.details && j.error.details.code) || '';
+      /* ⚠️ ‎status‎ ו-‎http‎ נשמרים כדי להבחין בין "השרת דחה את הקישור"
+         (permission-denied / 403) ל-"השרת לא ענה כמו שצריך" (500, תקלה).
+         בלעדיהם כל כשל נראה כמו קישור-פסול — ראה ‎_loginFailReason‎. */
+      e.status = (j.error && j.error.status) || '';
+      e.http = r.status;
       throw e;
     }
     return j.result;
@@ -120,23 +160,32 @@
        לקוח קודם (א׳) עלול היה להציג את פורטל-א׳ תחת כתובת-ב׳. אין זריקה
        (לא מסך-ריק), אין fallback אנונימי. */
     if (cust && k) {
+      var reason = 'temporary';
       try {
         var res = await _callFn('portalLinkLogin', { slug: slugify(cust), k: k });
         await _signInCustom(res.token);
-        /* ⚠️ הסרת ה-k מהכתובת מיד — בלי reload. ‎cust‎ נשאר לתאימות-תצוגה. */
+        /* ⚠️ הסרת ה-k מהכתובת מיד — בלי reload. ‎cust‎ נשאר לתאימות-תצוגה.
+           ⚠️ **זו הסיבה שכתובת מועתקת אינה פותחת את הפורטל**, וזה מכוון:
+           הכתובת שבשורת-הכתובות מגיעה להיסטוריה, למועדפים ולצילומי-מסך.
+           המחיר הוא שהלקוח חייב הסבר — ראה ‎'no-link'‎ למטה. */
         try {
           params.delete('k');
           var qs = params.toString();
           history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
         } catch (e) {}
         _ctx = _ctxFromToken(_session.idToken, 'link');
-        if (_ctx) return _ctx;
-      } catch (e) {}
-      /* הגענו לכאן = הכשל, או שה-token לא הניב claims-לקוח. ניקוי מוחלט
-         והחזרת ok:false — בלי שחזור-סשן-קודם ובלי fallback. */
+        if (_ctx) { _ctx.reason = ''; return _ctx; }
+        /* אסימון תקין שחזר בלי claims-לקוח = תקלת-תצורה אצלנו, לא קישור פסול. */
+        console.error('כניסת-פורטל: האסימון חזר בלי claims-לקוח');
+      } catch (e) {
+        reason = _loginFailReason(e);
+        /* ⚠️ בלי ‎k‎ ובלי ‎cust‎ בלוג — הראשון סוד, השני שם-לקוח. */
+        console.error('כניסת-פורטל נכשלה (' + reason + ')', (e && e.message) || e);
+      }
+      /* ניקוי מוחלט והחזרת ok:false — בלי שחזור-סשן-קודם ובלי fallback. */
       _session = null;
       _clearRt();
-      _ctx = { ok: false, mode: 'none', slug: '', customer: '', orgId: '' };
+      _ctx = _fail(reason);
       return _ctx;
     }
 
@@ -146,12 +195,22 @@
       try {
         await _refresh(rt);
         _ctx = _ctxFromToken(_session.idToken, 'resumed');
-        if (_ctx) return _ctx;
-      } catch (e) { _clearRt(); }
+        if (_ctx) { _ctx.reason = ''; return _ctx; }
+        console.error('שחזור-סשן: האסימון חזר בלי claims-לקוח');
+      } catch (e) {
+        _clearRt();
+        console.error('שחזור-סשן נכשל', (e && e.message) || e);
+      }
+      /* היה סשן והוא כבר לא תקף — זה **לא** "קישור פסול". */
+      _ctx = _fail('session-ended');
+      return _ctx;
     }
 
-    /* אין זהות. הקורא מחליט מה להציג (הפורטל הישן מציג את שער-הכניסה שלו). */
-    _ctx = { ok: false, mode: 'none', slug: '', customer: '', orgId: '' };
+    /* אין ‎k‎ בכתובת ואין סשן שמור. זה המצב הנפוץ ביותר בשטח: הלקוח העתיק
+       את הכתובת משורת-הכתובות (שממנה ה-‎k‎ כבר הוסר), או פתח אותה בדפדפן
+       אחר / במכשיר אחר / בגלישה פרטית — שם ה-refresh-token לא קיים.
+       הקישור המקורי שלו תקין; רק הכתובת שבידו אינה הקישור. */
+    _ctx = _fail('no-link');
     return _ctx;
   }
 
@@ -211,6 +270,9 @@
     get customer() { return _ctx ? _ctx.customer : ''; },
     get orgId()    { return _ctx ? _ctx.orgId : ''; },
     get ok()       { return !!(_ctx && _ctx.ok); },
+    /* ⚠️ למה נכשלנו — כדי שהמסך יגיד ללקוח את האמת ולא "הקישור פסול"
+       על תקלת-רשת. ריק כשיש זהות; ‎'no-link'‎ כברירת-מחדל בטוחה. */
+    get reason()   { return (_ctx && _ctx.reason) || (_ctx && _ctx.ok ? '' : 'no-link'); },
 
     /* ⚠️ האסימון שהפורטל מצרף כ-‎?auth=‎. מרענן אם פג-כמעט.
        כישלון-רענון (RT פג/בוטל) חייב **לנקות הכול ולהחזיר null** — אסור
