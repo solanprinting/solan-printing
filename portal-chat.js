@@ -67,6 +67,59 @@
     return { side: side, text: str(o.text), by: str(o.by), at: num(o.at) };
   }
 
+  /* ── סגירת שיחה ─────────────────────────────────────────────────────────
+     ⚠️ **בקשת-בעלים 11/08/2026:** "שיחה שהסתיימה — הדפוס יוכל לסגור אותה,
+     והיא תוצג בהיסטוריית-שיחות, כדי שלא תופיע כל השיחה מגיליונות קודמים
+     במסך הראשי." שיחה שמצטברת שנה אחורה הופכת את התיבה לארכיון: מה
+     שרלוונטי לגיליון של היום נבלע בין עשרות הודעות ישנות.
+
+     ⚠️ **סגירה אינה מחיקה.** ההודעות נשארות במקומן, ורק **נחתכות** לפי
+     חותמת-הסגירה. היסטוריית-שיחה שאפשר למחוק אינה ראיה — וזו בדיוק
+     הסיבה שהודעות הן append-only מלכתחילה.
+
+     ⚠️ **רק בית-הדפוס סוגר.** הלקוח באמצע משפט אינו מי שמחליט שהנושא
+     נסגר, ולקוח שסוגר שיחה מעלים מבית-הדפוס פנייה פתוחה. */
+  function closePath(slug) { return chatPath(slug) + '/_closed'; }
+  function closeId(at, rnd) {
+    var t = String(num(at)).padStart(14, '0');
+    return 'c' + t + '_' + (str(rnd) || Math.random().toString(36).slice(2, 6));
+  }
+  function closeMark(o) {
+    o = o || {};
+    return { at: num(o.at), by: str(o.by) || 'בית-הדפוס', note: str(o.note) };
+  }
+  /* רשימת הסגירות, ישן→חדש. */
+  function closes(obj) {
+    var o = (obj && obj._closed && typeof obj._closed === 'object') ? obj._closed : {};
+    return Object.keys(o).map(function (k) {
+      var c = o[k] || {};
+      return { _id: k, at: num(c.at), by: str(c.by), note: str(c.note) };
+    }).filter(function (c) { return c.at > 0; })
+      .sort(function (a, b) { return a.at - b.at; });
+  }
+  function lastCloseAt(obj) {
+    var c = closes(obj);
+    return c.length ? c[c.length - 1].at : 0;
+  }
+  /* ⚠️ השיחה הפעילה = מה שנאמר **אחרי** הסגירה האחרונה. הודעה שנשלחה
+     באותה מילישנייה של הסגירה שייכת לשיחה שנסגרה, לא לחדשה. */
+  function activeOf(msgs, closedAt) {
+    var c = num(closedAt);
+    return (msgs || []).filter(function (m) { return num(m.at) > c; });
+  }
+  /* שיחות שנסגרו, חדשה→ישנה. כל אחת נחתכת בין הסגירה הקודמת לשלה. */
+  function sessionsOf(msgs, obj) {
+    var cs = closes(obj), all = msgs || [], out = [], prev = 0;
+    cs.forEach(function (c) {
+      var items = all.filter(function (m) { return num(m.at) > prev && num(m.at) <= c.at; });
+      /* ⚠️ סגירה בלי הודעות אינה "שיחה": שתי לחיצות ברצף היו מייצרות
+         שורות-ארכיון ריקות שמסתירות את האמיתיות. */
+      if (items.length) out.push({ at: c.at, by: c.by, note: c.note, items: items });
+      prev = c.at;
+    });
+    return out.reverse();
+  }
+
   /* ⚠️ **‏RTDB מחזיר דחיית-הרשאה כגוף-JSON תקין**: ‎{"error":"Permission
      denied"}‎ עם קוד 401. ‏list() על גוף כזה מחזיר מערך ריק, והמסך אומר
      "אין עדיין הודעות" — כלומר חוק שחוסם נראה **בדיוק** כמו שיחה ריקה.
@@ -176,6 +229,8 @@
     chatPath: chatPath, seenPath: seenPath, msgId: msgId,
     validate: validate, build: build, list: list,
     denied: denied, errorText: errorText,
+    closePath: closePath, closeId: closeId, closeMark: closeMark,
+    closes: closes, lastCloseAt: lastCloseAt, activeOf: activeOf, sessionsOf: sessionsOf,
     unread: unread, lastMessage: lastMessage, preview: preview,
     timeLabel: timeLabel, dayLabel: dayLabel, groupByDay: groupByDay,
     noticeType: noticeType, asNotice: asNotice

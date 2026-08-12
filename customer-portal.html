@@ -9,11 +9,11 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786516894"></script>
-<script src="page-add.js?v=1786516894"></script>
-<script src="portal-context.js?v=1786516894"></script>
-<script src="portal-return.js?v=1786516894"></script>
-<script src="portal-chat.js?v=1786516894"></script>
+<script src="portal-download.js?v=1786518710"></script>
+<script src="page-add.js?v=1786518710"></script>
+<script src="portal-context.js?v=1786518710"></script>
+<script src="portal-return.js?v=1786518710"></script>
+<script src="portal-chat.js?v=1786518710"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -83,6 +83,17 @@
   #ovBar>div { height:100%; width:0; background:linear-gradient(90deg,#2d3561,#16a34a); transition:width .15s; }
   .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:#111827; color:#fff; padding:11px 18px; border-radius:10px; font-weight:700; z-index:90; box-shadow:0 6px 20px rgba(0,0,0,.3); }
   .hidden { display:none !important; }
+  /* ── פריסה: תוכן מימין, שיחה משמאל (בקשת-בעלים 11/08/2026) ─────────
+     ⚠️ ‏RTL: העמודה השנייה ברשת היא הצד השמאלי. השיחה נדבקת למקומה
+     בגלילה — היא ערוץ פתוח, לא עוד כרטיס שנעלם למטה.
+     ⚠️ מתחת ל-980px חוזרים לעמודה אחת: במסך-טלפון שיחה ברוחב 320
+     דוחקת את התוכן לרצועה בלתי-קריאה. */
+  .pWrap2 { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:14px; align-items:start; }
+  .pChatCol { position:sticky; top:14px; }
+  @media (max-width: 980px){
+    .pWrap2 { grid-template-columns:1fr; }
+    .pChatCol { position:static; }
+  }
   /* ── שיחה עם בית-הדפוס ── */
   .chatBox { max-height:330px; overflow-y:auto; display:flex; flex-direction:column; gap:7px;
     padding:10px; background:#f8f9fc; border:1px solid #e5e7eb; border-radius:10px; }
@@ -97,6 +108,14 @@
   .chatSend { display:flex; gap:8px; margin-top:9px; align-items:flex-end; }
   .chatSend textarea { flex:1; padding:9px 11px; border:1.5px solid #e5e7eb; border-radius:10px;
     font-family:inherit; font-size:.92rem; resize:vertical; }
+  /* ⚠️ שיחות שנסגרו יורדות לכאן — מקופלות. הן לא נמחקות (היסטוריה
+     שאפשר למחוק אינה ראיה), אבל גם לא מציפות את המסך הראשי. */
+  .chatHist { margin-top:11px; border-top:1px dashed #e5e7eb; padding-top:9px; }
+  .chatHist > summary { cursor:pointer; font-size:.82rem; font-weight:800; color:#6b7280; }
+  .chatSess { margin-top:9px; border:1px solid #e5e7eb; border-radius:10px; padding:9px 10px; background:#fafafa; }
+  .chatSessHd { font-size:.75rem; color:#9ca3af; font-weight:800; margin-bottom:6px; }
+  .chatClosed { text-align:center; font-size:.78rem; color:#9ca3af; font-weight:700;
+                padding:7px; background:#f8f9fc; border-radius:9px; margin-top:8px; }
 </style>
 </head>
 <body>
@@ -131,6 +150,7 @@
          *מה* נשלח ומה קורה עכשיו — לא רשימת-היסטוריה שצריך לחפש בה. -->
     <div id="job-card" class="card hidden" style="border:2px solid var(--green);background:#f6fbf6"></div>
 
+    <div class="pWrap2"><div>
     <div id="notices" class="notice hidden">
       <h2>🔔 דרישות מבית הדפוס</h2>
       <ul id="notices-list"></ul>
@@ -149,25 +169,28 @@
       </details>
     </div>
 
-    <!-- ⚠️ **שיחה עם בית-הדפוס (בקשת-בעלים 11/08/2026).** עד היום הערוץ
-         היחיד לכיוון הלקוח היה "דרישה" — הודעה חד-כיוונית שאפשר רק לבצע.
-         אין דרך לשאול "העמוד השני — זה נכון?" ולקבל תשובה, ולכן הכל עבר
-         לטלפון ונעלם. ⚠️ שיחה **אינה** דרישה: דרישה ממתינה לביצוע
-         ונסגרת, הודעה היא טקסט. הן נשארות שני אזורים נפרדים. -->
-    <div class="card" id="chat-card">
-      <h2>💬 שיחה עם בית הדפוס</h2>
-      <div style="font-size:.82rem;color:#6b7280;margin-bottom:9px">כל שאלה על הגיליון — כאן. אנחנו רואים ועונים.</div>
-      <div id="chat-box" class="chatBox"><div class="empty" style="padding:8px">טוען…</div></div>
-      <div class="chatSend">
-        <textarea id="chat-input" rows="2" placeholder="כתבו הודעה לבית הדפוס…"></textarea>
-        <button id="chat-send" class="btn btn-dl" style="padding:11px 18px;font-weight:800">שלח</button>
-      </div>
-    </div>
-
     <div class="card">
       <h2>🗂️ היסטוריית העיתונים שלי</h2>
       <div id="history"><div class="empty">טוען…</div></div>
     </div>
+
+    </div><aside class="pChatCol">
+      <!-- ⚠️ **שיחה עם בית-הדפוס.** עד היום הערוץ היחיד לכיוון הלקוח היה
+           "דרישה" — הודעה חד-כיוונית שאפשר רק לבצע. אין דרך לשאול "העמוד
+           השני — זה נכון?" ולקבל תשובה, ולכן הכל עבר לטלפון ונעלם.
+           ⚠️ שיחה **אינה** דרישה: דרישה ממתינה לביצוע ונסגרת, הודעה היא
+           טקסט. הן נשארות שני אזורים נפרדים. -->
+      <div class="card" id="chat-card" style="margin-bottom:0">
+        <h2>💬 שיחה עם בית הדפוס</h2>
+        <div style="font-size:.82rem;color:#6b7280;margin-bottom:9px">כל שאלה על הגיליון — כאן. אנחנו רואים ועונים.</div>
+        <div id="chat-box" class="chatBox"><div class="empty" style="padding:8px">טוען…</div></div>
+        <div class="chatSend">
+          <textarea id="chat-input" rows="2" placeholder="כתבו הודעה לבית הדפוס…"></textarea>
+          <button id="chat-send" class="btn btn-dl" style="padding:11px 18px;font-weight:800">שלח</button>
+        </div>
+        <div id="chat-hist"></div>
+      </div>
+    </aside></div>
 
     <!-- פרטי-קשר לבית-הדפוס (בקשת-בעלים 2026-07-30) — לחיצה מתקשרת/פותחת ווטסאפ/מייל -->
     <div class="card">
@@ -749,6 +772,7 @@ async function _newNewspaper(){
    ברקע. ההפרש נמדד בשניות ולא ברענון-ידני — וזו כל הכוונה ב"באותו הרגע".
    ⚠️ אין כאן חיבור-חי; ההפרש נמדד בשניות ולא ברענון-ידני. */
 var _chatMsgs = [], _chatTimer = null, _chatSeenAt = 0, _chatSending = false;
+var _chatAll = [], _chatRaw = null;
 function _chatNode(){ return `${_FBURL}/${PortalChat.chatPath(SLUG)}`; }
 /* ⚠️ ‎force‎ = הטעינה הראשונה. פורטל שנפתח בלשונית-רקע (הלקוח לחץ על
    קישור והלשונית נפתחה מאחור) היה נשאר על "טוען…" עד שיעבור אליה. */
@@ -761,8 +785,14 @@ async function loadChat(force){
      ריקה אם לא בודקים. זו הייתה התקלה: הודעות לא הגיעו והמסך שתק. */
   if (!(st >= 200 && st < 300) || PortalChat.denied(obj)){ _chatFail(st, obj); return; }
   _chatSeenAt = Number((obj && obj._seen && obj._seen.customer) || 0);
-  _chatMsgs = PortalChat.list(obj);
+  _chatAll = PortalChat.list(obj);
+  _chatRaw = obj;
+  /* ⚠️ המסך הראשי מציג רק את השיחה **הפעילה** — מה שנאמר אחרי הסגירה
+     האחרונה. בלי זה, שיחה שמצטברת שנה אחורה הופכת את התיבה לארכיון
+     ומה שרלוונטי לגיליון של היום נבלע בין עשרות הודעות ישנות. */
+  _chatMsgs = PortalChat.activeOf(_chatAll, PortalChat.lastCloseAt(obj));
   _chatRender();
+  _chatHistRender();
   _chatMarkSeen();
 }
 /* מציג את הכשל במקום שבו השיחה אמורה להיות, ומשבית את השליחה — כפתור
@@ -778,7 +808,11 @@ function _chatFail(status, body){
 function _chatRender(){
   var box = $('chat-box'); if (!box) return;
   if (!_chatMsgs.length){
-    box.innerHTML = '<div class="empty" style="padding:8px">אין עדיין הודעות. אפשר לכתוב לבית-הדפוס כאן.</div>';
+    /* ⚠️ ניסוח שונה כשהשיחה הקודמת נסגרה: "אין הודעות" על שיחה שהייתה
+       ונסגרה נקרא כאילו משהו נמחק. */
+    box.innerHTML = PortalChat.lastCloseAt(_chatRaw)
+      ? '<div class="chatClosed">✓ השיחה הקודמת נסגרה. אפשר לפתוח נושא חדש כאן.</div>'
+      : '<div class="empty" style="padding:8px">אין עדיין הודעות. אפשר לכתוב לבית-הדפוס כאן.</div>';
     return;
   }
   /* ⚠️ גלילה-לתחתית **רק** אם היינו בתחתית. גלילה בזמן שהלקוח קורא הודעה
@@ -795,6 +829,30 @@ function _chatRender(){
   }).join('');
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
+/* היסטוריית-השיחות: מקופלת, וכל שיחה שנסגרה בקבוצה משלה.
+   ⚠️ מוצגת גם ללקוח ולא רק לבית-הדפוס — זו השיחה שלו, והוא זה שיצטרך
+   להיזכר מה סוכם. */
+function _chatHistRender(){
+  var box = $('chat-hist'); if (!box) return;
+  var ses = PortalChat.sessionsOf(_chatAll, _chatRaw);
+  if (!ses.length){ box.innerHTML = ''; return; }
+  var n = ses.reduce(function(s2, x){ return s2 + x.items.length; }, 0);
+  box.innerHTML = '<details class="chatHist"><summary>🗂️ היסטוריית שיחות ('
+    + ses.length + (ses.length === 1 ? ' שיחה · ' : ' שיחות · ') + n + ' הודעות)</summary>'
+    + ses.map(function(sess){
+        return '<div class="chatSess"><div class="chatSessHd">✓ נסגרה '
+          + esc(new Date(sess.at).toLocaleDateString('he-IL'))
+          + (sess.by ? (' · ' + esc(sess.by)) : '') + '</div>'
+          + sess.items.map(function(m){
+              var mine = (m.side === PortalChat.CUSTOMER);
+              return '<div class="chatMsg ' + (mine ? 'mine' : 'theirs') + '" style="max-width:100%">'
+                + esc(m.text) + '<div class="chatMeta">' + (mine ? 'אני' : 'בית הדפוס')
+                + ' · ' + PortalChat.timeLabel(m.at) + '</div></div>';
+            }).join('')
+          + '</div>';
+      }).join('') + '</details>';
+}
+
 /* ⚠️ סימון-הצפייה נכתב רק כשיש מה לסמן, ורק לחותמת של **הצד שלי**:
    כתיבה בשם הצד השני הייתה מעלימה לו הודעות מהתג. */
 async function _chatMarkSeen(){

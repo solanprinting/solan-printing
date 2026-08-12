@@ -33,18 +33,18 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786516894"></script>
-<script src="shop-issue.js?v=1786516894"></script>
+<script src="portal-chat.js?v=1786518710"></script>
+<script src="shop-issue.js?v=1786518710"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786516894"></script>
-<script src="auth-client.js?v=1786516894"></script>
+<script src="firebase-auth.bundle.js?v=1786518710"></script>
+<script src="auth-client.js?v=1786518710"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786516894" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786518710" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1530,7 +1530,8 @@ function render(rows) {
         <section class="mdMain" style="padding:12px">${detail}</section>
         <div class="pvLeftCol">
         <aside class="shChat">
-          <div class="shChatHd">💬 <span>${_selName?('שיחה עם '+escapeHtml(_selName)):'שיחה'}</span></div>
+          <div class="shChatHd">💬 <span style="flex:1">${_selName?('שיחה עם '+escapeHtml(_selName)):'שיחה'}</span>
+            ${_selName?`<button id="shChatClose" title="סוגר את השיחה הנוכחית ומעביר אותה להיסטוריה — ההודעות נשמרות" style="border:0;background:#eef2ff;color:var(--press,#2d3561);font-family:inherit;font-weight:800;font-size:.75rem;border-radius:8px;padding:5px 10px;cursor:pointer">✓ סגור שיחה</button>`:''}</div>
           <div class="shChatBox" id="shChatBox">${_selName?'<div style="color:#9ca3af;font-size:.83rem;padding:8px">טוען…</div>':'<div style="color:#9ca3af;font-size:.83rem;padding:8px">בחרו לקוח כדי לפתוח שיחה.</div>'}</div>
           ${_selName?`<div class="shSend">
             <textarea id="shChatInput" rows="2" placeholder="הודעה ללקוח…"></textarea>
@@ -1880,7 +1881,7 @@ async function renameCustomer(oldName){
 /* ── שיחה ─────────────────────────────────────────────────────────────────
    ⚠️ מושכים כל ‎POLL_MS‎ ורק כשהלשונית פעילה. אין חיבור-חי; ההפרש נמדד
    בשניות ולא ברענון-ידני, וזו הכוונה ב"יראו באותו הרגע". */
-var _shChat = { slug:'', name:'', msgs:[], seen:0, timer:null, sending:false };
+var _shChat = { slug:'', name:'', msgs:[], all:[], raw:null, seen:0, timer:null, sending:false };
 var _shUnread = {};           /* slug → כמה הודעות-לקוח לא נקראו */
 
 function _shChatNode(slug){ return `${_FBURL}/${PortalChat.chatPath(slug)}`; }
@@ -1900,7 +1901,11 @@ async function _shChatLoad(force){
      התקלה שדווחה: הודעות לא הגיעו, ובשני הצדדים המסך שתק. */
   if (!(st >= 200 && st < 300) || PortalChat.denied(obj)){ _shChatFail(st, obj); return; }
   _shChat.seen = Number((obj && obj._seen && obj._seen.shop) || 0);
-  _shChat.msgs = PortalChat.list(obj);
+  _shChat.all = PortalChat.list(obj);
+  _shChat.raw = obj;
+  /* ⚠️ המסך מציג את השיחה **הפעילה** בלבד — מה שנאמר אחרי הסגירה
+     האחרונה. שיחה שמצטברת מגיליונות קודמים הופכת את התיבה לארכיון. */
+  _shChat.msgs = PortalChat.activeOf(_shChat.all, PortalChat.lastCloseAt(obj));
   _shChatRender();
   _shChatMarkSeen();
 }
@@ -1917,7 +1922,12 @@ function _shChatFail(status, body){
 function _shChatRender(){
   var box = document.getElementById('shChatBox'); if (!box) return;
   if (!_shChat.msgs.length){
-    box.innerHTML = '<div style="color:#9ca3af;font-size:.83rem;padding:8px">אין עדיין הודעות. כתבו ללקוח כאן — הוא רואה את זה בפורטל שלו.</div>';
+    /* ⚠️ ניסוח שונה כשהקודמת נסגרה: "אין הודעות" על שיחה שהייתה ונסגרה
+       נקרא כאילו משהו נמחק. */
+    box.innerHTML = (PortalChat.lastCloseAt(_shChat.raw)
+      ? '<div style="color:#166534;font-size:.82rem;padding:8px;text-align:center;font-weight:700">✓ השיחה נסגרה. הודעה חדשה תפתח שיחה חדשה.</div>'
+      : '<div style="color:#9ca3af;font-size:.83rem;padding:8px">אין עדיין הודעות. כתבו ללקוח כאן — הוא רואה את זה בפורטל שלו.</div>')
+      + _shChatHistHtml();
     return;
   }
   /* ⚠️ גלילה-לתחתית רק אם היינו בתחתית: גלילה בזמן קריאת הודעה ישנה
@@ -1932,7 +1942,32 @@ function _shChatRender(){
         + ' · ' + PortalChat.timeLabel(m.at) + '</div></div>';
     }).join('');
   }).join('');
+  box.innerHTML += _shChatHistHtml();
   if (atBottom) box.scrollTop = box.scrollHeight;
+}
+/* היסטוריית-שיחות שנסגרו — מקופלת, וכל שיחה בקבוצה משלה.
+   ⚠️ נשמרת ולא נמחקת: היסטוריה שאפשר למחוק אינה ראיה, ובדיוק במחלוקת
+   על "מה סוכם" היא נדרשת. */
+function _shChatHistHtml(){
+  var ses = PortalChat.sessionsOf(_shChat.all, _shChat.raw);
+  if (!ses.length) return '';
+  var n = ses.reduce(function(a, x){ return a + x.items.length; }, 0);
+  return '<details style="margin-top:9px;border-top:1px dashed var(--line);padding-top:8px">'
+    + '<summary style="cursor:pointer;font-size:.78rem;font-weight:800;color:#6b7280">🗂️ היסטוריית שיחות ('
+    + ses.length + (ses.length === 1 ? ' שיחה · ' : ' שיחות · ') + n + ' הודעות)</summary>'
+    + ses.map(function(sess){
+        return '<div style="margin-top:8px;border:1px solid var(--line);border-radius:9px;padding:8px;background:#fafafa">'
+          + '<div style="font-size:.72rem;color:#9ca3af;font-weight:800;margin-bottom:5px">✓ נסגרה '
+          + escapeHtml(new Date(sess.at).toLocaleDateString('he-IL'))
+          + (sess.by ? (' · ' + escapeHtml(sess.by)) : '') + '</div>'
+          + sess.items.map(function(m){
+              var mine = (m.side === PortalChat.SHOP);
+              return '<div class="shMsg ' + (mine ? 'mine' : 'theirs') + '" style="max-width:100%">'
+                + escapeHtml(m.text) + '<div class="shMeta">' + (mine ? 'אנחנו' : escapeHtml(_shChat.name || 'הלקוח'))
+                + ' · ' + PortalChat.timeLabel(m.at) + '</div></div>';
+            }).join('')
+          + '</div>';
+      }).join('') + '</details>';
 }
 /* ⚠️ חותמת-הצפייה של **הצד שלנו** בלבד: כתיבה לחותמת של הלקוח הייתה
    מעלימה לו הודעות מהתג בלי שקרא אותן. */
@@ -1980,6 +2015,35 @@ async function _shChatSend(){
 }
 /* פותח שיחה ללקוח הנבחר. ⚠️ מאפס טיימר קודם: שני טיימרים על אותה תיבה
    מכפילים משיכות ומייצרים הבהוב. */
+/* סגירת השיחה. ⚠️ **אינה מוחקת**: ההודעות נשארות, ורק נחתכות לפי
+   חותמת-הסגירה. ⚠️ ורק בית-הדפוס סוגר — לקוח באמצע משפט אינו מי
+   שמחליט שהנושא נסגר (נאכף גם בחוקי-ה-RTDB, לא רק כאן). */
+async function _shChatCloseConv(){
+  if (!_shChat.slug) return;
+  if (!_shChat.msgs.length){ alert('אין שיחה פתוחה לסגירה.'); return; }
+  const _nl = String.fromCharCode(10);
+  if (!confirm('לסגור את השיחה עם ' + (_shChat.name || 'הלקוח') + '?' + _nl + _nl
+    + _shChat.msgs.length + ' הודעות יעברו להיסטוריית-השיחות — הן נשמרות, לא נמחקות.' + _nl
+    + 'הודעה חדשה תפתח שיחה חדשה.')) return;
+  var at = Date.now();
+  var btn = document.getElementById('shChatClose');
+  if (btn){ btn.disabled = true; btn.textContent = 'סוגר…'; }
+  try {
+    var r = await fetch(await _au(`${_FBURL}/${PortalChat.closePath(_shChat.slug)}/${PortalChat.closeId(at)}.json`),
+      { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(PortalChat.closeMark({ at: at, by: 'בית-הדפוס' })) });
+    if (!r.ok) throw new Error(PortalChat.errorText(r.status));
+    await _shChatLoad(true);
+    msg('✓ השיחה נסגרה ועברה להיסטוריה');
+  } catch(e){
+    alert('⚠️ ' + ((e && e.message) || 'סגירת השיחה נכשלה'));
+    console.error('סגירת שיחה נכשלה', e);
+  } finally {
+    var b2 = document.getElementById('shChatClose');
+    if (b2){ b2.disabled = false; b2.textContent = '✓ סגור שיחה'; }
+  }
+}
+
 function _shChatOpen(customer){
   if (_shChat.timer){ clearInterval(_shChat.timer); _shChat.timer = null; }
   _shChat.slug = customer ? _slug(customer) : '';
@@ -1987,6 +2051,7 @@ function _shChatOpen(customer){
   _shChat.msgs = []; _shChat.seen = 0;
   if (!_shChat.slug) return;
   var b = document.getElementById('shChatSend'); if (b) b.onclick = _shChatSend;
+  var cb = document.getElementById('shChatClose'); if (cb) cb.onclick = _shChatCloseConv;
   var ta = document.getElementById('shChatInput');
   if (ta) ta.onkeydown = function(e){
     if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); _shChatSend(); }
