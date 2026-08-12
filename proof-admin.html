@@ -33,18 +33,19 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786528873"></script>
-<script src="shop-issue.js?v=1786528873"></script>
+<script src="portal-chat.js?v=1786536453"></script>
+<script src="chat-alert.js?v=1786536453"></script>
+<script src="shop-issue.js?v=1786536453"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786528873"></script>
-<script src="auth-client.js?v=1786528873"></script>
+<script src="firebase-auth.bundle.js?v=1786536453"></script>
+<script src="auth-client.js?v=1786536453"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786528873" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786536453" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -389,6 +390,15 @@ window.addEventListener('appinstalled', function(){
   .shSend button { padding:10px 17px; border:0; border-radius:9px; background:var(--press,#2d3561);
                    color:#fff; font-family:inherit; font-weight:800; cursor:pointer; }
   .shSend button:disabled { opacity:.45; cursor:default; }
+  /* טוסט התראת-שיחה (12/08/2026) — פינה תחתונה, לא חוסם את רשימת-הלקוחות */
+  .shToast { position:fixed; z-index:200; inset-inline-start:16px; bottom:18px; max-width:390px;
+    background:var(--press,#2d3561); color:#fff; border:1.5px solid var(--gold,#c9a84c);
+    border-radius:13px; padding:12px 15px; box-shadow:0 12px 34px rgba(0,0,0,.34);
+    cursor:pointer; opacity:0; transform:translateY(14px); pointer-events:none;
+    transition:opacity .18s, transform .18s; }
+  .shToast.on { opacity:1; transform:translateY(0); pointer-events:auto; }
+  .shToastHead { font-weight:900; font-size:.9rem; margin-bottom:3px; }
+  .shToastBody { font-size:.85rem; line-height:1.5; color:#e5e7eb; word-break:break-word; }
   .chatDot { background:#dc2626; color:#fff; border-radius:9px; padding:0 6px;
              font-size:.7rem; font-weight:800; }
   @media (max-width: 1200px){ .pvBody2 { grid-template-columns:1fr; } }
@@ -2083,6 +2093,77 @@ async function _shChatUnreadScan(){
   });
   _shUnread = next;
   _shChatPaintDots();
+  _shChatAlert(all);                         /* ← הקפיצה, בנוסף לתג השקט */
+}
+
+/* ── התראה קופצת על הודעה מלקוח (בקשת-בעלים 12/08/2026) ────────────────────
+   ⚠️ **התג לבדו לא הספיק.** ‎_shChatPaintDots‎ מסמן ‎💬 N‎ ליד הלקוח, אבל
+   רק במסך הזה ורק למי שמסתכל. מי שעסוק בקובץ פספס הודעה.
+   ⚠️ **הסימון מקומי ולא ‎_seen‎.** ‎_seen.shop‎ משותף לכל הצוות: ברגע
+   שקדם-דפוס אחד פותח שיחה הוא קופץ, וההתראה לא הייתה מגיעה לאף אחד אחר.
+   ‎_seen‎ ממשיך להזין את התג; הקפיצה נשענת על סימון-הדפדפן. */
+var _shAlertMarks = null;
+function _shAlertKey(){ return ChatAlert.markKey(ChatAlert.SHOP, 'proofadmin'); }
+function _shAlertLoadMarks(){
+  if (_shAlertMarks) return _shAlertMarks;
+  try { _shAlertMarks = JSON.parse(localStorage.getItem(_shAlertKey()) || '{}') || {}; }
+  catch(e){ _shAlertMarks = {}; }
+  return _shAlertMarks;
+}
+function _shAlertSaveMarks(m){
+  _shAlertMarks = m;
+  try { localStorage.setItem(_shAlertKey(), JSON.stringify(m)); } catch(e){}
+}
+/* ⚠️ התפקיד מה-claims החתומים ולא מרשומה כלשהי — אותו מקור שהחוקים
+   אוכפים. תפקיד שאינו ברשימה פשוט אינו מקבל קפיצה (התג נשאר). */
+function _shMyRole(){
+  try {
+    var st = window.SolanGuard && SolanGuard.state ? SolanGuard.state() : null;
+    return String((st && st.claims && st.claims.role) || '');
+  } catch(e){ return ''; }
+}
+function _shChatAlert(all){
+  if (!window.ChatAlert) return;
+  if (!ChatAlert.shouldAlertRole(_shMyRole())) return;
+  var scan = ChatAlert.scanShop(all, _shAlertLoadMarks(), PortalChat.list);
+  /* baseline = שיחות שהדפדפן הזה רואה לראשונה. נשמרות בשקט — אחרת
+     פתיחת המסך בבוקר הייתה מקפיצה את כל ההיסטוריה. */
+  if (!scan.alerts.length){
+    if (scan.baseline.length) _shAlertSaveMarks(scan.nextMarks);
+    return;
+  }
+  _shAlertSaveMarks(scan.nextMarks);
+  var t = ChatAlert.shopAlertText(scan);
+  if (!t) return;
+  _shToast(t.title, t.body, t.slug);
+  ChatAlert.beep();
+  ChatAlert.notify({ title: t.title, body: t.body, tag: 'solan-chat-' + (t.slug || 'multi'),
+    onclick: function(){ if (t.slug) _shOpenChatBySlug(t.slug); } });
+}
+/* פתיחת השיחה של אותו לקוח מתוך ההתראה. ⚠️ לפי ה-slug ולא לפי השם
+   המוצג — השם עובר נרמול, ורק ה-slug הוא המפתח. */
+function _shOpenChatBySlug(slug){
+  var el = Array.prototype.find.call(document.querySelectorAll('.pvCust[data-cust]'), function(e){
+    return _slug(e.dataset.cust || '') === slug;
+  });
+  if (el){ el.click(); el.scrollIntoView({ behavior:'smooth', block:'center' }); }
+}
+/* טוסט במסך. ⚠️ ‎textContent‎ — הטקסט נכתב ע"י הלקוח ואסור שיהפוך לתגיות. */
+var _shToastTimer = null;
+function _shToast(head, body, slug){
+  var el = document.getElementById('sh-toast');
+  if (!el){
+    el = document.createElement('div'); el.id = 'sh-toast'; el.className = 'shToast';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '';
+  var h = document.createElement('div'); h.className = 'shToastHead'; h.textContent = head || '';
+  var b = document.createElement('div'); b.className = 'shToastBody'; b.textContent = body || '';
+  el.appendChild(h); el.appendChild(b);
+  el.onclick = function(){ if (slug) _shOpenChatBySlug(slug); el.classList.remove('on'); };
+  el.classList.add('on');
+  if (_shToastTimer) clearTimeout(_shToastTimer);
+  _shToastTimer = setTimeout(function(){ el.classList.remove('on'); }, 10000);
 }
 function _shChatPaintDots(){
   document.querySelectorAll('.pvCust[data-cust]').forEach(function(el){

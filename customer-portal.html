@@ -9,11 +9,13 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786524744"></script>
-<script src="page-add.js?v=1786524744"></script>
-<script src="portal-context.js?v=1786524744"></script>
-<script src="portal-return.js?v=1786524744"></script>
-<script src="portal-chat.js?v=1786524744"></script>
+<script src="portal-download.js?v=1786536453"></script>
+<script src="page-add.js?v=1786536453"></script>
+<script src="portal-context.js?v=1786536453"></script>
+<script src="portal-return.js?v=1786536453"></script>
+<script src="portal-chat.js?v=1786536453"></script>
+<!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
+<script src="chat-alert.js?v=1786536453"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -129,6 +131,17 @@
   .chatSessHd { font-size:.75rem; color:#9ca3af; font-weight:800; margin-bottom:6px; }
   .chatClosed { text-align:center; font-size:.78rem; color:#9ca3af; font-weight:700;
                 padding:7px; background:#f8f9fc; border-radius:9px; margin-top:8px; }
+  /* ── טוסט "הודעה חדשה מבית הדפוס" (12/08/2026) ──────────────────────────
+     ⚠️ למטה-במרכז ולא בפינה-עליונה: בטלפון הפינה העליונה מוסתרת ע"י
+     סרגל-הכתובת, ובדיוק שם רוב הלקוחות. לחיצה גוללת לשיחה. */
+  .pToast { position:fixed; z-index:120; inset-inline:12px; bottom:16px; margin-inline:auto;
+    max-width:420px; background:var(--press); color:#fff; border-radius:13px;
+    padding:12px 15px; box-shadow:0 10px 30px rgba(45,53,97,.4); cursor:pointer;
+    border:1.5px solid var(--gold); opacity:0; transform:translateY(14px);
+    transition:opacity .18s, transform .18s; pointer-events:none; }
+  .pToast.on { opacity:1; transform:translateY(0); pointer-events:auto; }
+  .pToastHead { font-size:.8rem; font-weight:900; color:var(--gold-light); margin-bottom:3px; }
+  .pToastBody { font-size:.92rem; line-height:1.5; word-break:break-word; }
 </style>
 </head>
 <body>
@@ -902,10 +915,75 @@ async function loadChat(force){
      האחרונה. בלי זה, שיחה שמצטברת שנה אחורה הופכת את התיבה לארכיון
      ומה שרלוונטי לגיליון של היום נבלע בין עשרות הודעות ישנות. */
   _chatMsgs = PortalChat.activeOf(_chatAll, PortalChat.lastCloseAt(obj));
+  /* ⚠️ **לפני** _chatMarkSeen: הסימון המשותף מתעדכן בכל משיכה גם כשהלקוח
+     לא הסתכל, ולכן אם נחשב את ההתראה אחריו — לעולם לא תהיה התראה. */
+  _chatAlertScan();
   _chatRender();
   _chatHistRender();
   _chatMarkSeen();
 }
+
+/* ═══════════ התראה על הודעה מבית-הדפוס (בקשת-בעלים 12/08/2026) ═══════════
+   ⚠️ **סימון מקומי לדפדפן הזה, לא ‎_seen‎.** ‎_seen.customer‎ מתקדם בכל
+   משיכה (ראה _chatMarkSeen למטה) — הישענות עליו הייתה מבטלת כל התראה.
+   ⚠️ **בלי בקשת-הרשאת-התראות.** זה מסך של לקוח חיצוני; חלונית-הרשאה
+   שקופצת בכניסה היא חיכוך, לא שירות. הערוץ שעובד גם כשהלשונית ברקע
+   ובלי שום הרשאה הוא **כותרת הלשונית**. */
+var _chatAlertMark = 0, _chatAlertUnseen = 0, _chatAlertInit = false;
+function _chatAlertKey(){ return ChatAlert.markKey(ChatAlert.CUSTOMER, SLUG); }
+function _chatAlertScan(){
+  if (!window.ChatAlert) return;                 /* המודול לא נטען — בלי רעש, בלי קריסה */
+  var hi = ChatAlert.highWater(_chatAll);
+  if (!_chatAlertInit){
+    /* ⚠️ טעינה ראשונה אינה מתריעה: לקוח שפותח את הפורטל אחרי שבוע לא
+       אמור לקבל קפיצה על כל מה שנאמר מאז. */
+    _chatAlertInit = true;
+    var saved = null; try { saved = localStorage.getItem(_chatAlertKey()); } catch(e){}
+    _chatAlertMark = saved === null ? hi : Number(saved) || 0;
+    if (saved === null){ _chatAlertSave(hi); return; }
+  }
+  var items = ChatAlert.pending(_chatAll, ChatAlert.CUSTOMER, _chatAlertMark);
+  if (!items.length) return;
+  _chatAlertMark = hi;
+  _chatAlertSave(hi);
+  var t = ChatAlert.customerAlertText(items);
+  if (!t) return;
+  _chatAlertUnseen += items.length;
+  _chatAlertPaintTitle();
+  _pToast('💬 ' + t.body, 'הודעה חדשה מבית הדפוס');
+}
+function _chatAlertSave(at){ try { localStorage.setItem(_chatAlertKey(), String(at)); } catch(e){} }
+function _chatAlertPaintTitle(){
+  document.title = ChatAlert.titleWith(document.title, _chatAlertUnseen);
+}
+/* ⚠️ המונה מתאפס כשהלקוח באמת חוזר למסך — לא כשההודעה נטענה. */
+function _chatAlertClear(){
+  if (!_chatAlertUnseen) return;
+  _chatAlertUnseen = 0;
+  _chatAlertPaintTitle();
+}
+
+/* טוסט בתוך הדף. ⚠️ ‎textContent‎ ולא ‎innerHTML‎: הטקסט מגיע מבית-הדפוס
+   ועובר דרך RTDB, ואסור שיהפוך לתגיות במסך של הלקוח. */
+function _pToast(text, head){
+  var el = document.getElementById('p-toast');
+  if (!el){
+    el = document.createElement('div');
+    el.id = 'p-toast'; el.className = 'pToast';
+    el.onclick = function(){ _chatAlertClear(); var c = document.getElementById('chat-card');
+      if (c) c.scrollIntoView({ behavior:'smooth', block:'center' }); _pToastHide(); };
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '';
+  var h = document.createElement('div'); h.className = 'pToastHead'; h.textContent = head || '';
+  var b = document.createElement('div'); b.className = 'pToastBody'; b.textContent = text || '';
+  el.appendChild(h); el.appendChild(b);
+  el.classList.add('on');
+  if (_pToastTimer) clearTimeout(_pToastTimer);
+  _pToastTimer = setTimeout(_pToastHide, 9000);
+}
+var _pToastTimer = null;
+function _pToastHide(){ var el = document.getElementById('p-toast'); if (el) el.classList.remove('on'); }
 /* מציג את הכשל במקום שבו השיחה אמורה להיות, ומשבית את השליחה — כפתור
    שנראה פעיל ואינו שולח הוא גרוע מכפתור מושבת. */
 function _chatFail(status, body){
@@ -1020,7 +1098,14 @@ function _chatStart(){
   _chatTimer = setInterval(loadChat, PortalChat.POLL_MS);
   /* ⚠️ חזרה מהרקע מושכת מיד: המתנה של עד ‎POLL_MS‎ אחרי החזרה ללשונית
      נראית כמו שיחה שלא מתעדכנת. */
-  document.addEventListener('visibilitychange', function(){ if (!document.hidden) loadChat(true); });
+  /* ⚠️ חזרה ללשונית = הלקוח **באמת** כאן: מנקים את המונה מהכותרת ומושכים
+     מיד. ניקוי בטעינה בלבד היה מוחק את המונה עוד לפני שנראה. */
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden){ _chatAlertClear(); loadChat(true); }
+  });
+  window.addEventListener('focus', _chatAlertClear);
+  /* לחיצה בתוך תיבת-השיחה נחשבת "ראיתי" גם בלי החלפת-לשונית. */
+  var cc = $('chat-card'); if (cc) cc.addEventListener('click', _chatAlertClear);
 }
 
 function wireUpload(){
