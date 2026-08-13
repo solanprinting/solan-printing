@@ -14,8 +14,8 @@
      ⚠️ קישור-ההזמנה מוצג **פעם אחת בלבד** ואינו נשמר בשום מקום — לא במסד,
      לא בלוג, ולא כאן. אם נסגר החלון, מפיקים הזמנה חדשה.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1786605783"></script>
-<script src="auth-client.js?v=1786605783"></script>
+<script src="firebase-auth.bundle.js?v=1786608794"></script>
+<script src="auth-client.js?v=1786608794"></script>
 <style>
   .prow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #eef0f5}
   .prow:last-child{border-bottom:0}
@@ -238,7 +238,7 @@ var $ = function(id){ return document.getElementById(id); };
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1786605783';
+var _BAKED = '1786608794';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 function boot(){
@@ -455,12 +455,34 @@ $('mkstaff').addEventListener('click', async function(){
 
 /* ⚠️ הסיסמה נקבעת ע"י העובד בלבד, דרך קישור שנשלח למייל שלו. היא אינה
    עוברת דרך המסך הזה, דרך הפונקציות ודרך אף לוג. */
+/* ⚠️ עד 12/08/2026 היה כאן ‎catch (e) {}‎ ריק ואחריו הודעת-הצלחה שנכתבת
+   **תמיד**. כלומר: כתובת פסולה, חשבון שאינו קיים, חריגת-מכסה או נתק —
+   כולם הוצגו כ"נשלח קישור". התגלה כשקישורים לא הגיעו ולא הייתה שום דרך
+   לדעת למה. ההודעה עכשיו נגזרת מהתוצאה, לא מהכוונה. */
+var PW_ERR = {
+  'auth/invalid-email':     'הכתובת אינה תקינה.',
+  'auth/user-not-found':    'אין חשבון עם הכתובת הזו. פתחו קודם חשבון עובד.',
+  'auth/missing-email':     'חסרה כתובת מייל.',
+  'auth/too-many-requests': 'יותר מדי בקשות. המתינו כמה דקות ונסו שוב.',
+  'auth/network-request-failed': 'אין חיבור לרשת — הבקשה לא יצאה.',
+};
 $('sendpw').addEventListener('click', async function(){
   var email = $('semail').value.trim();
   if (!email) { show('smsg','err','הזינו קודם כתובת מייל'); return; }
   $('sendpw').disabled = true;
-  try { await SolanAuth.resetPassword(email); } catch (e) {}
-  show('smsg','ok','אם הכתובת רשומה, נשלח אליה קישור לקביעת סיסמה.');
+  show('smsg','','שולח…');
+  try {
+    await SolanAuth.resetPassword(email);
+    /* ⚠️ "יצא מכאן" ולא "הגיע לתיבה": פיירבייס מאשר קבלה לשליחה בלבד.
+       הנוסח אומר רק את מה שנמדד, ומפנה לתיקיית הזבל — שם זה נופל בפועל. */
+    show('smsg','ok','הקישור נשלח אל ' + email + '. אם הוא אינו מגיע תוך כמה דקות — '
+      + 'בדקו בתיקיית הזבל (הדואר נשלח מ-noreply@solan-printing.firebaseapp.com).');
+  } catch (e) {
+    var code = (e && e.code) || '';
+    console.error('[staff] שליחת קישור-סיסמה נכשלה', code, e);
+    show('smsg','err','השליחה נכשלה: ' + (PW_ERR[code] || (e && e.message) || 'שגיאה')
+      + (code ? ' (' + code + ')' : ''));
+  }
   $('sendpw').disabled = false;
 });
 
