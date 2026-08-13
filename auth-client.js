@@ -154,11 +154,30 @@
     return 'pending';
   }
 
+  /* ⚠️ **אותו מסך, שני שמות.** ‏krtis-avoda.html נפרס בשם index.html
+     (ראה upload.ps1), והתגית שלו מצהירה `data-page="krtis-avoda.html"`
+     בעוד רשימות-ההיתר מכילות index.html. בלי הנרמול הזה כל קהל עם רשימה
+     **סגורה** — prepress ו-office — קיבל mayOpen=false על מסך-העבודה,
+     והשומר הפנה אותו ל-index.html… שהוא בדיוק אותו דף. תוצאה: לולאת
+     רענון אינסופית מתחת לשכבת "בודק הרשאה…".
+
+     ⚠️ ‏admin ו-worker **לא נפגעו** ולכן זה לא התגלה קודם: הם נופלים
+     ל-`return true` הגורף בסוף mayOpen ואינם נוגעים ברשימה כלל. הבאג
+     נולד רגוע וחיכה לחשבון הראשון בעל רשימה סגורה — קדם-דפוס, 12/08/2026.
+
+     ⚠️ הנרמול יושב ב-pageOf ולא בכל רשימה בנפרד: mayOpen ו-routeFor
+     שניהם עוברים כאן, וזו נקודת-החנק היחידה. תיקון ברשימות היה מחייב
+     לזכור את שני השמות בכל רשימה עתידית. */
+  var PAGE_ALIASES = { 'krtis-avoda.html': 'index.html' };
+
   /* שם-העמוד בלי השאילתה: 'proof-client.html?id=3' → 'proof-client.html' */
   function pageOf(target) {
     var t = String(target || '').split('?')[0].split('#')[0];
     var i = t.lastIndexOf('/');
-    return i >= 0 ? t.slice(i + 1) : t;
+    var name = i >= 0 ? t.slice(i + 1) : t;
+    /* ⚠️ ריק נשאר ריק — ‏protect() כבר נופל ל-'index.html' בעצמו, ובדיקה
+       קיימת נועלת את החוזה הזה. אין כאן שני מקומות שמחליטים. */
+    return PAGE_ALIASES[name] || name;
   }
 
   /* האם משתמש רשאי לפתוח מסך מסוים — בדיקת-נוחות בצד הלקוח בלבד.
