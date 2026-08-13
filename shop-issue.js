@@ -81,13 +81,38 @@
     });
     return m;
   }
+  /* עוזר: יש בעבודה קבצים מהעלאה-מקובצת של הפורטל (‎files:{f0:{fileUrl}}‎).
+     ⚠️ 13/08/2026: המבנה הזה נכתב ע"י customer-portal.html **בלי**
+     approvedAt/fileUrl/parts/apogeeUrl (רק source:'portal' + files + createdAt).
+     הוא נשמט מ-hasArrived ומ-unitsOf, ולכן עיתון שהלקוח **כן** העלה נראה
+     ל-hasArrived כ"ריק" — והגידור החדש (cardActions) הסתיר עליו את הכפתורים
+     והציג "טרם התקבלו קבצים", בזמן שהטבלה הקלאסית מציגה אותם להורדה.
+     נתפס בביקורת אדוורסרית לפני פריסה. */
+  function fileEntries(p) {
+    var r = p || {}, files = (r.files && typeof r.files === 'object') ? r.files : {};
+    return Object.keys(files).map(function (k) { return files[k] || {}; })
+                 .filter(function (f) { return str(f.fileUrl); });
+  }
+
   /* יש מה לאשר רק כשבאמת הגיע משהו. ⚠️ כפתור "אשר קבלה" על גיליון ריק
      מאשר ללקוח קבלה של כלום. */
   function hasArrived(p) {
     var r = p || {};
     if (num(r.approvedAt) || str(r.fileUrl) || str(r.apogeeUrl)) return true;
+    if (fileEntries(r).length) return true;
     var parts = (r.parts && typeof r.parts === 'object') ? r.parts : {};
     return Object.keys(parts).some(function (k) { return str((parts[k] || {}).fileUrl); });
+  }
+
+  /* ── אילו פעולות מוצגות על הכרטיס הפתוח ─────────────────────────────────
+     ⚠️ 13/08/2026, דיווח-בעלים: גיליון שממתין לקבצים הציג "אושר להדפסה",
+     "דרוש תיקון" ו"הורד" — נראה כאילו אפשר להוריד ולאשר בשם הלקוח, כשאין
+     על מה. אותו עיקרון בדיוק כמו "אשר קבלה" (hasArrived, למעלה): פעולה
+     בלי מושא אינה מוצגת. ההחלטה כאן — טהורה ונבדקת; הכרטיס רק מצייר. */
+  function cardActions(p) {
+    var arrived = hasArrived(p);
+    return { canPrintApprove: arrived, canRequestFix: arrived,
+             canDownload: arrived, showUploadHint: !arrived };
   }
 
   /* ── היחידות שאפשר לצפות/להוריד ─────────────────────────────────────────
@@ -104,6 +129,13 @@
     }).filter(function (u) { return !!u.url; })
       .sort(function (a, b) { return a.at - b.at; })
       .forEach(function (u) { out.push(u); });
+    /* ⚠️ קבצי העלאה-מקובצת של הפורטל (‎files:{}‎) — קובץ גולמי לכל אחד,
+       בלי דפדוף (אין assemble כמו ל-parts). מוצג כ-kind:'file', ולכן
+       הכרטיס נותן לו הורדה ישירה ולא קישור-דפדוף. ראה fileEntries. */
+    fileEntries(r).forEach(function (f) {
+      out.push({ kind: 'file', partId: '', label: str(f.fileName) || 'קובץ',
+                 url: str(f.fileUrl), pages: 0 });
+    });
     if (!out.length && str(r.apogeeUrl))
       out.push({ kind: 'apogee', partId: '', label: 'פרופר לאישור', url: str(r.apogeeUrl), pages: num(r.pageCount) });
     return out;
@@ -154,7 +186,7 @@
     sortIssues: sortIssues, openId: openId,
     statusOf: statusOf, printApproved: printApproved,
     seenAt: seenAt, hasArrived: hasArrived,
-    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf,
+    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel
   };
 });

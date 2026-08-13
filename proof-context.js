@@ -37,8 +37,9 @@
   }
 
   var _session = null;   // { idToken, rt, exp }
-  var _ctx = null;       // { ok, mode, versionId, orgId }
+  var _ctx = null;       // { ok, mode, versionId, orgId, viewOnly }
   var _ready = null;     // Promise (single-flight)
+  var _viewMeta = null;  // מטא-נתוני-צפייה מתשובת-הכניסה (לסשן-צפייה בלבד)
 
   function _saveRt(rt) { try { if (rt) localStorage.setItem(RT_KEY, rt); } catch (e) {} }
   function _clearRt()  { try { localStorage.removeItem(RT_KEY); } catch (e) {} }
@@ -62,7 +63,12 @@
     return j.result;
   }
 
-  async function _signInCustom(customToken) {
+  /* ⚠️ persistRt=false — סשן-צפייה (13/08/2026): ה-RT שלו **אינו נשמר**,
+     משתי סיבות: (א) RT_KEY הוא חריץ-יחיד, וצופה שפותח קישור באותו דפדפן
+     של המאשר היה דורס את סשן-האישור שלו; (ב) לקישור-צפייה ה-t נשאר
+     בכתובת (הוא הקישור עצמו, נועד להישלח הלאה) — רענון-דף פשוט נכנס
+     מחדש, ואין מה לשחזר. */
+  async function _signInCustom(customToken, persistRt) {
     var r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=' + API_KEY, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: customToken, returnSecureToken: true }),
@@ -70,7 +76,7 @@
     if (!r.ok) throw new Error('signInWithCustomToken נכשל');
     var d = await r.json();
     _session = { idToken: d.idToken, rt: d.refreshToken, exp: Date.now() + (parseInt(d.expiresIn) || 3600) * 1000 };
-    _saveRt(d.refreshToken);
+    if (persistRt !== false) _saveRt(d.refreshToken);
     return _session;
   }
 
@@ -88,8 +94,14 @@
 
   function _ctxFromToken(idToken, mode) {
     var c = decodeClaims(idToken);
-    if (c.accountType !== 'customer' || !c.proofVersionId) return null;
-    return { ok: true, mode: mode, versionId: c.proofVersionId, orgId: c.orgId || '' };
+    if (c.accountType !== 'customer') return null;
+    if (c.proofVersionId)
+      return { ok: true, mode: mode, versionId: c.proofVersionId, orgId: c.orgId || '', viewOnly: false };
+    /* ⚠️ סשן-צפייה: claim בשם אחר **בכוונה** — proofVersionId הוא מה
+       שחוקי-RTDB מעניקים לו, וצופה אסור שיחזיק אותו. ראה proof-link.js. */
+    if (c.proofViewVersionId)
+      return { ok: true, mode: mode, versionId: c.proofViewVersionId, orgId: c.orgId || '', viewOnly: true };
+    return null;
   }
 
   /* ⚠️ expectedVersionId: ה-v שבכתובת, כפי שהקורא ראה אותו *לפני* קריאת ready().
@@ -104,13 +116,20 @@
     if (v && t) {
       try {
         var res = await _callFn('proofLinkLogin', { versionId: v, token: t });
-        await _signInCustom(res.token);
-        try {
-          params.delete('t');
-          var qs = params.toString();
-          history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
-        } catch (e) {}
-        _ctx = _ctxFromToken(_session.idToken, 'link');
+        var isView = !!(res && res.viewOnly);
+        await _signInCustom(res.token, !isView);
+        /* ⚠️ בקישור-אישור t מוסר מהכתובת (סוד חד-פעמי); בקישור-צפייה הוא
+           **נשאר** — הכתובת עצמה היא מה שמשתפים, ורענון-דף נכנס מחדש
+           דרכה. אין כאן הדלפה חדשה: זו בדיוק הכתובת שהגיעה. */
+        if (!isView) {
+          try {
+            params.delete('t');
+            var qs = params.toString();
+            history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+          } catch (e) {}
+        }
+        _ctx = _ctxFromToken(_session.idToken, isView ? 'view' : 'link');
+        if (_ctx && _ctx.viewOnly) _viewMeta = (res && res.viewMeta) || null;
         if (_ctx && _ctx.versionId === v) return _ctx;
       } catch (e) {}
       /* כשל, או claim לגרסה אחרת (לא אמור לקרות — mint תמיד לפי v שנשלח —
@@ -127,6 +146,10 @@
       try {
         await _refresh(rt);
         _ctx = _ctxFromToken(_session.idToken, 'resumed');
+        /* ⚠️ סשן-צפייה אינו משוחזר — הוא מעולם לא נשמר (ראה _signInCustom),
+           והשורה הזו fail-closed למקרה שבכל-זאת הגיע RT כזה: הכניסה של
+           צופה היא הקישור, תמיד. */
+        if (_ctx && _ctx.viewOnly) { _wipe(); return _ctx; }
         /* ⚠️ סשן משוחזר חייב להתאים ל-v שבכתובת **הנוכחית** — אחרת לקוח
            א׳ שמשאיר טאב פתוח ומקבל קישור-ב׳ (v שונה) בלי t מפורש היה
            ממשיך לראות את גרסה-א׳ בטעות. */
@@ -151,6 +174,10 @@
     get versionId() { return _ctx ? _ctx.versionId : ''; },
     get orgId()     { return _ctx ? _ctx.orgId : ''; },
     get ok()        { return !!(_ctx && _ctx.ok); },
+    get viewOnly()  { return !!(_ctx && _ctx.viewOnly); },
+    /* מטא-נתוני-הצפייה מתשובת-הכניסה — לסשן-צפייה אין קריאת-RTDB, וזה
+       כל מה שהוא יודע על הרשומה. null בסשן-אישור. */
+    get viewMeta()  { return _viewMeta; },
 
     authToken: async function () {
       if (!_session) {

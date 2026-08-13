@@ -24,9 +24,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786622704"></script>
-<script src="auth-client.js?v=1786622704"></script>
-<script src="auth-guard.js?v=1786622704" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786636477"></script>
+<script src="auth-client.js?v=1786636477"></script>
+<script src="auth-guard.js?v=1786636477" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -1341,7 +1341,7 @@ function workerScreen(){
 /* ═══════════════ מסך הלקוח ═══════════════ */
 async function clientScreen(versionId, token){
   document.documentElement.className='client'; document.body.className='clientwrap'; document.title='חוברת לאישור — סולן הדפסות';
-  $('app').innerHTML='<div class="card"><h2 id="cTitle">טוען…</h2><div id="cMeta" class="muted"></div></div><div class="card" id="cBook" style="display:none"><div id="cFlip"></div></div><div class="card" id="cApprove" style="display:none"></div>';
+  $('app').innerHTML='<div class="card"><h2 id="cTitle">טוען…</h2><div id="cMeta" class="muted"></div></div><div class="card" id="cBook" style="display:none"><div id="cFlip"></div></div><div class="card" id="cApprove" style="display:none"></div><div class="card" id="cShare" style="display:none"></div>';
   // ⚠️ שלב-הזהות **לפני הכול**: מחליף v+t ב-Custom Token דרך proofLinkLogin
   // (proof-context.js), מרענן ID token, וקורא claims. הודעת-הכשל אחידה בכוונה
   // (לא "version לא קיים" מול "token שגוי") — כדי לא לגלות ללקוח-מנחש אם
@@ -1381,6 +1381,12 @@ async function clientScreen(versionId, token){
       : '<span class="bad">הקישור שקיבלתם אינו מלא. בקשו מבית הדפוס לשלוח קישור חדש.</span>';
     return;
   }
+  /* ── סשן-צפייה (13/08/2026, שיתוף-לצפייה) — מסלול נפרד ומצומצם ────────
+     ⚠️ **אפס קריאות-RTDB בכוונה**: ה-claims של צופה (proofViewVersionId)
+     אינם עונים לאף חוק, והרשומה המלאה מכילה את סוד-האישור (share.token) —
+     צופה אסור שיראה אותה. הכותרת וה-hash מגיעים מתשובת-הכניסה (viewMeta),
+     וה-PDF מ-proofFileDownload. אין renderApprove, אין ack-poll. */
+  if(pctx.viewOnly){ await _clientViewScreen(versionId); return; }
   let rec=null;
   try{ rec=await _cDbGet('customerFoldVersions/'+versionId); }catch(e){}
   if(!rec){ $('cTitle').innerHTML='<span class="bad">הקישור אינו תקין או פג תוקף.</span>'; return; }
@@ -1393,6 +1399,20 @@ async function clientScreen(versionId, token){
   if(!valid.valid){ $('cTitle').innerHTML='<span class="bad">'+(valid.reason==='REVOKED'?'הקישור בוטל':'תוקף הקישור פג')+'</span>'; return; }
   $('cTitle').textContent=rec.jobName||'חוברת לאישור';
   $('cMeta').innerHTML='גרסה V'+rec.versionNumber+' · '+rec.pageCount+' עמ׳ · '+rec.finalPageSizeMm.width+'×'+rec.finalPageSizeMm.height+' מ״מ';
+  const _ok=await _cLoadBook(versionId, rec.outputHash, !!rec.outputStoragePath);
+  if(!_ok) return;
+  /* ⚠️ כפתורי אישור/בקשת-תיקון נרנדרים **רק כאן** — אחרי שהקובץ ירד,
+     ה-hash אומת והדפדוף מוכן. כשל בכל אחד מהשלבים מדלג על השורה הזו. */
+  renderApprove(rec, true);
+  _cMountShareRow(versionId);
+}
+
+/* ── הורדה + אימות-hash + דפדוף — צינור אחד לשני המסלולים ─────────────────
+   ⚠️ חולץ מ-clientScreen ב-13/08/2026 כשנוסף מסך-הצפייה: בדיקת-השלמות
+   (bytes === outputHash) חייבת להיות **אותה בדיקה בדיוק** בשני המסלולים,
+   ושני עותקים היו נסחפים. ההבדל היחיד בין המסלולים הוא מה קורה אחרי —
+   אישור (clientScreen) או כלום (מסך-הצפייה). מחזיר true כשהדפדוף מוצג. */
+async function _cLoadBook(versionId, expectedHash, hasStoragePath){
   // טעינת ה-PDF שהעובד בדק (אותם bytes) — רק **אחרי** אימות-הזהות.
   // ⚠️ חסם-4: דרך proofFileDownload עם versionId בלבד, לא rec.outputUrl
   // (download-token שעוקף כל בדיקת-הרשאה) ולא rec.outputStoragePath ישירות
@@ -1419,7 +1439,7 @@ async function clientScreen(versionId, token){
     const el=$('cLoad'); if(el && /מוריד את הפרופר/.test(el.innerHTML) && el.innerHTML.indexOf('להימשך עד שתי דקות')<0) el.innerHTML+=_bigMsg;
   }, 4000);
   let bytes=null;
-  if(rec.outputStoragePath){
+  if(hasStoragePath){
     try{
       bytes=new Uint8Array(await _cStorageFetch(versionId, function(received,total){
         /* אחוזים **אמיתיים בלבד** — לפי Content-Length. הקריאה מגיעה רק
@@ -1432,20 +1452,20 @@ async function clientScreen(versionId, token){
     }catch(e){}
   }
   clearTimeout(_slowTimer);
-  if(!bytes){ $('cBook').style.display='none'; $('cTitle').innerHTML+=' <span class="bad">(טעינת החוברת נכשלה)</span>'; $('cMeta').innerHTML+=_loadFailMsg(); return; }
+  if(!bytes){ $('cBook').style.display='none'; $('cTitle').innerHTML+=' <span class="bad">(טעינת החוברת נכשלה)</span>'; $('cMeta').innerHTML+=_loadFailMsg(); return false; }
   // הוכחת-זהות: ה-bytes שהתקבלו === outputHash שברשומה. ⚠️ אי-התאמה נעצרת
   // כאן במפורש (לא "אזהרה וממשיכים") — קובץ חתוך/שגוי לא מגיע ל-pdf.js,
   // שהיה קורס בשקט (InvalidPDFException בלתי-מטופלת) ומשאיר מסך לבן.
   _stage('🔍 בודק את שלמות הקובץ…');
   const gotHash=await sha256(bytes);
-  if(gotHash!==rec.outputHash){
+  if(gotHash!==expectedHash){
     $('cBook').style.display='none';
     $('cMeta').innerHTML+=_loadFailMsg('הקובץ שהתקבל אינו תואם את הגרסה המאושרת.');
-    return;
+    return false;
   }
   // רכיבי-הצפייה (pdf.js) חייבים להיות זמינים לפני הדפדוף — אחרת הלקוח נשאר על "טוען…"
   const _lr=await _ensureLibs();
-  if(!_lr.ok){ $('cBook').style.display='none'; $('cMeta').innerHTML+='<div class="bad" style="white-space:pre-line;margin-top:8px">'+_libsBlockedMsg(_lr)+'</div>'; return; }
+  if(!_lr.ok){ $('cBook').style.display='none'; $('cMeta').innerHTML+='<div class="bad" style="white-space:pre-line;margin-top:8px">'+_libsBlockedMsg(_lr)+'</div>'; return false; }
   // ⚠️ mountFlipbook יכול לזרוק (pdf.js/InvalidPDFException) — לפני התיקון
   // חריגה כזו הייתה בלתי-מטופלת ומשאירה מסך לבן בלי שום הודעה.
   try{
@@ -1453,13 +1473,82 @@ async function clientScreen(versionId, token){
     /* ⚠️ mountFlipbook כותב את ה-HTML שלו לתוך host ובכך **מחליף** את חיווי-
        הטעינה — כלומר החיווי נעלם בדיוק כשהעמוד הראשון מוצג, לא לפני. */
     await mountFlipbook($('cFlip'), bytes);
-    /* ⚠️ כפתורי אישור/בקשת-תיקון נרנדרים **רק כאן** — אחרי שהקובץ ירד,
-       ה-hash אומת והדפדוף מוכן. כשל בכל אחד מהשלבים מדלג על השורה הזו. */
-    renderApprove(rec, gotHash===rec.outputHash);
+    return true;
   }catch(e){
     $('cBook').style.display='none';
     $('cMeta').innerHTML+=_loadFailMsg();
+    return false;
   }
+}
+
+/* ── מסך-הצפייה (13/08/2026, שיתוף-לצפייה) ────────────────────────────────
+   ⚠️ מה שאין כאן הוא העיקר: אין _cDbGet (לצופה אין קריאת-RTDB — הרשומה
+   מכילה את סוד-האישור), אין renderApprove, אין _startAckPoll ואין שורת-
+   שיתוף (הקישור שבידו הוא הקישור). המטא-נתונים — מתשובת-הכניסה בלבד. */
+async function _clientViewScreen(versionId){
+  document.title='חוברת להצגה — סולן הדפסות';
+  const vm=(window.ProofContext && window.ProofContext.viewMeta) || null;
+  if(!vm || !vm.outputHash){
+    /* תשובת-כניסה בלי מטא-נתונים = שרת ישן או תקלה — נכשלים בקול, לא
+       מדפדפים בלי אימות-שלמות. */
+    $('cTitle').innerHTML='<span class="bad">הקישור אינו תקין או פג תוקף.</span>';
+    return;
+  }
+  $('cTitle').textContent=vm.jobName||'חוברת להצגה';
+  $('cMeta').innerHTML='גרסה V'+(vm.versionNumber||1)
+    +(vm.pageCount?(' · '+vm.pageCount+' עמ׳'):'')
+    +((vm.finalPageSizeMm&&vm.finalPageSizeMm.width)?(' · '+vm.finalPageSizeMm.width+'×'+vm.finalPageSizeMm.height+' מ״מ'):'');
+  const box=$('cApprove');
+  box.style.display='';
+  box.innerHTML='<div style="text-align:center;padding:11px 13px;border:1.5px dashed var(--line);border-radius:10px;color:var(--muted)">'
+    +'👁 עותק לצפייה בלבד — ללא אפשרות אישור או בקשת תיקון. האישור לדפוס נעשה על-ידי הלקוח בקישור המקורי.</div>';
+  await _cLoadBook(versionId, vm.outputHash, true);
+}
+
+/* ── שיתוף-לצפייה מתוך מסך-האישור (13/08/2026, בקשת-בעלים) ────────────────
+   הלקוח שולח עותק-צפייה לאנשים נוספים — עורך, מגיה, מו"ל — בלי למסור את
+   קישור-האישור שלו. ⚠️ **לעולם לא משתפים את הכתובת הנוכחית**: היא נושאת
+   את סוד-האישור (או נשאה אותו). הקישור המשותף נבנה מטוקן-הצפייה שהשרת
+   מנפיק (proofShareViewLink), והמקבל נכנס כסשן-צפייה בלבד. */
+function _cMountShareRow(versionId){
+  const el=$('cShare'); if(!el) return;
+  el.style.display='';
+  el.innerHTML='<h3 style="margin:0 0 4px">🔗 שיתוף לצפייה</h3>'
+    +'<div class="muted" style="font-size:.84rem;margin-bottom:9px">שולח עותק-צפייה של החוברת. למקבל אין אפשרות לאשר או לבקש תיקון.</div>'
+    +'<button id="cShareBtn">🔗 שתפו קישור-צפייה</button><span id="cShareMsg" class="muted" style="margin-inline-start:9px"></span>';
+  $('cShareBtn').onclick=function(){ _cShareView(versionId); };
+}
+async function _cShareView(versionId){
+  const btn=$('cShareBtn'), msg=$('cShareMsg');
+  btn.disabled=true; msg.textContent='יוצר קישור…';
+  try{
+    const tok=await _cAuth();
+    const r=await fetch(_FN_BASE+'proofShareViewLink',{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+tok},
+      body:JSON.stringify({data:{versionId:versionId}})});
+    const j=await r.json().catch(function(){return {};});
+    if(!r.ok) throw new Error((j.error&&j.error.message)||'יצירת הקישור נכשלה');
+    const vt=j.result&&j.result.viewToken;
+    if(!vt) throw new Error('יצירת הקישור נכשלה');
+    /* הקישור נבנה מ-viewToken בלבד — סוד-האישור אינו חלק ממנו. */
+    const url=new URL('customer-fold-preview.html?v='+encodeURIComponent(versionId)+'&t='+encodeURIComponent(vt), location.href).href;
+    let shared=false;
+    if(navigator.share){
+      try{ await navigator.share({title:'חוברת לצפייה', url:url}); shared=true; }
+      catch(e){
+        /* המשתמש ביטל את דיאלוג-השיתוף — אינו כשל, ואין מה להעתיק בשקט. */
+        if(e && e.name==='AbortError'){ msg.textContent=''; btn.disabled=false; return; }
+      }
+    }
+    if(!shared){
+      try{ await navigator.clipboard.writeText(url); }
+      catch(e){ window.prompt('העתיקו את הקישור:', url); }
+    }
+    msg.textContent=shared?'נשלח ✓':'הקישור הועתק ✓';
+  }catch(e){
+    msg.innerHTML='<span class="bad">'+_esc((e&&e.message)||'שגיאה')+'</span>';
+  }
+  btn.disabled=false;
 }
 // חיווי אישור-הקבלה של בית-הדפוס (הלקוח רואה שההודעה התקבלה — לא נשאר באוויר)
 function _cShopAckHtml(rec){

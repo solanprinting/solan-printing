@@ -9,13 +9,13 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786622704"></script>
-<script src="page-add.js?v=1786622704"></script>
-<script src="portal-context.js?v=1786622704"></script>
-<script src="portal-return.js?v=1786622704"></script>
-<script src="portal-chat.js?v=1786622704"></script>
+<script src="portal-download.js?v=1786636477"></script>
+<script src="page-add.js?v=1786636477"></script>
+<script src="portal-context.js?v=1786636477"></script>
+<script src="portal-return.js?v=1786636477"></script>
+<script src="portal-chat.js?v=1786636477"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786622704"></script>
+<script src="chat-alert.js?v=1786636477"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -771,6 +771,12 @@ async function loadHistory(){
       var fLink = 'customer-fold-preview.html?v=' + encodeURIComponent(p.foldVersionId)
                 + '&t=' + encodeURIComponent(p.foldToken);
       acts += '<a class="btn btn-approve" target="_blank" rel="noopener" href="'+fLink+'">📖 דפדף ואשר</a>';
+      /* ⚠️ שיתוף-לצפייה (13/08/2026, בקשת-בעלים): הלקוח שולח עותק-צפייה
+         לאנשים נוספים. סוד-האישור (foldToken) נשמר ברישום צדדי ולעולם
+         אינו נכנס לקישור המשותף — השרת מנפיק טוקן-צפייה נפרד, והמקבל
+         רואה דפדוף בלבד, בלי כפתורי אישור. */
+      _svReg[p.foldVersionId] = p.foldToken;
+      acts += '<button class="btn btn-v" onclick="portalShareView(this,\''+esc(p.foldVersionId)+'\')">🔗 שתף לצפייה</button>';
       if (p.apogeeUrl) acts += '<a class="btn btn-dl" href="'+esc(p.apogeeUrl)+'" download>⬇ הורד</a>';
     } else if (p.apogeeUrl){
       var fold = p.apogeeFold || '32';
@@ -874,6 +880,53 @@ var ERR_SAVE_JOB     = 'לא הצלחנו לשמור. החיבור או ההרש
 var _busy = {};
 function _lock(key){ if (_busy[key]) return false; _busy[key] = true; return true; }
 function _unlock(key){ _busy[key] = false; }
+
+// ── שיתוף-לצפייה של חוברת מדופדפת (13/08/2026, בקשת-בעלים) ──
+/* ⚠️ הקישור המשותף נושא טוקן-**צפייה** שהשרת מנפיק — לא את foldToken.
+   ‏foldToken הוא סוד-האישור: מי שמחזיק אותו יכול לאשר לדפוס בשם הלקוח,
+   ולכן הוא מוצג לשרת כהוכחת-בעלות ונשאר בדפדפן. המקבל של הקישור נכנס
+   כסשן-צפייה (claims נפרדים, בלי גישת-RTDB ובלי כפתורי אישור). */
+var _svReg = {};   // foldVersionId → foldToken (הוכחת-הבעלות; לא נכנס לקישור)
+async function portalShareView(btn, vid){
+  var old = btn.textContent;
+  if (!_lock('shareview')) return;
+  btn.disabled = true; btn.textContent = 'יוצר קישור…';
+  try {
+    var approveTok = _svReg[vid];
+    if (!approveTok) throw new Error('לא נמצא קישור-מקור לגיליון — רעננו את הדף');
+    var r = await fetch('https://europe-west1-solan-printing.cloudfunctions.net/proofShareViewLink', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ data:{ versionId: vid, token: approveTok } }) });
+    var j = await r.json().catch(function(){ return {}; });
+    if (!r.ok) throw new Error((j.error && j.error.message) || 'יצירת הקישור נכשלה');
+    var vt = j.result && j.result.viewToken;
+    if (!vt) throw new Error('יצירת הקישור נכשלה');
+    /* הקישור נבנה מטוקן-הצפייה בלבד. */
+    var url = new URL('customer-fold-preview.html?v=' + encodeURIComponent(vid)
+                    + '&t=' + encodeURIComponent(vt), location.href).href;
+    var shared = false;
+    if (navigator.share){
+      try { await navigator.share({ title:'חוברת לצפייה', url:url }); shared = true; }
+      catch(e){
+        /* ביטול דיאלוג-השיתוף אינו כשל — פשוט לא שולחים ולא מעתיקים. */
+        if (e && e.name === 'AbortError'){ btn.disabled=false; btn.textContent=old; _unlock('shareview'); return; }
+      }
+    }
+    if (!shared){
+      try { await navigator.clipboard.writeText(url); }
+      catch(e){ window.prompt('העתיקו את הקישור:', url); }
+    }
+    toast(shared ? '✓ הקישור נשלח' : '✓ קישור-הצפייה הועתק — שלחו אותו למי שתרצו');
+    btn.textContent = shared ? 'נשלח ✓' : 'הועתק ✓';
+    setTimeout(function(){ btn.textContent = old; btn.disabled = false; }, 2600);
+    _unlock('shareview');
+    return;
+  } catch(e){
+    toast('⚠️ שיתוף-הצפייה נכשל: ' + ((e && e.message) || 'שגיאה'));
+  }
+  btn.disabled = false; btn.textContent = old;
+  _unlock('shareview');
+}
 
 // ── אישור פרופר-אפוגי ──
 async function approveApogee(id){

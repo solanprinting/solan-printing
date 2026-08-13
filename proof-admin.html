@@ -33,19 +33,19 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786622704"></script>
-<script src="chat-alert.js?v=1786622704"></script>
-<script src="shop-issue.js?v=1786622704"></script>
+<script src="portal-chat.js?v=1786636477"></script>
+<script src="chat-alert.js?v=1786636477"></script>
+<script src="shop-issue.js?v=1786636477"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786622704"></script>
-<script src="auth-client.js?v=1786622704"></script>
+<script src="firebase-auth.bundle.js?v=1786636477"></script>
+<script src="auth-client.js?v=1786636477"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786622704" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786636477" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -354,6 +354,12 @@ window.addEventListener('appinstalled', function(){
   .pvBody2 > .pvSide, .pvBody2 > .mdMain, .pvBody2 > .pvLeftCol {
     background:#fff; border:1px solid var(--line); border-radius:14px;
     box-shadow:0 2px 10px rgba(0,0,0,.05); overflow:hidden; padding:0; }
+  /* ⚠️ 13/08/2026, דיווח-בעלים: רשימת-הלקוחות לא נגללה. ‏overflow:hidden
+     שבכלל-הכרטיסים למעלה (סליקת פינות-מעוגלות) **דורס** בספציפיות את
+     ‏overflow:auto של ‎.pvSide‎ הבסיסי — הרשימה נחתכה ב-76vh בלי גלילה,
+     ושחזור-הגלילה שברענון-האוטומטי שמר scrollTop שתמיד 0. ההחזרה כאן,
+     באותה ספציפיות ואחרי הכלל הדורס; הפינות נשמרות כי auto גם הוא חותך. */
+  .pvBody2 > .pvSide { overflow:auto; }
   /* כותרת-מקטע בסגנון ‎.card h2‎ של הפורטל */
   .pvH { font-size:.95rem; font-weight:900; color:var(--press); margin:0;
          padding:13px 15px 9px; display:flex; align-items:center; gap:8px; }
@@ -1061,9 +1067,16 @@ function render(rows) {
       const dlKey = (function(){ const k='g'+(gi++);
         _genReg[k] = { fileUrl:u.url, title: jobName(p, u.partId ? u.label : ''), jobId:p.id, partId:u.partId };
         return k; })();
+      /* ⚠️ קובץ-פורטל גולמי (kind:'file') אין לו דפדוף מורכב — פתיחה
+         ישירה של הקובץ במקום קישור-proof-viewer שלא יציג אותו. שאר
+         הסוגים (עיתון/ריצה/פרופר) עוברים דרך הדפדוף כרגיל. */
+      const icon = u.kind==='full' ? '📄' : (u.kind==='file' ? '📎' : '🧩');
+      const viewBtn = u.kind==='file'
+        ? `<a class="isBtn view sm" href="${u.url}" target="_blank" rel="noopener">👁 פתח קובץ</a>`
+        : `<a class="isBtn view sm" href="${vLink}" target="_blank">👁 צפייה בדפדוף</a>`;
       return `<div class="isUnit">
-        <span class="isUnitNm">${u.kind==='full'?'📄':'🧩'} ${escapeHtml(u.label)}${u.pages?` <span style="color:#9ca3af;font-weight:600">· ${u.pages} עמ׳</span>`:''}</span>
-        <a class="isBtn view sm" href="${vLink}" target="_blank">👁 צפייה בדפדוף</a>
+        <span class="isUnitNm">${icon} ${escapeHtml(u.label)}${u.pages?` <span style="color:#9ca3af;font-weight:600">· ${u.pages} עמ׳</span>`:''}</span>
+        ${viewBtn}
         <button class="isBtn dl sm" data-dl="${dlKey}">⬇ הורדה</button>
       </div>`;
     }).join('') || '<div style="color:#9ca3af;font-size:.86rem;padding:6px 2px">טרם התקבלו קבצים לגיליון הזה.</div>';
@@ -1074,18 +1087,25 @@ function render(rows) {
       ? `<span class="isSeen">✓ אושרה קבלה ללקוח · ${fmt(seenTime)}</span>`
       : (su.arrived ? `<button class="isBtn ok" data-seenall="${escapeHtml(su.id)}">✅ אשר קבלה ללקוח</button>` : '');
 
+    /* ⚠️ 13/08/2026, דיווח-בעלים: גיליון שממתין לקבצים הציג "אושר להדפסה",
+       "דרוש תיקון" ו"הורד" — נראה כאילו אפשר להוריד ולאשר בשם הלקוח, כשאין
+       על מה. ההחלטה מה מוצג יושבת ב-ShopIssue.cardActions (טהורה, נבדקת
+       ב-shop-issue-tests); כאן רק מצוירת. במקום הפעולות מוצג קישור-ההעלאה —
+       הפעולה היחידה שיש לה טעם על גיליון ריק. */
+    const act = ShopIssue.cardActions(p);
     return `<div class="isCard on${ShopIssue.printApproved(p)?' approved':''}">${head}
       <div class="isBody">
         ${unitRows}
         <div class="isMain">
           ${seenBlock}
-          <button class="isBtn ${ShopIssue.printApproved(p)?'done':'ok'}" data-printok="${escapeHtml(su.id)}">${ShopIssue.printApproveLabel(p)}</button>
-          <button class="isBtn fix" data-needfix="${escapeHtml(su.id)}" title="נפתחת דרישה בפורטל הלקוח — הוא יעלה את העמוד המתוקן">🔁 דרוש תיקון</button>
+          ${act.canPrintApprove?`<button class="isBtn ${ShopIssue.printApproved(p)?'done':'ok'}" data-printok="${escapeHtml(su.id)}">${ShopIssue.printApproveLabel(p)}</button>`:''}
+          ${act.canRequestFix?`<button class="isBtn fix" data-needfix="${escapeHtml(su.id)}" title="נפתחת דרישה בפורטל הלקוח — הוא יעלה את העמוד המתוקן">🔁 דרוש תיקון</button>`:''}
+          ${act.showUploadHint?`<button class="isBtn" data-link="${base}proof-client.html?id=${p.id}" title="הקישור שאיתו הלקוח מעלה את הקבצים לגיליון הזה">📤 קישור העלאה ללקוח</button>`:''}
         </div>
         <div class="isMore"><div class="acts">
           <button data-link="${base}proof-client.html?id=${p.id}">📤 קישור העלאה ללקוח</button>
           <button data-link="${base}proof-viewer.html?id=${p.id}">👁 קישור צפייה לעובדים</button>
-          ${genCell('', jobName(p), p.id, '')}
+          ${act.canDownload?genCell('', jobName(p), p.id, ''):''}
           ${notifyBtn(p)}${editBtn(p)}${closeBtn(p)}
           <button data-donejob="${p.id}" data-on="${p.completedAt?1:0}">${p.completedAt?'↩ החזר לפעילות':'🏁 סמן כהושלם'}</button>
           ${prTag(p)}${psCell(p.id, 'full', psReqOf(p, 'full'))}
