@@ -14,8 +14,8 @@
      ⚠️ קישור-ההזמנה מוצג **פעם אחת בלבד** ואינו נשמר בשום מקום — לא במסד,
      לא בלוג, ולא כאן. אם נסגר החלון, מפיקים הזמנה חדשה.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1786608794"></script>
-<script src="auth-client.js?v=1786608794"></script>
+<script src="firebase-auth.bundle.js?v=1786610845"></script>
+<script src="auth-client.js?v=1786610845"></script>
 <style>
   .prow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #eef0f5}
   .prow:last-child{border-bottom:0}
@@ -137,7 +137,20 @@
       </select>
       <button class="btn" id="mkstaff">פתח חשבון עובד</button>
       <button class="btn sec" id="sendpw">שלח קישור לקביעת סיסמה</button>
+      <!-- ⚠️ המסלול שאינו תלוי בדואר. נבנה 12/08/2026 אחרי שנמדד שדואר
+           פיירבייס אינו מגיע. הקישור הוא אישור-כניסה — ראה ההערה ב-getlink. -->
+      <button class="btn sec" id="getlink">🔗 הפק קישור להעתקה (בלי דואר)</button>
       <div class="msg" id="smsg"></div>
+      <div id="lkbox" class="hidden" style="margin-top:8px;padding:10px;border:1px solid #fde68a;
+           background:#fffbeb;border-radius:8px">
+        <div style="font-size:.8rem;color:#92400e;font-weight:700;margin-bottom:6px">
+          ⚠️ הקישור הזה קובע את הסיסמה של החשבון. מסרו אותו לעובד עצמו בלבד,
+          והוא תקף לזמן מוגבל.</div>
+        <textarea id="lktext" readonly dir="ltr" rows="3" style="width:100%;font-family:ui-monospace,
+          Consolas,monospace;font-size:.72rem;border:1px solid #e5e7eb;border-radius:6px;
+          padding:6px;resize:vertical"></textarea>
+        <button class="btn sec" id="lkcopy" style="margin-top:6px">📋 העתק</button>
+      </div>
       <div class="timing" id="stime"></div>
     </div>
 
@@ -238,7 +251,7 @@ var $ = function(id){ return document.getElementById(id); };
 /* ⚠️ הדף עצמו מגיע ממטמון ה-CDN — ראה guardVersion ב-auth-client.js.
    ⚠️ כל האתחול חייב להיות **בתוך** boot(): רישום onAuthStateChanged לפני
    ש-init() רץ נכשל בשקט (אין _auth), והמסך נתקע על "טוען". נתפס בפיילוט. */
-var _BAKED = '1786608794';
+var _BAKED = '1786610845';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 function boot(){
@@ -484,6 +497,45 @@ $('sendpw').addEventListener('click', async function(){
       + (code ? ' (' + code + ')' : ''));
   }
   $('sendpw').disabled = false;
+});
+
+/* ── קישור לקביעת-סיסמה, בלי דואר ─────────────────────────────────────────
+   ⚠️ **הקישור הוא אישור-כניסה לחשבון.** לכן הוא אינו נשמר, אינו נכתב
+   ללוג, ואינו נשאר על המסך אחרי שעוברים לעובד הבא — כל לחיצה מנקה קודם.
+   כל הבדיקות (מנהל · חשבון-עובד · אותו עסק) נאכפות בשרת. */
+$('getlink').addEventListener('click', async function(){
+  var email = $('semail').value.trim();
+  if (!email) { show('smsg','err','הזינו קודם כתובת מייל'); return; }
+  $('getlink').disabled = true;
+  $('lkbox').classList.add('hidden'); $('lktext').value = '';
+  show('smsg','','מפיק קישור…');
+  try {
+    var r = await call('createStaffPasswordLink', { email: email }, 'stime');
+    $('lktext').value = r.link;
+    $('lkbox').classList.remove('hidden');
+    show('smsg','ok','הקישור מוכן. העתיקו ומסרו ל' + (r.staffId ? 'עובד ' + r.staffId : 'עובד') + '.');
+  } catch (e) {
+    /* ⚠️ הכשל נאמר בקול. "not_found" הוא גם חשבון שאינו קיים וגם חשבון
+       של עסק אחר — בכוונה אותה הודעה, כדי שהמסך לא יגלה מי רשום. */
+    var m = (e && e.message) || 'שגיאה';
+    show('smsg','err', m === 'not_found'
+      ? 'לא נמצא חשבון-עובד עם הכתובת הזו. פתחו קודם חשבון עובד.'
+      : 'הפקת הקישור נכשלה: ' + m);
+  }
+  $('getlink').disabled = false;
+});
+
+$('lkcopy').addEventListener('click', function(){
+  var t = $('lktext');
+  var done = function(){ $('lkcopy').textContent = '✓ הועתק';
+    setTimeout(function(){ $('lkcopy').textContent = '📋 העתק'; }, 1500); };
+  /* ⚠️ נפילה-לאחור לבחירת-הטקסט: בלי הרשאת-לוח (דפדפן ותיק / הקשר
+     לא-מאובטח) חייבת להישאר דרך להעתיק, אחרת הכפתור פשוט לא עושה כלום. */
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      return navigator.clipboard.writeText(t.value).then(done, function(){ t.select(); });
+  } catch (e) {}
+  t.select();
 });
 
 /* ── זריעת עבודת-בדיקה ────────────────────────────────────
