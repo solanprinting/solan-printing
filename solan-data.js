@@ -146,7 +146,38 @@ window._officeMayLoad = function (path) {
   if (!OC || !OC.isOffice(window._officeClaims)) return true;
   return OC.mayLoad(window._officeClaims, String(path || '').split('/')[0]);
 };
+/* ── צמתים שפתוחים למנהל בלבד ────────────────────────────────────────────
+   ⚠️ **מראה של סעיף 5 ב-build-transition-rules.js**, ולא רשימה עצמאית.
+   סנטינל ב-staff-link-tests משווה את השתיים — רשימה שתיסחף תחזיר בדיוק
+   את הבאג שהיא נולדה למנוע.
+
+   ⚠️ למה זה קיים: ‏persist() דוחף ~20 אוספים בכל שמירה. עובד שאינו מנהל
+   נדחה משלושה מהם ב-401 **בצדק**, אבל ‏solan-persist גוזר את חיווי-החיבור
+   מ-‏Promise.all של כל הדחיפות — ולכן כל שמירה הסתיימה ב"🔴 מנותק" בזמן
+   שהחיבור תקין לחלוטין. נמדד אצל קדם-דפוס 12/08/2026 (‏documentPrices ·
+   quotes · deliveryNotes, כולם 401). דחיית-הרשאה אינה ניתוק.
+
+   ⚠️ **נכשל פתוח כשהתפקיד אינו ידוע** (הרצה מקומית, מסך בלי שומר):
+   ‏claims=null מתנהג בדיוק כמו קודם. השרת הוא שאוכף; זה חוסך בקשה
+   שידוע מראש שתידחה, ולא מחליף את החוקים. */
+window._ADMIN_ONLY_COLLS = ['quotes', 'quotePricing', 'documentPrices',
+  'inventory', 'inventoryDeductions', 'inventoryHistory', 'inventoryPress',
+  'invoiceLogs', 'deliveryNotes', 'managerTasks', 'solanUsers', 'backupMeta',
+  'accountingEmail', 'config'];
+
+window._roleOf = function () {
+  var c = window._officeClaims;
+  return (c && c.accountType === 'staff' && c.role) ? String(c.role) : null;
+};
+/* עובד-מזוהה-שאינו-מנהל אינו נוגע בגוש-המנהל. */
+window._adminOnlyBlocked = function (path) {
+  var role = window._roleOf();
+  if (!role || role === 'admin') return false;          // לא ידוע / מנהל — כמו קודם
+  return window._ADMIN_ONLY_COLLS.indexOf(String(path || '').split('/')[0]) >= 0;
+};
+
 window._officeMayWrite = function (path) {
+  if (window._adminOnlyBlocked(path)) return false;
   var OC = window.OfficeCards;
   if (!OC || !OC.isOffice(window._officeClaims)) return true;
   return OC.mayWriteDirect(window._officeClaims, String(path || '').split('/')[0]);

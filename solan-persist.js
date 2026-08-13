@@ -67,7 +67,12 @@ function persist() {
     // כרטיסים נדחפים בנפרד דרך מיזוג חסין-דריסה (לא במערך הכללי שנדרס)
     _pushCardsMerged();
     // הזמנות/הצעות/יומן-שבועי/קבצי-הדפסה — גם הם דרך מיזוג לפי מזהה (לא דריסת מערך)
+    /* ⚠️ אוסף שהתפקיד אינו רשאי לכתוב אליו **אינו נשלח בכלל** — ולא
+       "נשלח ונכשל". שתי סיבות: הבקשה ידועה מראש כנדחית, וחשוב מכך —
+       חיווי-החיבור למטה נגזר מ-Promise.all של הדחיפות, ולכן דחיית-הרשאה
+       הוצגה כ"🔴 מנותק". נמדד אצל קדם-דפוס 12/08/2026. ראה _adminOnlyBlocked. */
     _MERGED_COLLS.forEach(function(cl){
+      if (window._adminOnlyBlocked && window._adminOnlyBlocked(cl)) return;
       var ref = _COLL_REF[cl];
       var cur = JSON.stringify(_filterDeleted(cl, ref.get()));
       if (window._fbSnapshot[cl] !== cur) _pushArrMerged(cl);
@@ -90,6 +95,8 @@ function persist() {
     window._fbInFlight = window._fbInFlight || {};   // תוכן שנמצא כרגע בדחיפה, לפי collection
     var _pushes = [];
     Object.keys(_paths).forEach(function(p) {
+      /* ⚠️ אותו שער בדיוק כמו למעלה — ראה ההערה שם. */
+      if (window._adminOnlyBlocked && window._adminOnlyBlocked(p)) return;
       var _json = JSON.stringify(_paths[p]);
       // אם ה-collection הזה לא השתנה אצלנו מאז הסנכרון האחרון מהשרת — לא דוחפים אותו.
       // זה מונע ממסך/לשונית "תקוע" (שלא נגע ב-collection הזה) לדרוס בטעות מחיקה
