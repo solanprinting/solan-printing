@@ -181,12 +181,134 @@
     return printApproved(p) ? '↩ בטל אישור-הדפסה' : '✅ אושר להדפסה';
   }
 
+  /* ═══ רשת-העמודים + סימוני-עמודים (עיצוב-מחדש 13/08/2026, שרטוט-בעלים) ═══
+     הלוגיקה טהורה וכאן; המסך רק מצייר. שלושה חלקים:
+       1. pageNoOf — "שער"=עמוד 1, "עמוד 12"→12; מה שלא מספר → null.
+       2. pageTiles — אריחי-העמודים של גיליון: מסודרים שער→2→3, עמודים
+          חסרים (pendingPages) כאריחים מקווקווים, וסימוני-עמודים מוצמדים.
+       3. markPatch/markOf — סימון עמוד מתוך הדפדוף: 'replace' (דרוש
+          החלפה, עם הערה מה-הבעיה + מיקום מסומן) או 'print-asis' (הלקוח
+          אישר להדפסה בלי תיקון).
+
+     ⚠️ **מבנה-האחסון**: ‏customerProofs/<id>/pageMarks/<target>/<n>‎ =
+     ‏{kind, note, spot, by, at}‎. ‏target הוא 'full' (העיתון המלא) או מזהה-
+     ריצה — כי מספרי-עמודים של ריצה נספרים בתוכה, ומפתח שטוח היה מערבב
+     "עמוד 3 של ריצה ב" עם "עמוד 3 של העיתון". ‏spot = מלבן באחוזי-עמוד
+     {x,y,w,h} — כדי שהלקוח יראה איפה הבעיה, בכל גודל-תצוגה. */
+  var MARK_KINDS = ['replace', 'print-asis'];
+  var MARK_LABELS = {
+    replace: { icon: '🔁', label: 'דרוש החלפה' },
+    'print-asis': { icon: '✔', label: 'הלקוח אישר להדפסה כך' }
+  };
+
+  function pageNoOf(label) {
+    var s = str(label);
+    if (!s) return null;
+    if (/שער|עטיפה|cover/i.test(s)) return 1;
+    var m = s.match(/\d+/);
+    return m ? parseInt(m[0], 10) : null;
+  }
+
+  function marksFor(p, target) {
+    var r = p || {}, all = (r.pageMarks && typeof r.pageMarks === 'object') ? r.pageMarks : {};
+    var t = all[str(target) || 'full'];
+    return (t && typeof t === 'object') ? t : {};
+  }
+  function markOf(p, target, n) {
+    var m = marksFor(p, target)[String(n)];
+    return (m && typeof m === 'object' && MARK_KINDS.indexOf(m.kind) >= 0) ? m : null;
+  }
+
+  /* ה-patch שכותב/מנקה סימון. ⚠️ kind=null מוחק (null ב-PATCH = מחיקה ב-RTDB).
+     ‏spot מנורמל-וממוסגר ל-0..100 — ערך מחוץ-לטווח הוא באג-קורא, לא נתון. */
+  function markPatch(target, n, kind, opts) {
+    var o = opts || {};
+    var t = str(target) || 'full';
+    var pn = parseInt(n, 10);
+    if (!(pn >= 1 && pn <= 2000)) return null;
+    var path = 'pageMarks/' + t.replace(/[.#$\[\]\/]/g, '_') + '/' + pn;
+    var out = {};
+    if (kind === null) { out[path] = null; return out; }
+    if (MARK_KINDS.indexOf(kind) < 0) return null;
+    var m = { kind: kind, note: str(o.note).slice(0, 300) || null,
+              by: str(o.by).slice(0, 60) || null, at: num(o.at) || null, spot: null };
+    var s = o.spot;
+    if (s && typeof s === 'object') {
+      var clamp = function (v) { v = Number(v); return isFinite(v) ? Math.max(0, Math.min(100, Math.round(v * 100) / 100)) : 0; };
+      var x = clamp(s.x), y = clamp(s.y), w = clamp(s.w), h = clamp(s.h);
+      if (w >= 0.5 && h >= 0.5) m.spot = { x: x, y: y, w: Math.min(w, 100 - x), h: Math.min(h, 100 - y) };
+    }
+    out[path] = m;
+    return out;
+  }
+
+  /* ── אריחי-העמודים של הגיליון הפתוח ─────────────────────────────────────
+     ⚠️ שני מסלולי-תוכן, שתי צורות-אריח:
+       · עיתון-מלא (fileUrl + pageCount) → אריח לכל עמוד **בתוך** הקובץ
+         (page בתוך אותו PDF) — target='full'.
+       · ריצות/קבצים בודדים → אריח ליחידה; אם שם-היחידה הוא עמוד
+         ("עמוד 4") האריח ממוין לפי המספר — target=partId.
+     עמודים חסרים (pendingPages) נשזרים כאריחי-'missing' במקומם המספרי.
+     סדר: שער (1) → 2 → 3 → …; חסרי-מספר בסוף, לפי זמן-העלאה. */
+  function pageTiles(p) {
+    var r = p || {}, tiles = [];
+    var fullUrl = str(r.fileUrl);
+    var pc = num(r.pageCount);
+    if (fullUrl && pc > 1) {
+      for (var i = 1; i <= Math.min(pc, 400); i++) {
+        tiles.push({ kind: 'page', target: 'full', pageNo: i, page: i, url: fullUrl,
+                     label: i === 1 ? 'שער' : 'עמוד ' + i, at: num(r.approvedAt) || num(r.createdAt),
+                     partId: '', mark: markOf(r, 'full', i) });
+      }
+    } else if (fullUrl) {
+      tiles.push({ kind: 'page', target: 'full', pageNo: 1, page: 1, url: fullUrl,
+                   label: str(r.title) || 'העיתון', at: num(r.approvedAt) || num(r.createdAt),
+                   partId: '', mark: markOf(r, 'full', 1) });
+    }
+    var parts = (r.parts && typeof r.parts === 'object') ? r.parts : {};
+    Object.keys(parts).forEach(function (k) {
+      var t = parts[k] || {};
+      if (!str(t.fileUrl)) return;                     // ריצה בלי קובץ אינה אריח
+      var no = pageNoOf(t.name);
+      tiles.push({ kind: 'page', target: k, pageNo: no, page: 1, url: str(t.fileUrl),
+                   label: str(t.name) || 'ריצה', at: num(t.approvedAt),
+                   partId: k, pages: num(t.pageCount) || 0, mark: markOf(r, k, 1) });
+    });
+    fileEntries(r).forEach(function (f, i) {
+      var no = pageNoOf(f.fileName);
+      tiles.push({ kind: 'page', target: 'file_' + i, pageNo: no, page: 1, url: str(f.fileUrl),
+                   label: str(f.fileName) || 'קובץ', at: num(r.createdAt),
+                   partId: '', mark: markOf(r, 'file_' + i, 1) });
+    });
+    /* עמודים חסרים — רק מספרים שאין להם אריח קיים */
+    var have = {};
+    tiles.forEach(function (t) { if (t.pageNo != null) have[t.pageNo] = true; });
+    var pend = [];
+    (r.pendingPages || []).forEach(function (x) { if (pend.indexOf(x) < 0) pend.push(x); });
+    Object.keys(parts).forEach(function (k) {
+      ((parts[k] || {}).pendingPages || []).forEach(function (x) { if (pend.indexOf(x) < 0) pend.push(x); });
+    });
+    pend.forEach(function (x) {
+      var no = parseInt(x, 10);
+      if (isFinite(no) && !have[no]) tiles.push({ kind: 'missing', pageNo: no, label: 'חסר עמ׳ ' + no });
+    });
+    tiles.sort(function (a, b) {
+      var an = a.pageNo == null ? Infinity : a.pageNo;
+      var bn = b.pageNo == null ? Infinity : b.pageNo;
+      if (an !== bn) return an - bn;
+      return num(a.at) - num(b.at);
+    });
+    return tiles;
+  }
+
   return {
     idOf: idOf, timeOf: timeOf, isActive: isActive,
     sortIssues: sortIssues, openId: openId,
     statusOf: statusOf, printApproved: printApproved,
     seenAt: seenAt, hasArrived: hasArrived,
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
+    pageNoOf: pageNoOf, pageTiles: pageTiles, markOf: markOf, markPatch: markPatch,
+    MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel
   };
 });

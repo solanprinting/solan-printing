@@ -10,18 +10,22 @@
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
 <script src="page-spine.js?v=bidi1"></script>
+<!-- סימוני-עמודים (עיצוב-מחדש 13/08/2026): הלוגיקה ב-shop-issue (טהורה),
+     הציור והגרירה ב-page-marks — משותפים למסך-הדפוס ולדפדוף הזה. -->
+<script src="shop-issue.js?v=1786693770"></script>
+<script src="page-marks.js?v=1786693770"></script>
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786636477"></script>
-<script src="proof-fetch.js?v=1786636477"></script>
+<script src="portal-context.js?v=1786693770"></script>
+<script src="proof-fetch.js?v=1786693770"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786636477"></script>
-<script src="auth-client.js?v=1786636477"></script>
-<script src="auth-guard.js?v=1786636477" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786693770"></script>
+<script src="auth-client.js?v=1786693770"></script>
+<script src="auth-guard.js?v=1786693770" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -59,6 +63,13 @@
   #spread .cmark { position:absolute; background:#111; pointer-events:none; }  /* צלב חיתוך — טיק שחור בפינת ה-trim */
   /* מספר עמוד — תווית עזר מתחת לעמוד ובשקיפות (לא חלק מהעיתון) */
   #spread .pgnum { line-height:1; color:#6b7280; opacity:.5; font-size:.82rem; font-weight:700; }
+  /* סימוני-עמודים (13/08/2026): שורת-הכפתורים נפרדת מ-pgnum כי שקיפותו .5
+     הייתה יורשת גם לכפתורים — ילד אינו יכול להיות אטום יותר מהורהו. */
+  #spread .pmRow { line-height:1; min-height:0; }
+  #spread .pmRow .pmBtn { border:1px solid #d1d5db; background:#fff; border-radius:6px;
+    padding:2px 8px; margin:2px 2px 0; cursor:pointer; font-size:.74rem; line-height:1.3; }
+  #spread .pmRow .pmBtn:hover { border-color:#c9a84c; background:#fffdf6; }
+  #viewer:fullscreen #spread .pmRow .pmBtn { background:#1f2937; color:#fff; border-color:#4b5563; }
   #spread .ph { color:#6b7280; font-size:.95rem; padding:50px; }
   /* ── מצב-קריאה: עמוד יחיד ברוחב מלא + גלילה ───────────────────────────
      ⚠️ **זה מה שפותר את הקריאוּת, לא רזולוציית-הרינדור.** נמדד: עמוד
@@ -194,6 +205,84 @@ async function _requireLibs(){
 const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
 // ── הזדהות אנונימית מול Firebase (מנעול אבטחה) ──
 const _FB_APIKEY = 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg';
+// ── שומר-סביבה (רשת ביטחון · ספרינט 1 שלב 5) — פתיחה מקומית לא כותבת ל-Firebase החי ──
+//    production = הדומיין הרשמי בלבד; אחרת development (חסום ללא אישור); test = מאולץ.
+//    עוטף fetch + XMLHttpRequest וחוסם כתיבות (PUT/POST/PATCH/DELETE) לכתובות RTDB/Storage
+//    בכל סביבה שאינה production. בייצור — תמיד עובר (אפס שינוי התנהגות). זהה בכל הדפים.
+(function(){
+  if (window._solanEnvGuardReady) return;              // אידמפוטנטי — לא לעטוף פעמיים
+  window._solanEnvGuardReady = true;
+  window._solanEnv = (function(){
+    try {
+      if (typeof window._SOLAN_ENV_FORCE === 'string') return window._SOLAN_ENV_FORCE;
+      var h = (typeof location !== 'undefined' && location.hostname || '').toLowerCase();
+      return (h === 'solanprinting.github.io') ? 'production' : 'development';
+    } catch(e){ return 'development'; }
+  })();
+  window._solanEnvNow = function(){ return (typeof window._SOLAN_ENV_FORCE === 'string') ? window._SOLAN_ENV_FORCE : window._solanEnv; };
+  window._solanIsProd = function(){ return window._solanEnvNow() === 'production'; };
+  window._solanWritesAllowed = function(){
+    var e = window._solanEnvNow();
+    if (e === 'production')  return true;
+    if (e === 'development') return window._SOLAN_ALLOW_DEV_WRITES === true;
+    return false;                                       // test — לעולם לא
+  };
+  window._solanIsFbWriteUrl = function(url, method){
+    url = String(url == null ? '' : url); method = String(method || 'GET').toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;   // קריאות תמיד מותרות
+    return url.indexOf('firebasedatabase.app') >= 0 || url.indexOf('firebasestorage.googleapis.com') >= 0 || url.indexOf('storage.googleapis.com') >= 0;
+  };
+  window._fbWriteGuard = function(op){
+    if (window._solanWritesAllowed()) return true;
+    try { console.warn('⛔ [SOLAN ' + window._solanEnvNow().toUpperCase() + '] כתיבה ל-Firebase נחסמה (הגנת סביבה): ' + op + '\n   לאישור זמני בפיתוח בלבד: window._SOLAN_ALLOW_DEV_WRITES = true'); } catch(e){}
+    try { window._solanDevBanner && window._solanDevBanner(); } catch(e){}
+    return false;
+  };
+  window._solanDevBanner = function(){
+    if (window._solanIsProd()) return;
+    try {
+      if (typeof document === 'undefined' || document.getElementById('solan-dev-banner')) return;
+      var b = document.createElement('div'); b.id = 'solan-dev-banner';
+      b.textContent = '🛠️ סביבת ' + window._solanEnvNow().toUpperCase() + ' — כתיבה ל-Firebase חסומה (הגנה מפני דריסת ייצור)';
+      b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:2147483000;background:#b45309;color:#fff;font:700 12px Heebo,Arial;padding:5px 12px;text-align:center;direction:rtl;box-shadow:0 -2px 8px rgba(0,0,0,.3);pointer-events:none';
+      (document.body || document.documentElement).appendChild(b);
+    } catch(e){}
+  };
+  try {                                                 // עוטף fetch — כתיבת RTDB/Storage חסומה מחוץ ל-production
+    var _of = window.fetch;
+    if (_of && !_of._solanGuarded) {
+      var wf = function(input, init){
+        try {
+          var url = (typeof input === 'string') ? input : (input && input.url) || '';
+          var method = (init && init.method) || (typeof input !== 'string' && input && input.method) || 'GET';
+          if (window._solanIsFbWriteUrl(url, method) && !window._fbWriteGuard(method + ' ' + url))
+            return Promise.resolve(new Response('{"error":"blocked-by-solan-env-guard"}', { status: 503, statusText: 'blocked-by-solan-env-guard' }));
+        } catch(e){}
+        return _of.apply(this, arguments);
+      };
+      wf._solanGuarded = true; window.fetch = wf;
+    }
+  } catch(e){}
+  try {                                                 // עוטף XMLHttpRequest — העלאות/מחיקות Storage חסומות מחוץ ל-production
+    var XP = window.XMLHttpRequest && window.XMLHttpRequest.prototype;
+    if (XP && !XP._solanGuarded) {
+      var _xopen = XP.open, _xsend = XP.send;
+      XP.open = function(method, url){ this._solanMethod = method; this._solanUrl = url; return _xopen.apply(this, arguments); };
+      XP.send = function(){
+        try {
+          if (window._solanIsFbWriteUrl(this._solanUrl, this._solanMethod) && !window._fbWriteGuard((this._solanMethod || '') + ' ' + this._solanUrl)) {
+            var self = this;
+            setTimeout(function(){ try { self.dispatchEvent(new Event('error')); } catch(e){ if (typeof self.onerror === 'function') try { self.onerror(new Event('error')); } catch(_){} } }, 0);
+            return;                                     // בקשה אמיתית לא נשלחת
+          }
+        } catch(e){}
+        return _xsend.apply(this, arguments);
+      };
+      XP._solanGuarded = true;
+    }
+  } catch(e){}
+  try { if (typeof document !== 'undefined') { if (document.readyState !== 'loading') window._solanDevBanner(); else document.addEventListener('DOMContentLoaded', window._solanDevBanner); } } catch(e){}
+})();
 // ── App Check (reCAPTCHA v3) — עוטף fetch ומצרף X-Firebase-AppCheck לכל בקשה ל-RTDB.
 //    מצב ניטור עד אכיפה בקונסולה; אם ה-SDK נכשל — אין header ושום דבר לא נחסם. ריק = כבוי.
 var _APPCHECK_SITEKEY = '6LeYDVMtAAAAAAsc-qvVPz9QvLhIlDBfcYCl-pXI';
@@ -557,6 +646,27 @@ async function _loadTrimsBg(){
     document.documentElement.setAttribute('data-read-dir', _readDir);
   }
 
+  /* ═══ סימוני-עמודים תוך-כדי-דפדוף (עיצוב-מחדש 13/08/2026, שרטוט-בעלים) ═══
+     הצוות מדפדף, רואה עמוד בעייתי, ומסמן בו-במקום: 🔁 דרוש החלפה (עם
+     "מה הבעיה" + מלבן על מקום-הבעיה) או ✔ הלקוח אישר להדפסה כך. הסימון
+     נכתב ל-pageMarks שברשומה ומופיע מיד גם ברשת-העמודים במסך-הדפוס.
+
+     ⚠️ **הלקוח רואה את הסימון** (המסך הזה נפתח גם מהפורטל) — זו המטרה:
+     שיבין איפה הבעיה. אבל **כפתורי**-הסימון מוצגים לצוות בלבד (claims
+     מ-SolanGuard); הסתרת-כפתור אינה אבטחה — חוקי-RTDB הם הגבול.
+
+     ⚠️ **מפתח-הסימון הוא עמוד-המקור** (‏_prov[i].srcIndex‎), לא אינדקס-
+     התצוגה: כפולה שפוצלה לשני חצאי-תצוגה היא עמוד-מקור אחד, ורשת-
+     העמודים במסך-הדפוס מונה עמודי-מקור. ה-spot מתורגם בין מערכות-הצירים
+     (חצי-תצוגה ↔ עמוד-מלא) בשני הכיוונים. */
+  window._pmState = { target: partId || 'full', staff: false };
+  try {
+    const _st = (window.SolanGuard && SolanGuard.state) ? SolanGuard.state() : null;
+    _pmState.staff = !!(_st && _st.claims && _st.claims.accountType === 'staff');
+    _pmState.by = (_st && _st.claims && (_st.claims.staffId || '')) || '';
+  } catch(e){}
+  window._pmRec = rec;
+
   // איזה קובץ להציג: ריצה מסוימת (part), עיתון מלא, או בוחר ריצות
   let url = null, label = '';
   var cacheUrl = '', cacheAt = 0;
@@ -899,6 +1009,104 @@ function toggleViewMode(){
   try { _ensureHi(showingPages()); } catch(e){}
 }
 
+/* ═══ סימוני-עמודים — עוזרי-רינדור ופעולות (ראה ההסבר ליד _pmState) ═══ */
+function _pmSrcPage(i){ const p = _prov[i]; return ((p && p.srcIndex != null) ? p.srcIndex : i) + 1; }
+function _pmMarkFor(i){
+  const r = window._pmRec;
+  return (window.ShopIssue && r && window._pmState) ? ShopIssue.markOf(r, _pmState.target, _pmSrcPage(i)) : null;
+}
+/* חצי-כפולה ↔ עמוד-מלא: תרגום מלבן-הסימון בין מערכות-הצירים */
+function _pmSpotToSource(i, r){
+  const p = _prov[i]; if (!r) return null;
+  if (!p || p.part === 'single') return r;
+  const half = p.part === 'spread-right' ? 50 : 0;
+  return { x: half + r.x / 2, y: r.y, w: r.w / 2, h: r.h };
+}
+function _pmSpotToDisplay(i, s){
+  const p = _prov[i]; if (!s || !isFinite(Number(s.x))) return s || null;
+  if (!p || p.part === 'single') return s;
+  const half = p.part === 'spread-right' ? 50 : 0;
+  const x = (Number(s.x) - half) * 2, w = Number(s.w) * 2;
+  if (x + w <= 0 || x >= 100) return null;           /* הסימון בחצי השני של הכפולה */
+  return { x: Math.max(0, x), y: s.y, w: Math.min(100 - Math.max(0, x), w), h: s.h };
+}
+function _pmOverlay(i){
+  const m = _pmMarkFor(i);
+  if (!m || !window.PageMarks) return '';
+  return PageMarks.overlayHtml({ kind: m.kind, note: m.note, spot: _pmSpotToDisplay(i, m.spot) });
+}
+function _pmCtl(i){
+  if (!window._pmState || !_pmState.staff || !window.ShopIssue) return '';
+  const m = _pmMarkFor(i);
+  if (!m) return ` <button class="pmBtn" data-pmmark="${i}|replace" title="סימון העמוד כדורש-החלפה — עם הערה מה הבעיה, שהלקוח יראה">🔁</button>`
+       + `<button class="pmBtn" data-pmmark="${i}|print-asis" title="הלקוח אישר להדפיס את העמוד כמו שהוא, בלי תיקון">✔</button>`;
+  return ` <button class="pmBtn" data-pmspot="${i}" title="גררו מלבן על העמוד לסימון מקום-הבעיה — הלקוח יראה אותו">📍</button>`
+       + `<button class="pmBtn" data-pmclear="${i}" title="הסרת הסימון מהעמוד">✖</button>`;
+}
+async function _pmWrite(patch){
+  if (!patch) return false;
+  try {
+    const r = await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`),
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    if (!r.ok) throw new Error('db ' + r.status);
+    /* עדכון העותק המקומי מאותו patch — בלי קריאה-חוזרת, בלי ניחוש */
+    const rec = window._pmRec;
+    Object.keys(patch).forEach(function(path){
+      const seg = path.split('/');                    /* pageMarks/<target>/<n> */
+      if (seg[0] !== 'pageMarks') return;
+      rec.pageMarks = rec.pageMarks || {};
+      const t = rec.pageMarks[seg[1]] = rec.pageMarks[seg[1]] || {};
+      if (patch[path] === null) delete t[seg[2]]; else t[seg[2]] = patch[path];
+    });
+    renderViewer();
+    return true;
+  } catch(e){
+    alert('⛔ שמירת הסימון נכשלה: ' + ((e && e.message) || 'שגיאה') + '\nנסו שוב.');
+    return false;
+  }
+}
+async function _pmMark(i, kind){
+  let note = null;
+  if (kind === 'replace') {
+    note = window.prompt('מה הבעיה בעמוד? (ההערה תוצג ללקוח)', '');
+    if (note === null) return;                        /* ביטול — לא מסמנים */
+  }
+  const ok = await _pmWrite(ShopIssue.markPatch(_pmState.target, _pmSrcPage(i), kind,
+    { note: note, by: _pmState.by, at: Date.now() }));
+  /* דרישת-החלפה ממשיכה ישר לסימון-המקום — "איפה הבעיה" הוא חלק מהדרישה */
+  if (ok && kind === 'replace') _pmSpotMode(i);
+}
+function _pmSpotMode(i){
+  const host = document.querySelector(`#spread [data-vec="${i}"]`);
+  if (!host || !window.PageMarks) return;
+  const m = _pmMarkFor(i); if (!m) return;
+  const hint = document.createElement('div');
+  hint.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99;'
+    + 'background:#2d3561;color:#fff;border-radius:10px;padding:8px 16px;font-weight:800;font-size:.85rem';
+  hint.textContent = '📍 גררו מלבן על העמוד לסימון מקום-הבעיה (Esc לדילוג)';
+  document.body.appendChild(hint);
+  PageMarks.attachSpotDrag(host, async function(rect){
+    hint.remove();
+    if (!rect) return;                                /* דילוג — הסימון נשאר בלי מקום */
+    await _pmWrite(ShopIssue.markPatch(_pmState.target, _pmSrcPage(i), m.kind,
+      { note: m.note, by: m.by || _pmState.by, at: m.at || Date.now(), spot: _pmSpotToSource(i, rect) }));
+  });
+}
+function _pmWire(){
+  document.querySelectorAll('[data-pmmark]').forEach(b => b.onclick = (ev) => {
+    ev.stopPropagation();
+    const s = b.dataset.pmmark.split('|'); _pmMark(parseInt(s[0], 10), s[1]);
+  });
+  document.querySelectorAll('[data-pmspot]').forEach(b => b.onclick = (ev) => {
+    ev.stopPropagation(); _pmSpotMode(parseInt(b.dataset.pmspot, 10));
+  });
+  document.querySelectorAll('[data-pmclear]').forEach(b => b.onclick = (ev) => {
+    ev.stopPropagation();
+    if (!confirm('להסיר את הסימון מהעמוד?')) return;
+    _pmWrite(ShopIssue.markPatch(_pmState.target, _pmSrcPage(parseInt(b.dataset.pmclear, 10)), null));
+  });
+}
+
 function showingPages(){
   if (!imgs.length) return [];
   /* במצב-קריאה עמוד אחד בכל פעם — זה כל העניין: הוא מקבל את כל הרוחב. */
@@ -953,14 +1161,17 @@ function renderViewer(){
          ומה שנשאר אם הוא נכשל. */
       const vc = `<div class="vecclip"></div>`;
       const va = ` data-vec="${i}" data-vec-w="${sp.sizeW.toFixed(3)}" data-vec-x="${sp.posX.toFixed(3)}"`;
-      return `<div class="page"><div class="cropwrap"${va}><div class="mediacrop" style="${mc}"></div>${vc}<div class="trimframe" style="${fst}"></div>${_cropMarksHtml(f)}</div><div class="pgnum">עמוד ${i+1}</div></div>`;
+      /* ‏_pmOverlay — סימון-עמוד (מלבן+תג) בתוך ה-cropwrap, מעל הכול;
+         ‏_pmCtl — כפתורי-סימון לצוות, בשורה נפרדת מ-pgnum (שקיפותו .5). */
+      return `<div class="page"><div class="cropwrap"${va}><div class="mediacrop" style="${mc}"></div>${vc}<div class="trimframe" style="${fst}"></div>${_cropMarksHtml(f)}${_pmOverlay(i)}</div><div class="pgnum">עמוד ${i+1}</div><div class="pmRow">${_pmCtl(i)}</div></div>`;
     }
     /* ⚠️ ה-img נשאר בתוך המעטפת ולא הוסר: הוא מה שמוצג עד שהציור
        הווקטורי מוכן, ומה שנשאר אם הוא נכשל. */
     return `<div class="page"><span class="vecwrap" data-vec="${i}" data-vec-w="100" data-vec-x="0">`
-         + `<img src="${srcFor(i)}" alt=""><span class="vecclip"></span></span>`
-         + `<div class="pgnum">עמוד ${i+1}</div></div>`;
+         + `<img src="${srcFor(i)}" alt=""><span class="vecclip"></span>${_pmOverlay(i)}</span>`
+         + `<div class="pgnum">עמוד ${i+1}</div><div class="pmRow">${_pmCtl(i)}</div></div>`;
   }).join('') + '</div>';
+  _pmWire();
   if (window._pvZoomApply) _pvZoomApply();   // שומר על מצב-הזום גם אחרי רינדור-מחדש
   _renderPageWarn();
   _ensureHi(s);      // העמודים שעל המסך → רינדור חוזר באיכות-שיא (מחליף כשמוכן)

@@ -306,7 +306,42 @@
              counts: { newReal: newCount, inboxAll: inbox.length, waiting: waiting.length, inwork: inwork.length } };
   }
 
+  /* ── 7. מיון-לפי-דחיפות (עיצוב-מחדש 13/08/2026, שרטוט-בעלים) ───────────
+     "אתמול היה יום עמוס והיה קשה להתנהל עם כמה לקוחות במקביל" — הרשימה
+     מסתדרת לפי מי-צריך-אותי-עכשיו, עם **הסיבה** כתובה, ולא לפי א"ב.
+     טהור: מקבל את הסיכום (customerSummary) + אותות שהמסך אוסף, ומחזיר
+     החלטה. המסך רק מצייר. */
+  function custTriage(sum, extra) {
+    var s = sum || {}, e = extra || {};
+    var why = [];
+    var nNew = _i(s.newFiles), chat = _i(e.unreadChat);
+    if (e.uploadingNow) why.push('מעלה קבצים כרגע…');
+    if (nNew) why.push(nNew === 1 ? 'קובץ חדש' : nNew + ' קבצים חדשים');
+    if (chat) why.push(chat === 1 ? 'הודעה שלא נקראה' : chat + ' הודעות שלא נקראו');
+    if (e.swapPending) why.push('ביקש החלפת עמוד — ממתין לאישורכם');
+    var pend = s.pendingPages || [];
+    if (pend.length) why.push('חסרים עמ׳ ' + pend.join(', '));
+    if (e.dueTodayNotSent) why.push('אמור לשלוח היום — טרם שלח');
+    return { urgent: why.length > 0, why: why, at: _i(s.lastAt) };
+  }
+  /* סדר מלא של הרשימה: דחופים (לפי אחרון-פעילות יורד) ואז שקטים (א"ב).
+     ⚠️ מקבל [{name, sum, extra}] ומחזיר {urgent:[...], quiet:[...]} עם
+     ה-why מוכן — כדי שהמסך לא יפעיל את הכלל פעמיים ויסתור את עצמו. */
+  function triageOrder(items) {
+    var urgent = [], quiet = [];
+    (items || []).forEach(function (it) {
+      if (!it || !it.name) return;
+      var t = custTriage(it.sum, it.extra);
+      var row = { name: it.name, why: t.why, at: t.at, sum: it.sum || {}, extra: it.extra || {} };
+      (t.urgent ? urgent : quiet).push(row);
+    });
+    urgent.sort(function (a, b) { return _i(b.at) - _i(a.at); });
+    quiet.sort(function (a, b) { return _s(a.name).localeCompare(_s(b.name), 'he'); });
+    return { urgent: urgent, quiet: quiet };
+  }
+
   return { DAYS: DAYS, STAGES: STAGES,
+           custTriage: custTriage, triageOrder: triageOrder,
            normName: normName, nameInside: nameInside, customerDay: customerDay,
            stageOf: stageOf, stageIndex: stageIndex, anySeen: anySeen,
            newFiles: newFiles, pendingPages: pendingPages,
