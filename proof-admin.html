@@ -33,20 +33,20 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786693770"></script>
-<script src="chat-alert.js?v=1786693770"></script>
-<script src="shop-issue.js?v=1786693770"></script>
-<script src="page-marks.js?v=1786693770"></script>
+<script src="portal-chat.js?v=1786695224"></script>
+<script src="chat-alert.js?v=1786695224"></script>
+<script src="shop-issue.js?v=1786695224"></script>
+<script src="page-marks.js?v=1786695224"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786693770"></script>
-<script src="auth-client.js?v=1786693770"></script>
+<script src="firebase-auth.bundle.js?v=1786695224"></script>
+<script src="auth-client.js?v=1786695224"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786693770" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786695224" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -411,6 +411,19 @@ window.addEventListener('appinstalled', function(){
   @media (max-width: 1200px){ .pvBody2 { grid-template-columns:1fr; } }
   /* ═══ עיצוב-מחדש 13/08/2026 (שרטוט-בעלים) — רשימת-דחיפות · לשוניות ·
      רשת-עמודים · הגדלה · תשובות-מהירות. תחום למבנה-הפורטל בלבד. ═══ */
+  /* כותרת-הלקוח במרכז — שורה אחת כמו במוקאפ (14/08/2026). גלובלי בכוונה:
+     אותה כותרת משרתת גם את המסך הקלאסי, ורק העיצוב השתנה — לא הפעולות. */
+  .custHead.chRow { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+  .chName { font-size:1.06rem; font-weight:900; color:var(--press); }
+  .chSp { flex:1; }
+  .chDay { font-size:.78rem; color:#6b7280; background:#f8f9fc; border:1px solid var(--line);
+           border-radius:999px; padding:3px 11px; display:inline-flex; align-items:center; gap:5px; }
+  .chDay select { border:0; background:transparent; font-family:inherit; font-size:.78rem;
+                  font-weight:800; color:var(--press); cursor:pointer; }
+  .chChip { background:#eef2ff; color:var(--press); border:0; border-radius:999px; padding:5px 13px;
+            font-family:inherit; font-weight:800; font-size:.76rem; cursor:pointer; }
+  .chChip.ghost { background:#f3f4f6; color:#4b5563; }
+  .chChip:hover { background:#fffdf6; box-shadow:inset 0 0 0 1px var(--gold); }
   .pvSec { padding:9px 15px 4px; font-size:.72rem; font-weight:900; color:#9ca3af; letter-spacing:.02em; }
   .uDot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--red);
           box-shadow:0 0 0 3px rgba(220,38,38,.14); margin-inline-end:2px; flex:none; }
@@ -1526,37 +1539,42 @@ function render(rows) {
   const sel  = selAll ? selAll.filter(p => !p.completedAt) : null;
   const done = selAll ? selAll.filter(p =>  p.completedAt).sort((a,b)=>(b.completedAt||0)-(a.completedAt||0)) : [];
   const detail = selAll ? `
-      <div class="custHead">
-        <div style="font-size:1.05rem;font-weight:900;color:#2d3561">📁 ${escapeHtml(_selCust)} <span class="count">(${sel.length})</span></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
-          <button class="btn ghost" data-editcust="${escapeHtml(_selCust)}" title="שינוי שם הלקוח בכל העבודות שלו">✎ ערוך לקוח</button>
-          <button class="btn" data-portal="${escapeHtml(_selCust)}" title="קישור קבוע לפורטל האישי של הלקוח">🔗 קישור-פורטל</button>
-          <button class="btn ghost" data-notice="${escapeHtml(_selCust)}" title="שלח דרישה שתופיע בפורטל הלקוח">📢 שלח דרישה</button>
-          <!-- כפתור העלאת-הפרופר לאישור הוסר מכאן (בקשת-בעלים 2026-07-30):
-               הפעולה עברה ללשונית "📤 פרופר ללקוח", שם יש רשימת-לקוחות,
-               קיפול לפי טמפלט, בדיקה פנימית ותיעוד-גרסאות. -->
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:.85rem">
-          <span style="color:#6b7280">📅 יום שליחה:</span>
-          <select id="setDaySel" title="קובע באיזה יום הלקוח מופיע ברשימה (גובר על היומן)">
+      <div class="custHead chRow">
+        <!-- ⚠️ 14/08/2026, "אני רוצה שזה יראה כמו שהצגת לי": הכותרת יושרה
+             למוקאפ — שם + גלולת-יום בשורה אחת, הפעולות כצ'יפים קטנים בצד,
+             במקום שלוש שורות-כפתורים שדחפו את התוכן למטה. אותם data-* בדיוק. -->
+        <div class="chName">📁 ${escapeHtml(_selCust)}${sel.length?` <span class="count">(${sel.length})</span>`:''}</div>
+        <span class="chDay" title="קובע באיזה יום הלקוח מופיע ברשימה (גובר על היומן)">📌 יום קבוע:
+          <select id="setDaySel">
             <option value=""${_custDay(_selCust)?'':' selected'}>— ללא —</option>
             ${_DAYS.map(d=>`<option value="${d}"${_custDay(_selCust)===d?' selected':''}>${d}</option>`).join('')}
-          </select>
-          ${_dayOverride[_normName(_selCust)]?'<span style="color:#16a34a;font-size:.78rem">✓ נקבע ידנית</span>':''}
-        </div>
+          </select>${_dayOverride[_normName(_selCust)]?' <span style="color:#16a34a">✓</span>':''}</span>
+        <span class="chSp"></span>
+        <!-- כפתור העלאת-הפרופר לאישור הוסר מכאן (בקשת-בעלים 2026-07-30):
+             הפעולה עברה ללשונית "📤 פרופר ללקוח", שם יש רשימת-לקוחות,
+             קיפול לפי טמפלט, בדיקה פנימית ותיעוד-גרסאות. -->
+        <button class="chChip" data-portal="${escapeHtml(_selCust)}" title="קישור קבוע לפורטל האישי של הלקוח">🔗 קישור-פורטל</button>
+        <button class="chChip ghost" data-notice="${escapeHtml(_selCust)}" title="שלח דרישה שתופיע בפורטל הלקוח">📢 שלח דרישה</button>
+        <button class="chChip ghost" data-editcust="${escapeHtml(_selCust)}" title="שינוי שם הלקוח בכל העבודות שלו">✎ ערוך לקוח</button>
       </div>
       ${sel.length > 1 ? `<div style="padding:6px 14px;background:#faf8f2;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span style="font-size:.82rem;color:#555">${sel.length} עבודות</span>
         <button id="jobsCollapseAll" style="font-size:.8rem">➖ כווץ הכל</button>
         <button id="jobsExpandAll" style="font-size:.8rem">➕ פתח הכל</button></div>` : ''}
-      ${sel.length ? (_uiPortal
+      ${(_uiPortal ? (sel.length || done.length) : sel.length) ? (_uiPortal
           /* ⚠️ עיצוב-מחדש 13/08/2026 (שרטוט-בעלים): לשוניות-גיליונות במקום
              ערימת-כרטיסים — מספרי-הגיליונות האמיתיים, נקודת-סטטוס, ומעבר
              בלחיצה (אותו data-issue ואותו מטפל). במסך הקלאסי הטבלה נשארת
-             בדיוק כשהייתה — הוא רשת-הביטחון. */
+             בדיוק כשהייתה — הוא רשת-הביטחון.
+             ⚠️ תיקון 14/08/2026 (דיווח-בעלים, בוקר-אחרי): הלשוניות נבנות
+             מ-**כל** הגיליונות, כולל שהושלמו (נקודה אפורה) — לקוח שכל
+             עבודותיו הסתיימו הציג "אין עבודות פעילות" ריק במקום המסך
+             המתוכנן, כי הלשוניות ניזונו מהפעילות בלבד. ‏openId עדיין
+             מעדיף את הפעיל-החדש; שהושלם נפתח רק כשאין פעיל. */
           ? (function(){
-              const sorted = ShopIssue.sortIssues(sel);
-              const _oid = ShopIssue.openId(sel, _openIssue);
+              const all = sel.concat(done);
+              const sorted = ShopIssue.sortIssues(all);
+              const _oid = ShopIssue.openId(all, _openIssue);
               const openP = sorted.find(x => ShopIssue.idOf(x) === _oid) || sorted[0];
               let shown = _tabsAll ? sorted : sorted.slice(0, 4);
               if (openP && !shown.some(x => ShopIssue.idOf(x) === ShopIssue.idOf(openP))) shown = shown.concat([openP]);
