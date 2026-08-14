@@ -90,8 +90,15 @@
      נתפס בביקורת אדוורסרית לפני פריסה. */
   function fileEntries(p) {
     var r = p || {}, files = (r.files && typeof r.files === 'object') ? r.files : {};
-    return Object.keys(files).map(function (k) { return files[k] || {}; })
-                 .filter(function (f) { return str(f.fileUrl); });
+    /* ⚠️ ‏_k = מפתח-ה-RTDB האמיתי (14/08/2026). עד היום האריח מוען לפי
+       אינדקס-מיקום, ו-Firebase ממיין מפתחות לקסיקוגרפית — ‏f10 לפני f2 —
+       כך שמעל 10 קבצים שיבוץ-מחדש פגע בקובץ הלא-נכון. המפתח נוסע עם
+       הרשומה במקום להיגזר מהמקום. */
+    return Object.keys(files).map(function (k) {
+      var f = files[k] || {};
+      var o = { _k: k }; Object.keys(f).forEach(function (x) { o[x] = f[x]; });
+      return o;
+    }).filter(function (f) { return str(f.fileUrl); });
   }
 
   /* יש מה לאשר רק כשבאמת הגיע משהו. ⚠️ כפתור "אשר קבלה" על גיליון ריק
@@ -276,9 +283,12 @@
     });
     fileEntries(r).forEach(function (f, i) {
       var no = pageNoOf(f.fileName);
-      tiles.push({ kind: 'page', target: 'file_' + i, pageNo: no, page: 1, url: str(f.fileUrl),
+      /* המוען הוא המפתח בלי ה-f — עבור מפתחות צפופים f0..f9 זהה למוען
+         הישן (אינדקס), כך שסימונים קיימים אינם זזים. */
+      var kk = str(f._k) || ('f' + i);
+      tiles.push({ kind: 'page', target: 'file_' + kk.slice(1), pageNo: no, page: 1, url: str(f.fileUrl),
                    label: str(f.fileName) || 'קובץ', at: num(r.createdAt),
-                   partId: '', mark: markOf(r, 'file_' + i, 1) });
+                   partId: '', mark: markOf(r, 'file_' + kk.slice(1), 1) });
     });
     /* עמודים חסרים — רק מספרים שאין להם אריח קיים */
     var have = {};
