@@ -12,20 +12,20 @@
 <script src="page-spine.js?v=bidi1"></script>
 <!-- סימוני-עמודים (עיצוב-מחדש 13/08/2026): הלוגיקה ב-shop-issue (טהורה),
      הציור והגרירה ב-page-marks — משותפים למסך-הדפוס ולדפדוף הזה. -->
-<script src="shop-issue.js?v=1786738435"></script>
-<script src="page-marks.js?v=1786738435"></script>
+<script src="shop-issue.js?v=1786740498"></script>
+<script src="page-marks.js?v=1786740498"></script>
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786738435"></script>
-<script src="proof-fetch.js?v=1786738435"></script>
+<script src="portal-context.js?v=1786740498"></script>
+<script src="proof-fetch.js?v=1786740498"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786738435"></script>
-<script src="auth-client.js?v=1786738435"></script>
-<script src="auth-guard.js?v=1786738435" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786740498"></script>
+<script src="auth-client.js?v=1786740498"></script>
+<script src="auth-guard.js?v=1786740498" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -153,6 +153,7 @@
     <button id="vprev">‹ הקודם</button>
     <span id="vlabel"></span>
     <button id="vnext">הבא ›</button>
+    <button id="vgoto" title="מעבר מהיר לעמוד מסוים — בלי לדפדף עמוד-עמוד">⤵ לעמוד…</button>
     <button id="vfs">⛶ מסך מלא</button>
     <button id="vzoom" title="לחץ להפעלת זום, ואז גלגלת-העכבר לקרב/להרחיק · גרירה להזזה · דאבל-קליק לאיפוס">🔍 זום</button>
     <button id="vgeom" title="משווה את גיאומטריית שני העמודים — כדי לדעת אם סטייה בחיבור נובעת מהתצוגה או מהקובץ">📐 בדיקת התאמה</button>
@@ -1660,6 +1661,25 @@ function step(d){
 }
 $('vprev').onclick = () => step(-1);
 $('vnext').onclick = () => step(+1);
+/* מעבר-מהיר לעמוד (בקשת-בעלים 14/08) — לדפוס וללקוחות: לחיצה על המונה
+   שואלת מספר-עמוד וקופצת אליו. במצב-כפולות נוחתים על הכפולה הנכונה. */
+function goToPage(n){
+  n = parseInt(n, 10);
+  if (!isFinite(n) || n < 1 || n > imgs.length){ if (isFinite(n)) alert('בעיתון הזה יש ' + imgs.length + ' עמודים.'); return; }
+  vIndex = n - 1;
+  if (_viewMode === 'spread' && vIndex > 0 && vIndex % 2 === 0) vIndex -= 1;   // אותו יישור-כפולה של step()
+  renderViewer();
+}
+window.goToPage = goToPage;
+(function(){
+  var ask = function(){
+    var v = prompt('לאיזה עמוד לעבור? (1–' + imgs.length + ')');
+    if (v !== null) goToPage(v);
+  };
+  var vl = $('vlabel');
+  if (vl){ vl.style.cursor = 'pointer'; vl.title = 'לחיצה — מעבר מהיר לעמוד מסוים'; vl.onclick = ask; }
+  var vg = $('vgoto'); if (vg) vg.onclick = ask;
+})();
 $('vgeom').onclick = toggleGeomCheck;
 $('vmode').onclick = toggleViewMode;
 _applyViewMode();

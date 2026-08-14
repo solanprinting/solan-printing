@@ -9,19 +9,19 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786738435"></script>
-<script src="page-add.js?v=1786738435"></script>
-<script src="portal-context.js?v=1786738435"></script>
-<script src="portal-return.js?v=1786738435"></script>
-<script src="portal-chat.js?v=1786738435"></script>
+<script src="portal-download.js?v=1786740498"></script>
+<script src="page-add.js?v=1786740498"></script>
+<script src="portal-context.js?v=1786740498"></script>
+<script src="portal-return.js?v=1786740498"></script>
+<script src="portal-chat.js?v=1786740498"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786738435"></script>
+<script src="chat-alert.js?v=1786740498"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786738435"></script>
-<script src="page-marks.js?v=1786738435"></script>
+<script src="shop-issue.js?v=1786740498"></script>
+<script src="page-marks.js?v=1786740498"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -871,7 +871,11 @@ async function loadHistory(){
     } else {
       // עיתון proof-client — דפדוף + עריכת עמודים (המערכת המוכרת ללקוח)
       var _hasContent = p.fileUrl || p.parts || p.status === 'approved';
-      if (_hasContent) acts += '<a class="btn btn-v" target="_blank" rel="noopener" href="proof-viewer.html?id='+encodeURIComponent(p._id)+'&ctx=portal">👁 דפדף בעיתון</a>';
+      if (_hasContent) acts += '<a class="btn btn-v" target="_blank" rel="noopener" href="proof-viewer.html?id='+encodeURIComponent(p._id)+'&ctx=portal">👁 דפדף בעיתון</a>'
+        /* שיתוף-לצפייה גם לעיתון רגיל (בקשת-בעלים 14/08): עד היום הכפתור
+           היה רק בחוברות מסלול-הקיפול. כאן הקישור הוא צפייה-בלבד ממילא —
+           ‏ctx=portal בלי כלי-צוות ובלי כפתורי-אישור. */
+        + '<button class="btn btn-v" onclick="portalShareViewer(this,\''+esc(String(p._id))+'\')">🔗 שתף לצפייה</button>';
       /* ⚠️ **ההורדה חסרה כאן עד היום (בקשת-בעלים 10/08/2026).** בפורטל
          הייתה הורדה לפרופר-אפוגי ולקבצים מהזרימה הישנה, אבל דווקא
          המסלול הנפוץ — עיתון של proof-client עם ריצות — אפשר היה
@@ -1127,6 +1131,27 @@ async function portalShareView(btn, vid){
   btn.disabled = false; btn.textContent = old;
   _unlock('shareview');
 }
+
+/* שיתוף קישור-הצפייה של עיתון רגיל: Web Share בנייד, העתקה בדסקטופ.
+   הקישור צפייה-בלבד (ctx=portal) — בלי העלאה, בלי אישור ובלי כלי-צוות. */
+async function portalShareViewer(btn, id){
+  var link = location.origin + location.pathname.replace(/[^\/]*$/, '') + 'proof-viewer.html?id=' + encodeURIComponent(id) + '&ctx=portal';
+  var old = btn.textContent; btn.disabled = true;
+  var shared = false;
+  try {
+    if (navigator.share){ await navigator.share({ title: 'צפייה בעיתון', url: link }); shared = true; }
+    else if (navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(link); }
+    else { prompt('העתיקו את קישור-הצפייה:', link); }
+    btn.textContent = shared ? 'נשלח ✓' : 'הועתק ✓';
+  } catch(e){
+    if (e && e.name === 'AbortError'){ btn.textContent = old; btn.disabled = false; return; }  // המשתמש סגר את חלון-השיתוף
+    console.error('שיתוף-הצפייה נכשל', e);
+    try { prompt('העתיקו את קישור-הצפייה:', link); } catch(e2){}
+    btn.textContent = old;
+  }
+  setTimeout(function(){ btn.textContent = old; btn.disabled = false; }, 2600);
+}
+window.portalShareViewer = portalShareViewer;
 
 // ── אישור פרופר-אפוגי ──
 async function approveApogee(id){
