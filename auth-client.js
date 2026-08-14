@@ -126,7 +126,9 @@
         portal-admin (ניהול-משתמשים/פורטלים), וכל מסך חשבוניות/מחירים/
         מלאי-כספי/הגדרות. אלה חסומים ל-prepress ומחזירים אותו הביתה. */
   var PREPRESS_HOME  = STAFF_HOME;
-  var PREPRESS_PAGES = [STAFF_HOME, 'proof-admin.html', 'customer-fold-preview.html', 'imposition-tool.html', 'press4.html'];
+  /* ⚠️ ‏page-editor נוסף 14/08/2026 — עורך-העמודים הוא בדיוק עבודת קדם-דפוס
+     (גלישות/מירכוז/הזזת-מודעה). הרשימה-התאומה ב-prepress-role-tests. */
+  var PREPRESS_PAGES = [STAFF_HOME, 'proof-admin.html', 'customer-fold-preview.html', 'imposition-tool.html', 'press4.html', 'page-editor.html'];
 
   /* סוג החשבון לפי ה-claims. ⚠️ חשבון שנוצר בלי הזמנה — 'pending':
      לא נכשל בשקט ולא מגיע לשום מסך. */

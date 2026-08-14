@@ -33,20 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786695224"></script>
-<script src="chat-alert.js?v=1786695224"></script>
-<script src="shop-issue.js?v=1786695224"></script>
-<script src="page-marks.js?v=1786695224"></script>
+<script src="portal-chat.js?v=1786707505"></script>
+<script src="chat-alert.js?v=1786707505"></script>
+<script src="shop-issue.js?v=1786707505"></script>
+<script src="page-marks.js?v=1786707505"></script>
+<script src="kontres-split.js?v=1786707505"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786695224"></script>
-<script src="auth-client.js?v=1786695224"></script>
+<script src="firebase-auth.bundle.js?v=1786707505"></script>
+<script src="auth-client.js?v=1786707505"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786695224" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786707505" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1047,7 +1048,8 @@ function render(rows) {
     const key = 'g' + (gi++); _genReg[key] = { fileUrl, title, jobId, partId };
     return `<button class="dl" data-dl="${key}" title="קובץ-PDF יחיד בשם: ${escapeHtml(title)}">⬇ הורד</button>
             <select data-sheet="${key}" title="גודל גיליון לפיצול לקונטרסים"><option value="32">70×100</option><option value="16">64×90</option></select>
-            <button class="gen" data-gen="${key}" title="עיתון שלם → קובץ-PDF לכל ריצה (לגרירה ישירה לאפוגי)">✂ פיצול לריצות</button>`;
+            <button class="gen" data-gen="${key}" title="עיתון שלם → קובץ-PDF לכל ריצה (לגרירה ישירה לאפוגי)">✂ פיצול לריצות</button>
+            <button class="gen" data-runpdf="${key}" title="קובץ אחד: כל העיתון בסדר-הריצות, וכל כפולה מפוצלת לשני עמודים בודדים">📚 לפי ריצות</button>`;
   };
 
   /* ── בקשות לקוח להחלפת עמודים ────────────────────────────────────────────
@@ -2008,6 +2010,12 @@ function render(rows) {
     const sheet = parseInt(document.querySelector(`[data-sheet="${b.dataset.gen}"]`).value, 10);
     generateRuns(t, sheet, b);
   });
+  /* "📚 לפי ריצות" — אותו רישום (_genReg) ואותו בורר-גיליון; מסלול-בנייה אחר */
+  document.querySelectorAll('[data-runpdf]').forEach(b => b.onclick = () => {
+    const t = _genReg[b.dataset.runpdf];
+    const sheet = parseInt(document.querySelector(`[data-sheet="${b.dataset.runpdf}"]`).value, 10);
+    generateRunOrderedPdf(t, sheet, b);
+  });
   document.querySelectorAll('[data-deljob]').forEach(b => b.onclick = () =>
     deleteProof(_allRows.find(r => r.id === b.dataset.deljob)));
   document.querySelectorAll('[data-delpart]').forEach(b => b.onclick = () => {
@@ -2552,6 +2560,8 @@ async function _pgLightOpen(idx){
         <button id="plOk" class="isBtn ok">✔ הלקוח אישר להדפסה כך</button>
         <button id="plClear" class="isBtn" style="display:none">✖ הסר סימון</button>
         <a id="plView" class="isBtn view" target="_blank" href="proof-viewer.html?id=${encodeURIComponent(p.id)}${t.partId?('&part='+encodeURIComponent(t.partId)):''}">👁 פתח בדפדוף</a>
+        <a id="plEdit" class="isBtn" target="_blank" title="גלישות · הקטנה-לשוליים · מירכוז · הזזת-אזור — נשמר כגרסה חדשה"
+           href="page-editor.html?id=${encodeURIComponent(p.id)}&target=${encodeURIComponent(t.target==='full'?'full':(t.partId||t.target))}&page=${encodeURIComponent(t.target==='full'?(t.pageNo||1):(t.page||1))}">🛠 ערוך עמוד</a>
         <a class="isBtn" target="_blank" rel="noopener" href="${t.url}" download>⬇ הורדה</a>
         <button id="plDemand" class="isBtn fix" style="display:none">📢 שלח דרישת-תיקון ללקוח</button>
       </div>
@@ -3044,68 +3054,81 @@ async function openTrash() {
 }
 
 // ── ייצור ריצות מהקובץ המאושר ──
-function splitToKontresim(totalPages, fullSheet) {
-  const layers = [];
-  if (fullSheet === 32 && (totalPages === 20 || totalPages === 24)) layers.push(totalPages - 16, 16);
-  else {
-    const rem = totalPages % fullSheet;
-    if (rem !== 0) layers.push(rem);
-    let inner = totalPages - rem;
-    while (inner > 0) { layers.push(fullSheet); inner -= fullSheet; }
-  }
-  let front = 1, back = totalPages;
-  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
-  return layers.map((lp, i) => {
-    const isLast = i === layers.length - 1, half = lp / 2;
-    let pages, label;
-    if (isLast && lp === fullSheet) { pages = range(front, front + lp - 1); label = `${front}-${front+lp-1}`; front += lp; }
-    else {
-      const fe = front + half - 1, bs = back - half + 1;
-      if (fe + 1 === bs) { pages = range(front, back); label = `${front}-${back}`; }
-      else { pages = [...range(front, fe), ...range(bs, back)]; label = `${front}-${fe}+${bs}-${back}`; }
-      front += half; back -= half;
-    }
-    return { num: i + 1, pages, count: lp, label };
-  });
-}
+/* ⚠️ 14/08/2026: המתמטיקה חולצה ל-run-split.js (טהור, נבדק ב-Node) — כאן
+   נשארו רק העטיפות שנוגעות ב-pdf-lib. מתמטיקה אחת, שני מסלולים:
+   "✂ פיצול לריצות" (שכפול-כפולות, כמו תמיד) ו"📚 לפי ריצות" (פיצול-אמיתי). */
+const splitToKontresim = (totalPages, fullSheet) => KontresSplit.splitToKontresim(totalPages, fullSheet);
 
 // עמודי "כפולה" (עמוד PDF ברוחב כפול = שני עמודי עיתון מחוברים): לא חותכים —
 // משאירים את הקובץ כמו שהוא, פשוט מכפילים אותו לשני קבצים זהים (אחד לכל מקום בריצה)
 // ומסמנים "כפולה" בשם. מחזיר { doc, labels, spread } — labels[i] = מספרי העמוד ("16-17").
 async function normalizeSpreads(src) {
   const pages = src.getPages();
-  const plain = { doc: src, labels: pages.map((_, i) => String(i + 1)), spread: pages.map(() => false) };
-  if (pages.length < 2) return plain;
-  // גודל הבסיס = הגודל השכיח בקובץ (דליים של ~5 מ"מ)
-  const bucket = v => Math.round(v / 14.17);
-  const freq = {}; let bestK = null;
-  pages.forEach(pg => {
-    const mb = pg.getMediaBox();
-    const k = bucket(mb.width) + 'x' + bucket(mb.height);
-    freq[k] = (freq[k] || 0) + 1;
-    if (bestK === null || freq[k] > freq[bestK]) bestK = k;
-  });
-  const baseIdx = pages.findIndex(pg => { const mb = pg.getMediaBox(); return bucket(mb.width) + 'x' + bucket(mb.height) === bestK; });
-  const baseW = pages[baseIdx].getMediaBox().width, baseH = pages[baseIdx].getMediaBox().height;
-  const isSpread = pg => { const mb = pg.getMediaBox(); return mb.width > baseW * 1.6 && Math.abs(mb.height - baseH) < baseH * 0.12; };
-  if (!pages.some(isSpread)) return plain;
+  const sizes = pages.map(pg => { const mb = pg.getMediaBox(); return { w: mb.width, h: mb.height }; });
+  const plan = KontresSplit.spreadPlan(sizes, { mode: 'duplicate' });
+  const labels = plan.entries.map(e => e.label), spread = plan.entries.map(e => e.spread);
+  if (!plan.hasSpread) return { doc: src, labels, spread };
   const out = await PDFLib.PDFDocument.create();
-  const labels = [], spread = [];
-  let n = 1;
-  for (let i = 0; i < pages.length; i++) {
-    if (!isSpread(pages[i])) {
-      const [pg] = await out.copyPages(src, [i]); out.addPage(pg);
-      labels.push(String(n)); spread.push(false); n++;
-    } else {
-      const lbl = n + '-' + (n + 1);
-      for (let c = 0; c < 2; c++) {              // אותו עמוד פעמיים — בלי חיתוך
-        const [pg] = await out.copyPages(src, [i]); out.addPage(pg);
-        labels.push(lbl); spread.push(true);
-      }
-      n += 2;
-    }
+  for (const e of plan.entries) {
+    const [pg] = await out.copyPages(src, [e.src]); out.addPage(pg);
   }
-  return { doc: out, labels: labels, spread: spread };
+  return { doc: out, labels, spread };
+}
+
+/* ── "📚 לפי ריצות" (14/08/2026, בקשת-בעלים) ─────────────────────────────
+   קובץ-PDF **אחד**: כל העיתון בסדר שהדפוס עובד בו — עמודי ריצה 1, אחר-כך
+   ריצה 2… — וכל כפולה מפוצלת פיזית לשני עמודים בודדים (embedPage עם
+   חצי-קופסה, וקטורי — לא רסטר). התוכנית כולה מ-RunSplit (טהור);
+   כיוון-הקריאה מהרשומה (RTL: הימני הוא העמוד הנמוך), לא מנוחש. */
+async function generateRunOrderedPdf(proof, fullSheet, btn) {
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'מוריד קובץ…';
+  try {
+    const bytes = await (await fetch(proof.fileUrl)).arrayBuffer();
+    btn.textContent = 'מפצל כפולות…';
+    const raw = await PDFLib.PDFDocument.load(bytes);
+    const pages = raw.getPages();
+    const sizes = pages.map(pg => { const mb = pg.getMediaBox(); return { w: mb.width, h: mb.height }; });
+    const rec = (_allRows || []).find(r => r.id === proof.jobId) || {};
+    const unit = (proof.partId && rec.parts && rec.parts[proof.partId]) || rec;
+    const readingDirection = unit.readingDirection || rec.readingDirection || 'rtl';
+    const plan = KontresSplit.spreadPlan(sizes, { mode: 'split', readingDirection });
+    const ro = KontresSplit.runOrderedEntries(plan.entries, fullSheet);
+
+    const out = await PDFLib.PDFDocument.create();
+    let done = 0;
+    for (const e of ro.order) {
+      if ((++done) % 8 === 0) btn.textContent = `בונה ${done}/${ro.order.length}…`;
+      if (!e.half) {
+        const [pg] = await out.copyPages(raw, [e.src]); out.addPage(pg);
+        continue;
+      }
+      /* חצי-כפולה: חיתוך וקטורי בחצי-קופסה — כמו splitSpreadsPdf בדפדוף */
+      const srcPg = raw.getPage(e.src);
+      const mb = srcPg.getMediaBox();
+      const halfW = mb.width / 2;
+      const left = e.half === 'left' ? mb.x : mb.x + halfW;
+      const emb = await out.embedPage(srcPg, { left: left, bottom: mb.y, right: left + halfW, top: mb.y + mb.height });
+      const pg = out.addPage([halfW, mb.height]);
+      pg.drawPage(emb, { x: 0, y: 0, width: halfW, height: mb.height });
+    }
+    const safe = s => String(s || '').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const nSplit = ro.order.filter(o => o.spread).length / 2;
+    downloadBlob(new Blob([await out.save()], { type: 'application/pdf' }),
+      `${safe(proof.title || 'חוברת')} — לפי ריצות (${ro.runs.length})${nSplit ? ` · ${nSplit} כפולות פוצלו` : ''}.pdf`);
+    /* אותו סימון "הריצות הורדו" כמו במסלול-הפיצול — זו אותה פעולה עסקית */
+    try {
+      if (proof.jobId) {
+        const p2 = proof.partId ? `customerProofs/${proof.jobId}/parts/${proof.partId}` : `customerProofs/${proof.jobId}`;
+        _au(`${_FBURL}/${p2}.json`).then(u => fetch(u, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ runsDownloadedAt: Date.now() }) }));
+      }
+    } catch(e){}
+    btn.textContent = '✓ הורד';
+    setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 2500);
+  } catch (e) {
+    console.error(e); alert('שגיאה בהורדה לפי ריצות: ' + e.message);
+    btn.textContent = old; btn.disabled = false;
+  }
 }
 
 async function generateRuns(proof, fullSheet, btn) {

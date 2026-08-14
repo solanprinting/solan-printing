@@ -9,13 +9,19 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786695224"></script>
-<script src="page-add.js?v=1786695224"></script>
-<script src="portal-context.js?v=1786695224"></script>
-<script src="portal-return.js?v=1786695224"></script>
-<script src="portal-chat.js?v=1786695224"></script>
+<script src="portal-download.js?v=1786707505"></script>
+<script src="page-add.js?v=1786707505"></script>
+<script src="portal-context.js?v=1786707505"></script>
+<script src="portal-return.js?v=1786707505"></script>
+<script src="portal-chat.js?v=1786707505"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786695224"></script>
+<script src="chat-alert.js?v=1786707505"></script>
+<!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
+     הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
+     יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
+     מוגשים מה-origin שלנו (§2). -->
+<script src="shop-issue.js?v=1786707505"></script>
+<script src="page-marks.js?v=1786707505"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -50,6 +56,26 @@
   .btn-approve { background:linear-gradient(135deg,var(--green),#15803d); color:#fff; }
   .btn-primary { background:var(--press); color:#fff; }
   .empty { color:#9ca3af; text-align:center; padding:18px 0; }
+  /* ── מפת-הגיליון (14/08/2026, סידור-עמודים בפורטל) ── */
+  .sgWrap { margin-top:8px; background:#fafbfd; border:1px solid #e5e7eb; border-radius:10px; padding:8px 10px; width:100%; }
+  .sgHead { font-size:.8rem; font-weight:800; color:#374151; display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+  .sgDeclare { border:1px dashed #d1d5db; background:#fff; border-radius:999px; padding:3px 10px;
+               font-family:inherit; font-size:.72rem; font-weight:700; color:#4f46e5; cursor:pointer; }
+  .sgGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(86px,1fr)); gap:7px; margin-top:8px; }
+  .sgT { position:relative; border:1.5px solid #e5e7eb; border-radius:8px; background:#fff; padding:7px 6px 6px;
+         text-align:center; font-size:.78rem; }
+  .sgT .sgLink { color:#111; text-decoration:none; font-weight:800; display:block; }
+  .sgT .sgLink:hover { color:#4f46e5; }
+  .sgT.rep { border-color:#fca5a5; background:#fff7f7; }
+  .sgT.okm { border-color:#86efac; background:#f7fdf9; }
+  .sgNote { font-size:.68rem; color:#dc2626; font-weight:700; margin-top:2px;
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sgT.miss { border-style:dashed; border-color:#f3d9a4; background:#fffcf3; color:#b45309; font-weight:800; }
+  .sgT.miss .sgNm { font-size:.74rem; }
+  .sgHint { font-size:.62rem; color:#c9a84c; margin-top:2px; }
+  .sgMv { position:absolute; top:2px; inset-inline-end:2px; border:0; background:#f3f4f6;
+          border-radius:6px; font-size:.68rem; cursor:pointer; padding:1px 5px; }
+  .sgMv:hover { background:#e0e7ff; }
   /* ── כרטיס-פתיחה מעוצב: "שלום, <שם העיתון>" (בקשת-בעלים 2026-07-30) ── */
   .hello { position:relative; overflow:hidden; background:linear-gradient(135deg,var(--press) 0%,var(--press-d) 62%,#1a2145 100%);
     color:#fff; border-radius:18px; padding:22px 24px; margin-bottom:16px; box-shadow:0 10px 30px rgba(45,53,97,.32); }
@@ -844,7 +870,8 @@ async function loadHistory(){
       /* ⚠️ גודל-הקובץ נוסף לשורת-המידע (08/08/2026). ‏fileSize כבר נכתב
          ברשומה ברגע השליחה — הוא פשוט לא הוצג. אין שדה חדש ואין schema.
          ⚠️ רשומה ותיקה בלי fileSize פשוט לא מציגה אותו; אין "0 MB". */
-      + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(_cpSize(p)?_cpSize(p)+' · ':'')+(locked&&!isDone?'אושר '+_appDate:'')+'</div>'+lockNote+readyNote+seenNote+'</div>'
+      + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(_cpSize(p)?_cpSize(p)+' · ':'')+(locked&&!isDone?'אושר '+_appDate:'')+'</div>'+lockNote+readyNote+seenNote
+      + _slotGridHtml(p, locked || isDone) + '</div>'
       + '<span class="badge '+(isDone?'b-done':(locked?'b-approved':b.cls))+'" style="'+(locked?'font-size:.78rem;padding:4px 11px':'')+'">'
       + (isDone?'🏁 הושלמה':(locked?'✓ אושר לדפוס':b.txt))+'</span>'
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">'+acts+'</div></div>';
@@ -880,6 +907,112 @@ var ERR_SAVE_JOB     = 'לא הצלחנו לשמור. החיבור או ההרש
 var _busy = {};
 function _lock(key){ if (_busy[key]) return false; _busy[key] = true; return true; }
 function _unlock(key){ _busy[key] = false; }
+
+/* ═══ מפת-הגיליון בפורטל (14/08/2026, סידור-עמודים) ═══════════════════════
+   הלקוח רואה את אותה רשת-עמודים שהדפוס רואה: מה הועלה, מה חסר, ואילו
+   עמודים סומנו 🔁 לדרישת-החלפה (כולל "מה הבעיה"). ההחלטות טהורות
+   (ShopIssue.pageTiles — אותו מודול של מסך-הדפוס); כאן רק ציור וכתיבות.
+
+   ⚠️ שלוש הכתיבות של הלקוח — כולן על שדות שהחוקים כבר מתירים לו:
+     · הצהרת-ספירה  → declaredPages על הרשומה (מספר בלבד, 1..200)
+     · שיבוץ-מחדש   → parts/<k>/name או files/<k>/fileName ("עמוד N")
+   ⚠️ אין תצוגה-מקדימה מרונדרת כאן בכוונה: לקוחות על אינטרנט מסונן
+   אינם מגיעים ל-firebasestorage (ראה solan-kosher-internet), ורשת של
+   ריבועים שבורים גרועה ממפה נקייה. הצפייה עצמה — בדפדוף. */
+var _sgReg = {};   // proofId → הרשומה (לפעולות-הלחיצה)
+function _slotGridHtml(p, lockedView){
+  if (!window.ShopIssue) return '';
+  /* מסלול-הפרופר-המקופל (foldVersionId) אינו מפת-עמודים — יש לו דפדוף משלו */
+  if (p.foldVersionId) return '';
+  var hasContent = p.parts || p.files || Number(p.declaredPages) >= 1;
+  if (!hasContent && lockedView) return '';
+  _sgReg[p._id] = p;
+  var tiles = ShopIssue.pageTiles(p);
+  var got = tiles.filter(function(t){ return t.kind === 'page'; }).length;
+  var declared = Number(p.declaredPages) || 0;
+  var repCount = tiles.filter(function(t){ return t.mark && t.mark.kind === 'replace'; }).length;
+  var head = '<div class="sgHead">🗂 מפת-הגיליון'
+    + (declared ? (' — הועלו <b>' + got + '</b> מתוך <b>' + declared + '</b>') : (got ? (' — ' + got + ' עמודים') : ''))
+    + (repCount ? (' · <b style="color:#dc2626">🔁 ' + repCount + ' לדרישת-החלפה</b>') : '')
+    + (!lockedView ? (' <button class="sgDeclare" onclick="_sgDeclare(\'' + esc(p._id) + '\')">📐 ' + (declared ? 'שנה מספר-עמודים' : 'כמה עמודים בגיליון?') + '</button>') : '')
+    + '</div>';
+  if (!tiles.length) return '<div class="sgWrap">' + head + '</div>';
+  var cells = tiles.map(function(t, i){
+    if (t.kind === 'missing')
+      return '<div class="sgT miss" data-sgslot="' + t.pageNo + '" data-sgid="' + esc(p._id) + '">✚<div class="sgNm">חסר עמ׳ ' + t.pageNo + '</div>'
+        + (!lockedView ? '<div class="sgHint">גררו לכאן עמוד</div>' : '') + '</div>';
+    var mk = t.mark;
+    var cls = mk ? (mk.kind === 'replace' ? ' rep' : ' okm') : '';
+    var moveKey = t.partId ? ('part|' + t.partId) : (t.target && t.target.indexOf('file_') === 0 ? ('file|' + t.target.slice(5)) : '');
+    /* לחיצה על אריח פותחת את הדפדוף בעמוד/ריצה — שם רואים גם את מלבן-הסימון */
+    var view = 'proof-viewer.html?id=' + encodeURIComponent(p._id) + (t.partId ? ('&part=' + encodeURIComponent(t.partId)) : '');
+    return '<div class="sgT' + cls + '"' + (moveKey && !lockedView ? ' draggable="true" data-sgmove="' + esc(p._id) + '|' + moveKey + '"' : '') + '>'
+      + '<a href="' + view + '" target="_blank" rel="noopener" class="sgLink">' + (mk ? (mk.kind === 'replace' ? '🔁 ' : '✔ ') : '📄 ') + esc(t.label) + '</a>'
+      + (mk && mk.note ? '<div class="sgNote">' + esc(String(mk.note).slice(0, 60)) + (mk.spot ? ' 📍' : '') + '</div>' : '')
+      + (moveKey && !lockedView ? '<button class="sgMv" onclick="_sgMovePrompt(\'' + esc(p._id) + '\',\'' + esc(moveKey) + '\')" title="שיבוץ למשבצת אחרת">⇄</button>' : '')
+      + '</div>';
+  }).join('');
+  return '<div class="sgWrap">' + head + '<div class="sgGrid">' + cells + '</div></div>';
+}
+async function _sgDeclare(id){
+  var p = _sgReg[id]; if (!p) return;
+  var cur = Number(p.declaredPages) || '';
+  var v = prompt('כמה עמודים יהיו בגיליון הזה? (1–200; ריק לביטול ההצהרה)', cur);
+  if (v === null) return;
+  var n = parseInt(String(v).trim(), 10);
+  var val = (String(v).trim() === '' ) ? null : (isFinite(n) && n >= 1 && n <= 200 ? n : undefined);
+  if (val === undefined) { toast('מספר בין 1 ל-200'); return; }
+  try {
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({ declaredPages: val }) }, 'declarePages');
+    toast(val ? ('✓ הוגדרו ' + val + ' עמודים — המשבצות החסרות מסומנות') : '✓ ההצהרה בוטלה');
+    await loadHistory();
+  } catch(e){ toast('⚠️ שמירת מספר-העמודים נכשלה — נסו שוב'); }
+}
+/* שיבוץ-מחדש: קובע את שם-העמוד ("עמוד N") — זה מה שקובע את המשבצת,
+   גם כאן וגם במסך-הדפוס (pageNoOf). כתיבה אחת, בקול. */
+async function _sgMoveTo(id, moveKey, slot){
+  var p = _sgReg[id]; if (!p) return;
+  var n = parseInt(slot, 10);
+  if (!isFinite(n) || n < 1 || n > 200) { toast('מספר-משבצת בין 1 ל-200'); return; }
+  var kv = String(moveKey).split('|'), kind = kv[0], key = kv[1];
+  var path, body;
+  if (kind === 'part') { path = `customerProofs/${id}/parts/${key}.json`; body = { name: 'עמוד ' + n }; }
+  else {
+    var f = (p.files || {})['f' + key] || {};
+    var ext = (String(f.fileName || '').match(/\.[A-Za-z0-9]+$/) || ['.pdf'])[0];
+    path = `customerProofs/${id}/files/f${key}.json`; body = { fileName: 'עמוד ' + n + ext };
+  }
+  try {
+    await fbWrite(await _au(`${_FBURL}/${path}`), { method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }, 'slotMove');
+    toast('✓ שובץ לעמוד ' + n);
+    await loadHistory();
+  } catch(e){ toast('⚠️ השיבוץ נכשל — נסו שוב'); }
+}
+function _sgMovePrompt(id, moveKey){
+  var v = prompt('לאיזו משבצת לשבץ את העמוד? (מספר-עמוד בגיליון)');
+  if (v === null) return;
+  _sgMoveTo(id, moveKey, v);
+}
+/* גרירה: אריח-עמוד → משבצת-חסרה (בדסקטופ; בנייד — כפתור ⇄) */
+document.addEventListener('dragstart', function(ev){
+  var t = ev.target.closest && ev.target.closest('[data-sgmove]');
+  if (t) ev.dataTransfer.setData('text/sgmove', t.dataset.sgmove);
+});
+document.addEventListener('dragover', function(ev){
+  if (ev.target.closest && ev.target.closest('[data-sgslot]')) ev.preventDefault();
+});
+document.addEventListener('drop', function(ev){
+  var slotEl = ev.target.closest && ev.target.closest('[data-sgslot]');
+  if (!slotEl) return;
+  ev.preventDefault();
+  var mv = ev.dataTransfer.getData('text/sgmove');
+  if (!mv) return;
+  var parts = mv.split('|');                       // id | kind | key
+  if (parts[0] !== slotEl.dataset.sgid) { toast('אפשר לשבץ רק בתוך אותו גיליון'); return; }
+  _sgMoveTo(parts[0], parts[1] + '|' + parts[2], slotEl.dataset.sgslot);
+});
 
 // ── שיתוף-לצפייה של חוברת מדופדפת (13/08/2026, בקשת-בעלים) ──
 /* ⚠️ הקישור המשותף נושא טוקן-**צפייה** שהשרת מנפיק — לא את foldToken.
@@ -1017,7 +1150,7 @@ async function _newNewspaper(){
     /* ⚠️ הניווט חייב לקרות *רק* אחרי שהרשומה נוצרה בפועל. קודם הוא רץ תמיד,
        ולכן כתיבה שנדחתה שלחה את הלקוח לעורך של רשומה שאינה קיימת. */
     await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ customer:(_portalRec&&_portalRec.name)||CUST, title:meta.title, issue:meta.issue||'', status:'awaiting', source:'portal', createdAt:Date.now() }) }, 'newJob:customerProofs');
+      body: JSON.stringify({ customer:(_portalRec&&_portalRec.name)||CUST, title:meta.title, issue:meta.issue||'', status:'awaiting', source:'portal', declaredPages:meta.declaredPages||null, createdAt:Date.now() }) }, 'newJob:customerProofs');
     location.href = 'proof-client.html?id='+encodeURIComponent(id)+'&back='+encodeURIComponent(location.href);
   } catch(e){ showOv('',false); toast('⚠️ ' + ERR_SAVE_JOB); }
   finally { _unlock('newnp'); }
@@ -1266,7 +1399,11 @@ function _askNewspaper(count){
       +'<label style="font-size:.8rem;font-weight:700;color:#374151">שם העיתון</label>'
       +'<input id="np-title" value="'+esc(defName)+'" style="width:100%;margin:4px 0 10px;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:9px;font-family:inherit;font-size:.95rem;box-sizing:border-box">'
       +'<label style="font-size:.8rem;font-weight:700;color:#374151">מספר גיליון</label>'
-      +'<input id="np-issue" type="number" min="0" placeholder="למשל 42" style="width:100%;margin:4px 0 14px;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:9px;font-family:inherit;font-size:.95rem;box-sizing:border-box">'
+      +'<input id="np-issue" type="number" min="0" placeholder="למשל 42" style="width:100%;margin:4px 0 10px;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:9px;font-family:inherit;font-size:.95rem;box-sizing:border-box">'
+      /* הצהרת-ספירה (14/08/2026): לא-חובה. כשמוצהר — מפת-הגיליון נוצרת
+         מראש עם כל המשבצות, והחסרים נגזרים אוטומטית. */
+      +'<label style="font-size:.8rem;font-weight:700;color:#374151">כמה עמודים יהיו בגיליון? <span style="color:#9ca3af;font-weight:400">(לא חובה)</span></label>'
+      +'<input id="np-pages" type="number" min="1" max="200" placeholder="למשל 32" style="width:100%;margin:4px 0 14px;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:9px;font-family:inherit;font-size:.95rem;box-sizing:border-box">'
       +'<div style="display:flex;gap:8px;justify-content:flex-end">'
       +'<button id="np-cancel" style="padding:9px 15px;border:1.5px solid #e2e8f0;background:#fff;border-radius:9px;cursor:pointer;font-family:inherit;font-weight:700">ביטול</button>'
       +'<button id="np-ok" class="btn btn-primary" style="padding:9px 18px">📤 העלה</button>'
@@ -1277,7 +1414,9 @@ function _askNewspaper(count){
     document.getElementById('np-ok').onclick=function(){
       var title=(document.getElementById('np-title').value||'').trim()||defName;
       var issue=(document.getElementById('np-issue').value||'').trim();
-      close({ title: issue? (title+' — גיליון '+issue) : title, issue: issue });
+      var pg=parseInt((document.getElementById('np-pages')||{}).value,10);
+      close({ title: issue? (title+' — גיליון '+issue) : title, issue: issue,
+              declaredPages: (isFinite(pg)&&pg>=1&&pg<=200)?pg:null });
     };
     setTimeout(function(){ var i=document.getElementById('np-issue'); if(i) i.focus(); },60);
   });
@@ -1404,7 +1543,7 @@ async function handleUpload(fileList){
        הקבצים כבר ב-Storage; אם דווקא השמירה נכשלה, ניסיון חוזר יוצר jobId
        חדש ולכן לא תיווצר עבודה כפולה במסך של בית-הדפוס. */
     await fbWrite(await _au(`${_FBURL}/customerProofs/${jobId}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ customer:(_portalRec&&_portalRec.name)||CUST, title:meta.title, issue:meta.issue||'', status:'awaiting-shop', source:'portal', files:filesObj, fileCount:uploaded.length, preflight:preflight, createdAt:Date.now() }) }, 'upload:customerProofs');
+      body: JSON.stringify({ customer:(_portalRec&&_portalRec.name)||CUST, title:meta.title, issue:meta.issue||'', status:'awaiting-shop', source:'portal', files:filesObj, fileCount:uploaded.length, preflight:preflight, declaredPages:meta.declaredPages||null, createdAt:Date.now() }) }, 'upload:customerProofs');
     showOv('', false); toast('✓ '+uploaded.length+' קבצים נשלחו — '+meta.title);
     await loadHistory();
   } catch(e){ console.error(e); showOv('', false); toast('⚠️ ' + ERR_SAVE_JOB); }

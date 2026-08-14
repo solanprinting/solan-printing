@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>🛠 עורך-עמודים — סולן הדפסות</title>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700;900&display=swap" rel="stylesheet">
+<!-- ⚠️ vendor/ תחילה (§2): המסך נפתח גם אצל קדם-דפוס על רשת מסוננת, ותגית
+     ראש-דף חוסמת-פרסור רצה לפני lib-loader — לכן היא חייבת אותו-origin. -->
+<script src="vendor/pdf.min.js"></script>
+<script src="vendor/pdf-lib.min.js"></script>
+<script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js'; }catch(e){}</script>
+<script src="lib-loader.js"></script>
+<script src="page-swap.js?v=1786707505"></script>
+<script src="page-replace.js?v=1786707505"></script>
+<script src="shop-issue.js?v=1786707505"></script>
+<script src="page-marks.js?v=1786707505"></script>
+<script src="page-edit-engine.js?v=1786707505"></script>
+<script src="firebase-auth.bundle.js?v=1786707505"></script>
+<script src="auth-client.js?v=1786707505"></script>
+<script src="auth-guard.js?v=1786707505" data-page="page-editor.html" data-mode="enforce"></script>
+<style>
+  :root { --press:#2d3561; --press-d:#222a4d; --gold:#c9a84c; --gold-light:#e8d5a3;
+          --green:#16a34a; --red:#dc2626; --amber:#d97706; --line:#e5e7eb; --ink:#1f2937; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Heebo',system-ui,Arial,sans-serif; color:var(--ink);
+         background:#eef1f6; min-height:100vh; display:flex; flex-direction:column; }
+  .brandbar { background:linear-gradient(135deg,var(--press),var(--press-d)); color:#fff;
+    padding:11px 18px; display:flex; align-items:center; gap:12px; position:relative; flex:none; }
+  .brandbar::after { content:''; position:absolute; left:0; right:0; bottom:0; height:3px;
+    background:linear-gradient(90deg,var(--gold),var(--gold-light),var(--gold)); }
+  .brandbar h1 { margin:0; font-size:1rem; font-weight:900; }
+  .brandbar .meta { font-size:.8rem; color:#cbd5e1; }
+  .brandbar .sp { flex:1; }
+  .brandbar a { color:#fff; text-decoration:none; background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.25); border-radius:999px; padding:5px 13px; font-size:.78rem; font-weight:800; }
+  .work { flex:1; display:grid; grid-template-columns:280px minmax(0,1fr); gap:12px; padding:12px; min-height:0; }
+  .tools { background:#fff; border:1px solid var(--line); border-radius:14px; padding:13px 14px;
+           box-shadow:0 2px 10px rgba(0,0,0,.05); overflow:auto; }
+  .tools h3 { margin:0 0 4px; font-size:.9rem; color:var(--press); font-weight:900; }
+  .tools .grp { border-top:1px solid #f0f0f0; padding:11px 0 4px; margin-top:9px; }
+  .tools label { font-size:.78rem; font-weight:700; color:#374151; display:block; margin-bottom:3px; }
+  .tools input[type=number], .tools select { width:100%; padding:7px 10px; border:1.5px solid var(--line);
+    border-radius:8px; font-family:inherit; font-size:.86rem; margin-bottom:7px; background:#f8f9fc; }
+  .btn { width:100%; background:#fff; border:1.5px solid var(--line); border-radius:9px; padding:9px 13px;
+         font-family:inherit; font-weight:800; font-size:.86rem; color:var(--press); cursor:pointer; margin-bottom:6px; }
+  .btn:hover:not(:disabled) { border-color:var(--gold); background:#fffdf6; }
+  .btn:disabled { opacity:.45; cursor:default; }
+  .btn.primary { background:var(--gold); border-color:var(--gold); color:#1a1a2e; }
+  .btn.good { background:var(--green); border-color:var(--green); color:#fff; }
+  .btn.warn { border-color:#fecaca; color:var(--red); }
+  .opsList { font-size:.76rem; color:#4b5563; background:#f8f9fc; border:1px dashed var(--line);
+             border-radius:8px; padding:7px 9px; margin-top:6px; min-height:2em; }
+  .opsList b { color:var(--press); }
+  .note { font-size:.72rem; color:#9ca3af; line-height:1.5; margin-top:8px; }
+  .stageWrap { background:#1a1a2e; border-radius:14px; display:flex; align-items:center; justify-content:center;
+               position:relative; overflow:auto; min-height:0; }
+  #stageBox { position:relative; margin:18px; }
+  #stage { display:block; background:#fff; box-shadow:0 8px 30px rgba(0,0,0,.5); max-width:none; }
+  #hint { position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:60; display:none;
+          background:var(--press); color:#fff; border-radius:10px; padding:8px 16px; font-weight:800; font-size:.84rem; }
+  #busy { position:fixed; inset:0; z-index:80; display:none; align-items:center; justify-content:center;
+          background:rgba(17,24,39,.55); color:#fff; font-weight:900; font-size:1rem; }
+  #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); z-index:90; display:none;
+           background:var(--press); color:#fff; border:1.5px solid var(--gold); border-radius:11px;
+           padding:10px 18px; font-weight:800; }
+  .selBox { position:absolute; border:2px dashed var(--red); border-radius:4px; background:rgba(220,38,38,.06);
+            pointer-events:none; z-index:5; }
+</style>
+</head>
+<body>
+<div class="brandbar">
+  <h1>🛠 עורך-עמודים</h1>
+  <span class="meta" id="jobMeta">טוען…</span>
+  <span class="sp"></span>
+  <a id="backLink" href="proof-admin.html">→ חזרה</a>
+</div>
+<div class="work">
+  <aside class="tools">
+    <h3>כלי-תיקון</h3>
+    <div class="note" style="margin-top:0">התיקון נשמר כ<b>גרסה חדשה</b> של הקובץ — הקודמת נשמרת בארכיון-הגרסאות.
+    ⚠️ הפלט הוא רסטר 300dpi (תמונת-דפוס); תוכן-וקטורי אינו נשמר — כמו בסטודיו-הקבצים.</div>
+
+    <div class="grp">
+      <label>➕ גלישה (מ״מ)</label>
+      <input id="bleedMm" type="number" min="1" max="15" step="0.5" value="3">
+      <select id="bleedMethod">
+        <option value="mirror">שיקוף (מומלץ לרקעים)</option>
+        <option value="stretch">מתיחת-קצה</option>
+        <option value="edge">שכפול-קצה</option>
+      </select>
+      <button class="btn" id="opBleed">➕ הוסף גלישה</button>
+    </div>
+
+    <div class="grp">
+      <label>↙ הקטנה לשוליים (מ״מ לכל צד)</label>
+      <input id="shrinkMm" type="number" min="0.5" max="50" step="0.5" value="3">
+      <button class="btn" id="opShrink">↙ הקטן לשוליים</button>
+      <button class="btn" id="opCenter" title="מודד את מלבן-התוכן וממקם אותו במרכז הדף">🎯 מרכז את התוכן</button>
+    </div>
+
+    <div class="grp">
+      <label>✋ הזזת אזור (מודעה וכו׳)</label>
+      <select id="moveFill">
+        <option value="white">המקור מתמלא לבן</option>
+        <option value="edge">המקור מתמלא במתיחת-קצה</option>
+      </select>
+      <button class="btn" id="opMove">✋ סמן אזור להזזה</button>
+      <div class="note">גררו מלבן סביב האזור, ואז לחצו על המיקום החדש.</div>
+    </div>
+
+    <div class="grp">
+      <button class="btn" id="undoBtn" disabled>↩ בטל פעולה אחרונה (Ctrl+Z)</button>
+      <button class="btn warn" id="resetBtn" disabled>⟲ התחל מחדש</button>
+      <div class="opsList" id="opsList">אין עדיין פעולות.</div>
+    </div>
+
+    <div class="grp">
+      <button class="btn good" id="saveBtn" disabled>💾 שמור כגרסה חדשה</button>
+      <div class="note" id="saveNote"></div>
+    </div>
+  </aside>
+  <div class="stageWrap"><div id="stageBox"><canvas id="stage"></canvas></div></div>
+</div>
+<div id="hint"></div>
+<div id="busy"><span id="busyTxt">רגע…</span></div>
+<div id="toast"></div>
+
+<script>
+// ── שומר-סביבה (רשת ביטחון · ספרינט 1 שלב 5) — פתיחה מקומית לא כותבת ל-Firebase החי ──
+//    production = הדומיין הרשמי בלבד; אחרת development (חסום ללא אישור); test = מאולץ.
+//    עוטף fetch + XMLHttpRequest וחוסם כתיבות (PUT/POST/PATCH/DELETE) לכתובות RTDB/Storage
+//    בכל סביבה שאינה production. בייצור — תמיד עובר (אפס שינוי התנהגות). זהה בכל הדפים.
+(function(){
+  if (window._solanEnvGuardReady) return;              // אידמפוטנטי — לא לעטוף פעמיים
+  window._solanEnvGuardReady = true;
+  window._solanEnv = (function(){
+    try {
+      if (typeof window._SOLAN_ENV_FORCE === 'string') return window._SOLAN_ENV_FORCE;
+      var h = (typeof location !== 'undefined' && location.hostname || '').toLowerCase();
+      return (h === 'solanprinting.github.io') ? 'production' : 'development';
+    } catch(e){ return 'development'; }
+  })();
+  window._solanEnvNow = function(){ return (typeof window._SOLAN_ENV_FORCE === 'string') ? window._SOLAN_ENV_FORCE : window._solanEnv; };
+  window._solanIsProd = function(){ return window._solanEnvNow() === 'production'; };
+  window._solanWritesAllowed = function(){
+    var e = window._solanEnvNow();
+    if (e === 'production')  return true;
+    if (e === 'development') return window._SOLAN_ALLOW_DEV_WRITES === true;
+    return false;                                       // test — לעולם לא
+  };
+  window._solanIsFbWriteUrl = function(url, method){
+    url = String(url == null ? '' : url); method = String(method || 'GET').toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;   // קריאות תמיד מותרות
+    return url.indexOf('firebasedatabase.app') >= 0 || url.indexOf('firebasestorage.googleapis.com') >= 0 || url.indexOf('storage.googleapis.com') >= 0;
+  };
+  window._fbWriteGuard = function(op){
+    if (window._solanWritesAllowed()) return true;
+    try { console.warn('⛔ [SOLAN ' + window._solanEnvNow().toUpperCase() + '] כתיבה ל-Firebase נחסמה (הגנת סביבה): ' + op + '\n   לאישור זמני בפיתוח בלבד: window._SOLAN_ALLOW_DEV_WRITES = true'); } catch(e){}
+    try { window._solanDevBanner && window._solanDevBanner(); } catch(e){}
+    return false;
+  };
+  window._solanDevBanner = function(){
+    if (window._solanIsProd()) return;
+    try {
+      if (typeof document === 'undefined' || document.getElementById('solan-dev-banner')) return;
+      var b = document.createElement('div'); b.id = 'solan-dev-banner';
+      b.textContent = '🛠️ סביבת ' + window._solanEnvNow().toUpperCase() + ' — כתיבה ל-Firebase חסומה (הגנה מפני דריסת ייצור)';
+      b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:2147483000;background:#b45309;color:#fff;font:700 12px Heebo,Arial;padding:5px 12px;text-align:center;direction:rtl;box-shadow:0 -2px 8px rgba(0,0,0,.3);pointer-events:none';
+      (document.body || document.documentElement).appendChild(b);
+    } catch(e){}
+  };
+  try {                                                 // עוטף fetch — כתיבת RTDB/Storage חסומה מחוץ ל-production
+    var _of = window.fetch;
+    if (_of && !_of._solanGuarded) {
+      var wf = function(input, init){
+        try {
+          var url = (typeof input === 'string') ? input : (input && input.url) || '';
+          var method = (init && init.method) || (typeof input !== 'string' && input && input.method) || 'GET';
+          if (window._solanIsFbWriteUrl(url, method) && !window._fbWriteGuard(method + ' ' + url))
+            return Promise.resolve(new Response('{"error":"blocked-by-solan-env-guard"}', { status: 503, statusText: 'blocked-by-solan-env-guard' }));
+        } catch(e){}
+        return _of.apply(this, arguments);
+      };
+      wf._solanGuarded = true; window.fetch = wf;
+    }
+  } catch(e){}
+  try {                                                 // עוטף XMLHttpRequest — העלאות/מחיקות Storage חסומות מחוץ ל-production
+    var XP = window.XMLHttpRequest && window.XMLHttpRequest.prototype;
+    if (XP && !XP._solanGuarded) {
+      var _xopen = XP.open, _xsend = XP.send;
+      XP.open = function(method, url){ this._solanMethod = method; this._solanUrl = url; return _xopen.apply(this, arguments); };
+      XP.send = function(){
+        try {
+          if (window._solanIsFbWriteUrl(this._solanUrl, this._solanMethod) && !window._fbWriteGuard((this._solanMethod || '') + ' ' + this._solanUrl)) {
+            var self = this;
+            setTimeout(function(){ try { self.dispatchEvent(new Event('error')); } catch(e){ if (typeof self.onerror === 'function') try { self.onerror(new Event('error')); } catch(_){} } }, 0);
+            return;                                     // בקשה אמיתית לא נשלחת
+          }
+        } catch(e){}
+        return _xsend.apply(this, arguments);
+      };
+      XP._solanGuarded = true;
+    }
+  } catch(e){}
+  try { if (typeof document !== 'undefined') { if (document.readyState !== 'loading') window._solanDevBanner(); else document.addEventListener('DOMContentLoaded', window._solanDevBanner); } } catch(e){}
+})();
+// ── App Check (reCAPTCHA v3) — עוטף fetch ומצרף X-Firebase-AppCheck לכל בקשה ל-RTDB.
+//    מצב ניטור עד אכיפה בקונסולה; אם ה-SDK נכשל — אין header ושום דבר לא נחסם. ריק = כבוי.
+var _APPCHECK_SITEKEY = '6LeYDVMtAAAAAAsc-qvVPz9QvLhIlDBfcYCl-pXI';
+window._appCheckReady = null;
+window._appCheckInit = function(){
+  if (!_APPCHECK_SITEKEY) return Promise.resolve(null);
+  if (window._appCheckReady) return window._appCheckReady;
+  window._appCheckReady = new Promise(function(resolve){
+    function load(src){ return new Promise(function(res, rej){ var s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+    var base='https://www.gstatic.com/firebasejs/10.12.5/';
+    load(base+'firebase-app-compat.js').then(function(){ return load(base+'firebase-app-check-compat.js'); }).then(function(){
+      try {
+        if (!firebase.apps.length) firebase.initializeApp({ apiKey:_FB_APIKEY, authDomain:'solan-printing.firebaseapp.com', projectId:'solan-printing', databaseURL:_FBURL, appId:'1:1094826649317:web:bd5f5efdc1f8e3ab67160c' });
+        var ac=firebase.appCheck(); ac.activate(new firebase.appCheck.ReCaptchaV3Provider(_APPCHECK_SITEKEY), true); resolve(ac);
+      } catch(e){ resolve(null); }
+    }).catch(function(){ resolve(null); });
+  });
+  return window._appCheckReady;
+};
+window._appCheckToken = function(){
+  if (!_APPCHECK_SITEKEY) return Promise.resolve(null);
+  return window._appCheckInit().then(function(ac){
+    if (!ac) return null;
+    return Promise.race([ ac.getToken(false).then(function(r){ return (r&&r.token)||null; }).catch(function(){ return null; }), new Promise(function(res){ setTimeout(function(){ res(null); }, 8000); }) ]);
+  }).catch(function(){ return null; });
+};
+(function(){
+  var _of = window.fetch;
+  window.fetch = function(input, init){
+    try {
+      var url = (typeof input==='string') ? input : (input && input.url) || '';
+      if (_APPCHECK_SITEKEY && url.indexOf('firebasedatabase.app') >= 0) {
+        return window._appCheckToken().then(function(ac){
+          init = init || {};
+          if (ac) { var h = new Headers(init.headers || (typeof input!=='string' && input.headers) || {}); h.set('X-Firebase-AppCheck', ac); init.headers = h; }
+          return _of.call(window, input, init);
+        });
+      }
+    } catch(e){}
+    return _of.call(window, input, init);
+  };
+})();
+try { window._appCheckToken(); } catch(e){}
+/* ── האסימון מגיע מהשומר (B+3) ────────────────────────────────────────────
+   כאן ישבה הזדהות אנונימית משלה. עכשיו auth-guard.js הוא המקור היחיד:
+   כשיש משתמש מחובר מוחזר האסימון **שלו**, ורק במצב-תצפית בלי משתמש נופלים
+   לאנונימי — וגם זה במקום אחד בקוד, כדי שמחיקתו ב-B+4 תהיה שורה אחת.
+   ⚠️ בלי נפילה-לאחור מקומית: אם השומר לא נטען זו תקלת-פריסה, והיא חייבת
+   להישמע. שתי מערכות-אסימון במקביל = שני משתמשים שונים לאותו אדם.
+   ⚠️ החתימה נשמרה (Promise<string|null>) — כל קורא קיים ממשיך לעבוד. */
+
+const $ = id => document.getElementById(id);
+function toast(m, ms){ const t=$('toast'); t.textContent=m; t.style.display='block';
+  clearTimeout(toast._t); toast._t=setTimeout(()=>{ t.style.display='none'; }, ms||3200); }
+function busy(m){ const b=$('busy'); if(m===false){ b.style.display='none'; return; }
+  $('busyTxt').textContent=m; b.style.display='flex'; }
+function hint(m){ const h=$('hint'); if(!m){ h.style.display='none'; return; }
+  h.textContent=m; h.style.display='block'; }
+
+const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+/* ⚠️ האסימון מהשומר בלבד (B+3.2) — בלי נפילה-לאחור מקומית. */
+async function _fbAuthToken(){
+  if (!window.SolanGuard) throw new Error('auth-guard.js לא נטען — אין מקור לאסימון');
+  return window.SolanGuard.token(false);
+}
+async function _au(url){ const t = await _fbAuthToken(); return t ? url + (url.indexOf('?')>=0?'&':'?') + 'auth=' + t : url; }
+
+async function uploadBytes(path, bytes){
+  let lastErr;
+  for (const bucket of ['solan-printing.firebasestorage.app']){
+    for (let attempt=1; attempt<=3; attempt++){
+      try {
+        const json = await xhrPost('https://firebasestorage.googleapis.com/v0/b/'+bucket+'/o?name='+encodeURIComponent(path), bytes);
+        const token = (json.downloadTokens||'').split(',')[0] || '';
+        return 'https://firebasestorage.googleapis.com/v0/b/'+bucket+'/o/'+encodeURIComponent(path)+'?alt=media&token='+token;
+      } catch(e){ lastErr=e; if(e.code===403) throw e; await new Promise(r=>setTimeout(r, 1500*attempt)); }
+    }
+  }
+  throw lastErr || new Error('העלאה נכשלה');
+}
+function xhrPost(url, bytes){
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest(); xhr.open('POST', url); xhr.timeout = 0;
+    xhr.setRequestHeader('Content-Type', 'application/pdf');
+    const finishSend = (t) => { try { if (t) xhr.setRequestHeader('Authorization', 'Firebase ' + t); } catch(e){} (window._appCheckToken?window._appCheckToken():Promise.resolve(null)).then(function(act){ try{ if(act) xhr.setRequestHeader('X-Firebase-AppCheck', act); }catch(e){} xhr.send(bytes); }, function(){ xhr.send(bytes); }); };
+    xhr.onload = () => { if (xhr.status>=200 && xhr.status<300){ try{ resolve(JSON.parse(xhr.responseText)); }catch(e){ const er=new Error('bad'); er.code=xhr.status; reject(er); } return; } const er=new Error('Storage '+xhr.status); er.code=xhr.status; reject(er); };
+    xhr.onerror = () => { const e=new Error('שגיאת רשת'); e.code=0; reject(e); };
+    xhr.ontimeout = () => { const e=new Error('פג זמן'); e.code=408; reject(e); };
+    _fbAuthToken().then(finishSend, () => finishSend(null));
+  });
+}
+
+// ── סל-מיחזור (ProofTrash) — 🗑 כאן לא מוחק מיד לצמיתות. הרשומה עוברת ל-customerProofsTrash
+//    (מוסרת מהרשימה החיה), אבל הקובץ ב-Storage *נשאר* עד ניקוי אוטומטי אחרי 30 יום או
+//    מחיקה ידנית מפורשת מתוך הסל. זה מונע אובדן קובץ-לקוח בלתי-הפיך מלחיצה בטעות. ──
+
+/* ═══ טעינת העבודה ═══════════════════════════════════════════════════════ */
+const params = new URLSearchParams(location.search);
+const proofId = params.get('id') || '';
+const target  = params.get('target') || 'full';
+const pageNo  = Math.max(1, parseInt(params.get('page') || '1', 10) || 1);
+const backUrl = params.get('back') || '';
+if (backUrl && /^[^:]*$/.test(backUrl)) $('backLink').href = backUrl;   // יחסי בלבד — אין הפניה החוצה
+
+let rec = null, unit = null, srcBytes = null, srcPageCount = 0;
+let baseCanvas = null;        // הרסטר המקורי של העמוד (300dpi)
+let ops = [];                 // רשימת-הפעולות — מקור-האמת של העריכה
+const DPI = 300;
+
+async function loadJob(){
+  if (!proofId) { toast('⛔ חסר מזהה-עבודה בכתובת'); busy(false); return; }
+  busy('טוען את העבודה…');
+  const r = await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`));
+  if (!r.ok) { busy(false); toast('⛔ טעינת העבודה נכשלה (' + r.status + ')'); return; }
+  rec = await r.json();
+  if (!rec) { busy(false); toast('⛔ העבודה לא נמצאה'); return; }
+  unit = target === 'full' ? rec : ((rec.parts || {})[target] || null);
+  if (!unit || !unit.fileUrl) { busy(false); toast('⛔ אין קובץ ליחידה הזו — אין מה לערוך'); return; }
+  $('jobMeta').textContent = (rec.customer ? rec.customer + ' · ' : '') + (rec.title || '') +
+    (target !== 'full' ? ' · ' + (unit.name || 'ריצה') : '') + ' · עמוד ' + pageNo;
+
+  busy('מוריד את הקובץ…');
+  srcBytes = await (await fetch(unit.fileUrl)).arrayBuffer();
+  busy('מרנדר את העמוד (300dpi)…');
+  const doc = await pdfjsLib.getDocument({ data: srcBytes.slice(0) }).promise;
+  srcPageCount = doc.numPages;
+  const pg = await doc.getPage(Math.min(pageNo, srcPageCount));
+  /* ‏300dpi אמיתי: scale = 300/72 על נקודות-PDF. תקרה 6000px לצד — עמוד
+     ענק לא מפיל את הדפדפן; ההקטנה נאמרת ולא שקטה. */
+  let scale = DPI / 72;
+  const vp0 = pg.getViewport({ scale: 1 });
+  const maxDim = Math.max(vp0.width, vp0.height) * scale;
+  if (maxDim > 6000) { scale = scale * 6000 / maxDim; toast('העמוד גדול — הרסטר הוקטן ל-' + Math.round(scale * 72) + 'dpi'); }
+  const vp = pg.getViewport({ scale });
+  baseCanvas = document.createElement('canvas');
+  baseCanvas.width = Math.round(vp.width); baseCanvas.height = Math.round(vp.height);
+  const ctx = baseCanvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);   // שקיפות → לבן (דפוס)
+  await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+  window._peScale = scale;
+  rebuild();
+  $('saveNote').textContent = 'היחידה: ' + (target === 'full' ? 'העיתון המלא (עמוד ' + pageNo + ' מתוך ' + srcPageCount + ')' : (unit.name || target));
+  busy(false);
+}
+
+/* ═══ ביצוע-התוכניות (המנוע מחשב — כאן רק drawImage) ═══════════════════ */
+function execPlan(cur, plan){
+  const out = document.createElement('canvas');
+  out.width = plan.outW; out.height = plan.outH;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, out.width, out.height);
+  plan.steps.forEach(s => {
+    if (s.op === 'fillRect') { ctx.fillStyle = '#fff'; ctx.fillRect(s.x, s.y, s.w, s.h); return; }
+    const src = cur;                                    // גם drawBase וגם drawSelf דוגמים מהרסטר הנוכחי
+    if (s.flipX || s.flipY) {
+      ctx.save();
+      ctx.translate(s.dx + (s.flipX ? s.dw : 0), s.dy + (s.flipY ? s.dh : 0));
+      ctx.scale(s.flipX ? -1 : 1, s.flipY ? -1 : 1);
+      ctx.drawImage(src, s.sx, s.sy, s.sw, s.sh, 0, 0, s.dw, s.dh);
+      ctx.restore();
+    } else ctx.drawImage(src, s.sx, s.sy, s.sw, s.sh, s.dx, s.dy, s.dw, s.dh);
+  });
+  return out;
+}
+function currentCanvas(){
+  let cur = baseCanvas;
+  for (const op of ops) {
+    const plan = PageEditEngine.planOp(cur.width, cur.height, DPI, op);
+    if (!plan) continue;
+    cur = execPlan(cur, plan);
+  }
+  return cur;
+}
+function rebuild(){
+  const cur = currentCanvas();
+  const stage = $('stage');
+  /* תצוגה בהתאמה-לחלון; העריכה עצמה תמיד על הרסטר המלא */
+  const wrap = document.querySelector('.stageWrap');
+  const fit = Math.min(1, (wrap.clientWidth - 60) / cur.width, (wrap.clientHeight - 60) / cur.height);
+  stage.width = cur.width; stage.height = cur.height;
+  stage.getContext('2d').drawImage(cur, 0, 0);
+  stage.style.width = Math.round(cur.width * fit) + 'px';
+  stage.style.height = Math.round(cur.height * fit) + 'px';
+  window._peCur = cur;
+  $('undoBtn').disabled = !ops.length;
+  $('resetBtn').disabled = !ops.length;
+  $('saveBtn').disabled = !ops.length;
+  $('opsList').innerHTML = ops.length
+    ? ops.map((o, i) => (i + 1) + '. <b>' + (PageEditEngine.LABELS[o.type] || o.type) + '</b>'
+        + (o.mm ? ' ' + o.mm + ' מ״מ' : '')).join('<br>')
+    : 'אין עדיין פעולות.';
+}
+function pushOp(op){
+  const n = PageEditEngine.normalizeOp(op);
+  if (!n) { toast('⛔ ערכים לא-תקינים לפעולה'); return; }
+  const cur = window._peCur || baseCanvas;
+  if (!PageEditEngine.planOp(cur.width, cur.height, DPI, n)) { toast('⛔ הפעולה אינה אפשרית על העמוד הזה'); return; }
+  ops.push(n); rebuild();
+}
+
+/* ═══ הכלים ══════════════════════════════════════════════════════════════ */
+$('opBleed').onclick = () => pushOp({ type: 'bleed', mm: parseFloat($('bleedMm').value), method: $('bleedMethod').value });
+$('opShrink').onclick = () => pushOp({ type: 'shrink', mm: parseFloat($('shrinkMm').value) });
+$('opCenter').onclick = () => {
+  /* מדידת מלבן-התוכן: פיקסל שאינו כמעט-לבן. סריקה על עותק מוקטן — מהיר. */
+  const cur = window._peCur, s = Math.min(1, 600 / cur.width);
+  const c2 = document.createElement('canvas');
+  c2.width = Math.max(1, Math.round(cur.width * s)); c2.height = Math.max(1, Math.round(cur.height * s));
+  c2.getContext('2d').drawImage(cur, 0, 0, c2.width, c2.height);
+  const d = c2.getContext('2d').getImageData(0, 0, c2.width, c2.height).data;
+  let x1 = c2.width, y1 = c2.height, x2 = -1, y2 = -1;
+  for (let y = 0; y < c2.height; y++) for (let x = 0; x < c2.width; x++) {
+    const i = (y * c2.width + x) * 4;
+    if (d[i] < 245 || d[i + 1] < 245 || d[i + 2] < 245) {
+      if (x < x1) x1 = x; if (x > x2) x2 = x; if (y < y1) y1 = y; if (y > y2) y2 = y;
+    }
+  }
+  if (x2 < 0) { toast('העמוד ריק — אין תוכן למרכז'); return; }
+  pushOp({ type: 'center', contentBounds: {
+    x: x1 / c2.width * 100, y: y1 / c2.height * 100,
+    w: (x2 - x1 + 1) / c2.width * 100, h: (y2 - y1 + 1) / c2.height * 100 } });
+};
+/* הזזת-אזור: גרירת-מלבן (PageMarks.attachSpotDrag — אותו כלי של הסימונים)
+   ואז לחיצה על היעד. ‏Esc מבטל בכל שלב. */
+$('opMove').onclick = () => {
+  const box = $('stageBox');
+  hint('✋ גררו מלבן סביב האזור להזזה (Esc לביטול)');
+  const clean = PageMarks.attachSpotDrag(box, (rect) => {
+    hint(false);
+    if (!rect) return;
+    const sel = document.createElement('div');
+    sel.className = 'selBox';
+    sel.style.cssText += ';left:' + rect.x + '%;top:' + rect.y + '%;width:' + rect.w + '%;height:' + rect.h + '%';
+    box.appendChild(sel);
+    hint('✋ עכשיו לחצו על המיקום החדש של האזור (Esc לביטול)');
+    const done = () => { hint(false); sel.remove(); box.removeEventListener('click', onClick); document.removeEventListener('keydown', onEsc); };
+    const onEsc = (ev) => { if (ev.key === 'Escape') done(); };
+    const onClick = (ev) => {
+      const b = box.getBoundingClientRect();
+      const tx = (ev.clientX - b.left) / b.width * 100 - rect.w / 2;
+      const ty = (ev.clientY - b.top) / b.height * 100 - rect.h / 2;
+      done();
+      pushOp({ type: 'moveRegion', from: rect, to: { x: tx, y: ty }, fill: $('moveFill').value });
+    };
+    setTimeout(() => { box.addEventListener('click', onClick); document.addEventListener('keydown', onEsc); }, 60);
+  });
+};
+$('undoBtn').onclick = () => { ops.pop(); rebuild(); };
+$('resetBtn').onclick = () => { if (ops.length && confirm('לבטל את כל הפעולות ולחזור למקור?')) { ops = []; rebuild(); } };
+document.addEventListener('keydown', ev => { if (ev.ctrlKey && ev.key === 'z') { ops.pop(); rebuild(); } });
+
+/* ═══ שמירה — גרסה חדשה לפי חוזה-ההחלפה של page-replace ═══════════════════
+   ⚠️ אותו סדר בדיוק כמו proof-client (סנטינל page-replace-tests):
+     1. הקובץ החדש עולה ל-Storage בנתיב-**גרסה** (הקודם לא נדרס).
+     2. הגרסה הישנה מאורכבת (PageReplace.archiveOf) — לפני עדכון-היחידה.
+     3. היחידה מתעדכנת (PageReplace.newFields) עם correctedNote מהמנוע.
+     4. סימון-ההחלפה של העמוד (pageMarks) מנוקה — הבעיה תוקנה. */
+async function save(){
+  if (!ops.length) return;
+  $('saveBtn').disabled = true;
+  try {
+    busy('בונה את ה-PDF החדש…');
+    const cur = currentCanvas();
+    const pngUrl = cur.toDataURL('image/png');
+    const pngBytes = await (await fetch(pngUrl)).arrayBuffer();
+    /* מידות-העמוד בנקודות — מהרסטר לפי ה-scale האמיתי (לא הנחת-300 עיוורת) */
+    const ptW = cur.width / window._peScale, ptH = cur.height / window._peScale;
+    let outBytes;
+    if (srcPageCount <= 1) {
+      const doc = await PDFLib.PDFDocument.create();
+      const png = await doc.embedPng(pngBytes);
+      doc.addPage([ptW, ptH]).drawImage(png, { x: 0, y: 0, width: ptW, height: ptH });
+      outBytes = await doc.save();
+    } else {
+      /* עיתון-מלא: מחליפים רק את העמוד הזה בתוך הקובץ הקיים */
+      const doc = await PDFLib.PDFDocument.load(srcBytes.slice(0));
+      const png = await doc.embedPng(pngBytes);
+      doc.removePage(pageNo - 1);
+      const np = doc.insertPage(pageNo - 1, [ptW, ptH]);
+      np.drawImage(png, { x: 0, y: 0, width: ptW, height: ptH });
+      outBytes = await doc.save();
+    }
+
+    busy('מעלה ל-Storage…');
+    const version = PageSwap.nextVersion(unit);
+    const folder = (unit.filePath || '').split('/').slice(0, -1).join('/')
+      || ('customerProofs/' + String(rec.customer || 'לקוח').replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60) + '/' + proofId);
+    const basePath = folder + '/' + (target === 'full' ? 'full.pdf' : target + '.pdf');
+    const path = PageSwap.versionedPath(basePath, version);
+    const fileUrl = await uploadBytes(path, outBytes);
+
+    busy('מארכב את הגרסה הקודמת…');
+    const at = Date.now();
+    const note = PageEditEngine.describeOps(ops) + ' (עמוד ' + pageNo + ')';
+    const archUrl = await _au(`${_FBURL}/${PageReplace.archivePath(proofId, target === 'full' ? null : target, PageSwap.currentVersion(unit))}.json`);
+    let r = await fetch(archUrl, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(PageReplace.archiveOf(unit, { at, version, reason: 'shopEdit', changes: { editedPage: pageNo, note } })) });
+    if (!r.ok) throw new Error('ארכוב הגרסה נכשל (' + r.status + ')');
+
+    busy('מעדכן את הרשומה…');
+    const fields = Object.assign(
+      PageReplace.newFields(unit, { fileUrl, filePath: path, pageCount: srcPageCount || unit.pageCount || 1,
+        fileSize: outBytes.byteLength, at, version }),
+      { correctedNote: note });
+    const unitPath = target === 'full' ? `customerProofs/${proofId}` : `customerProofs/${proofId}/parts/${target}`;
+    r = await fetch(await _au(`${_FBURL}/${unitPath}.json`), { method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) });
+    if (!r.ok) throw new Error('עדכון הרשומה נכשל (' + r.status + ')');
+
+    /* הסימון "דרוש החלפה" על העמוד הזה — תוקן; מנקים בקול, וכשל אינו מפיל
+       את השמירה (הקובץ כבר הוחלף) אבל כן נאמר. */
+    try {
+      const mp = ShopIssue.markPatch(target === 'full' ? 'full' : target, pageNo, null);
+      if (mp) await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`), { method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mp) });
+    } catch (e) { console.error('ניקוי סימון-העמוד נכשל', e); toast('הגרסה נשמרה, אך סימון-העמוד לא נוקה'); }
+
+    busy(false);
+    toast('✓ נשמר כגרסה ' + version + ' — הקודמת בארכיון');
+    ops = []; rebuild();
+    /* הרשומה בזיכרון מתעדכנת כדי ששמירה נוספת תמשיך את שרשרת-הגרסאות */
+    Object.assign(unit, fields);
+    srcBytes = outBytes.buffer ? outBytes.buffer.slice(0) : outBytes;
+  } catch (e) {
+    busy(false);
+    console.error(e);
+    toast('⛔ השמירה נכשלה: ' + (e.message || 'שגיאה') + ' — לא בוצע שינוי ברשומה');
+  }
+  $('saveBtn').disabled = !ops.length;
+}
+$('saveBtn').onclick = save;
+
+loadJob().catch(e => { busy(false); console.error(e); toast('⛔ ' + (e.message || 'שגיאת-טעינה')); });
+</script>
+</body>
+</html>
