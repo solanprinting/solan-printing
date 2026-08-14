@@ -9,19 +9,19 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786729510"></script>
-<script src="page-add.js?v=1786729510"></script>
-<script src="portal-context.js?v=1786729510"></script>
-<script src="portal-return.js?v=1786729510"></script>
-<script src="portal-chat.js?v=1786729510"></script>
+<script src="portal-download.js?v=1786731648"></script>
+<script src="page-add.js?v=1786731648"></script>
+<script src="portal-context.js?v=1786731648"></script>
+<script src="portal-return.js?v=1786731648"></script>
+<script src="portal-chat.js?v=1786731648"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786729510"></script>
+<script src="chat-alert.js?v=1786731648"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786729510"></script>
-<script src="page-marks.js?v=1786729510"></script>
+<script src="shop-issue.js?v=1786731648"></script>
+<script src="page-marks.js?v=1786731648"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -118,6 +118,28 @@
   #gate .contact { margin-top:16px; }
   #up-drop { border:2px dashed #c7d2fe; border-radius:12px; padding:20px; text-align:center; color:#4b5563; cursor:pointer; background:#f8faff; }
   #up-drop.over { background:#eef2ff; border-color:var(--press); }
+  /* ═══ רענון-מראה 14/08/2026 (בקשת-בעלים): יישור למראה-החדש של מסך-הדפוס.
+     ⚠️ **עיצוב-בלבד** — תוספות-CSS בסוף הגיליון, אפס שינוי ב-JS ובזרימת-
+     ההעלאה. הכללים כאן גוברים על הקודמים בזכות הסדר, בלי למחוק אותם. ═══ */
+  .row { border:1px solid var(--line); border-radius:12px; margin-bottom:9px; padding:12px 13px;
+         background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.04); transition:border-color .15s, box-shadow .15s; }
+  .row:hover { border-color:var(--gold); box-shadow:0 2px 10px rgba(201,168,76,.16); }
+  .row:last-child { border-bottom:1px solid var(--line); }
+  .row .title { color:var(--press); font-size:.98rem; }
+  .btn { border-radius:999px; padding:8px 15px; transition:box-shadow .15s, transform .1s; }
+  .btn:hover { box-shadow:inset 0 0 0 1.5px var(--gold); }
+  .btn:active { transform:translateY(1px); }
+  .badge { padding:3px 11px; }
+  .card h2 { font-weight:900; }
+  .card h2::after { content:''; flex:1; height:1.5px; background:linear-gradient(90deg,var(--gold-light),transparent); opacity:.6; }
+  .sgWrap { border-radius:12px; }
+  .sgT { border-radius:10px; transition:border-color .15s; }
+  .sgT:hover { border-color:var(--gold); box-shadow:0 2px 8px rgba(201,168,76,.18); }
+  .sgDeclare { color:var(--press); border-color:var(--gold-light); }
+  .sgDeclare:hover { border-color:var(--gold); background:#fffdf6; }
+  .notice { border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.04); }
+  .empty { padding:26px 0; }
+  #up-drop:hover { border-color:var(--gold); background:#fffdf6; }
   #up-list { margin-top:8px; font-size:.82rem; color:#374151; }
   #ov { position:fixed; inset:0; background:rgba(255,255,255,.94); display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px; z-index:80; text-align:center; padding:24px; }
   #ovBar { width:260px; max-width:78vw; height:12px; background:var(--line); border-radius:7px; overflow:hidden; display:none; }
@@ -976,6 +998,12 @@ async function _sgMoveTo(id, moveKey, slot){
   var n = parseInt(slot, 10);
   if (!isFinite(n) || n < 1 || n > 200) { toast('מספר-משבצת בין 1 ל-200'); return; }
   var kv = String(moveKey).split('|'), kind = kv[0], key = kv[1];
+  /* נעילת-החלפה (בקשת-בעלים 14/08): יחידה שכבר נשלחה לדפוס אינה משתבצת
+     מחדש מהפורטל — החלפה רק דרך בקשת-החלפה שמאשר בית-הדפוס. */
+  if (kind === 'part' && p.parts && p.parts[key] && p.parts[key].approvedAt) {
+    toast('🔒 הריצה כבר נשלחה לדפוס — החלפה רק באישור בית-הדפוס (🔁 בקשת החלפת עמודים)');
+    return;
+  }
   var path, body;
   if (kind === 'part') { path = `customerProofs/${id}/parts/${key}.json`; body = { name: 'עמוד ' + n }; }
   else {

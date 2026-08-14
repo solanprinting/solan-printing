@@ -19,13 +19,13 @@
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1786729510"></script>
-<script src="portal-context.js?v=1786729510"></script>
+<script src="upload-type.js?v=1786731648"></script>
+<script src="portal-context.js?v=1786731648"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi1"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1786729510"></script>
-<script src="portal-return.js?v=1786729510"></script>
+<script src="page-replace.js?v=1786731648"></script>
+<script src="portal-return.js?v=1786731648"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -661,11 +661,17 @@ async function _psRefresh(){
 }
 /* שליחת בקשה — נכתבת תחת changeRequests/<target>, בקשה פעילה אחת לכל יעד */
 async function _psSendRequest(target){
-  const note = prompt('מה צריך להחליף? (למשל: "עמוד 3 — מודעה שגויה")', '');
+  /* בקשת-בעלים 14/08: מספרי-העמודים מובנים (pages) ולא רק בהערה חופשית —
+     כדי שבמסך-הדפוס יופיע בבירור איזה עמוד מבקשים להחליף. */
+  const pgStr = prompt('אילו עמודים להחליף? (מספרים, מופרדים בפסיק — למשל: 3, 12)', '');
+  if (pgStr === null) return;
+  const pages = String(pgStr).split(/[^0-9]+/).map(Number).filter(n => n >= 1 && n <= 999);
+  if (!pages.length && !confirm('לא צוין מספר-עמוד. לשלוח את הבקשה בלי מספר?')) return;
+  const note = prompt('מה הבעיה בעמוד? (יוצג לבית-הדפוס)', '');
   if (note === null) return;
   showOverlay('שולח בקשה…', true);
   try {
-    const req = PageSwap.buildRequest({ at: Date.now(), by: (record.customer || 'לקוח'), note: note, target: target });
+    const req = PageSwap.buildRequest({ at: Date.now(), by: (record.customer || 'לקוח'), note: note, target: target, pages: pages.length ? pages : null });
     /* ⚠️ ‏proofId — מטא-אבטחה בלבד (2026-08-04). הנתיב ממילא מקונן תחת
        customerProofs/<proofId>/changeRequests, כך שהבעלות יורשת מה-proof
        האב; זהו אימות-עקביות נוסף (החוק דורש proofId === מזהה-הנתיב).
