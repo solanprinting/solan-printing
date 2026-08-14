@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786722736"></script>
-<script src="chat-alert.js?v=1786722736"></script>
-<script src="shop-issue.js?v=1786722736"></script>
-<script src="page-marks.js?v=1786722736"></script>
-<script src="kontres-split.js?v=1786722736"></script>
+<script src="portal-chat.js?v=1786725312"></script>
+<script src="chat-alert.js?v=1786725312"></script>
+<script src="shop-issue.js?v=1786725312"></script>
+<script src="page-marks.js?v=1786725312"></script>
+<script src="kontres-split.js?v=1786725312"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786722736"></script>
-<script src="auth-client.js?v=1786722736"></script>
+<script src="firebase-auth.bundle.js?v=1786725312"></script>
+<script src="auth-client.js?v=1786725312"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786722736" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786725312" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -389,6 +389,10 @@ window.addEventListener('appinstalled', function(){
   .shChatBox { flex:1; overflow-y:auto; padding:11px; display:flex; flex-direction:column; gap:7px;
                background:#f8f9fc; border-top:1px solid #f0f0f0;
                border-bottom:1px solid #f0f0f0; max-height:52vh; }
+  /* ⚠️ 14/08/2026, בקשת-בעלים: בלי פאנל-הכרטיסים השיחה מקבלת את כל
+     גובה-העמודה — התקרה 52vh הוסרה במבנה-הפורטל בלבד. */
+  .pvBody2 .shChatBox { max-height:none; min-height:340px; }
+  .pvBody2 .pvLeftCol { max-height:calc(100vh - 90px); }
   .shDay { align-self:center; font-size:.7rem; color:#9ca3af; font-weight:800; margin:4px 0 1px; }
   .shMsg { max-width:88%; padding:7px 10px; border-radius:12px; font-size:.85rem; line-height:1.45;
            white-space:pre-wrap; word-break:break-word; }
@@ -1723,7 +1727,10 @@ function render(rows) {
           </div>
           <div style="padding:0 9px 9px;font-size:.72rem;color:#9ca3af">‏Enter שולח · Shift+Enter שורה חדשה</div>`:''}
         </aside>
-        ${cardsPanel}
+        <!-- ⚠️ פאנל "כרטיסים פעילים" הוסר מהעמודה (בקשת-בעלים 14/08/2026) —
+             השיחה מקבלת את מלוא-הגובה. הפאנל חי במסך הקלאסי (?ui=classic)
+             ובלוח-קרטיס; ההערה הקודמת ("הסרתו גורעת יכולת") בוטלה במפורש
+             ע"י הבעלים לטובת צ'אט גדול. -->
         </div>
       </div></div>`;
   }
@@ -2547,7 +2554,21 @@ function _pgLightClose(){
   if (el) el.remove();
   document.removeEventListener('keydown', _pgLightEsc);
 }
-function _pgLightEsc(ev){ if (ev.key === 'Escape') _pgLightClose(); }
+/* ⚠️ 14/08/2026, בקשת-בעלים: דפדוף בין העמודים בתוך חלון-ההגדלה —
+   חיצים על המסך + מקשי-חצים. ‏RTL: חץ-שמאלה = העמוד הבא. מדלגים על
+   אריחי-"חסר" (אין שם מה להגדיל). */
+function _pgLightNav(dir){
+  const reg = window._tileReg;
+  if (!reg || !reg.tiles || window._plIdx == null) return;
+  let i = window._plIdx;
+  do { i += dir; } while (reg.tiles[i] && reg.tiles[i].kind !== 'page');
+  if (reg.tiles[i]) _pgLightOpen(i);
+}
+function _pgLightEsc(ev){
+  if (ev.key === 'Escape') { _pgLightClose(); return; }
+  if (ev.key === 'ArrowLeft') _pgLightNav(1);
+  else if (ev.key === 'ArrowRight') _pgLightNav(-1);
+}
 async function _pgLightOpen(idx){
   const reg = window._tileReg;
   const t = reg && reg.tiles && reg.tiles[idx];
@@ -2559,7 +2580,10 @@ async function _pgLightOpen(idx){
   wrap.innerHTML = `<div class="plBack"></div>
     <div class="plCard">
       <div class="plHd"><b>${escapeHtml(t.label)}</b><span class="plMeta">${escapeHtml(p.title||'')}${p.issue?(' · גיליון '+escapeHtml(String(p.issue))):''}</span>
-        <span style="flex:1"></span><button class="plX" title="סגירה (Esc)">✕</button></div>
+        <span style="flex:1"></span>
+        <button class="plX" id="plPrev" title="העמוד הקודם (חץ ימינה)">הקודם ▶</button>
+        <button class="plX" id="plNext" title="העמוד הבא (חץ שמאלה)">◀ הבא</button>
+        <button class="plX" title="סגירה (Esc)">✕</button></div>
       <div class="plBody"><div class="plPgWrap"><div class="plLoad">⏳ טוען עמוד…</div></div></div>
       <div class="plNote" id="plNote"></div>
       <div class="plActs">
@@ -2575,8 +2599,13 @@ async function _pgLightOpen(idx){
       </div>
     </div>`;
   document.body.appendChild(wrap);
+  window._plIdx = idx;
   wrap.querySelector('.plBack').onclick = _pgLightClose;
-  wrap.querySelector('.plX').onclick = _pgLightClose;
+  /* ⚠️ ה-✕ הוא ה-plX האחרון — הקודמים הם חיצי-הדפדוף */
+  const _plXs = wrap.querySelectorAll('.plX');
+  _plXs[_plXs.length - 1].onclick = _pgLightClose;
+  wrap.querySelector('#plPrev').onclick = () => _pgLightNav(-1);
+  wrap.querySelector('#plNext').onclick = () => _pgLightNav(1);
   document.addEventListener('keydown', _pgLightEsc);
 
   const host = wrap.querySelector('.plPgWrap');
@@ -3088,11 +3117,55 @@ async function normalizeSpreads(src) {
    ריצה 2… — וכל כפולה מפוצלת פיזית לשני עמודים בודדים (embedPage עם
    חצי-קופסה, וקטורי — לא רסטר). התוכנית כולה מ-RunSplit (טהור);
    כיוון-הקריאה מהרשומה (RTL: הימני הוא העמוד הנמוך), לא מנוחש. */
+/* ── מקור-הקובץ לחלוקת-ריצות (תוקן 14/08/2026, דיווח-בעלים) ──────────────
+   ⚠️ כרטיס-הגיליון רושם את כפתורי-ההורדה **בלי** fileUrl (עבודת-ריצות אין
+   לה קובץ-מאוחד) — ולכן "📚 לפי ריצות" הוריד כתובת-ריקה, קיבל את ה-HTML
+   של האתר, ונפל על "No PDF header". עכשיו: המקור נפתר מהרשומה —
+   קובץ-מלא אם יש; אחרת הריצות ממוזגות לפי סדר-האישור; אחרת קובצי-הפורטל
+   לפי מספרי-העמודים. כל קובץ נבדק שהוא באמת PDF (%PDF-) לפני שממשיכים. */
+async function _runSourceBytes(t) {
+  const rec = (_allRows || []).find(r => r.id === t.jobId) || {};
+  const urls = [];
+  if (t.fileUrl) urls.push(t.fileUrl);
+  else if (t.partId && rec.parts && rec.parts[t.partId] && rec.parts[t.partId].fileUrl)
+    urls.push(rec.parts[t.partId].fileUrl);
+  else if (rec.fileUrl) urls.push(rec.fileUrl);
+  else {
+    Object.values(rec.parts || {})
+      .filter(p => p && p.fileUrl)
+      .sort((a, b) => (a.approvedAt || 0) - (b.approvedAt || 0))
+      .forEach(p => urls.push(p.fileUrl));
+    if (!urls.length && rec.files) {
+      Object.values(rec.files).filter(f => f && f.fileUrl)
+        .sort((a, b) => (ShopIssue.pageNoOf(a.fileName) || 9999) - (ShopIssue.pageNoOf(b.fileName) || 9999))
+        .forEach(f => urls.push(f.fileUrl));
+    }
+  }
+  if (!urls.length) throw new Error('אין קובץ-PDF לעבודה הזו — הקבצים טרם הועלו');
+  const bufs = [];
+  for (const u of urls) {
+    const r = await fetch(u);
+    if (!r.ok) throw new Error('הורדת-הקובץ נכשלה (' + r.status + ')');
+    const b = await r.arrayBuffer();
+    const head = String.fromCharCode.apply(null, new Uint8Array(b.slice(0, 5)));
+    if (head !== '%PDF-') throw new Error('הקובץ שהתקבל אינו PDF — ' + head.slice(0, 5));
+    bufs.push(b);
+  }
+  if (bufs.length === 1) return bufs[0];
+  const out = await PDFLib.PDFDocument.create();
+  for (const b of bufs) {
+    const d = await PDFLib.PDFDocument.load(b);
+    const pages = await out.copyPages(d, d.getPageIndices());
+    pages.forEach(p => out.addPage(p));
+  }
+  return (await out.save()).buffer;
+}
+
 async function generateRunOrderedPdf(proof, fullSheet, btn) {
   const old = btn.textContent;
   btn.disabled = true; btn.textContent = 'מוריד קובץ…';
   try {
-    const bytes = await (await fetch(proof.fileUrl)).arrayBuffer();
+    const bytes = await _runSourceBytes(proof);
     btn.textContent = 'מפצל כפולות…';
     const raw = await PDFLib.PDFDocument.load(bytes);
     const pages = raw.getPages();
@@ -3143,7 +3216,9 @@ async function generateRuns(proof, fullSheet, btn) {
   const old = btn.textContent;
   btn.disabled = true; btn.textContent = 'מוריד קובץ…';
   try {
-    const bytes = await (await fetch(proof.fileUrl)).arrayBuffer();
+    /* ⚠️ אותו פותר-מקור של "📚 לפי ריצות" — גם כאן ה-fileUrl יכול להיות
+       ריק (כרטיס-גיליון של עבודת-ריצות), ואותה נפילה בדיוק. */
+    const bytes = await _runSourceBytes(proof);
     btn.textContent = 'מפצל…';
     const raw = await PDFLib.PDFDocument.load(bytes);
     const norm = await normalizeSpreads(raw);   // כפולה → אותו קובץ פעמיים + "כפולה" בשם

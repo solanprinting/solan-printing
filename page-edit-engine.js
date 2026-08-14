@@ -24,7 +24,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var OPS = ['bleed', 'shrink', 'center', 'moveRegion', 'crop', 'whiteFrame', 'addMarks'];
+  var OPS = ['bleed', 'shrink', 'center', 'moveRegion', 'crop', 'whiteFrame', 'frameAdd', 'addMarks'];
 
   function _num(v, d) { var n = Number(v); return isFinite(n) ? n : (d || 0); }
   function _clampPct(v) { return Math.max(0, Math.min(100, _num(v))); }
@@ -63,6 +63,14 @@
       var wf = _num(op.mm);
       if (!(wf > 0 && wf <= 30)) return null;
       return { type: 'whiteFrame', mm: wf };
+    }
+    if (op.type === 'frameAdd') {
+      /* ⚠️ 14/08/2026, דיוק-בעלים: "שהמסגרת תתווסף ולא תהיה על חשבון
+         הגרפיקה" — הדף **גדל** ב-N מ"מ מכל צד, התוכן נשאר שלם במרכז.
+         ‏whiteFrame (הצובעת) נשארת לניקוי-צלבים — שם הצביעה היא הכוונה. */
+      var fa = _num(op.mm);
+      if (!(fa > 0 && fa <= 30)) return null;
+      return { type: 'frameAdd', mm: fa };
     }
     if (op.type === 'addMarks') {
       /* צלבי-חיתוך לגודל-עמוד נדרש: מסגרת-היעד ממורכזת בעמוד, טיקים שחורים
@@ -172,6 +180,13 @@
         { op: 'fillRect', x: 0, y: curH - fw, w: curW, h: fw },
         { op: 'fillRect', x: 0, y: 0, w: fw, h: curH },
         { op: 'fillRect', x: curW - fw, y: 0, w: fw, h: curH },
+      ] };
+    }
+
+    if (o.type === 'frameAdd') {
+      var fa2 = mmToPx(o.mm, dpi);
+      return { outW: curW + 2 * fa2, outH: curH + 2 * fa2, steps: [
+        { op: 'drawBase', sx: 0, sy: 0, sw: curW, sh: curH, dx: fa2, dy: fa2, dw: curW, dh: curH },
       ] };
     }
 
@@ -331,6 +346,11 @@
       items.push({ kind: 'whiteRect', x: curW - fw, y: 0, w: fw, h: curH });
       return { outW: curW, outH: curH, items: items };
     }
+    if (o.type === 'frameAdd') {
+      var fa3 = mmToPt(o.mm);
+      PG(0, 0, curW, curH, fa3, fa3, curW, curH);
+      return { outW: curW + 2 * fa3, outH: curH + 2 * fa3, items: items };
+    }
     if (o.type === 'addMarks') {
       var tw = mmToPt(o.wMm), th2 = mmToPt(o.hMm);
       if (tw > curW || th2 > curH) return null;
@@ -387,6 +407,7 @@
       var o = normalizeOp(op);
       if (!o) return;
       if (o.type === 'bleed') { var b = mmToPx(o.mm, dpi); w += 2 * b; h += 2 * b; }
+      else if (o.type === 'frameAdd') { var fb = mmToPx(o.mm, dpi); w += 2 * fb; h += 2 * fb; }
       else if (o.type === 'crop') {
         if (o.box) { w = Math.round(o.box.w / 100 * w); h = Math.round(o.box.h / 100 * h); }
         else { var ci = mmToPx(o.insetMm, dpi); w -= 2 * ci; h -= 2 * ci; }
@@ -397,7 +418,7 @@
 
   /* תיאור-לביקורת של רשימת-ops — נכנס ל-correctedNote של הגרסה */
   var LABELS = { bleed: 'גלישה', shrink: 'הקטנה-לשוליים', center: 'מירכוז', moveRegion: 'הזזת-אזור',
-                 crop: 'חיתוך', whiteFrame: 'מסגרת-שוליים לבנה', addMarks: 'צלבי-חיתוך' };
+                 crop: 'חיתוך', whiteFrame: 'ניקוי-קצוות לבן', frameAdd: 'מסגרת-לבנה מוסיפה', addMarks: 'צלבי-חיתוך' };
   function describeOps(ops) {
     var parts = [];
     (ops || []).forEach(function (op) {
@@ -406,7 +427,8 @@
       if (o.type === 'bleed') parts.push('גלישה ' + o.mm + ' מ"מ (' + o.method + ')');
       else if (o.type === 'shrink') parts.push('הקטנה-לשוליים ' + o.mm + ' מ"מ');
       else if (o.type === 'crop') parts.push(o.box ? 'חיתוך לפי תרים-בוקס' : ('חיתוך ' + o.insetMm + ' מ"מ מסביב'));
-      else if (o.type === 'whiteFrame') parts.push('מסגרת-לבנה ' + o.mm + ' מ"מ');
+      else if (o.type === 'whiteFrame') parts.push('ניקוי-קצוות ' + o.mm + ' מ"מ');
+      else if (o.type === 'frameAdd') parts.push('מסגרת-לבנה +' + o.mm + ' מ"מ');
       else if (o.type === 'addMarks') parts.push('צלבי-חיתוך ל-' + o.wMm + '×' + o.hMm);
       else parts.push(LABELS[o.type]);
     });
