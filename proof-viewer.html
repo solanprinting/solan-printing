@@ -12,20 +12,20 @@
 <script src="page-spine.js?v=bidi1"></script>
 <!-- סימוני-עמודים (עיצוב-מחדש 13/08/2026): הלוגיקה ב-shop-issue (טהורה),
      הציור והגרירה ב-page-marks — משותפים למסך-הדפוס ולדפדוף הזה. -->
-<script src="shop-issue.js?v=1786737187"></script>
-<script src="page-marks.js?v=1786737187"></script>
+<script src="shop-issue.js?v=1786738435"></script>
+<script src="page-marks.js?v=1786738435"></script>
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786737187"></script>
-<script src="proof-fetch.js?v=1786737187"></script>
+<script src="portal-context.js?v=1786738435"></script>
+<script src="proof-fetch.js?v=1786738435"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786737187"></script>
-<script src="auth-client.js?v=1786737187"></script>
-<script src="auth-guard.js?v=1786737187" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786738435"></script>
+<script src="auth-client.js?v=1786738435"></script>
+<script src="auth-guard.js?v=1786738435" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -487,6 +487,130 @@ async function _metasForDisplay(normBytes, realTrims){
   } catch(e){ /* נשאר ללא גלישה — fallback בטוח, בלי קו-שדרה שגוי */ }
   return out;
 }
+/* ── כפולת-שער מסובבת (בקשת-בעלים 14/08) ─────────────────────────────────
+   עמוד שגודלו ≈ (גובה-העבודה × 2×רוחב-העבודה) הוא כפולת שער+גב שיוצאה
+   עומדת-על-צידה. אחרי סיבוב לתצוגה: חצי אחד שער (תחילת הדפדוף) וחצי גב
+   (סופו). כיוון-הסיבוב ואיזה-חצי-שער משתנים בין לקוחות → נשאלים פעם
+   אחת לעיתון ונשמרים ברשומה. בלי גודל-עבודה אין זיהוי — אומרים זאת. */
+function _isRotSpread(wmm, hmm){
+  var tol = 2, slack = 14;
+  return (isFinite(_reqWmm) && _reqWmm > 0 && isFinite(_reqHmm) && _reqHmm > 0)
+      && (wmm >= _reqHmm - tol && wmm <= _reqHmm + slack)
+      && (hmm >= 2 * _reqWmm - tol && hmm <= 2 * _reqWmm + slack);
+}
+async function _coverSpreadFix(bytes){
+  var MM = 25.4 / 72;
+  var doc = await PDFLib.PDFDocument.load(bytes.slice(0), { ignoreEncryption: true });
+  var pages = doc.getPages(), idx = -1;
+  var noReq = !(isFinite(_reqWmm) && _reqWmm > 0 && isFinite(_reqHmm) && _reqHmm > 0);
+  for (var i = 0; i < pages.length; i++){
+    var mb = pages[i].getMediaBox(), wmm = mb.width * MM, hmm = mb.height * MM;
+    if (_isRotSpread(wmm, hmm)) { idx = i; break; }
+    /* בלי גודל-עבודה: עמוד גבוה-חריג נאמר בקול במקום להישאר תעלומה */
+    if (noReq && hmm > wmm * 1.85)
+      _qBadge('⚠️ יש עמוד שנראה ככפולה מסובבת — הגדירו גודל-עמוד לעבודה (✏️ פרטים) כדי שנציב שער/גב', 12000);
+  }
+  if (idx < 0) return bytes;
+  var cs = (window._pmRec && _pmRec.coverSpread) || null;
+  if (!cs || (cs.rot !== 90 && cs.rot !== -90) || (cs.coverHalf !== 'left' && cs.coverHalf !== 'right')){
+    cs = await _askCoverSpread(bytes, idx);
+    if (!cs){ _qBadge('⚠️ זוהתה כפולת-שער מסובבת — נשארה כמו-שהיא (לא נבחרה הצבה)', 9000); return bytes; }
+    try {
+      await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`), { method:'PATCH',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ coverSpread: { rot: cs.rot, coverHalf: cs.coverHalf, at: Date.now() } }) });
+      if (window._pmRec) _pmRec.coverSpread = cs;
+    } catch(e){ console.error('שמירת בחירת כפולת-השער נכשלה — תישאל שוב בפעם הבאה', e); }
+  }
+  var srcPage = pages[idx], mb2 = srcPage.getMediaBox();
+  var w0 = mb2.width, h0 = mb2.height, hh = h0 / 2, newW = hh, newH = w0;
+  /* מיפוי חצי-חזותי → חצי-מקור: סיבוב PDF‏ +90 = נגד-השעון חזותית →
+     ראש-העמוד המקורי הופך לצד שמאל; ‏−90 הפוך. אומת מול מטריצת-הסיבוב. */
+  var topIsCover = (cs.rot === -90 && cs.coverHalf === 'right') || (cs.rot === 90 && cs.coverHalf === 'left');
+  var boxTop = { left: mb2.x, bottom: mb2.y + hh, right: mb2.x + w0, top: mb2.y + h0 };
+  var boxBot = { left: mb2.x, bottom: mb2.y,      right: mb2.x + w0, top: mb2.y + hh };
+  var out = await PDFLib.PDFDocument.create();
+  var mkHalf = async function(box){
+    var emb = await out.embedPage(srcPage, box);
+    var pg = out.addPage([newW, newH]);
+    if (cs.rot === 90) pg.drawPage(emb, { x: newW, y: 0,    rotate: PDFLib.degrees(90)  });
+    else               pg.drawPage(emb, { x: 0,    y: newH, rotate: PDFLib.degrees(-90) });
+  };
+  await mkHalf(topIsCover ? boxTop : boxBot);                    // שער — עמוד ראשון
+  var rest = doc.getPageIndices().filter(function(x){ return x !== idx; });
+  (await out.copyPages(doc, rest)).forEach(function(p){ out.addPage(p); });
+  await mkHalf(topIsCover ? boxBot : boxTop);                    // גב — עמוד אחרון
+  _qBadge('📖 כפולת-השער פוצלה: שער בתחילת הדפדוף וגב בסופו', 9000);
+  return new Uint8Array(await out.save());
+}
+/* הדיאלוג: שלב 1 — שתי תצוגות מסובבות (נגד/עם כיוון-השעון), בוחרים את
+   הישרה; שלב 2 — איזה צד הוא השער. Promise<{rot,coverHalf}|null>. */
+async function _askCoverSpread(bytes, idx){
+  var pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+  var page = await pdf.getPage(idx + 1);
+  var vp0 = page.getViewport({ scale: 1 });
+  var scale = 340 / vp0.height;
+  var vp = page.getViewport({ scale: scale });
+  var src = document.createElement('canvas'); src.width = Math.ceil(vp.width); src.height = Math.ceil(vp.height);
+  var sg = src.getContext('2d');
+  sg.fillStyle = '#fff'; sg.fillRect(0, 0, src.width, src.height);   // רקע לבן מפורש — עמודי-שקיפות
+  await page.render({ canvasContext: sg, viewport: vp }).promise;
+  pdf.cleanup && pdf.cleanup();
+  var rotCanvas = function(cw){
+    var c = document.createElement('canvas'); c.width = src.height; c.height = src.width;
+    var g = c.getContext('2d');
+    if (cw) { g.translate(src.height, 0); g.rotate(Math.PI / 2); }      // עם כיוון-השעון (חזותית) ↔ PDF ‎-90
+    else    { g.translate(0, src.width);  g.rotate(-Math.PI / 2); }     // נגד כיוון-השעון ↔ PDF ‎+90
+    g.drawImage(src, 0, 0); return c;
+  };
+  return new Promise(function(resolve){
+    var ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100200;display:flex;align-items:center;justify-content:center;direction:rtl;padding:16px;overflow:auto';
+    var bx = document.createElement('div');
+    bx.style.cssText = 'background:#fff;border-radius:14px;max-width:820px;width:100%;padding:18px 20px;text-align:center';
+    ov.appendChild(bx); document.body.appendChild(ov);
+    var done = function(v){ ov.remove(); resolve(v); };
+    var step2 = function(rot, canv){
+      bx.innerHTML = '<div style="font-weight:900;font-size:1.05rem;color:#2d3561;margin-bottom:4px">איזה צד הוא השער (העמוד הראשון)?</div>'
+        + '<div style="font-size:.84rem;color:#666;margin-bottom:10px">הצד השני יוצב כגב-העיתון בסוף הדפדוף. הבחירה נשמרת לעיתון הזה.</div>';
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;display:inline-block;max-width:100%';
+      canv.style.cssText = 'max-width:100%;height:auto;border:1px solid #e5e7eb;border-radius:8px';
+      wrap.appendChild(canv);
+      ['right','left'].forEach(function(side){
+        var b = document.createElement('button');
+        b.textContent = side === 'right' ? '⬅ זה השער (ימין)' : 'זה השער (שמאל) ➡';
+        b.style.cssText = 'position:absolute;bottom:10px;' + (side === 'right' ? 'right:10px' : 'left:10px')
+          + ';background:#2d3561;color:#fff;border:0;border-radius:9px;padding:9px 14px;font-weight:800;cursor:pointer';
+        b.onclick = function(){ done({ rot: rot, coverHalf: side }); };
+        wrap.appendChild(b);
+      });
+      bx.appendChild(wrap);
+      var cn = document.createElement('div');
+      cn.innerHTML = '<button style="margin-top:10px;border:1.5px solid #e2e8f0;background:#fff;border-radius:9px;padding:8px 14px;cursor:pointer;font-weight:700">ביטול</button>';
+      cn.firstChild.onclick = function(){ done(null); };
+      bx.appendChild(cn);
+    };
+    bx.innerHTML = '<div style="font-weight:900;font-size:1.05rem;color:#2d3561;margin-bottom:4px">📖 זוהתה כפולת-שער מסובבת</div>'
+      + '<div style="font-size:.84rem;color:#666;margin-bottom:12px">באיזו מהתצוגות העמוד עומד ישר? (לחצו עליה)</div>';
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:14px;justify-content:center;flex-wrap:wrap';
+    [{ cw:false, rot:90 }, { cw:true, rot:-90 }].forEach(function(o){
+      var c = rotCanvas(o.cw);
+      c.style.cssText = 'max-width:46%;height:auto;border:2px solid #e5e7eb;border-radius:10px;cursor:pointer';
+      c.onmouseenter = function(){ c.style.borderColor = '#c9a84c'; };
+      c.onmouseleave = function(){ c.style.borderColor = '#e5e7eb'; };
+      c.onclick = function(){ step2(o.rot, rotCanvas(o.cw)); };
+      row.appendChild(c);
+    });
+    bx.appendChild(row);
+    var cn2 = document.createElement('div');
+    cn2.innerHTML = '<button style="margin-top:12px;border:1.5px solid #e2e8f0;background:#fff;border-radius:9px;padding:8px 14px;cursor:pointer;font-weight:700">ביטול — השאר כמו-שהוא</button>';
+    cn2.firstChild.onclick = function(){ done(null); };
+    bx.appendChild(cn2);
+  });
+}
+
 /* ── הרכבת עיתון עמוד-לכל-קובץ לפי משבצות (בקשת-בעלים 14/08) ──────────────
    כל קובץ נכנס למשבצת שלו לפי מספר-העמוד שבשם (שער=1); משבצת 1..declared
    שאין לה קובץ מקבלת **עמוד-מציין-מקום** בגודל-העמוד של הגיליון — כך הסדר,
@@ -830,7 +954,12 @@ async function _loadTrimsBg(){
                     : ('מוריד את הקובץ… ' + mb + ' MB');
       if (_fromCache) _qBadge('⏳ ' + t); else showOverlay(t, true, pct);
     });
-    const orig = new Uint8Array(rawBuf);
+    let orig = new Uint8Array(rawBuf);
+    /* כפולת-שער מסובבת 90° (בקשת-בעלים 14/08): שער+גב בקובץ אחד עומד-על-צידו.
+       זיהוי לפי גודל-העבודה; ההצבה (כיוון-סיבוב + איזה חצי שער) נשאלת פעם
+       אחת לעיתון ונשמרת ברשומה (coverSpread) — משתנה בין לקוחות, לא מנחשים. */
+    try { orig = await _coverSpreadFix(orig); }
+    catch(e){ console.error('טיפול בכפולת-שער נכשל — ממשיכים בלי פיצול', e); }
     let norm = orig;
     /* כפולה → 2 חצאים לתצוגה, בסדר-הקריאה; prov שומר את ה-provenance לכל עמוד-תצוגה.
        ⚠️ **כשל בפיצול עוצר כאן.** אין נפילה-לאחור ל-orig: תצוגה שלא ידוע
