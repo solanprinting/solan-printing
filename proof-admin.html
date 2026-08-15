@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786776729"></script>
-<script src="chat-alert.js?v=1786776729"></script>
-<script src="shop-issue.js?v=1786776729"></script>
-<script src="page-marks.js?v=1786776729"></script>
-<script src="kontres-split.js?v=1786776729"></script>
+<script src="portal-chat.js?v=1786800205"></script>
+<script src="chat-alert.js?v=1786800205"></script>
+<script src="shop-issue.js?v=1786800205"></script>
+<script src="page-marks.js?v=1786800205"></script>
+<script src="kontres-split.js?v=1786800205"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786776729"></script>
-<script src="auth-client.js?v=1786776729"></script>
+<script src="firebase-auth.bundle.js?v=1786800205"></script>
+<script src="auth-client.js?v=1786800205"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786776729" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786800205" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -628,6 +628,7 @@ window.addEventListener('appinstalled', function(){
         <button class="btn ghost" id="installBtn" style="display:none" title="התקנת המסך הזה כאפליקציה על שולחן העבודה">📥 התקן כאפליקציה</button>
         <button class="btn ghost" id="portalsBtn" title="פתיחת פורטל אישי לכל לקוח שמופיע ביומן השבועי">🏢 פורטלים ליומן</button>
         <button class="btn ghost" id="usageBtn">💾 ניצול אחסון</button>
+        <button class="btn ghost" id="cleanupBtn" title="מחיקת קובצי-Storage של עבודות שהושלמו מזמן — הרשומות נשארות, רק הקבצים נמחקים">🧹 ניקוי קבצים ישנים</button>
         <button class="btn ghost" id="trashBtn" title="קבצים שהוסרו — ניתן לשחזר">🗑 סל מיחזור</button>
       </div>
     </div>
@@ -3742,6 +3743,50 @@ function _renderUsage(total){
   const b = document.getElementById('freeSpaceBtn'); if(b) b.onclick = () => _offerCleanup(total);
 }
 $('usageBtn').onclick = () => _renderUsage(_usageBytes());
+/* ── 🧹 ניקוי-אחסון (בקשת-בעלים 15/08/2026) ───────────────────────────────
+   המחיקה עצמה ב-Function (חוקי-Storage חוסמים delete מהדפדפן, בכוונה);
+   כאן רק: רשימת-מועמדים → אישור-בעלים מפורש עם שמות וגדלים → מחיקה.
+   רצפת-30-הימים נאכפת בשרת — הקליינט אינו יכול להוריד אותה. */
+async function _fnCall(name, body){
+  const t = await _fbAuthToken();
+  if (!t) throw new Error('אין חיבור מאומת');
+  const r = await fetch('https://europe-west1-solan-printing.cloudfunctions.net/' + name, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t },
+    body: JSON.stringify({ data: body || {} }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((j.error && j.error.message) || ('הקריאה נכשלה (' + r.status + ')'));
+  return j.result;
+}
+const _fmtGB = (b) => b >= 1024*1024*1024 ? (b/(1024*1024*1024)).toFixed(2) + ' GB'
+                    : b >= 1024*1024 ? (b/(1024*1024)).toFixed(1) + ' MB' : Math.round(b/1024) + ' KB';
+async function _storageCleanup(){
+  const v = prompt('למחוק קבצים של עבודות שהושלמו לפני כמה ימים?\n(מינימום 30 — נאכף גם בשרת; הרשומות והיסטוריית-העבודה נשארות)', '60');
+  if (v === null) return;
+  const days = parseInt(v, 10);
+  if (!isFinite(days) || days < 30){ alert('מינימום 30 יום.'); return; }
+  const b = $('cleanupBtn'); b.disabled = true; b.textContent = '🧹 בודק…';
+  try {
+    const res = await _fnCall('storageCleanup', { days: days });
+    const cands = (res && res.candidates) || [];
+    if (!cands.length){ alert('אין עבודות שהושלמו לפני ' + days + '+ ימים עם קבצים לניקוי.'); return; }
+    const total = cands.reduce((s, c) => s + (c.bytes || 0), 0);
+    const nl = String.fromCharCode(10);
+    const sample = cands.slice(0, 12).map(c =>
+      '· ' + c.title + ' (' + new Date(c.completedAt).toLocaleDateString('he-IL') + ')').join(nl);
+    if (!confirm('נמצאו ' + cands.length + ' עבודות — יימחקו כ-' + _fmtGB(total) + ' של קבצים:' + nl + nl
+      + sample + (cands.length > 12 ? (nl + '…ועוד ' + (cands.length - 12)) : '') + nl + nl
+      + 'הקבצים נמחקים לצמיתות מהאחסון (הרשומות נשארות). להמשיך?')) return;
+    b.textContent = '🧹 מוחק…';
+    const del = await _fnCall('storageCleanup', { action: 'delete', days: days, ids: cands.map(c => c.id) });
+    const ok = (del.deleted || []).length, bad = (del.failed || []).length;
+    alert('✓ נוקו ' + ok + ' עבודות (~' + _fmtGB(total) + ')' + (bad ? (nl + '⚠️ ' + bad + ' נכשלו — ראו console') : ''));
+    if (bad) console.error('ניקוי-אחסון — כשלים:', del.failed);
+  } catch(e){
+    console.error('ניקוי-אחסון נכשל', e);
+    alert('⚠️ ניקוי-האחסון נכשל: ' + (e.message || e));
+  } finally { b.disabled = false; b.textContent = '🧹 ניקוי קבצים ישנים'; }
+}
+$('cleanupBtn').onclick = _storageCleanup;
 $('portalsBtn').onclick = () => openPortalsBatch();
 
 /* ── 📥 התקנה כאפליקציה למחשב ────────────────────────────────────────────────
