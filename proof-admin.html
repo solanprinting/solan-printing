@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786774848"></script>
-<script src="chat-alert.js?v=1786774848"></script>
-<script src="shop-issue.js?v=1786774848"></script>
-<script src="page-marks.js?v=1786774848"></script>
-<script src="kontres-split.js?v=1786774848"></script>
+<script src="portal-chat.js?v=1786776729"></script>
+<script src="chat-alert.js?v=1786776729"></script>
+<script src="shop-issue.js?v=1786776729"></script>
+<script src="page-marks.js?v=1786776729"></script>
+<script src="kontres-split.js?v=1786776729"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786774848"></script>
-<script src="auth-client.js?v=1786774848"></script>
+<script src="firebase-auth.bundle.js?v=1786776729"></script>
+<script src="auth-client.js?v=1786776729"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786774848" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786776729" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -3243,11 +3243,27 @@ async function _runSourceBytes(t) {
   else if (t.partId && rec.parts && rec.parts[t.partId] && rec.parts[t.partId].fileUrl)
     urls.push(rec.parts[t.partId].fileUrl);
   else if (rec.fileUrl) urls.push(rec.fileUrl);
-  else {
+  let weave = null;                 // עמודים-בודדים מהפורטל שנשזרים למקומם בין הריצות
+  if (!urls.length) {
     Object.values(rec.parts || {})
       .filter(p => p && p.fileUrl)
       .sort((a, b) => (a.approvedAt || 0) - (b.approvedAt || 0))
       .forEach(p => urls.push(p.fileUrl));
+    /* ⚠️ 15/08/2026, בקשת-בעלים: עמוד-בודד שהועלה מהפורטל למשבצת-חסרה
+       (למשל עמ' 128) חייב להיכנס **למקומו** בעיתון — עד היום הוא נבלע
+       בשקט כשהיו ריצות, כי files נקרא רק כשאין parts. מיקום-ההכנסה
+       מתוקן לפי המשבצות שעדיין חסרות (pendingPages). */
+    if (urls.length && rec.files) {
+      const fe = Object.values(rec.files).filter(f => f && f.fileUrl)
+        .map(f => ({ url: f.fileUrl, slot: ShopIssue.pageNoOf(f.fileName) }))
+        .filter(f => f.slot >= 1).sort((a, b) => a.slot - b.slot);
+      if (fe.length) {
+        const pend = new Set();
+        (rec.pendingPages || []).forEach(x => pend.add(Number(x)));
+        Object.values(rec.parts || {}).forEach(p => ((p || {}).pendingPages || []).forEach(x => pend.add(Number(x))));
+        weave = { ents: fe, pend: pend };
+      }
+    }
     if (!urls.length && rec.files) {
       Object.values(rec.files).filter(f => f && f.fileUrl)
         .sort((a, b) => (ShopIssue.pageNoOf(a.fileName) || 9999) - (ShopIssue.pageNoOf(b.fileName) || 9999))
@@ -3264,12 +3280,29 @@ async function _runSourceBytes(t) {
     if (head !== '%PDF-') throw new Error('הקובץ שהתקבל אינו PDF — ' + head.slice(0, 5));
     bufs.push(b);
   }
-  if (bufs.length === 1) return bufs[0];
+  if (bufs.length === 1 && !weave) return bufs[0];
   const out = await PDFLib.PDFDocument.create();
   for (const b of bufs) {
     const d = await PDFLib.PDFDocument.load(b);
     const pages = await out.copyPages(d, d.getPageIndices());
     pages.forEach(p => out.addPage(p));
+  }
+  if (weave) {
+    const fileSlots = new Set(weave.ents.map(e => e.slot));
+    for (const e of weave.ents) {
+      const r2 = await fetch(e.url);
+      if (!r2.ok) throw new Error('הורדת עמוד-בודד (עמ׳ ' + e.slot + ') נכשלה (' + r2.status + ')');
+      const b2 = await r2.arrayBuffer();
+      const h2 = String.fromCharCode.apply(null, new Uint8Array(b2.slice(0, 5)));
+      if (h2 !== '%PDF-') throw new Error('עמוד-בודד (עמ׳ ' + e.slot + ') אינו PDF');
+      const d2 = await PDFLib.PDFDocument.load(b2);
+      const cps = await out.copyPages(d2, d2.getPageIndices());
+      /* המיקום: עמ׳ N יושב באינדקס N-1 פחות המשבצות שלפניו שעוד חסרות */
+      let missBefore = 0;
+      weave.pend.forEach(x => { if (x < e.slot && !fileSlots.has(x)) missBefore++; });
+      let idx = Math.max(0, Math.min(out.getPageCount(), e.slot - 1 - missBefore));
+      cps.forEach(pg => { out.insertPage(idx++, pg); });
+    }
   }
   return (await out.save()).buffer;
 }

@@ -9,19 +9,19 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786774848"></script>
-<script src="page-add.js?v=1786774848"></script>
-<script src="portal-context.js?v=1786774848"></script>
-<script src="portal-return.js?v=1786774848"></script>
-<script src="portal-chat.js?v=1786774848"></script>
+<script src="portal-download.js?v=1786776729"></script>
+<script src="page-add.js?v=1786776729"></script>
+<script src="portal-context.js?v=1786776729"></script>
+<script src="portal-return.js?v=1786776729"></script>
+<script src="portal-chat.js?v=1786776729"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786774848"></script>
+<script src="chat-alert.js?v=1786776729"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786774848"></script>
-<script src="page-marks.js?v=1786774848"></script>
+<script src="shop-issue.js?v=1786776729"></script>
+<script src="page-marks.js?v=1786776729"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -168,7 +168,8 @@
   .sgDeclare:hover { border-color:var(--gold); background:#fffdf6; }
   .notice { border-radius:15px; box-shadow:0 3px 12px rgba(0,0,0,.05); border-inline-start:4px solid var(--gold); }
   .empty { padding:26px 0; }
-  .chatBox { border-radius:13px; background:#f7f8fc; }
+  /* חלון-שיחה גבוה כמו וואטסאפ (בקשת-בעלים 15/08) — במקום 330px קבועים */
+  .chatBox { border-radius:13px; background:#f7f8fc; max-height:none; height:clamp(340px, 58vh, 680px); }
   .chatMsg { border-radius:15px; }
   .chatMsg.mine { background:#e4e8fb; border-color:#c3cbf2; }
   .chatSend textarea { border-radius:12px; }
@@ -310,7 +311,10 @@
            טקסט. הן נשארות שני אזורים נפרדים. -->
       <div class="card" id="chat-card" style="margin-bottom:0">
         <h2>💬 שיחה עם בית הדפוס</h2>
-        <div style="font-size:.82rem;color:#6b7280;margin-bottom:9px">כל שאלה על הגיליון — כאן. אנחנו רואים ועונים.</div>
+        <div style="font-size:.82rem;color:#6b7280;margin-bottom:9px;display:flex;align-items:center;gap:8px">
+          <span style="flex:1">כל שאלה על הגיליון — כאן. אנחנו רואים ועונים.</span>
+          <button id="chat-close" title="ההודעות עוברות להיסטוריית-השיחות — נשמרות, לא נמחקות. הודעה חדשה תפתח שיחה חדשה" style="border:0;background:#eef2ff;color:#2d3561;font-family:inherit;font-weight:800;font-size:.74rem;border-radius:8px;padding:5px 10px;cursor:pointer;white-space:nowrap">✓ סגור שיחה</button>
+        </div>
         <div id="chat-box" class="chatBox"><div class="empty" style="padding:8px">טוען…</div></div>
         <div class="chatSend">
           <textarea id="chat-input" rows="2" placeholder="כתבו הודעה לבית הדפוס…"></textarea>
@@ -1006,8 +1010,9 @@ function _slotGridHtml(p, lockedView){
   if (!tiles.length) return '<div class="sgWrap">' + head + '</div>';
   var cells = tiles.map(function(t, i){
     if (t.kind === 'missing')
-      return '<div class="sgT miss" data-sgslot="' + t.pageNo + '" data-sgid="' + esc(p._id) + '">✚<div class="sgNm">חסר עמ׳ ' + t.pageNo + '</div>'
-        + (!lockedView ? '<div class="sgHint">גררו לכאן עמוד</div>' : '') + '</div>';
+      return '<div class="sgT miss" data-sgslot="' + t.pageNo + '" data-sgid="' + esc(p._id) + '"'
+        + (!lockedView ? ' style="cursor:pointer" onclick="_sgFixUpload(\'' + esc(p._id) + '\',' + t.pageNo + ')"' : '') + '>✚<div class="sgNm">חסר עמ׳ ' + t.pageNo + '</div>'
+        + (!lockedView ? '<div class="sgHint">גררו לכאן קובץ מהמחשב, או לחצו להעלאה</div>' : '') + '</div>';
     var mk = t.mark;
     var cls = mk ? (mk.kind === 'replace' ? ' rep' : ' okm') : '';
     var moveKey = t.partId ? ('part|' + t.partId) : (t.target && t.target.indexOf('file_') === 0 ? ('file|' + t.target.slice(5)) : '');
@@ -1174,12 +1179,34 @@ document.addEventListener('drop', function(ev){
   var slotEl = ev.target.closest && ev.target.closest('[data-sgslot]');
   if (!slotEl) return;
   ev.preventDefault();
+  /* קובץ מהמחשב שנגרר על משבצת-חסרה (בקשת-בעלים 15/08) — עולה ומשתבץ
+     ישר למשבצת הזו. PDF בלבד; יותר מקובץ אחד — הראשון, ונאמר. */
+  var dropped = ev.dataTransfer && ev.dataTransfer.files;
+  if (dropped && dropped.length){
+    var pf = Array.prototype.slice.call(dropped).filter(function(f){ return f.type === 'application/pdf' || /\.pdf$/i.test(f.name || ''); });
+    if (!pf.length){ toast('נא לגרור קובץ-PDF'); return; }
+    if (pf.length > 1) toast('נגררו כמה קבצים — הראשון ישובץ למשבצת ' + slotEl.dataset.sgslot);
+    _sgDropFile(slotEl.dataset.sgid, parseInt(slotEl.dataset.sgslot, 10), pf[0]);
+    return;
+  }
   var mv = ev.dataTransfer.getData('text/sgmove');
   if (!mv) return;
   var parts = mv.split('|');                       // id | kind | key
   if (parts[0] !== slotEl.dataset.sgid) { toast('אפשר לשבץ רק בתוך אותו גיליון'); return; }
   _sgMoveTo(parts[0], parts[1] + '|' + parts[2], slotEl.dataset.sgslot);
 });
+/* העלאת קובץ-שנגרר למשבצת — אותו מסלול של "העלה עמוד מתוקן" */
+async function _sgDropFile(id, slot, f){
+  var rec = _sgReg[id]; if (!rec){ toast('⚠️ הגיליון לא נמצא — רעננו'); return; }
+  if (!isFinite(slot) || slot < 1){ toast('משבצת לא מזוהה'); return; }
+  if (_sgTiles[id] && _sgTiles[id].locked){ toast('🔒 הגיליון נשלח לדפוס — השלמת עמוד רק בתיאום עם בית-הדפוס'); return; }
+  if (!_lock('upload')) { toast('העלאה כבר מתבצעת — רגע…'); return; }
+  try {
+    var named; try { named = new File([f], 'עמוד ' + slot + '.pdf', { type: 'application/pdf' }); } catch(e){ named = f; }
+    await _quickAddToIssue(rec, [named], null);
+  } catch(e){ console.error('העלאת העמוד למשבצת נכשלה', e); showOv('', false); toast('⚠️ העלאת העמוד נכשלה — נסו שוב'); }
+  finally { _unlock('upload'); }
+}
 
 // ── שיתוף-לצפייה של חוברת מדופדפת (13/08/2026, בקשת-בעלים) ──
 /* ⚠️ הקישור המשותף נושא טוקן-**צפייה** שהשרת מנפיק — לא את foldToken.
@@ -1367,6 +1394,20 @@ async function loadChat(force){
      האחרונה. בלי זה, שיחה שמצטברת שנה אחורה הופכת את התיבה לארכיון
      ומה שרלוונטי לגיליון של היום נבלע בין עשרות הודעות ישנות. */
   _chatMsgs = PortalChat.activeOf(_chatAll, PortalChat.lastCloseAt(obj));
+  /* ── סגירה-אוטומטית (בקשת-בעלים 15/08): שיחה שקטה יממה נסגרת לגמרי,
+     עוברת להיסטוריה, והודעה הבאה פותחת שיחה חדשה. הכתיבה פעם אחת
+     (דגל), וכשל אינו מפיל את השיחה — פשוט תישאר פתוחה. */
+  var _lm = PortalChat.lastMessage(_chatMsgs);
+  if (_lm && (Date.now() - Number(_lm.at)) > 24*60*60*1000 && !window._chatAutoClosed){
+    window._chatAutoClosed = true;
+    try {
+      var at0 = Date.now();
+      await fbWrite(await _au(`${_FBURL}/${PortalChat.closePath(SLUG)}/${PortalChat.closeId(at0)}.json`),
+        { method:'PUT', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(PortalChat.closeMark({ at: at0, by: 'סגירה אוטומטית — יממה ללא פעילות' })) }, 'chat:autoclose');
+      return loadChat(true);              // רענון אחד — הדגל מונע לולאה
+    } catch(e){ console.warn('סגירה-אוטומטית של השיחה נכשלה — נשארת פתוחה', e); }
+  }
   /* ⚠️ **לפני** _chatMarkSeen: הסימון המשותף מתעדכן בכל משיכה גם כשהלקוח
      לא הסתכל, ולכן אם נחשב את ההתראה אחריו — לעולם לא תהיה התראה. */
   _chatAlertScan();
@@ -1510,6 +1551,22 @@ async function _chatMarkSeen(){
       { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(at) }, 'chat:seen');
   } catch(e){ console.warn('סימון-צפייה בשיחה נכשל (לא חיוני)', e); }
 }
+/* סגירת-שיחה ע"י הלקוח (בקשת-בעלים 15/08) — אותו מנגנון של בית-הדפוס:
+   סימן-סגירה, ההודעות עוברות להיסטוריה, הודעה חדשה פותחת שיחה חדשה. */
+async function _pChatClose(){
+  if (!_chatMsgs.length){ toast('אין שיחה פתוחה לסגירה'); return; }
+  if (!confirm('לסגור את השיחה? ' + _chatMsgs.length + ' ההודעות יעברו להיסטוריית-השיחות — הן נשמרות, לא נמחקות.')) return;
+  var b = $('chat-close'); if (b){ b.disabled = true; b.textContent = 'סוגר…'; }
+  try {
+    var at = Date.now();
+    await fbWrite(await _au(`${_FBURL}/${PortalChat.closePath(SLUG)}/${PortalChat.closeId(at)}.json`),
+      { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(PortalChat.closeMark({ at: at, by: (_portalRec && _portalRec.name) || CUST || 'הלקוח' })) }, 'chat:close');
+    await loadChat(true);
+    toast('✓ השיחה נסגרה ועברה להיסטוריה');
+  } catch(e){ console.error('סגירת השיחה נכשלה', e); toast('⚠️ סגירת השיחה נכשלה — נסו שוב'); }
+  finally { var b2 = $('chat-close'); if (b2){ b2.disabled = false; b2.textContent = '✓ סגור שיחה'; } }
+}
 async function _chatSend(){
   var ta = $('chat-input'); if (!ta) return;
   var v = PortalChat.validate(ta.value);
@@ -1563,6 +1620,7 @@ function _chatStart(){
   window.addEventListener('focus', _chatAlertClear);
   /* לחיצה בתוך תיבת-השיחה נחשבת "ראיתי" גם בלי החלפת-לשונית. */
   var cc = $('chat-card'); if (cc) cc.addEventListener('click', _chatAlertClear);
+  var cl = $('chat-close'); if (cl) cl.onclick = _pChatClose;
 }
 
 function wireUpload(){
