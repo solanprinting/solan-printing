@@ -153,7 +153,10 @@
      להיראות כעבודה להדפסה. זה בדיוק מה שהתיקון בא למנוע. */
   function archivePath(proofId, target, version) {
     var base = 'customerProofs/' + str(proofId);
-    if (target && target !== 'full') base += '/parts/' + str(target);
+    /* ‏file_<k> = יחידת קובץ-בודד (עיתון עמוד-לכל-קובץ, 15/08/2026):
+       הארכיון יושב תחת files/f<k> — אותו עיקרון של parts, נתיב אחר. */
+    if (target && str(target).indexOf('file_') === 0) base += '/files/f' + str(target).slice(5);
+    else if (target && target !== 'full') base += '/parts/' + str(target);
     return base + '/versions/v' + num(version);
   }
 

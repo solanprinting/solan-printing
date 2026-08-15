@@ -78,7 +78,10 @@
      השניים חיים זה לצד זה עד שהמעבר יושלם — ולכן שניהם ברשימה. */
   /* ⚠️ portal-view.html הוא תצוגת-הלקוח הייעודית (B+3.5) — קוראת
      portalFiles/portalProofs בלבד, ובאה במקום "מצב לקוח" בתוך כלי-הייצור. */
-  var CUSTOMER_PAGES = ['portal.html', 'portal-view.html', 'customer-portal.html', 'proof-client.html', 'proof-upload.html'];
+  /* ⚠️ page-editor נפתח ללקוחות (בקשת-בעלים 15/08): הלקוח מתקן עמודים
+     שלו בפורטל. הגבול אינו הרשימה הזו אלא חוקי-RTDB/Storage — לקוח כותב
+     רק לרשומות של ה-portalId שלו, בדיוק כמו בהעלאה ובעורך-ההחלפות. */
+  var CUSTOMER_PAGES = ['portal.html', 'portal-view.html', 'customer-portal.html', 'proof-client.html', 'proof-upload.html', 'page-editor.html'];
   var CUSTOMER_HOME = 'portal.html';
 
   /* ⚠️ press4 אינו "עובד רגיל עם פחות כפתורים" אלא סוג-חשבון משלו:

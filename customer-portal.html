@@ -9,19 +9,19 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786740498"></script>
-<script src="page-add.js?v=1786740498"></script>
-<script src="portal-context.js?v=1786740498"></script>
-<script src="portal-return.js?v=1786740498"></script>
-<script src="portal-chat.js?v=1786740498"></script>
+<script src="portal-download.js?v=1786774848"></script>
+<script src="page-add.js?v=1786774848"></script>
+<script src="portal-context.js?v=1786774848"></script>
+<script src="portal-return.js?v=1786774848"></script>
+<script src="portal-chat.js?v=1786774848"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786740498"></script>
+<script src="chat-alert.js?v=1786774848"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786740498"></script>
-<script src="page-marks.js?v=1786740498"></script>
+<script src="shop-issue.js?v=1786774848"></script>
+<script src="page-marks.js?v=1786774848"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -76,6 +76,10 @@
   .sgMv { position:absolute; top:2px; inset-inline-end:2px; border:0; background:#f3f4f6;
           border-radius:6px; font-size:.68rem; cursor:pointer; padding:1px 5px; }
   .sgMv:hover { background:#e0e7ff; }
+  /* תצוגה-מקדימה על אריח (15/08 — "כמו במסך-הדפוס"); ריקה = לא תופסת מקום */
+  .sgPv { line-height:0; }
+  .sgPv canvas { max-width:100%; height:auto; border:1px solid #eef0f5; border-radius:6px;
+                 margin-bottom:4px; cursor:pointer; }
   /* נקודת-העלאה לעמוד שדרוש-החלפה — על האריח עצמו */
   .sgFix { display:block; width:100%; margin-top:4px; border:1.5px solid #fca5a5; background:#fff;
            color:#b91c1c; border-radius:8px; font-family:inherit; font-size:.7rem; font-weight:800;
@@ -935,6 +939,8 @@ async function loadHistory(){
       + (isDone?'🏁 הושלמה':(locked?'✓ אושר לדפוס':b.txt))+'</span>'
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">'+acts+'</div></div>';
   }).join('');
+  /* תצוגות-מקדימות — אחרי שהרשימה על המסך; כשל אינו מפיל את הפורטל */
+  try { _sgThumbs().catch(function(e){ console.warn('תצוגות-מקדימות לא נטענו', e); }); } catch(e){}
 }
 
 /* ── כתיבה ל-Firebase עם בדיקת-תגובה ─────────────────────────────────────────
@@ -987,6 +993,8 @@ function _slotGridHtml(p, lockedView){
   if (!hasContent && lockedView) return '';
   _sgReg[p._id] = p;
   var tiles = ShopIssue.pageTiles(p);
+  /* נשמר להגדלה/עריכה (בקשת-בעלים 15/08 — "כמו במסך של הדפוס") */
+  _sgTiles[p._id] = { tiles: tiles, locked: !!lockedView };
   var got = tiles.filter(function(t){ return t.kind === 'page'; }).length;
   var declared = Number(p.declaredPages) || 0;
   var repCount = tiles.filter(function(t){ return t.mark && t.mark.kind === 'replace'; }).length;
@@ -1008,7 +1016,11 @@ function _slotGridHtml(p, lockedView){
        גם כשהדפדפן עצמו מחזיק כניסת-צוות (המחשב של הדפוס). */
     var view = 'proof-viewer.html?id=' + encodeURIComponent(p._id) + (t.partId ? ('&part=' + encodeURIComponent(t.partId)) : '') + '&ctx=portal';
     return '<div class="sgT' + cls + '"' + (moveKey && !lockedView ? ' draggable="true" data-sgmove="' + esc(p._id) + '|' + moveKey + '"' : '') + '>'
-      + '<a href="' + view + '" target="_blank" rel="noopener" class="sgLink">' + (mk ? (mk.kind === 'replace' ? '🔁 ' : '✔ ') : '📄 ') + esc(t.label) + '</a>'
+      /* תצוגה-מקדימה + הגדלה (15/08): לחיצה פותחת חלון-הגדלה עם צפייה
+         ועריכה — כמו רשת-העמודים במסך-הדפוס. הרינדור עצל; ברשת שחוסמת
+         את האחסון האריח נשאר עם האייקון והדפדוף הוא הגיבוי. */
+      + '<div class="sgPv" data-sgpv="' + esc(p._id) + '|' + i + '" title="לחיצה — הגדלה, צפייה ועריכה"></div>'
+      + '<a href="' + view + '" target="_blank" rel="noopener" class="sgLink" onclick="return _sgLight(\'' + esc(p._id) + '\',' + i + ')">' + (mk ? (mk.kind === 'replace' ? '🔁 ' : '✔ ') : '📄 ') + esc(t.label) + '</a>'
       + (mk && mk.note ? '<div class="sgNote">' + esc(String(mk.note).slice(0, 60)) + (mk.spot ? ' 📍' : '') + '</div>' : '')
       + (moveKey && !lockedView ? '<button class="sgMv" onclick="_sgMovePrompt(\'' + esc(p._id) + '\',\'' + esc(moveKey) + '\')" title="שיבוץ למשבצת אחרת">⇄</button>' : '')
       /* 🔁 דרוש-החלפה → נקודת-העלאה על האריח (גם ברשומה נעולה: הדרישה
@@ -1019,6 +1031,90 @@ function _slotGridHtml(p, lockedView){
   }).join('');
   return '<div class="sgWrap">' + head + '<div class="sgGrid">' + cells + '</div></div>';
 }
+/* ── תצוגות-מקדימות + חלון-הגדלה במפת-הגיליון (בקשת-בעלים 15/08) ────────
+   "כמו במסך של הדפוס": רינדור-אמת קטן על כל אריח, ולחיצה פותחת הגדלה עם
+   צפייה-בדפדוף ועריכת-העמוד. עריכה מוצעת רק כשהגיליון פתוח, או על עמוד
+   שהדפוס עצמו דרש להחליף (הדרישה היא האישור). כשל-רינדור (אחסון חסום
+   ברשת מסוננת) משאיר את האייקון — לא ריבועים שבורים. */
+var _sgTiles = {};                                  // proofId → {tiles, locked}
+var _pdfjsP2 = null;
+function _loadPdfjs(){
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (_pdfjsP2) return _pdfjsP2;
+  if (window.LibLoader) _pdfjsP2 = LibLoader.ensure('pdfjs', { win: window }).then(function(){ return window.pdfjsLib || null; });
+  else _pdfjsP2 = Promise.resolve(null);
+  return _pdfjsP2;
+}
+var _sgDocCache = {};                               // url → Promise<pdf> (מסמך אחד לכמה אריחים)
+function _sgDocFor(url){
+  if (!_sgDocCache[url]) _sgDocCache[url] = _loadPdfjs().then(function(lib){
+    if (!lib) throw new Error('no-pdfjs');
+    return lib.getDocument({ url: url }).promise;
+  });
+  return _sgDocCache[url];
+}
+async function _sgRenderTo(canvasHost, t, maxH){
+  var pdf = await _sgDocFor(t.url);
+  var pg = await pdf.getPage(Math.max(1, Math.min(t.page || 1, pdf.numPages)));
+  var vp0 = pg.getViewport({ scale: 1 });
+  var vp = pg.getViewport({ scale: maxH / vp0.height });
+  var c = document.createElement('canvas');
+  c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+  var g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);   // רקע לבן — עמודי-שקיפות
+  await pg.render({ canvasContext: g, viewport: vp }).promise;
+  canvasHost.innerHTML = ''; canvasHost.appendChild(c);
+  return true;
+}
+async function _sgThumbs(){
+  var els = Array.prototype.slice.call(document.querySelectorAll('.sgPv[data-sgpv]'));
+  for (var i = 0; i < els.length; i++){
+    var kv = els[i].dataset.sgpv.split('|');
+    var reg = _sgTiles[kv[0]]; var t = reg && reg.tiles[parseInt(kv[1], 10)];
+    if (!t || t.kind !== 'page' || !t.url) continue;
+    els[i].onclick = (function(id2, ix){ return function(){ _sgLight(id2, ix); }; })(kv[0], parseInt(kv[1], 10));
+    try { await _sgRenderTo(els[i], t, 120); }
+    catch(e){ /* אחסון חסום/קובץ בעייתי — האייקון נשאר, הדפדוף הוא הגיבוי */ }
+  }
+}
+function _sgLight(id, i){
+  var reg = _sgTiles[id]; var t = reg && reg.tiles[i];
+  if (!t || t.kind !== 'page') return true;         // בלי נתונים — הקישור הרגיל ימשיך לדפדוף
+  var pages = reg.tiles.map(function(x, xi){ return { x: x, xi: xi }; })
+    .filter(function(o){ return o.x.kind === 'page'; });
+  var pos = pages.findIndex(function(o){ return o.xi === i; });
+  var ex = document.getElementById('sgLightbox'); if (ex) ex.remove();
+  var ov = document.createElement('div'); ov.id = 'sgLightbox';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(17,24,39,.88);z-index:97;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;direction:rtl;padding:14px';
+  ov.onclick = function(ev){ if (ev.target === ov) ov.remove(); };
+  var canEdit = !reg.locked || (t.mark && t.mark.kind === 'replace');
+  var view = 'proof-viewer.html?id=' + encodeURIComponent(id) + (t.partId ? ('&part=' + encodeURIComponent(t.partId)) : '') + '&ctx=portal';
+  var editHref = 'page-editor.html?id=' + encodeURIComponent(id)
+    + '&target=' + encodeURIComponent(t.target === 'full' ? 'full' : (t.partId || t.target))
+    + '&page=' + encodeURIComponent(t.target === 'full' ? (t.page || 1) : 1);
+  ov.innerHTML = '<div style="color:#fff;font-weight:900;font-size:1.02rem">' + esc(t.label)
+      + (t.mark && t.mark.note ? ' — <span style="color:#fca5a5">' + esc(String(t.mark.note).slice(0, 60)) + '</span>' : '') + '</div>'
+    + '<div id="sgLightPg" style="max-width:94vw;max-height:74vh;overflow:auto;background:#fff;border-radius:10px;min-width:200px;min-height:180px;display:flex;align-items:center;justify-content:center"><span style="color:#6b7280;padding:40px">טוען…</span></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">'
+    + (pos > 0 ? '<button class="btn btn-v" id="sgLPrev">‹ הקודם</button>' : '')
+    + (pos < pages.length - 1 ? '<button class="btn btn-v" id="sgLNext">הבא ›</button>' : '')
+    + '<a class="btn btn-v" target="_blank" rel="noopener" href="' + view + '">👁 פתח בדפדוף</a>'
+    + (canEdit ? '<a class="btn btn-primary" target="_blank" rel="noopener" href="' + editHref + '">🛠 ערוך עמוד</a>' : '')
+    + '<button class="btn btn-dl" id="sgLClose">✕ סגור</button></div>'
+    + (reg.locked && !canEdit ? '<div style="color:#d1d5db;font-size:.8rem">🔒 הגיליון נשלח לדפוס — עריכה רק לעמוד שהדפוס דרש להחליף</div>' : '');
+  document.body.appendChild(ov);
+  document.getElementById('sgLClose').onclick = function(){ ov.remove(); };
+  var pv = document.getElementById('sgLPrev'); if (pv) pv.onclick = function(){ ov.remove(); _sgLight(id, pages[pos - 1].xi); };
+  var nx = document.getElementById('sgLNext'); if (nx) nx.onclick = function(){ ov.remove(); _sgLight(id, pages[pos + 1].xi); };
+  _sgRenderTo(document.getElementById('sgLightPg'), t, Math.round(window.innerHeight * 0.72))
+    .catch(function(e){
+      console.error('רינדור-ההגדלה נכשל', e);
+      var h = document.getElementById('sgLightPg');
+      if (h) h.innerHTML = '<div style="color:#6b7280;padding:30px;text-align:center;font-size:.9rem">התצוגה לא נטענה ברשת הזו —<br>פתחו את העמוד בדפדוף 👁</div>';
+    });
+  return false;                                     // עוצר את ניווט-הקישור
+}
+window._sgLight = _sgLight;
 async function _sgDeclare(id){
   var p = _sgReg[id]; if (!p) return;
   var cur = Number(p.declaredPages) || '';

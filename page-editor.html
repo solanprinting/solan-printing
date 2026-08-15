@@ -12,15 +12,15 @@
 <script src="vendor/pdf-lib.min.js"></script>
 <script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js'; }catch(e){}</script>
 <script src="lib-loader.js"></script>
-<script src="page-swap.js?v=1786740498"></script>
-<script src="page-replace.js?v=1786740498"></script>
-<script src="shop-issue.js?v=1786740498"></script>
-<script src="page-marks.js?v=1786740498"></script>
-<script src="page-edit-engine.js?v=1786740498"></script>
-<script src="pdf-objects.js?v=1786740498"></script>
-<script src="firebase-auth.bundle.js?v=1786740498"></script>
-<script src="auth-client.js?v=1786740498"></script>
-<script src="auth-guard.js?v=1786740498" data-page="page-editor.html" data-mode="enforce"></script>
+<script src="page-swap.js?v=1786774848"></script>
+<script src="page-replace.js?v=1786774848"></script>
+<script src="shop-issue.js?v=1786774848"></script>
+<script src="page-marks.js?v=1786774848"></script>
+<script src="page-edit-engine.js?v=1786774848"></script>
+<script src="pdf-objects.js?v=1786774848"></script>
+<script src="firebase-auth.bundle.js?v=1786774848"></script>
+<script src="auth-client.js?v=1786774848"></script>
+<script src="auth-guard.js?v=1786774848" data-page="page-editor.html" data-mode="enforce"></script>
 <style>
   :root { --press:#2d3561; --press-d:#222a4d; --gold:#c9a84c; --gold-light:#e8d5a3;
           --green:#16a34a; --red:#dc2626; --amber:#d97706; --line:#e5e7eb; --ink:#1f2937; }
@@ -366,10 +366,15 @@ async function loadJob(){
   if (!r.ok) { busy(false); toast('⛔ טעינת העבודה נכשלה (' + r.status + ')'); return; }
   rec = await r.json();
   if (!rec) { busy(false); toast('⛔ העבודה לא נמצאה'); return; }
-  unit = target === 'full' ? rec : ((rec.parts || {})[target] || null);
+  /* ‏file_<k> = קובץ-בודד של עיתון עמוד-לכל-קובץ (15/08/2026) — היחידה
+     יושבת ב-files/f<k>. עד היום העורך הכיר רק full/parts, וקישור-עריכה
+     מאריח-קובץ נפל על "אין קובץ ליחידה". */
+  unit = target === 'full' ? rec
+       : (target.indexOf('file_') === 0 ? ((rec.files || {})['f' + target.slice(5)] || null)
+       : ((rec.parts || {})[target] || null));
   if (!unit || !unit.fileUrl) { busy(false); toast('⛔ אין קובץ ליחידה הזו — אין מה לערוך'); return; }
   $('jobMeta').textContent = (rec.customer ? rec.customer + ' · ' : '') + (rec.title || '') +
-    (target !== 'full' ? ' · ' + (unit.name || 'ריצה') : '') + ' · עמוד ' + pageNo;
+    (target !== 'full' ? ' · ' + (unit.name || unit.fileName || 'ריצה') : '') + ' · עמוד ' + pageNo;
 
   busy('מוריד את הקובץ…');
   srcBytes = await (await fetch(unit.fileUrl)).arrayBuffer();
@@ -935,7 +940,9 @@ async function save(){
       PageReplace.newFields(unit, { fileUrl, filePath: path, pageCount: srcPageCount || unit.pageCount || 1,
         fileSize: outBytes.byteLength, at, version }),
       { correctedNote: note });
-    const unitPath = target === 'full' ? `customerProofs/${proofId}` : `customerProofs/${proofId}/parts/${target}`;
+    const unitPath = target === 'full' ? `customerProofs/${proofId}`
+      : (target.indexOf('file_') === 0 ? `customerProofs/${proofId}/files/f${target.slice(5)}`
+      : `customerProofs/${proofId}/parts/${target}`);
     r = await fetch(await _au(`${_FBURL}/${unitPath}.json`), { method: 'PATCH',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) });
     if (!r.ok) throw new Error('עדכון הרשומה נכשל (' + r.status + ')');
