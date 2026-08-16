@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786865771"></script>
-<script src="chat-alert.js?v=1786865771"></script>
-<script src="shop-issue.js?v=1786865771"></script>
-<script src="page-marks.js?v=1786865771"></script>
-<script src="kontres-split.js?v=1786865771"></script>
+<script src="portal-chat.js?v=1786869600"></script>
+<script src="chat-alert.js?v=1786869600"></script>
+<script src="shop-issue.js?v=1786869600"></script>
+<script src="page-marks.js?v=1786869600"></script>
+<script src="kontres-split.js?v=1786869600"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786865771"></script>
-<script src="auth-client.js?v=1786865771"></script>
+<script src="firebase-auth.bundle.js?v=1786869600"></script>
+<script src="auth-client.js?v=1786869600"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786865771" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786869600" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -593,6 +593,15 @@ window.addEventListener('appinstalled', function(){
   .isBtn:disabled { opacity:.5; cursor:default; }
   .isMain { display:flex; gap:9px; flex-wrap:wrap; margin-top:11px; }
   /* באנר בקשת-החלפה על הכרטיס — ממתין (צהוב) / חלון-פתוח (אדום, לא להוריד) */
+  /* פס לשוניות ריבוי-עיתונים (16/08) — גיליונות פתוחים מכמה לקוחות */
+  .pinStrip { display:flex; gap:6px; flex-wrap:wrap; padding:8px 12px 2px; }
+  .pinTab { background:#f3f4f6; border:1px solid var(--line); border-radius:999px; padding:5px 12px;
+            font-size:.8rem; font-weight:800; color:#374151; cursor:pointer; white-space:nowrap;
+            display:inline-flex; align-items:center; gap:6px; }
+  .pinTab:hover { border-color:var(--gold); background:#fffdf6; }
+  .pinTab.on { background:var(--press,#2d3561); color:#fff; border-color:var(--press,#2d3561); }
+  .pinTab b { cursor:pointer; opacity:.65; font-weight:900; } .pinTab b:hover { opacity:1; color:#dc2626; }
+  .pinTab.on b:hover { color:#fca5a5; }
   .swapBan { margin:10px 0 0; padding:10px 13px; border-radius:10px; font-size:.9rem; line-height:1.5; }
   .swapBan.wait { background:#fffbeb; border:1.5px solid #fcd34d; color:#92400e; }
   .swapBan.open { background:#fef2f2; border:2px solid #fca5a5; color:#b91c1c; }
@@ -813,6 +822,26 @@ let _pvDay = null;            // היום שנבחר בניווט (null = היו
 /* ⚠️ הגיליון הפתוח במרכז. ריק = ברירת-המחדל (החדש-הפעיל), ולא "אף אחד" —
    ‏ShopIssue.openId מחליט, כדי שהכלל יישב במקום אחד ויהיה נבדק. */
 let _openIssue = '';
+/* ── לשוניות ריבוי-עיתונים בין לקוחות (בקשת-בעלים 16/08) ─────────────────
+   כל גיליון שנפתח מצטרף לפס-לשוניות עליון; מעבר בלחיצה בלי "לצאת" —
+   הנתונים ממילא חיים ב-_allRows והרענון-האוטומטי ממשיך לכולם ברקע.
+   נשמר ב-localStorage — הלשוניות שורדות רענון-מסך. עד 8. */
+let _pvPins = [];
+try { _pvPins = JSON.parse(localStorage.getItem('pvPins') || '[]') || []; } catch(e){ _pvPins = []; }
+function _pinSave(){ try { localStorage.setItem('pvPins', JSON.stringify(_pvPins.slice(0, 8))); } catch(e){} }
+function _pinAdd(cust, oid, title){
+  if (!cust || !oid || cust === '__today__') return;
+  const ex = _pvPins.find(p => p.oid === oid);
+  if (ex) { ex.title = String(title || cust).slice(0, 30); _pinSave(); return; }
+  _pvPins.unshift({ cust: cust, oid: String(oid), title: String(title || cust).slice(0, 30) });
+  _pvPins = _pvPins.slice(0, 8); _pinSave();
+}
+function _pinStrip(curOid){
+  if (_pvPins.length < 2) return '';                   // לשונית אחת אינה "מעבר בין גיליונות"
+  return '<div class="pinStrip">' + _pvPins.map(p =>
+    `<span class="pinTab${p.oid === curOid ? ' on' : ''}" data-pvtab="${escapeHtml(p.cust)}|${escapeHtml(p.oid)}" title="${escapeHtml(p.cust)}">🗞 ${escapeHtml(p.title)} <b data-pvtabx="${escapeHtml(p.oid)}" title="סגור לשונית">✕</b></span>`).join('')
+    + '</div>';
+}
 /* עיצוב-מחדש 13/08/2026: הלשוניות מציגות 4 גיליונות; "כל הגיליונות" פורש. */
 let _tabsAll = false;
 const _uiPortal = (function(){
@@ -1188,6 +1217,14 @@ function render(rows) {
       <span class="badge ${su.status.cls}">${su.status.label}</span>
       ${su.pendingPages.length?`<span class="psTag psWait">⏳ חסרים עמ׳ ${su.pendingPages.join(', ')}</span>`:''}
       ${su.corrected?`<span class="psTag psOpen">🔁 עבר תיקון · גרסה ${su.version}</span>`:''}
+      ${(function(){
+        /* אזהרות-תקינות מההעלאה — ובמיוחד עומס-RIP (16/08): קובץ עמוס-
+           וקטורים שתוקע את אפוגי מקבל צ'יפ אדום בולט עם ההנחיה. */
+        const wrn = (p.preflight && p.preflight.warnings) || [];
+        if (!wrn.length) return '';
+        const rip = wrn.some(w => /RIP|משוטח/.test(String(w)));
+        return `<span class="psTag" style="background:#fef2f2;color:#b91c1c;border:1.5px solid #fca5a5" title="${escapeHtml(wrn.join(' · '))}">${rip ? '🛑 עמוס-וקטורים — לבקש קובץ משוטח' : ('⚠️ תקינות: ' + wrn.length)}</span>`;
+      })()}
       <span class="isMeta">${units.length?(units.length+' קבצים · '):''}${su.pages?(su.pages+' עמ׳ · '):''}${fmt(su.at)}</span>
     </div>`;
 
@@ -1638,7 +1675,9 @@ function render(rows) {
               if (openP && !shown.some(x => ShopIssue.idOf(x) === ShopIssue.idOf(openP))) shown = shown.concat([openP]);
               const more = sorted.length > 4
                 ? `<span class="isTab tMore" id="tabsMore">${_tabsAll ? '▴ צמצם' : ('▾ כל הגיליונות (' + sorted.length + ')')}</span>` : '';
-              return `<div class="isTabs">${shown.map(x => issueTab(x, _oid)).join('')}${more}</div><div class="isTabLine"></div>`
+              if (openP) _pinAdd(_selCust, _oid, ShopIssue.titleOf(openP));
+              return _pinStrip(_oid)
+                   + `<div class="isTabs">${shown.map(x => issueTab(x, _oid)).join('')}${more}</div><div class="isTabLine"></div>`
                    + (openP ? issueCard(openP, _oid) : '');
             })()
           : `<table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
@@ -2048,6 +2087,18 @@ function render(rows) {
   });
   const _tm = document.getElementById('tabsMore');
   if (_tm) _tm.onclick = () => { _tabsAll = !_tabsAll; render(_allRows); };
+  /* פס-הלשוניות הבין-לקוחי: מעבר גיליון↔גיליון בלי לצאת */
+  document.querySelectorAll('[data-pvtab]').forEach(el => el.onclick = (ev) => {
+    if (ev.target && ev.target.dataset && ev.target.dataset.pvtabx) return;
+    const kv = el.dataset.pvtab.split('|');
+    _selCust = kv[0]; _openIssue = kv.slice(1).join('|');
+    render(_allRows);
+  });
+  document.querySelectorAll('[data-pvtabx]').forEach(el => el.onclick = (ev) => {
+    ev.stopPropagation();
+    _pvPins = _pvPins.filter(p => p.oid !== el.dataset.pvtabx); _pinSave();
+    render(_allRows);
+  });
   /* תשובות-מהירות בשיחה — ממלאות את התיבה, לא שולחות */
   document.querySelectorAll('[data-quick]').forEach(el => el.onclick = () => {
     const ta = document.getElementById('shChatInput');
