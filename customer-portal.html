@@ -9,23 +9,23 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786877605"></script>
-<script src="page-add.js?v=1786877605"></script>
-<script src="portal-context.js?v=1786877605"></script>
-<script src="portal-return.js?v=1786877605"></script>
-<script src="portal-chat.js?v=1786877605"></script>
+<script src="portal-download.js?v=1786878466"></script>
+<script src="page-add.js?v=1786878466"></script>
+<script src="portal-context.js?v=1786878466"></script>
+<script src="portal-return.js?v=1786878466"></script>
+<script src="portal-chat.js?v=1786878466"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786877605"></script>
+<script src="chat-alert.js?v=1786878466"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786877605"></script>
-<script src="cover-split.js?v=1786877605"></script>
-<script src="page-swap.js?v=1786877605"></script>
-<script src="rip-load.js?v=1786877605"></script>
-<script src="page-replace.js?v=1786877605"></script>
-<script src="page-marks.js?v=1786877605"></script>
+<script src="shop-issue.js?v=1786878466"></script>
+<script src="cover-split.js?v=1786878466"></script>
+<script src="page-swap.js?v=1786878466"></script>
+<script src="rip-load.js?v=1786878466"></script>
+<script src="page-replace.js?v=1786878466"></script>
+<script src="page-marks.js?v=1786878466"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -174,6 +174,14 @@
   .notice { border-radius:15px; box-shadow:0 3px 12px rgba(0,0,0,.05); border-inline-start:4px solid var(--gold); }
   .empty { padding:26px 0; }
   /* חלון-שיחה גבוה כמו וואטסאפ (בקשת-בעלים 15/08) — במקום 330px קבועים */
+  /* ⚠️ 16/08, בקשת-בעלים: הכפתורים היו עמודה צרה **לצד** התוכן — הם דחסו
+     את רשת-העמודים והשאירו חלל ריק גדול. עכשיו: התוכן ברוחב-מלא, והפעולות
+     בפס מסודר מתחתיו. תג-הסטטוס עולה לשורה הראשונה (order). */
+  .row { flex-wrap:wrap; align-items:flex-start; }
+  .row .main { flex:1 1 100%; min-width:0; }
+  .row > .badge { order:-1; align-self:flex-start; }
+  .row > div:last-child { flex:1 1 100%; margin-top:10px; padding-top:10px;
+                          border-top:1px dashed var(--line); }
   .chatBox { border-radius:13px; background:#f7f8fc; max-height:none; height:clamp(340px, 58vh, 680px); }
   .chatMsg { border-radius:15px; }
   .chatMsg.mine { background:#e4e8fb; border-color:#c3cbf2; }
@@ -1228,14 +1236,14 @@ async function _pgReplaceFullFile(id, rec, t, f){
       var cp = (await full.copyPages(newDoc, [0]))[0];
       full.removePage(idx);
       full.insertPage(idx, cp);
-      showOv('בונה את הקובץ החדש…', true, 48);
+      _pgProg('בונה את הקובץ החדש', 45, 0, 0);
     var outB = new Uint8Array(await full.save({ useObjectStreams: false }));
-      showOv('מעלה גרסה מתוקנת…', true, 40);
+      _pgProg('מעלה לדפוס', 50, 0, 0);
       var at = Date.now(), version = PageSwap.nextVersion(rec);
       var folder = (rec.filePath || '').split('/').slice(0, -1).join('/') || ('customerProofs/' + SLUG + '/' + id);
       var path = PageSwap.versionedPath(folder + '/full.pdf', version);
       var fileUrl = await _uploadFull(path, outB, 50);
-      showOv('שומר גרסה…', true, 80);
+      _pgProg('שומר גרסה', 97, 0, 0);
       await fbWrite(await _au(`${_FBURL}/${PageReplace.archivePath(id, null, PageSwap.currentVersion(rec))}.json`),
         { method:'PUT', headers:{'Content-Type':'application/json'},
           body: JSON.stringify(PageReplace.archiveOf(rec, { at: at, version: version, reason: 'pageReplace',
@@ -1267,6 +1275,12 @@ async function _pgReplaceFullFile(id, rec, t, f){
      (א) לא להוריד שוב מה שכבר בזיכרון (פעולה שנייה מתחילה מיד),
      (ב) להציג אחוזים אמיתיים במקום מחרוזת קפואה שנראית כמו תקיעה,
      (ג) לשמור בלי דחיסת-object-streams — מהיר בהרבה בקבצים גדולים. */
+/* מד-התקדמות אחיד: אותו מספר בטקסט ובפס, ותמיד עולה. ‏MB כשידועים. */
+function _pgProg(label, pct, done, total){
+  var mb = (total > 1048576)
+    ? (' · ' + (done / 1048576).toFixed(0) + '/' + (total / 1048576).toFixed(0) + ' MB') : '';
+  showOv(label + '… ' + Math.max(0, Math.min(100, Math.round(pct))) + '%' + mb, true, pct);
+}
 var _fullCache = { url: '', bytes: null };
 async function _fullBytes(rec){
   if (_fullCache.url === rec.fileUrl && _fullCache.bytes) return _fullCache.bytes;
@@ -1280,8 +1294,11 @@ async function _fullBytes(rec){
       var st = await reader.read();
       if (st.done) break;
       chunks.push(st.value); got += st.value.length;
-      showOv('מוריד את העיתון… ' + (total ? (Math.round(got / total * 100) + '%')
-        : (Math.round(got / 1048576) + ' MB')), true, total ? Math.round(got / total * 45) : 0);
+      /* ⚠️ 16/08, דיווח-בעלים: כל שלב הציג 0..100% משלו, ולכן המספר "ירד"
+         באמצע (59% ← 29%). עכשיו **אחוז אחד רציף** לכל הפעולה:
+         הורדה 0-40 · בנייה 40-50 · העלאה 50-100. וגם MB — כדי שהמתנה
+         על קובץ 69MB תהיה מובנת ולא תיראה כמו תקיעה. */
+      _pgProg('מוריד את העיתון', total ? Math.round(got / total * 40) : 0, got, total);
     }
     buf = new Uint8Array(got);
     var off = 0; chunks.forEach(function(c){ buf.set(c, off); off += c.length; });
@@ -1293,8 +1310,7 @@ async function _fullBytes(rec){
    על אותו גיליון לא תוריד שוב 69MB. */
 async function _uploadFull(path, bytes, base){
   var url = await uploadBytes(path, bytes, function(loaded, total){
-    var pct = total ? Math.round(loaded / total * 100) : 0;
-    showOv('מעלה לדפוס… ' + pct + '%', true, (base || 50) + Math.round(pct * 0.45));
+    _pgProg('מעלה לדפוס', 50 + (total ? Math.round(loaded / total * 50) : 0), loaded, total);
   });
   _fullCache = { url: url, bytes: bytes };
   return url;
@@ -1354,13 +1370,13 @@ async function _pgInsertFull(id){
       var cps = await full.copyPages(newDoc, idxs);
       var pos = at1 - 1;
       cps.forEach(function(pg){ full.insertPage(pos++, pg); });
-      showOv('בונה את הקובץ החדש…', true, 48);
+      _pgProg('בונה את הקובץ החדש', 45, 0, 0);
       var outB = new Uint8Array(await full.save({ useObjectStreams: false }));
       var at = Date.now(), version = PageSwap.nextVersion(rec);
       var folder = (rec.filePath || '').split('/').slice(0, -1).join('/') || ('customerProofs/' + SLUG + '/' + id);
       var path = PageSwap.versionedPath(folder + '/full.pdf', version);
       var fileUrl = await _uploadFull(path, outB, 50);
-      showOv('שומר גרסה…', true, 95);
+      _pgProg('שומר גרסה', 97, 0, 0);
       var note = (idxs.length > 1 ? (idxs.length + ' עמודים נוספו') : 'עמוד נוסף')
         + ' במקום ' + at1 + (at1 === 1 ? ' (שער חדש)' : '') + ' — השאר נדחפו קדימה';
       await fbWrite(await _au(`${_FBURL}/${PageReplace.archivePath(id, null, PageSwap.currentVersion(rec))}.json`),
@@ -1400,14 +1416,14 @@ async function _pgDeleteFull(id, i){
     if (full.getPageCount() < 2) throw new Error('אי אפשר למחוק את העמוד היחיד בקובץ');
     var idx = Math.max(0, Math.min((t.page || 1) - 1, full.getPageCount() - 1));
     full.removePage(idx);
-    showOv('בונה את הקובץ החדש…', true, 48);
+    _pgProg('בונה את הקובץ החדש', 45, 0, 0);
     var outB = new Uint8Array(await full.save({ useObjectStreams: false }));
-    showOv('מעלה גרסה מתוקנת…', true, 40);
+    _pgProg('מעלה לדפוס', 50, 0, 0);
     var at = Date.now(), version = PageSwap.nextVersion(rec);
     var folder = (rec.filePath || '').split('/').slice(0, -1).join('/') || ('customerProofs/' + SLUG + '/' + id);
     var path = PageSwap.versionedPath(folder + '/full.pdf', version);
     var fileUrl = await _uploadFull(path, outB, 50);
-    showOv('שומר גרסה…', true, 80);
+    _pgProg('שומר גרסה', 97, 0, 0);
     await fbWrite(await _au(`${_FBURL}/${PageReplace.archivePath(id, null, PageSwap.currentVersion(rec))}.json`),
       { method:'PUT', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(PageReplace.archiveOf(rec, { at: at, version: version, reason: 'pageDelete',
@@ -1657,11 +1673,11 @@ async function _csSplit(id, i){
       return new Uint8Array(await d.save());
     };
     var coverB = await mkDoc(plan.cover), backB = await mkDoc(plan.back);
-    showOv('מעלה שער וגב…', true, 30);
+    _pgProg('מעלה שער וגב', 50, 0, 0);
     var ts = Date.now().toString(36);
     var coverUrl = await uploadBytes('customerProofs/' + SLUG + '/' + id + '/p1_cover_' + ts + '.pdf', coverB, null);
     var backUrl  = await uploadBytes('customerProofs/' + SLUG + '/' + id + '/p' + backN + '_back_' + ts + '.pdf', backB, null);
-    showOv('משבץ בגיליון…', true, 85);
+    _pgProg('משבץ בגיליון', 95, 0, 0);
     var origKey = 'f' + String(t.target).slice(5);
     /* סדר-הכתיבות מכוון: הגב קודם (תוספת בלתי-מזיקה), החלפת-המקורי-בשער
        אחרונה — כשל באמצע משאיר את השער המקורי במקומו, לא גיליון בלי שער.
@@ -1711,15 +1727,15 @@ async function _csSplitFull(id, rec, t, cs){
     var rest = doc.getPageIndices().filter(function(x){ return x !== idx; });
     (await out.copyPages(doc, rest)).forEach(function(p){ out.addPage(p); });
     await mkHalf(plan.back);
-    showOv('בונה את הקובץ החדש…', true, 48);
+    _pgProg('בונה את הקובץ החדש', 45, 0, 0);
     var outB = new Uint8Array(await out.save({ useObjectStreams: false }));
-    showOv('מעלה גרסה מתוקנת…', true, 40);
+    _pgProg('מעלה לדפוס', 50, 0, 0);
     var at = Date.now();
     var version = PageSwap.nextVersion(rec);
     var folder = (rec.filePath || '').split('/').slice(0, -1).join('/') || ('customerProofs/' + SLUG + '/' + id);
     var path = PageSwap.versionedPath(folder + '/full.pdf', version);
     var fileUrl = await _uploadFull(path, outB, 50);
-    showOv('שומר גרסה…', true, 80);
+    _pgProg('שומר גרסה', 97, 0, 0);
     /* הארכיון נכתב **לפני** עדכון-היחידה — כשל באמצע אינו משאיר גרסה בלי מצביע */
     await fbWrite(await _au(`${_FBURL}/${PageReplace.archivePath(id, null, PageSwap.currentVersion(rec))}.json`),
       { method:'PUT', headers:{'Content-Type':'application/json'},
