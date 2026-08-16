@@ -9,20 +9,22 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786863720"></script>
-<script src="page-add.js?v=1786863720"></script>
-<script src="portal-context.js?v=1786863720"></script>
-<script src="portal-return.js?v=1786863720"></script>
-<script src="portal-chat.js?v=1786863720"></script>
+<script src="portal-download.js?v=1786864787"></script>
+<script src="page-add.js?v=1786864787"></script>
+<script src="portal-context.js?v=1786864787"></script>
+<script src="portal-return.js?v=1786864787"></script>
+<script src="portal-chat.js?v=1786864787"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786863720"></script>
+<script src="chat-alert.js?v=1786864787"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786863720"></script>
-<script src="cover-split.js?v=1786863720"></script>
-<script src="page-marks.js?v=1786863720"></script>
+<script src="shop-issue.js?v=1786864787"></script>
+<script src="cover-split.js?v=1786864787"></script>
+<script src="page-swap.js?v=1786864787"></script>
+<script src="page-replace.js?v=1786864787"></script>
+<script src="page-marks.js?v=1786864787"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1106,9 +1108,11 @@ function _sgLight(id, i){
     + (pos < pages.length - 1 ? '<button class="btn btn-v" id="sgLNext">הבא ›</button>' : '')
     + '<a class="btn btn-v" target="_blank" rel="noopener" href="' + view + '">👁 פתח בדפדוף</a>'
     + (canEdit ? '<a class="btn btn-primary" target="_blank" rel="noopener" href="' + editHref + '">🛠 ערוך עמוד</a>' : '')
-    /* 🔄 כפולת שער+גב שיוצאה מסובבת 90° — פיצול אמיתי של הקובץ (15/08).
-       רק ליחידת קובץ-בודד וכשהגיליון פתוח. */
-    + (!reg.locked && t.target && String(t.target).indexOf('file_') === 0
+    /* 🔄 כפולת שער+גב שיוצאה מסובבת 90° — פיצול אמיתי של הקובץ (15/08;
+       הורחב 16/08 לעיתון-מלא: שם הפיצול יוצר גרסה חדשה בחוזה-הגרסאות,
+       והדפוס רואה "עבר תיקון". חסום רק כשהעבודה הושלמה/נסגרה). */
+    + ((String(t.target).indexOf('file_') === 0 && !reg.locked)
+       || (t.target === 'full' && !((_sgReg[id] || {}).completedAt || (_sgReg[id] || {}).closedAt))
         ? '<button class="btn btn-v" id="sgLSplit" title="עמוד שהוא שער+גב יחד, עומד-על-הצד: סיבוב, פיצול לשניים, ושיבוץ — שער לעמוד 1 וגב לעמוד האחרון">🔄 סובב וחלק (שער+גב)</button>' : '')
     + '<button class="btn btn-dl" id="sgLClose">✕ סגור</button></div>'
     + (reg.locked && !canEdit ? '<div style="color:#d1d5db;font-size:.8rem">🔒 הגיליון נשלח לדפוס — עריכה רק לעמוד שהדפוס דרש להחליף</div>' : '');
@@ -1119,6 +1123,19 @@ function _sgLight(id, i){
   var pv = document.getElementById('sgLPrev'); if (pv) pv.onclick = function(){ ov.remove(); _sgLight(id, pages[pos - 1].xi); };
   var nx = document.getElementById('sgLNext'); if (nx) nx.onclick = function(){ ov.remove(); _sgLight(id, pages[pos + 1].xi); };
   _sgRenderTo(document.getElementById('sgLightPg'), t, Math.round(window.innerHeight * 0.72))
+    .then(function(){
+      /* דיווח-בעלים 16/08: הלקוח לא ראה **איפה** הבעיה — הסימון של הדפוס
+         (מלבן-📍 + הערה) מצויר על ההגדלה, באותו overlayHtml של הדפדוף.
+         העטיפה סביב הקנבס עצמו — האחוזים של המלבן יחסיים לעמוד, לא לחלון. */
+      if (!(t.mark && window.PageMarks)) return;
+      var host = document.getElementById('sgLightPg');
+      var cv = host && host.querySelector('canvas');
+      if (!cv) return;
+      var w = document.createElement('span');
+      w.style.cssText = 'position:relative;display:inline-block;line-height:0';
+      cv.parentNode.insertBefore(w, cv); w.appendChild(cv);
+      w.insertAdjacentHTML('beforeend', PageMarks.overlayHtml(t.mark));
+    })
     .catch(function(e){
       console.error('רינדור-ההגדלה נכשל', e);
       var h = document.getElementById('sgLightPg');
@@ -1201,10 +1218,14 @@ function _csAsk(t){
 async function _csSplit(id, i){
   var reg2 = _sgTiles[id], rec = _sgReg[id];
   var t = reg2 && reg2.tiles[i];
-  if (!t || !rec || String(t.target).indexOf('file_') !== 0){ toast('הפיצול זמין לעמוד שהועלה כקובץ-בודד'); return; }
+  var isFile = t && String(t.target).indexOf('file_') === 0;
+  var isFull = t && t.target === 'full';
+  if (!t || !rec || (!isFile && !isFull)){ toast('הפיצול זמין לעמוד שהועלה מהפורטל או לעיתון-מלא'); return; }
   if (!window.CoverSplit){ toast('⚠️ רכיב-הפיצול לא נטען — רעננו את הדף'); return; }
+  if (isFull && !(window.PageSwap && window.PageReplace)){ toast('⚠️ רכיבי-הגרסאות לא נטענו — רעננו את הדף'); return; }
   var cs = await _csAsk(t);
   if (!cs) return;
+  if (isFull) return _csSplitFull(id, rec, t, cs);
   var declared = Number(rec.declaredPages) || 0;
   var backV = prompt('לאיזה מספר-עמוד לשבץ את הגב (העמוד האחרון)?', declared || '');
   if (backV === null) return;
@@ -1255,6 +1276,66 @@ async function _csSplit(id, i){
   } catch(e){
     console.error('סובב-וחלק נכשל', e); showOv('', false);
     toast('⚠️ הפיצול נכשל: ' + ((e && e.message) || 'שגיאה') + ' — רעננו ובדקו את מפת-הגיליון לפני ניסיון חוזר');
+  } finally { _unlock('upload'); }
+}
+/* פיצול כפולת-שער בתוך עיתון-מלא מורכב (16/08): העמוד המסובב מוסר,
+   השער נכנס ראשון והגב אחרון — והכל נשמר כ**גרסה חדשה** בחוזה-הגרסאות
+   ([[page-replace]]): ארכוב-לפני-עדכון, ‏shopSeenAt מתאפס והדפוס רואה
+   "עבר תיקון". מטמון-העמודים (pagesUrl) מבוטל — הוא של הקובץ הישן. */
+async function _csSplitFull(id, rec, t, cs){
+  if (!_lock('upload')) { toast('העלאה כבר מתבצעת — רגע…'); return; }
+  try {
+    showOv('מפצל את הכפולה…', true);
+    var PDFLib = await _loadPdfLib();
+    if (!PDFLib) throw new Error('רכיב-PDF לא נטען ברשת הזו');
+    var srcB = await (await fetch(rec.fileUrl)).arrayBuffer();
+    var doc = await PDFLib.PDFDocument.load(srcB, { ignoreEncryption: true });
+    var idx = Math.max(0, Math.min((t.page || 1) - 1, doc.getPageCount() - 1));
+    var pg = doc.getPage(idx), mb = pg.getMediaBox();
+    var plan = CoverSplit.splitPlan(cs.rot, cs.coverHalf, { x: mb.x, y: mb.y, w: mb.width, h: mb.height });
+    if (!plan) throw new Error('בחירת-הפיצול אינה תקינה');
+    var out = await PDFLib.PDFDocument.create();
+    var mkHalf = async function(part){
+      var emb = await out.embedPage(pg, part.box);
+      var p2 = out.addPage([part.draw.outW, part.draw.outH]);
+      p2.drawPage(emb, { x: part.draw.x, y: part.draw.y, rotate: PDFLib.degrees(part.draw.deg) });
+    };
+    await mkHalf(plan.cover);
+    var rest = doc.getPageIndices().filter(function(x){ return x !== idx; });
+    (await out.copyPages(doc, rest)).forEach(function(p){ out.addPage(p); });
+    await mkHalf(plan.back);
+    var outB = new Uint8Array(await out.save());
+    showOv('מעלה גרסה מתוקנת…', true, 40);
+    var at = Date.now();
+    var version = PageSwap.nextVersion(rec);
+    var folder = (rec.filePath || '').split('/').slice(0, -1).join('/') || ('customerProofs/' + SLUG + '/' + id);
+    var path = PageSwap.versionedPath(folder + '/full.pdf', version);
+    var fileUrl = await uploadBytes(path, outB, null);
+    showOv('שומר גרסה…', true, 80);
+    /* הארכיון נכתב **לפני** עדכון-היחידה — כשל באמצע אינו משאיר גרסה בלי מצביע */
+    await fbWrite(await _au(`${_FBURL}/${PageReplace.archivePath(id, null, PageSwap.currentVersion(rec))}.json`),
+      { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(PageReplace.archiveOf(rec, { at: at, version: version, reason: 'coverSplit',
+          changes: { note: 'כפולת שער+גב פוצלה: שער→עמוד 1 · גב→עמוד ' + out.getPageCount() } })) }, 'csFull:archive');
+    var fields = Object.assign(
+      PageReplace.newFields(rec, { fileUrl: fileUrl, filePath: path, pageCount: out.getPageCount(),
+        fileSize: outB.byteLength, at: at, version: version }),
+      { correctedNote: 'כפולת שער+גב פוצלה ושובצה (שער ראשון, גב אחרון)',
+        pagesUrl: null, pagesReadyAt: null });
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(fields) }, 'csFull:unit');
+    /* סימון "דרוש החלפה" על העמוד — טופל; ניקוי בקול, כשל אינו מפיל */
+    try {
+      var mp = ShopIssue.markPatch('full', t.pageNo || 1, null);
+      if (mp) await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`),
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(mp) }, 'csFull:clearMark');
+    } catch(e){ console.error('ניקוי סימון-העמוד נכשל (הפיצול עצמו נשמר)', e); }
+    showOv('', false);
+    toast('✓ הכפולה פוצלה ונשמרה כגרסה ' + version + ' — שער ראשון, גב אחרון (' + out.getPageCount() + ' עמ׳)');
+    await loadHistory();
+  } catch(e){
+    console.error('סובב-וחלק (עיתון-מלא) נכשל', e); showOv('', false);
+    toast('⚠️ הפיצול נכשל: ' + ((e && e.message) || 'שגיאה') + ' — הגרסה הקודמת נשארה');
   } finally { _unlock('upload'); }
 }
 async function _sgDeclare(id){
