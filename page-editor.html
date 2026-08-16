@@ -12,15 +12,15 @@
 <script src="vendor/pdf-lib.min.js"></script>
 <script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js'; }catch(e){}</script>
 <script src="lib-loader.js"></script>
-<script src="page-swap.js?v=1786873887"></script>
-<script src="page-replace.js?v=1786873887"></script>
-<script src="shop-issue.js?v=1786873887"></script>
-<script src="page-marks.js?v=1786873887"></script>
-<script src="page-edit-engine.js?v=1786873887"></script>
-<script src="pdf-objects.js?v=1786873887"></script>
-<script src="firebase-auth.bundle.js?v=1786873887"></script>
-<script src="auth-client.js?v=1786873887"></script>
-<script src="auth-guard.js?v=1786873887" data-page="page-editor.html" data-mode="enforce"></script>
+<script src="page-swap.js?v=1786875342"></script>
+<script src="page-replace.js?v=1786875342"></script>
+<script src="shop-issue.js?v=1786875342"></script>
+<script src="page-marks.js?v=1786875342"></script>
+<script src="page-edit-engine.js?v=1786875342"></script>
+<script src="pdf-objects.js?v=1786875342"></script>
+<script src="firebase-auth.bundle.js?v=1786875342"></script>
+<script src="auth-client.js?v=1786875342"></script>
+<script src="auth-guard.js?v=1786875342" data-page="page-editor.html" data-mode="enforce"></script>
 <style>
   :root { --press:#2d3561; --press-d:#222a4d; --gold:#c9a84c; --gold-light:#e8d5a3;
           --green:#16a34a; --red:#dc2626; --amber:#d97706; --line:#e5e7eb; --ink:#1f2937; }
@@ -330,12 +330,12 @@ async function _fbAuthToken(){
 }
 async function _au(url){ const t = await _fbAuthToken(); return t ? url + (url.indexOf('?')>=0?'&':'?') + 'auth=' + t : url; }
 
-async function uploadBytes(path, bytes){
+async function uploadBytes(path, bytes, onProgress){
   let lastErr;
   for (const bucket of ['solan-printing.firebasestorage.app']){
     for (let attempt=1; attempt<=3; attempt++){
       try {
-        const json = await xhrPost('https://firebasestorage.googleapis.com/v0/b/'+bucket+'/o?name='+encodeURIComponent(path), bytes);
+        const json = await xhrPost('https://firebasestorage.googleapis.com/v0/b/'+bucket+'/o?name='+encodeURIComponent(path), bytes, onProgress);
         const token = (json.downloadTokens||'').split(',')[0] || '';
         return 'https://firebasestorage.googleapis.com/v0/b/'+bucket+'/o/'+encodeURIComponent(path)+'?alt=media&token='+token;
       } catch(e){ lastErr=e; if(e.code===403) throw e; await new Promise(r=>setTimeout(r, 1500*attempt)); }
@@ -343,10 +343,11 @@ async function uploadBytes(path, bytes){
   }
   throw lastErr || new Error('העלאה נכשלה');
 }
-function xhrPost(url, bytes){
+function xhrPost(url, bytes, onProgress){
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest(); xhr.open('POST', url); xhr.timeout = 0;
     xhr.setRequestHeader('Content-Type', 'application/pdf');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total); };
     const finishSend = (t) => { try { if (t) xhr.setRequestHeader('Authorization', 'Firebase ' + t); } catch(e){} (window._appCheckToken?window._appCheckToken():Promise.resolve(null)).then(function(act){ try{ if(act) xhr.setRequestHeader('X-Firebase-AppCheck', act); }catch(e){} xhr.send(bytes); }, function(){ xhr.send(bytes); }); };
     xhr.onload = () => { if (xhr.status>=200 && xhr.status<300){ try{ resolve(JSON.parse(xhr.responseText)); }catch(e){ const er=new Error('bad'); er.code=xhr.status; reject(er); } return; } const er=new Error('Storage '+xhr.status); er.code=xhr.status; reject(er); };
     xhr.onerror = () => { const e=new Error('שגיאת רשת'); e.code=0; reject(e); };
@@ -390,7 +391,25 @@ async function loadJob(){
     (target !== 'full' ? ' · ' + (unit.name || unit.fileName || 'ריצה') : '') + ' · עמוד ' + pageNo;
 
   busy('מוריד את הקובץ…');
-  srcBytes = await (await fetch(unit.fileUrl)).arrayBuffer();
+  /* חיווי-אמת בהורדה (16/08): עיתון-מלא הוא עשרות MB, ו"מוריד את הקובץ…"
+     בלי אחוזים נראה כמו תקיעה. */
+  srcBytes = await (async function(){
+    const r = await fetch(unit.fileUrl);
+    if (!r.ok) throw new Error('הורדת הקובץ נכשלה (' + r.status + ')');
+    const total = Number(r.headers.get('content-length')) || 0;
+    if (!(r.body && r.body.getReader)) return await r.arrayBuffer();
+    const rd = r.body.getReader(); const parts = []; let got = 0;
+    for (;;){
+      const st = await rd.read();
+      if (st.done) break;
+      parts.push(st.value); got += st.value.length;
+      busy('מוריד את הקובץ… ' + (total ? (Math.round(got / total * 100) + '%')
+        : (Math.round(got / 1048576) + ' MB')));
+    }
+    const all = new Uint8Array(got); let off = 0;
+    parts.forEach(c => { all.set(c, off); off += c.length; });
+    return all.buffer;
+  })();
   /* תיבות-החיתוך של הקובץ (TrimBox/MediaBox) — ל"הצג תרים-בוקס" ול"חתוך
      לפי תרים". נקרא ב-pdf-lib; קובץ בלי TrimBox נבדל מ-MediaBox → null,
      והכפתורים אומרים זאת במקום להעמיד פנים. צירי-PDF תחתון-למעלה →
@@ -977,7 +996,7 @@ async function save(){
       const doc = await PDFLib.PDFDocument.create();
       const emb = await doc.embedPage(composed.finalPage);
       doc.addPage([ptW, ptH]).drawPage(emb, { x: 0, y: 0 });
-      outBytes = await doc.save();
+      outBytes = await doc.save({ useObjectStreams: false });
     } else {
       /* עיתון-מלא: העמוד המורכב מחליף את המקורי בתוך הקובץ הקיים (הערוך) */
       const doc = await PDFLib.PDFDocument.load(_effBytes().slice(0));
@@ -985,7 +1004,7 @@ async function save(){
       doc.removePage(pageNo - 1);
       const np = doc.insertPage(pageNo - 1, [ptW, ptH]);
       np.drawPage(emb, { x: 0, y: 0 });
-      outBytes = await doc.save();
+      outBytes = await doc.save({ useObjectStreams: false });
     }
 
     busy('מעלה ל-Storage…');
@@ -994,7 +1013,9 @@ async function save(){
       || ('customerProofs/' + String(rec.customer || 'לקוח').replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60) + '/' + proofId);
     const basePath = folder + '/' + (target === 'full' ? 'full.pdf' : target + '.pdf');
     const path = PageSwap.versionedPath(basePath, version);
-    const fileUrl = await uploadBytes(path, outBytes);
+    const fileUrl = await uploadBytes(path, outBytes, (loaded, total) => {
+      busy('מעלה לדפוס… ' + (total ? Math.round(loaded / total * 100) : 0) + '%');
+    });
 
     busy('מארכב את הגרסה הקודמת…');
     const at = Date.now();
