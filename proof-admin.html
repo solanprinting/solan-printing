@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786878466"></script>
-<script src="chat-alert.js?v=1786878466"></script>
-<script src="shop-issue.js?v=1786878466"></script>
-<script src="page-marks.js?v=1786878466"></script>
-<script src="kontres-split.js?v=1786878466"></script>
+<script src="portal-chat.js?v=1786879087"></script>
+<script src="chat-alert.js?v=1786879087"></script>
+<script src="shop-issue.js?v=1786879087"></script>
+<script src="page-marks.js?v=1786879087"></script>
+<script src="kontres-split.js?v=1786879087"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786878466"></script>
-<script src="auth-client.js?v=1786878466"></script>
+<script src="firebase-auth.bundle.js?v=1786879087"></script>
+<script src="auth-client.js?v=1786879087"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786878466" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786879087" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -838,9 +838,12 @@ function _pinAdd(cust){
   _pvPins = _pvPins.slice(0, 8); _pinSave();
 }
 function _pinStrip(){
-  if (_pvPins.length < 2) return '';                   // לקוח אחד אינו "מעבר בין לקוחות"
+  if (!_pvPins.length) return '';
+  /* ⚠️ 16/08: הפס הוצג רק מ-2 לקוחות ולכן איש לא ידע שהוא קיים. עכשיו
+     הוא מופיע מיד, ועם לקוח אחד מסביר איך פותחים לשונית נוספת. */
   return '<div class="pinStrip">' + _pvPins.map(p =>
     `<span class="pinTab${p.cust === _selCust ? ' on' : ''}" data-pvtab="${escapeHtml(p.cust)}">📁 ${escapeHtml(String(p.cust).slice(0, 24))} <b data-pvtabx="${escapeHtml(p.cust)}" title="סגור לשונית">✕</b></span>`).join('')
+    + (_pvPins.length < 2 ? '<span style="font-size:.76rem;color:#9ca3af;align-self:center">← בחרו לקוח נוסף מהרשימה כדי לפתוח לו לשונית</span>' : '')
     + '</div>';
 }
 /* עיצוב-מחדש 13/08/2026: הלשוניות מציגות 4 גיליונות; "כל הגיליונות" פורש. */
@@ -1684,7 +1687,13 @@ function render(rows) {
              המתוכנן, כי הלשוניות ניזונו מהפעילות בלבד. ‏openId עדיין
              מעדיף את הפעיל-החדש; שהושלם נפתח רק כשאין פעיל. */
           ? (function(){
-              const all = sel.concat(done);
+              /* ⚠️ 16/08, דיווח-בעלים: גיליון שהושלם בלשוניות מבלבל — עובד
+                 עלול ללחוץ עליו בטעות ולהוריד ממנו קבצים ישנים. לכן
+                 הלשוניות מציגות **פעילים בלבד**; גיליונות שהושלמו נשארים
+                 בקטע "✅ עיתונים שהושלמו" מתחת. ⚠️ הנפילה-לאחור נשמרת
+                 (תיקון 14/08): ללקוח שכל עבודותיו הסתיימו — מוצגות שלו,
+                 אחרת המסך היה ריק לגמרי. */
+              const all = sel.length ? sel : done;
               const sorted = ShopIssue.sortIssues(all);
               const _oid = ShopIssue.openId(all, _openIssue);
               const openP = sorted.find(x => ShopIssue.idOf(x) === _oid) || sorted[0];
@@ -2870,9 +2879,11 @@ async function _pgLightOpen(idx, pg){
         const _sr = _rtl ? (_mn % 2 === 1) : (_mn % 2 === 0);
         /* פס אדום שקוף-למחצה עם הכיתוב בתוכו (דיוק-בעלים 16/08) */
         host.insertAdjacentHTML('beforeend',
-          '<div style="position:absolute;top:0;bottom:0;z-index:3;pointer-events:none;' + (_sr ? 'right:0' : 'left:0')
-          + ';width:24px;background:rgba(220,38,38,.28);display:flex;align-items:center;justify-content:center">'
-          + '<span style="writing-mode:vertical-rl;color:#b91c1c;font-size:.8rem;font-weight:900;letter-spacing:.2em;text-shadow:0 0 4px #fff,0 0 4px #fff">📎 שדרה</span></div>');
+          '<div style="position:absolute;top:0;bottom:0;z-index:1;pointer-events:none;' + (_sr ? 'right:0' : 'left:0')
+          + ';width:5px;background:rgba(220,38,38,.35)"></div>'
+          + '<div style="position:absolute;top:50%;z-index:1;pointer-events:none;' + (_sr ? 'right:7px' : 'left:7px')
+          + ';transform:translateY(-50%);writing-mode:vertical-rl;color:#b91c1c;font-size:.62rem;'
+          + 'font-weight:800;letter-spacing:.14em;opacity:.75">שדרה</div>');
       }
     } catch(e){}
     /* תרים-בוקס (בקשת-בעלים): קו אדום דק מקווקו — רק כשהקובץ באמת מגדיר
