@@ -296,12 +296,20 @@
                    partId: k, pages: num(t.pageCount) || 0, mark: markOf(r, k, 1) });
     });
     fileEntries(r).forEach(function (f, i) {
-      var no = pageNoOf(f.fileName);
-      /* המוען הוא המפתח בלי ה-f — עבור מפתחות צפופים f0..f9 זהה למוען
-         הישן (אינדקס), כך שסימונים קיימים אינם זזים. */
+      /* ⚠️ 16/08/2026, בקשת-בעלים: שיבוץ-מחדש שומר את **שם-הקובץ המקורי**
+         וכותב ‎slot‎ נפרד. כך המיקום בפועל ניתן להצלבה מול המספר שבשם,
+         ואי-התאמה נאמרת ("שובץ לעמוד 3 אבל נקרא 'עמוד 5'") במקום להימחק
+         בשקט ע"י שינוי-שם. רשומה ותיקה בלי slot — נופלת לשם, כמו קודם. */
+      var nameNo = pageNoOf(f.fileName);
+      var sl = num(f.slot);
+      var no = (sl >= 1) ? sl : nameNo;
       var kk = str(f._k) || ('f' + i);
+      /* התווית לפי המשבצת (שער/עמוד N) ולא לפי שם-הקובץ — הרשת נקראת
+         אחיד; שם-הקובץ נשמר בשדה משלו לתצוגה ולהצלבה. */
+      var lbl = (no >= 1) ? (no === 1 ? 'שער' : 'עמוד ' + no) : (str(f.fileName) || 'קובץ');
       tiles.push({ kind: 'page', target: 'file_' + kk.slice(1), pageNo: no, page: 1, url: str(f.fileUrl),
-                   label: str(f.fileName) || 'קובץ', at: num(r.createdAt),
+                   label: lbl, fileName: str(f.fileName), at: num(r.createdAt),
+                   nameNo: nameNo, slotMismatch: !!(sl >= 1 && nameNo && nameNo !== sl),
                    partId: '', mark: markOf(r, 'file_' + kk.slice(1), 1) });
     });
     /* עמודים חסרים — רק מספרים שאין להם אריח קיים */
