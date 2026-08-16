@@ -116,10 +116,24 @@
      "דרוש תיקון" ו"הורד" — נראה כאילו אפשר להוריד ולאשר בשם הלקוח, כשאין
      על מה. אותו עיקרון בדיוק כמו "אשר קבלה" (hasArrived, למעלה): פעולה
      בלי מושא אינה מוצגת. ההחלטה כאן — טהורה ונבדקת; הכרטיס רק מצייר. */
+  /* ⚠️ 16/08/2026, בקשת-בעלים: העלאה שטרם אושרה ע"י הלקוח היא **טיוטה**
+     — הדפוס לא מוריד ולא מאשר ממנה, כדי שלא יודפס גיליון שהלקוח עוד
+     מסדר. ‏customerApprovedAt נכתב רק אחרי דפדוף+אישור בפורטל.
+     ⚠️ **רק** על העלאות-פורטל חדשות (source==='portal' עם files):
+     שאר המסלולים (parts מאושרות, apogee, עיתון-מלא ותיק) נשארים כשהיו,
+     אחרת עבודות שכבר בייצור היו ננעלות בבת-אחת. */
+  function isDraft(p) {
+    var r = p || {};
+    if (r.customerApprovedAt || r.approvedAt || r.apogeeUrl) return false;
+    if (r.parts && Object.keys(r.parts).length) return false;
+    return str(r.source) === 'portal' && !!(r.files && Object.keys(r.files).length);
+  }
   function cardActions(p) {
     var arrived = hasArrived(p);
-    return { canPrintApprove: arrived, canRequestFix: arrived,
-             canDownload: arrived, showUploadHint: !arrived };
+    var draft = isDraft(p);
+    return { canPrintApprove: arrived && !draft, canRequestFix: arrived,
+             canDownload: arrived && !draft, showUploadHint: !arrived,
+             draft: draft };
   }
 
   /* ── היחידות שאפשר לצפות/להוריד ─────────────────────────────────────────
@@ -326,7 +340,7 @@
     idOf: idOf, timeOf: timeOf, isActive: isActive,
     sortIssues: sortIssues, openId: openId,
     statusOf: statusOf, printApproved: printApproved,
-    seenAt: seenAt, hasArrived: hasArrived,
+    seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
     pageNoOf: pageNoOf, pageTiles: pageTiles, markOf: markOf, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,

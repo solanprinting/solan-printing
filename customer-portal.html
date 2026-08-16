@@ -9,23 +9,23 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786873227"></script>
-<script src="page-add.js?v=1786873227"></script>
-<script src="portal-context.js?v=1786873227"></script>
-<script src="portal-return.js?v=1786873227"></script>
-<script src="portal-chat.js?v=1786873227"></script>
+<script src="portal-download.js?v=1786873887"></script>
+<script src="page-add.js?v=1786873887"></script>
+<script src="portal-context.js?v=1786873887"></script>
+<script src="portal-return.js?v=1786873887"></script>
+<script src="portal-chat.js?v=1786873887"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786873227"></script>
+<script src="chat-alert.js?v=1786873887"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786873227"></script>
-<script src="cover-split.js?v=1786873227"></script>
-<script src="page-swap.js?v=1786873227"></script>
-<script src="rip-load.js?v=1786873227"></script>
-<script src="page-replace.js?v=1786873227"></script>
-<script src="page-marks.js?v=1786873227"></script>
+<script src="shop-issue.js?v=1786873887"></script>
+<script src="cover-split.js?v=1786873887"></script>
+<script src="page-swap.js?v=1786873887"></script>
+<script src="rip-load.js?v=1786873887"></script>
+<script src="page-replace.js?v=1786873887"></script>
+<script src="page-marks.js?v=1786873887"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -948,6 +948,22 @@ async function loadHistory(){
          ברשומה ברגע השליחה — הוא פשוט לא הוצג. אין שדה חדש ואין schema.
          ⚠️ רשומה ותיקה בלי fileSize פשוט לא מציגה אותו; אין "0 MB". */
       + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(_cpSize(p)?_cpSize(p)+' · ':'')+(locked&&!isDone?'אושר '+_appDate:'')+'</div>'+lockNote+readyNote+seenNote
+      /* ── שער-דפדוף לפני אישור (בקשת-בעלים 16/08) ─────────────────────
+         גיליון שהועלה מהפורטל יושב כטיוטה עד שהלקוח מדפדף ומאשר.
+         ‏flippedAt נכתב כשחוזרים מהצופה; בלעדיו האישור נעצר ומסביר. */
+      + ((window.ShopIssue && ShopIssue.isDraft(p)) ? (function(){
+          var flipped = !!p.flippedAt;
+          return '<div style="margin-top:9px;padding:11px 13px;border-radius:12px;background:'
+            + (flipped ? '#f0fdf4;border:1.5px solid #86efac' : '#fffbeb;border:1.5px solid #fcd34d') + '">'
+            + '<div style="font-weight:900;color:' + (flipped ? '#166534' : '#92400e') + ';margin-bottom:7px">'
+            + (flipped ? '✓ דפדפתם בעיתון — אפשר לאשר לדפוס' : '📖 שלב 1: דפדפו בעיתון ובדקו שהכל תקין')
+            + '</div>'
+            + '<a class="btn btn-v" target="_blank" rel="noopener" href="proof-viewer.html?id=' + esc(String(p._id)) + '&ctx=portal" onclick="_markFlipped(\'' + esc(String(p._id)) + '\')">📖 דפדף ובדוק את העיתון</a>'
+            + '<button class="btn btn-approve" style="display:block;width:100%;margin-top:9px;padding:14px;font-size:1.06rem"'
+            + ' onclick="_custApprove(\'' + esc(String(p._id)) + '\',' + (flipped ? 'true' : 'false') + ')">✅ מאושר לדפוס — אפשר להדפיס</button>'
+            + '<div style="font-size:.76rem;color:#6b7280;margin-top:6px">בית-הדפוס יוכל להוריד את הקבצים רק אחרי האישור.</div>'
+            + '</div>';
+        })() : '')
       + (editOpen ? ('<div style="margin-top:8px;padding:10px 13px;border-radius:11px;background:#fffbeb;border:1.5px solid #fcd34d;font-weight:800;color:#92400e">✏️ בית-הדפוס פתח את הגיליון לעריכה — '
           + esc((window.PageSwap && PageSwap.remainingLabel(_swapReq, Date.now())) || 'חלון פתוח')
           + '<button class="btn btn-approve" style="display:block;width:100%;margin-top:9px;padding:13px;font-size:1.05rem" onclick="_editDone(\'' + esc(String(p._id)) + '\')">✅ סיימתי לערוך — מאושר להדפסה</button></div>') : '')
@@ -1725,6 +1741,47 @@ async function portalShareViewer(btn, id){
   setTimeout(function(){ btn.textContent = old; btn.disabled = false; }, 2600);
 }
 window.portalShareViewer = portalShareViewer;
+
+/* ── שער-הדפדוף (בקשת-בעלים 16/08) ────────────────────────────────────────
+   ‏_markFlipped נכתב כשהלקוח פותח את הדפדוף (הוא ייפתח בלשונית חדשה,
+   ולכן הסימון כאן ולא בצופה — פשוט ואמין); ‏_custApprove חוסם אישור
+   בלי דפדוף עם הודעה מפורשת, ולא "נכשל בשקט". */
+async function _markFlipped(id){
+  try {
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ flippedAt: Date.now() }) }, 'flip:mark');
+    setTimeout(loadHistory, 1200);        // הכפתור יתעדכן כשחוזרים ללשונית
+  } catch(e){ console.error('סימון-הדפדוף נכשל', e); }
+}
+window._markFlipped = _markFlipped;
+async function _custApprove(id, flipped){
+  if (!flipped){
+    alert('לפני אישור להדפסה יש לדפדף בעיתון ולבדוק שכל העמודים תקינים ובסדר הנכון.\n\n'
+      + 'לחצו על "📖 דפדף ובדוק את העיתון", ואחרי הבדיקה חזרו לכאן ואשרו.');
+    return;
+  }
+  var rec = (window._portalProofs || []).filter(function(p){ return String(p._id) === String(id); })[0] || {};
+  if (!confirm('לאשר את העיתון לדפוס?\n\n'
+    + (rec.pageCount ? (rec.pageCount + ' עמודים · ') : '')
+    + 'לאחר האישור בית-הדפוס יוריד את הקבצים ויתחיל בהכנה להדפסה.')) return;
+  if (!_lock('custapprove')) return;
+  showOv('שולח אישור לדפוס…', true);
+  try {
+    var at = Date.now();
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ customerApprovedAt: at, customerApprovedBy: (_portalRec && _portalRec.name) || CUST || 'הלקוח',
+          status: 'approved', shopSeenAt: null }) }, 'custApprove');
+    showOv('', false);
+    toast('✅ העיתון אושר לדפוס — תודה!');
+    await loadHistory();
+  } catch(e){
+    console.error('אישור-הלקוח נכשל', e); showOv('', false);
+    toast('⚠️ האישור לא נשמר בשרת — העיתון עדיין לא אושר לדפוס. נסו שוב');
+  } finally { _unlock('custapprove'); }
+}
+window._custApprove = _custApprove;
 
 /* ✅ סיום חלון-העריכה שהדפוס פתח: הבקשה נסגרת עם תיעוד, הגיליון חוזר
    מאושר-להדפסה, והדפוס רואה "קבצים חדשים" לבדיקה. */
