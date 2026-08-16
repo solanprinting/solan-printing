@@ -9,23 +9,23 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786869600"></script>
-<script src="page-add.js?v=1786869600"></script>
-<script src="portal-context.js?v=1786869600"></script>
-<script src="portal-return.js?v=1786869600"></script>
-<script src="portal-chat.js?v=1786869600"></script>
+<script src="portal-download.js?v=1786870548"></script>
+<script src="page-add.js?v=1786870548"></script>
+<script src="portal-context.js?v=1786870548"></script>
+<script src="portal-return.js?v=1786870548"></script>
+<script src="portal-chat.js?v=1786870548"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786869600"></script>
+<script src="chat-alert.js?v=1786870548"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786869600"></script>
-<script src="cover-split.js?v=1786869600"></script>
-<script src="page-swap.js?v=1786869600"></script>
-<script src="rip-load.js?v=1786869600"></script>
-<script src="page-replace.js?v=1786869600"></script>
-<script src="page-marks.js?v=1786869600"></script>
+<script src="shop-issue.js?v=1786870548"></script>
+<script src="cover-split.js?v=1786870548"></script>
+<script src="page-swap.js?v=1786870548"></script>
+<script src="rip-load.js?v=1786870548"></script>
+<script src="page-replace.js?v=1786870548"></script>
+<script src="page-marks.js?v=1786870548"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -908,6 +908,11 @@ async function loadHistory(){
     }
     var cnt = p.fileCount || (p.files ? Object.keys(p.files).length : 0);
     var locked = isDone || !!p.apogeeApprovedAt || p.status === 'approved' || p.foldApprovalStatus === 'approved';   // הושלם/אושר → נעול לשינויים
+    /* 🔓 חלון-עריכה פתוח (16/08): כשהדפוס פתח את הגיליון לעריכה — הנעילה
+       יורדת זמנית, ובסיום הלקוח לוחץ על הכפתור הגדול "מאושר להדפסה". */
+    var _swapReq = window.PageSwap ? ((p.changeRequests || {}).full || null) : null;
+    var editOpen = !isDone && _swapReq && PageSwap.state(_swapReq, Date.now()) === 'approved';
+    if (editOpen) locked = false;
     var lockNote = isDone
       ? '<div style="font-size:.74rem;color:#3730a3;margin-top:3px">🔒 העבודה הושלמה — לא ניתן לערוך, להעלות או לבקש שינויים. לכל בקשה פנו לבית הדפוס.</div>'
       : (locked ? '<div style="font-size:.74rem;color:#166534;margin-top:3px">🔒 נעול לדפוס — לשינויים פנו לבית הדפוס</div>' : '');
@@ -943,6 +948,9 @@ async function loadHistory(){
          ברשומה ברגע השליחה — הוא פשוט לא הוצג. אין שדה חדש ואין schema.
          ⚠️ רשומה ותיקה בלי fileSize פשוט לא מציגה אותו; אין "0 MB". */
       + '<div class="meta">'+(date?date+' · ':'')+(cnt?cnt+' קבצים · ':'')+(p.pageCount?p.pageCount+' עמ\' · ':'')+(_cpSize(p)?_cpSize(p)+' · ':'')+(locked&&!isDone?'אושר '+_appDate:'')+'</div>'+lockNote+readyNote+seenNote
+      + (editOpen ? ('<div style="margin-top:8px;padding:10px 13px;border-radius:11px;background:#fffbeb;border:1.5px solid #fcd34d;font-weight:800;color:#92400e">✏️ בית-הדפוס פתח את הגיליון לעריכה — '
+          + esc((window.PageSwap && PageSwap.remainingLabel(_swapReq, Date.now())) || 'חלון פתוח')
+          + '<button class="btn btn-approve" style="display:block;width:100%;margin-top:9px;padding:13px;font-size:1.05rem" onclick="_editDone(\'' + esc(String(p._id)) + '\')">✅ סיימתי לערוך — מאושר להדפסה</button></div>') : '')
       + _slotGridHtml(p, locked || isDone) + '</div>'
       + '<span class="badge '+(isDone?'b-done':(locked?'b-approved':b.cls))+'" style="'+(locked?'font-size:.78rem;padding:4px 11px':'')+'">'
       + (isDone?'🏁 הושלמה':(locked?'✓ אושר לדפוס':b.txt))+'</span>'
@@ -1087,6 +1095,92 @@ async function _sgThumbs(){
     catch(e){ /* אחסון חסום/קובץ בעייתי — האייקון נשאר, הדפדוף הוא הגיבוי */ }
   }
 }
+/* מועמד-שער/גב לפיצול: עמוד 1, העמוד האחרון, או חסר-מספר. נעילה כמו קודם. */
+/* תרים-בוקס באחוזי-עמוד (עליון-למטה) — PDFLib על הבייטים, מטמון קטן */
+var _sgTrimCache = {};
+async function _sgTrimPct(url, pageN){
+  var key = url + '|' + pageN;
+  if (key in _sgTrimCache) return _sgTrimCache[key];
+  var PDFLib = await _loadPdfLib(); if (!PDFLib) return (_sgTrimCache[key] = null);
+  var d = await PDFLib.PDFDocument.load(await (await fetch(url)).arrayBuffer(), { ignoreEncryption: true });
+  var pg = d.getPage(Math.max(0, Math.min(pageN - 1, d.getPageCount() - 1)));
+  var mb = pg.getMediaBox(), tb = null; try { tb = pg.getTrimBox(); } catch(e){}
+  var out = (tb && mb && (tb.width < mb.width - 0.5 || tb.height < mb.height - 0.5))
+    ? { x: (tb.x - mb.x) / mb.width * 100, y: (mb.y + mb.height - (tb.y + tb.height)) / mb.height * 100,
+        w: tb.width / mb.width * 100, h: tb.height / mb.height * 100 }
+    : null;
+  var ks = Object.keys(_sgTrimCache); if (ks.length > 6) delete _sgTrimCache[ks[0]];
+  _sgTrimCache[key] = out; return out;
+}
+function _csEligible(id, reg, t){
+  var okKind = (String(t.target).indexOf('file_') === 0 && !reg.locked)
+    || (t.target === 'full' && !((_sgReg[id] || {}).completedAt || (_sgReg[id] || {}).closedAt));
+  if (!okKind) return false;
+  var last = 0;
+  reg.tiles.forEach(function(x){ if (x.pageNo > last) last = x.pageNo; });
+  var declared = Number((_sgReg[id] || {}).declaredPages) || 0;
+  if (declared > last) last = declared;
+  return !t.pageNo || t.pageNo === 1 || t.pageNo === last;
+}
+/* 📤 החלפת-עמוד מחלון-ההגדלה: קובץ-בודד → החלפה-במשבצת (המסלול הקיים);
+   עיתון-מלא → העמוד מוחלף בתוך הקובץ ונשמר כגרסה חדשה בחוזה-הגרסאות. */
+function _pgReplaceAsk(id, i){
+  var reg = _sgTiles[id], rec = _sgReg[id];
+  var t = reg && reg.tiles[i];
+  if (!t || !rec) { toast('⚠️ העמוד לא נמצא — רעננו'); return; }
+  if (String(t.target).indexOf('file_') === 0) { _sgFixUpload(id, t.pageNo || 1, t.target); return; }
+  if (t.target !== 'full') { toast('להחלפת ריצה שלמה — השתמשו בקישור-ההעלאה'); return; }
+  if (!(window.PageSwap && window.PageReplace)) { toast('⚠️ רכיבי-הגרסאות לא נטענו — רעננו'); return; }
+  var inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.pdf,application/pdf';
+  inp.onchange = async function(){
+    var f = inp.files && inp.files[0]; if (!f) return;
+    if (!_lock('upload')) { toast('העלאה כבר מתבצעת — רגע…'); return; }
+    try {
+      showOv('מחליף את העמוד…', true);
+      var PDFLib = await _loadPdfLib();
+      if (!PDFLib) throw new Error('רכיב-PDF לא נטען ברשת הזו');
+      var newB = new Uint8Array(await _fileBytes(f));
+      var newDoc = await PDFLib.PDFDocument.load(newB, { ignoreEncryption: true });
+      var full = await PDFLib.PDFDocument.load(await (await fetch(rec.fileUrl)).arrayBuffer(), { ignoreEncryption: true });
+      var idx = Math.max(0, Math.min((t.page || 1) - 1, full.getPageCount() - 1));
+      /* עמוד ראשון מהקובץ החדש נכנס במקום; קובץ רב-עמודים — רק הראשון, בקול */
+      if (newDoc.getPageCount() > 1) toast('בקובץ החדש ' + newDoc.getPageCount() + ' עמודים — נכנס הראשון בלבד');
+      var cp = (await full.copyPages(newDoc, [0]))[0];
+      full.removePage(idx);
+      full.insertPage(idx, cp);
+      var outB = new Uint8Array(await full.save());
+      showOv('מעלה גרסה מתוקנת…', true, 40);
+      var at = Date.now(), version = PageSwap.nextVersion(rec);
+      var folder = (rec.filePath || '').split('/').slice(0, -1).join('/') || ('customerProofs/' + SLUG + '/' + id);
+      var path = PageSwap.versionedPath(folder + '/full.pdf', version);
+      var fileUrl = await uploadBytes(path, outB, null);
+      showOv('שומר גרסה…', true, 80);
+      await fbWrite(await _au(`${_FBURL}/${PageReplace.archivePath(id, null, PageSwap.currentVersion(rec))}.json`),
+        { method:'PUT', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(PageReplace.archiveOf(rec, { at: at, version: version, reason: 'pageReplace',
+            changes: { note: 'עמוד ' + (t.pageNo || t.page || 1) + ' הוחלף מהפורטל' } })) }, 'pgRepl:archive');
+      var fields = Object.assign(
+        PageReplace.newFields(rec, { fileUrl: fileUrl, filePath: path, pageCount: full.getPageCount(),
+          fileSize: outB.byteLength, at: at, version: version }),
+        { correctedNote: 'עמוד ' + (t.pageNo || t.page || 1) + ' הוחלף מהפורטל',
+          pagesUrl: null, pagesReadyAt: null });
+      await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`),
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(fields) }, 'pgRepl:unit');
+      try {
+        var mp = ShopIssue.markPatch('full', t.pageNo || 1, null);
+        if (mp) await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`),
+          { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(mp) }, 'pgRepl:clearMark');
+      } catch(e){ console.error('ניקוי הסימון נכשל (ההחלפה עצמה נשמרה)', e); }
+      showOv('', false);
+      toast('✓ עמוד ' + (t.pageNo || t.page || 1) + ' הוחלף — נשמר כגרסה ' + version);
+      await loadHistory();
+    } catch(e){
+      console.error('החלפת-עמוד נכשלה', e); showOv('', false);
+      toast('⚠️ ההחלפה נכשלה: ' + ((e && e.message) || 'שגיאה') + ' — הגרסה הקודמת נשארה');
+    } finally { _unlock('upload'); }
+  };
+  inp.click();
+}
 function _sgLight(id, i){
   var reg = _sgTiles[id]; var t = reg && reg.tiles[i];
   if (!t || t.kind !== 'page') return true;         // בלי נתונים — הקישור הרגיל ימשיך לדפדוף
@@ -1111,17 +1205,20 @@ function _sgLight(id, i){
     + '<a class="btn btn-v" target="_blank" rel="noopener" href="' + view + '">👁 פתח בדפדוף</a>'
     + (canEdit ? '<a class="btn btn-primary" target="_blank" rel="noopener" href="' + editHref + '">🛠 ערוך עמוד</a>' : '')
     /* 🔄 כפולת שער+גב שיוצאה מסובבת 90° — פיצול אמיתי של הקובץ (15/08;
-       הורחב 16/08 לעיתון-מלא: שם הפיצול יוצר גרסה חדשה בחוזה-הגרסאות,
-       והדפוס רואה "עבר תיקון". חסום רק כשהעבודה הושלמה/נסגרה). */
-    + ((String(t.target).indexOf('file_') === 0 && !reg.locked)
-       || (t.target === 'full' && !((_sgReg[id] || {}).completedAt || (_sgReg[id] || {}).closedAt))
+       הורחב 16/08 לעיתון-מלא). דיוק-בעלים 16/08: מוצג **רק** על מועמד-
+       שער/גב — עמוד ראשון, אחרון, או חסר-מספר — לא על כל עמוד. */
+    + (_csEligible(id, reg, t)
         ? '<button class="btn btn-v" id="sgLSplit" title="עמוד שהוא שער+גב יחד, עומד-על-הצד: סיבוב, פיצול לשניים, ושיבוץ — שער לעמוד 1 וגב לעמוד האחרון">🔄 סובב וחלק (שער+גב)</button>' : '')
+    /* 📤 החלפת-עמוד ישירה מחלון-ההגדלה (בקשת-בעלים 16/08) */
+    + (canEdit ? '<button class="btn btn-v" id="sgLRepl" title="בחירת קובץ מהמחשב — העמוד הזה מוחלף בו">📤 החלף עמוד</button>' : '')
     + '<button class="btn btn-dl" id="sgLClose">✕ סגור</button></div>'
     + (reg.locked && !canEdit ? '<div style="color:#d1d5db;font-size:.8rem">🔒 הגיליון נשלח לדפוס — עריכה רק לעמוד שהדפוס דרש להחליף</div>' : '');
   document.body.appendChild(ov);
   document.getElementById('sgLClose').onclick = function(){ ov.remove(); };
   var spl = document.getElementById('sgLSplit');
   if (spl) spl.onclick = function(){ ov.remove(); _csSplit(id, i); };
+  var rp = document.getElementById('sgLRepl');
+  if (rp) rp.onclick = function(){ ov.remove(); _pgReplaceAsk(id, i); };
   var pv = document.getElementById('sgLPrev'); if (pv) pv.onclick = function(){ ov.remove(); _sgLight(id, pages[pos - 1].xi); };
   var nx = document.getElementById('sgLNext'); if (nx) nx.onclick = function(){ ov.remove(); _sgLight(id, pages[pos + 1].xi); };
   _sgRenderTo(document.getElementById('sgLightPg'), t, Math.round(window.innerHeight * 0.72))
@@ -1129,14 +1226,31 @@ function _sgLight(id, i){
       /* דיווח-בעלים 16/08: הלקוח לא ראה **איפה** הבעיה — הסימון של הדפוס
          (מלבן-📍 + הערה) מצויר על ההגדלה, באותו overlayHtml של הדפדוף.
          העטיפה סביב הקנבס עצמו — האחוזים של המלבן יחסיים לעמוד, לא לחלון. */
-      if (!(t.mark && window.PageMarks)) return;
       var host = document.getElementById('sgLightPg');
       var cv = host && host.querySelector('canvas');
       if (!cv) return;
       var w = document.createElement('span');
       w.style.cssText = 'position:relative;display:inline-block;line-height:0';
       cv.parentNode.insertBefore(w, cv); w.appendChild(cv);
-      w.insertAdjacentHTML('beforeend', PageMarks.overlayHtml(t.mark));
+      if (t.mark && window.PageMarks) w.insertAdjacentHTML('beforeend', PageMarks.overlayHtml(t.mark));
+      /* 📎 צד-השדרה (בקשת-בעלים 16/08): רואים מיד אם העמוד והמספרים
+         פונים לצד הנכון. חוק-הברזל: RTL אי-זוגי שדרה-ימין, זוגי-שמאל. */
+      if (t.pageNo) {
+        var rtl2 = ((_sgReg[id] || {}).readingDirection || 'rtl') !== 'ltr';
+        var spineRight = rtl2 ? (t.pageNo % 2 === 1) : (t.pageNo % 2 === 0);
+        w.insertAdjacentHTML('beforeend',
+          '<span style="position:absolute;top:0;bottom:0;' + (spineRight ? 'right:0' : 'left:0')
+          + ';width:7px;background:repeating-linear-gradient(180deg,#2d3561 0 14px,transparent 14px 26px);opacity:.55;pointer-events:none"></span>'
+          + '<span style="position:absolute;top:6px;' + (spineRight ? 'right:10px' : 'left:10px')
+          + ';background:#2d3561;color:#fff;font-size:.66rem;font-weight:800;border-radius:6px;padding:2px 7px;pointer-events:none">📎 שדרה — '
+          + (spineRight ? 'ימין' : 'שמאל') + ' · מספר כלפי ' + (spineRight ? 'שמאל' : 'ימין') + '</span>');
+      }
+      /* תרים-בוקס מקווקו-אדום — כמו בהגדלה של מסך-הדפוס */
+      _sgTrimPct(t.url, t.page || 1).then(function(tr){
+        if (tr) w.insertAdjacentHTML('beforeend',
+          '<span style="position:absolute;left:' + tr.x + '%;top:' + tr.y + '%;width:' + tr.w + '%;height:' + tr.h
+          + '%;border:1px dashed #dc2626;pointer-events:none"></span>');
+      }).catch(function(e){ console.warn('קריאת תרים-בוקס נכשלה (לא חוסם)', e); });
     })
     .catch(function(e){
       console.error('רינדור-ההגדלה נכשל', e);
@@ -1495,6 +1609,34 @@ async function portalShareViewer(btn, id){
   setTimeout(function(){ btn.textContent = old; btn.disabled = false; }, 2600);
 }
 window.portalShareViewer = portalShareViewer;
+
+/* ✅ סיום חלון-העריכה שהדפוס פתח: הבקשה נסגרת עם תיעוד, הגיליון חוזר
+   מאושר-להדפסה, והדפוס רואה "קבצים חדשים" לבדיקה. */
+async function _editDone(id){
+  var rec = _sgReg[id] || (window._portalProofs || []).filter(function(p){ return String(p._id) === String(id); })[0];
+  if (!rec) { toast('⚠️ הגיליון לא נמצא — רעננו'); return; }
+  if (!confirm('לאשר שהגיליון סופי להדפסה? חלון-העריכה ייסגר.')) return;
+  if (!_lock('editdone')) return;
+  showOv('סוגר את חלון-העריכה…', true);
+  try {
+    var at = Date.now();
+    var req = (rec.changeRequests || {}).full;
+    if (req) await fbWrite(await _au(`${_FBURL}/${PageSwap.requestPath(id, 'full')}.json`),
+      { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(PageSwap.markUsed(req, { at: at, version: Number(rec.version) || 1,
+          changes: { note: 'הלקוח סיים לערוך ואישר להדפסה' } })) }, 'editDone:close');
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ approvedAt: at, shopSeenAt: null }) }, 'editDone:approve');
+    showOv('', false);
+    toast('✅ הגיליון אושר להדפסה — תודה!');
+    await loadHistory();
+  } catch(e){
+    console.error('סגירת חלון-העריכה נכשלה', e); showOv('', false);
+    toast('⚠️ סגירת חלון-העריכה לא נשמרה בשרת — הגיליון עדיין פתוח לעריכה. נסו שוב, ואם זה חוזר פנו לבית-הדפוס');
+  } finally { _unlock('editdone'); }
+}
+window._editDone = _editDone;
 
 // ── אישור פרופר-אפוגי ──
 async function approveApogee(id){
