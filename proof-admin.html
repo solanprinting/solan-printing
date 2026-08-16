@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786870548"></script>
-<script src="chat-alert.js?v=1786870548"></script>
-<script src="shop-issue.js?v=1786870548"></script>
-<script src="page-marks.js?v=1786870548"></script>
-<script src="kontres-split.js?v=1786870548"></script>
+<script src="portal-chat.js?v=1786873227"></script>
+<script src="chat-alert.js?v=1786873227"></script>
+<script src="shop-issue.js?v=1786873227"></script>
+<script src="page-marks.js?v=1786873227"></script>
+<script src="kontres-split.js?v=1786873227"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786870548"></script>
-<script src="auth-client.js?v=1786870548"></script>
+<script src="firebase-auth.bundle.js?v=1786873227"></script>
+<script src="auth-client.js?v=1786873227"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786870548" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786873227" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -829,17 +829,18 @@ let _openIssue = '';
 let _pvPins = [];
 try { _pvPins = JSON.parse(localStorage.getItem('pvPins') || '[]') || []; } catch(e){ _pvPins = []; }
 function _pinSave(){ try { localStorage.setItem('pvPins', JSON.stringify(_pvPins.slice(0, 8))); } catch(e){} }
-function _pinAdd(cust, oid, title){
-  if (!cust || !oid || cust === '__today__') return;
-  const ex = _pvPins.find(p => p.oid === oid);
-  if (ex) { ex.title = String(title || cust).slice(0, 30); _pinSave(); return; }
-  _pvPins.unshift({ cust: cust, oid: String(oid), title: String(title || cust).slice(0, 30) });
+/* דיוק-בעלים 16/08: לשונית = **לקוח**, לא גיליון — בין הגיליונות של אותו
+   לקוח עוברים בלשוניות-הגיליונות הקיימות; גיליון שהודפס מקבל אזהרה. */
+function _pinAdd(cust){
+  if (!cust || cust === '__today__') return;
+  if (_pvPins.some(p => p.cust === cust)) return;
+  _pvPins.unshift({ cust: cust });
   _pvPins = _pvPins.slice(0, 8); _pinSave();
 }
-function _pinStrip(curOid){
-  if (_pvPins.length < 2) return '';                   // לשונית אחת אינה "מעבר בין גיליונות"
+function _pinStrip(){
+  if (_pvPins.length < 2) return '';                   // לקוח אחד אינו "מעבר בין לקוחות"
   return '<div class="pinStrip">' + _pvPins.map(p =>
-    `<span class="pinTab${p.oid === curOid ? ' on' : ''}" data-pvtab="${escapeHtml(p.cust)}|${escapeHtml(p.oid)}" title="${escapeHtml(p.cust)}">🗞 ${escapeHtml(p.title)} <b data-pvtabx="${escapeHtml(p.oid)}" title="סגור לשונית">✕</b></span>`).join('')
+    `<span class="pinTab${p.cust === _selCust ? ' on' : ''}" data-pvtab="${escapeHtml(p.cust)}">📁 ${escapeHtml(String(p.cust).slice(0, 24))} <b data-pvtabx="${escapeHtml(p.cust)}" title="סגור לשונית">✕</b></span>`).join('')
     + '</div>';
 }
 /* עיצוב-מחדש 13/08/2026: הלשוניות מציגות 4 גיליונות; "כל הגיליונות" פורש. */
@@ -1285,6 +1286,8 @@ function render(rows) {
     })();
     return `<div class="isCard on${ShopIssue.printApproved(p)?' approved':''}">${head}
       <div class="isBody">
+        ${p.completedAt ? `<div class="swapBan" style="background:#f5f5ff;border:2px solid #a5b4fc;color:#3730a3">🗄️ <b>גיליון קודם — כבר הודפס/הושלם.</b>
+          לא להעלות אליו קבצים ולא להוריד ממנו — הקבצים כאן שייכים לגיליון שעבר.</div>` : ''}
         ${swapBans}
         <div class="isMain">
           ${act.canDownload?`<a class="isBtn view" href="${base}proof-viewer.html?id=${p.id}" target="_blank">👁 צפייה בדפדוף</a>`:''}
@@ -1297,7 +1300,10 @@ function render(rows) {
             /* 🔓 פתיחת-גיליון-שנשלח לעריכת-לקוח (בקשת-בעלים 16/08): במקום
                לחכות שהלקוח יבקש — הדפוס פותח, והלקוח מקבל בפורטל כפתור
                גדול "מאושר להדפסה" לסיום. אותה תשתית של בקשת-החלפה. */
-            if (!window.PageSwap || !ShopIssue.printApproved(p)) return '';
+            /* ⚠️ 16/08, דיווח-בעלים: הותנה בטעות ב"אושר להדפסה" — הכפתור
+               שייך לכל גיליון **שנשלח** (approved), זה בדיוק המצב הנעול
+               שהלקוח מבקש לפתוח. */
+            if (!window.PageSwap || !(p.status === 'approved' || p.approvedAt || ShopIssue.printApproved(p))) return '';
             const rq = ((p.changeRequests || {}).full) || null;
             if (rq && ['pending', 'approved'].indexOf(PageSwap.state(rq, Date.now())) >= 0) return '';
             return `<button class="isBtn" data-openedit="${p.id}" title="פותח ללקוח חלון-עריכה של 48 שעות; בסיום הוא מאשר שוב להדפסה">🔓 פתח לעריכת-לקוח</button>`;
@@ -1684,8 +1690,8 @@ function render(rows) {
               if (openP && !shown.some(x => ShopIssue.idOf(x) === ShopIssue.idOf(openP))) shown = shown.concat([openP]);
               const more = sorted.length > 4
                 ? `<span class="isTab tMore" id="tabsMore">${_tabsAll ? '▴ צמצם' : ('▾ כל הגיליונות (' + sorted.length + ')')}</span>` : '';
-              if (openP) _pinAdd(_selCust, _oid, ShopIssue.titleOf(openP));
-              return _pinStrip(_oid)
+              if (openP) _pinAdd(_selCust);
+              return _pinStrip()
                    + `<div class="isTabs">${shown.map(x => issueTab(x, _oid)).join('')}${more}</div><div class="isTabLine"></div>`
                    + (openP ? issueCard(openP, _oid) : '');
             })()
@@ -2120,13 +2126,12 @@ function render(rows) {
   /* פס-הלשוניות הבין-לקוחי: מעבר גיליון↔גיליון בלי לצאת */
   document.querySelectorAll('[data-pvtab]').forEach(el => el.onclick = (ev) => {
     if (ev.target && ev.target.dataset && ev.target.dataset.pvtabx) return;
-    const kv = el.dataset.pvtab.split('|');
-    _selCust = kv[0]; _openIssue = kv.slice(1).join('|');
+    _selCust = el.dataset.pvtab; _openIssue = '';       // הגיליון הפעיל נבחר אוטומטית (openId)
     render(_allRows);
   });
   document.querySelectorAll('[data-pvtabx]').forEach(el => el.onclick = (ev) => {
     ev.stopPropagation();
-    _pvPins = _pvPins.filter(p => p.oid !== el.dataset.pvtabx); _pinSave();
+    _pvPins = _pvPins.filter(p => p.cust !== el.dataset.pvtabx); _pinSave();
     render(_allRows);
   });
   /* תשובות-מהירות בשיחה — ממלאות את התיבה, לא שולחות */
@@ -2861,12 +2866,11 @@ async function _pgLightOpen(idx, pg){
       if (_mn) {
         const _rtl = (_rec2.readingDirection || 'rtl') !== 'ltr';
         const _sr = _rtl ? (_mn % 2 === 1) : (_mn % 2 === 0);
+        /* פס אדום שקוף-למחצה עם הכיתוב בתוכו (דיוק-בעלים 16/08) */
         host.insertAdjacentHTML('beforeend',
           '<div style="position:absolute;top:0;bottom:0;z-index:3;pointer-events:none;' + (_sr ? 'right:0' : 'left:0')
-          + ';width:7px;background:repeating-linear-gradient(180deg,#2d3561 0 14px,transparent 14px 26px);opacity:.55"></div>'
-          + '<div style="position:absolute;top:6px;z-index:4;pointer-events:none;' + (_sr ? 'right:10px' : 'left:10px')
-          + ';background:#2d3561;color:#fff;font-size:.68rem;font-weight:800;border-radius:6px;padding:2px 7px">📎 שדרה — '
-          + (_sr ? 'ימין' : 'שמאל') + ' · מספר כלפי ' + (_sr ? 'שמאל' : 'ימין') + '</div>');
+          + ';width:24px;background:rgba(220,38,38,.28);display:flex;align-items:center;justify-content:center">'
+          + '<span style="writing-mode:vertical-rl;color:#b91c1c;font-size:.8rem;font-weight:900;letter-spacing:.2em;text-shadow:0 0 4px #fff,0 0 4px #fff">📎 שדרה</span></div>');
       }
     } catch(e){}
     /* תרים-בוקס (בקשת-בעלים): קו אדום דק מקווקו — רק כשהקובץ באמת מגדיר
