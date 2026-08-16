@@ -12,20 +12,21 @@
 <script src="page-spine.js?v=bidi1"></script>
 <!-- סימוני-עמודים (עיצוב-מחדש 13/08/2026): הלוגיקה ב-shop-issue (טהורה),
      הציור והגרירה ב-page-marks — משותפים למסך-הדפוס ולדפדוף הזה. -->
-<script src="shop-issue.js?v=1786800205"></script>
-<script src="page-marks.js?v=1786800205"></script>
+<script src="shop-issue.js?v=1786863720"></script>
+<script src="cover-split.js?v=1786863720"></script>
+<script src="page-marks.js?v=1786863720"></script>
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786800205"></script>
-<script src="proof-fetch.js?v=1786800205"></script>
+<script src="portal-context.js?v=1786863720"></script>
+<script src="proof-fetch.js?v=1786863720"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786800205"></script>
-<script src="auth-client.js?v=1786800205"></script>
-<script src="auth-guard.js?v=1786800205" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786863720"></script>
+<script src="auth-client.js?v=1786863720"></script>
+<script src="auth-guard.js?v=1786863720" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -493,23 +494,19 @@ async function _metasForDisplay(normBytes, realTrims){
    עומדת-על-צידה. אחרי סיבוב לתצוגה: חצי אחד שער (תחילת הדפדוף) וחצי גב
    (סופו). כיוון-הסיבוב ואיזה-חצי-שער משתנים בין לקוחות → נשאלים פעם
    אחת לעיתון ונשמרים ברשומה. בלי גודל-עבודה אין זיהוי — אומרים זאת. */
-function _isRotSpread(wmm, hmm){
-  var tol = 2, slack = 14;
-  return (isFinite(_reqWmm) && _reqWmm > 0 && isFinite(_reqHmm) && _reqHmm > 0)
-      && (wmm >= _reqHmm - tol && wmm <= _reqHmm + slack)
-      && (hmm >= 2 * _reqWmm - tol && hmm <= 2 * _reqWmm + slack);
-}
 async function _coverSpreadFix(bytes){
   var MM = 25.4 / 72;
   var doc = await PDFLib.PDFDocument.load(bytes.slice(0), { ignoreEncryption: true });
   var pages = doc.getPages(), idx = -1;
-  var noReq = !(isFinite(_reqWmm) && _reqWmm > 0 && isFinite(_reqHmm) && _reqHmm > 0);
+  var sizes = pages.map(function(p){ var mb0 = p.getMediaBox(); return { w: mb0.width * MM, h: mb0.height * MM }; });
+  /* הייחוס: גודל-העבודה כשמוגדר; אחרת — חציון שאר עמודי-הגיליון
+     (15/08, דיווח-בעלים: העלאת-פורטל אינה נושאת גודל-עבודה, והזיהוי
+     לא ירה כלל. המתמטיקה ב-CoverSplit, מאומתת נומרית). */
   for (var i = 0; i < pages.length; i++){
-    var mb = pages[i].getMediaBox(), wmm = mb.width * MM, hmm = mb.height * MM;
-    if (_isRotSpread(wmm, hmm)) { idx = i; break; }
-    /* בלי גודל-עבודה: עמוד גבוה-חריג נאמר בקול במקום להישאר תעלומה */
-    if (noReq && hmm > wmm * 1.85)
-      _qBadge('⚠️ יש עמוד שנראה ככפולה מסובבת — הגדירו גודל-עמוד לעבודה (✏️ פרטים) כדי שנציב שער/גב', 12000);
+    var ref = (isFinite(_reqWmm) && _reqWmm > 0 && isFinite(_reqHmm) && _reqHmm > 0)
+      ? { w: _reqWmm, h: _reqHmm }
+      : CoverSplit.refFromSizes(sizes.filter(function(_, j){ return j !== i; }));
+    if (ref && CoverSplit.isRotatedSpread(sizes[i].w, sizes[i].h, ref.w, ref.h)) { idx = i; break; }
   }
   if (idx < 0) return bytes;
   var cs = (window._pmRec && _pmRec.coverSpread) || null;
@@ -524,23 +521,19 @@ async function _coverSpreadFix(bytes){
     } catch(e){ console.error('שמירת בחירת כפולת-השער נכשלה — תישאל שוב בפעם הבאה', e); }
   }
   var srcPage = pages[idx], mb2 = srcPage.getMediaBox();
-  var w0 = mb2.width, h0 = mb2.height, hh = h0 / 2, newW = hh, newH = w0;
-  /* מיפוי חצי-חזותי → חצי-מקור: סיבוב PDF‏ +90 = נגד-השעון חזותית →
-     ראש-העמוד המקורי הופך לצד שמאל; ‏−90 הפוך. אומת מול מטריצת-הסיבוב. */
-  var topIsCover = (cs.rot === -90 && cs.coverHalf === 'right') || (cs.rot === 90 && cs.coverHalf === 'left');
-  var boxTop = { left: mb2.x, bottom: mb2.y + hh, right: mb2.x + w0, top: mb2.y + h0 };
-  var boxBot = { left: mb2.x, bottom: mb2.y,      right: mb2.x + w0, top: mb2.y + hh };
+  /* המתמטיקה כולה ב-CoverSplit (טהור, מאומת נומרית) — כאן רק ביצוע. */
+  var plan = CoverSplit.splitPlan(cs.rot, cs.coverHalf, { x: mb2.x, y: mb2.y, w: mb2.width, h: mb2.height });
+  if (!plan) return bytes;
   var out = await PDFLib.PDFDocument.create();
-  var mkHalf = async function(box){
-    var emb = await out.embedPage(srcPage, box);
-    var pg = out.addPage([newW, newH]);
-    if (cs.rot === 90) pg.drawPage(emb, { x: newW, y: 0,    rotate: PDFLib.degrees(90)  });
-    else               pg.drawPage(emb, { x: 0,    y: newH, rotate: PDFLib.degrees(-90) });
+  var mkHalf = async function(part){
+    var emb = await out.embedPage(srcPage, part.box);
+    var pg = out.addPage([part.draw.outW, part.draw.outH]);
+    pg.drawPage(emb, { x: part.draw.x, y: part.draw.y, rotate: PDFLib.degrees(part.draw.deg) });
   };
-  await mkHalf(topIsCover ? boxTop : boxBot);                    // שער — עמוד ראשון
+  await mkHalf(plan.cover);                                      // שער — עמוד ראשון
   var rest = doc.getPageIndices().filter(function(x){ return x !== idx; });
   (await out.copyPages(doc, rest)).forEach(function(p){ out.addPage(p); });
-  await mkHalf(topIsCover ? boxBot : boxTop);                    // גב — עמוד אחרון
+  await mkHalf(plan.back);                                       // גב — עמוד אחרון
   _qBadge('📖 כפולת-השער פוצלה: שער בתחילת הדפדוף וגב בסופו', 9000);
   return new Uint8Array(await out.save());
 }

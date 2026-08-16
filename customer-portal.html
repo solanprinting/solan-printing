@@ -9,19 +9,20 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786800205"></script>
-<script src="page-add.js?v=1786800205"></script>
-<script src="portal-context.js?v=1786800205"></script>
-<script src="portal-return.js?v=1786800205"></script>
-<script src="portal-chat.js?v=1786800205"></script>
+<script src="portal-download.js?v=1786863720"></script>
+<script src="page-add.js?v=1786863720"></script>
+<script src="portal-context.js?v=1786863720"></script>
+<script src="portal-return.js?v=1786863720"></script>
+<script src="portal-chat.js?v=1786863720"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786800205"></script>
+<script src="chat-alert.js?v=1786863720"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786800205"></script>
-<script src="page-marks.js?v=1786800205"></script>
+<script src="shop-issue.js?v=1786863720"></script>
+<script src="cover-split.js?v=1786863720"></script>
+<script src="page-marks.js?v=1786863720"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1105,10 +1106,16 @@ function _sgLight(id, i){
     + (pos < pages.length - 1 ? '<button class="btn btn-v" id="sgLNext">הבא ›</button>' : '')
     + '<a class="btn btn-v" target="_blank" rel="noopener" href="' + view + '">👁 פתח בדפדוף</a>'
     + (canEdit ? '<a class="btn btn-primary" target="_blank" rel="noopener" href="' + editHref + '">🛠 ערוך עמוד</a>' : '')
+    /* 🔄 כפולת שער+גב שיוצאה מסובבת 90° — פיצול אמיתי של הקובץ (15/08).
+       רק ליחידת קובץ-בודד וכשהגיליון פתוח. */
+    + (!reg.locked && t.target && String(t.target).indexOf('file_') === 0
+        ? '<button class="btn btn-v" id="sgLSplit" title="עמוד שהוא שער+גב יחד, עומד-על-הצד: סיבוב, פיצול לשניים, ושיבוץ — שער לעמוד 1 וגב לעמוד האחרון">🔄 סובב וחלק (שער+גב)</button>' : '')
     + '<button class="btn btn-dl" id="sgLClose">✕ סגור</button></div>'
     + (reg.locked && !canEdit ? '<div style="color:#d1d5db;font-size:.8rem">🔒 הגיליון נשלח לדפוס — עריכה רק לעמוד שהדפוס דרש להחליף</div>' : '');
   document.body.appendChild(ov);
   document.getElementById('sgLClose').onclick = function(){ ov.remove(); };
+  var spl = document.getElementById('sgLSplit');
+  if (spl) spl.onclick = function(){ ov.remove(); _csSplit(id, i); };
   var pv = document.getElementById('sgLPrev'); if (pv) pv.onclick = function(){ ov.remove(); _sgLight(id, pages[pos - 1].xi); };
   var nx = document.getElementById('sgLNext'); if (nx) nx.onclick = function(){ ov.remove(); _sgLight(id, pages[pos + 1].xi); };
   _sgRenderTo(document.getElementById('sgLightPg'), t, Math.round(window.innerHeight * 0.72))
@@ -1120,6 +1127,136 @@ function _sgLight(id, i){
   return false;                                     // עוצר את ניווט-הקישור
 }
 window._sgLight = _sgLight;
+/* ── 🔄 סובב-וחלק: כפולת שער+גב מסובבת → שני עמודים אמיתיים (15/08) ─────
+   דיווח-בעלים: "המערכת רק שאלה אם זו כפולה ושמה אותה כשער עומד". כאן
+   הפיצול **בקובץ עצמו**: בחירת כיוון-ישר → בחירת צד-השער → שני PDF
+   חד-עמודיים עולים ומשתבצים — שער לעמוד 1, גב לעמוד האחרון. המקורי
+   מוחלף בשער (replacedAt). המתמטיקה ב-CoverSplit (מאומתת נומרית). */
+function _csAsk(t){
+  return _sgDocFor(t.url).then(function(pdf){ return pdf.getPage(Math.max(1, t.page || 1)); })
+  .then(function(pg){
+    var vp0 = pg.getViewport({ scale: 1 });
+    var vp = pg.getViewport({ scale: 320 / vp0.height });
+    var src = document.createElement('canvas');
+    src.width = Math.ceil(vp.width); src.height = Math.ceil(vp.height);
+    var g0 = src.getContext('2d');
+    g0.fillStyle = '#fff'; g0.fillRect(0, 0, src.width, src.height);   // רקע לבן — שקיפות
+    return pg.render({ canvasContext: g0, viewport: vp }).promise.then(function(){ return src; });
+  })
+  .then(function(src){
+    /* קנבס (ציר-y למטה): rotate(−π/2) נראה נגד-השעון ↔ rot=+90 של PDF */
+    var rotC = function(cw){
+      var c = document.createElement('canvas'); c.width = src.height; c.height = src.width;
+      var g = c.getContext('2d');
+      if (cw) { g.translate(src.height, 0); g.rotate(Math.PI / 2); }
+      else    { g.translate(0, src.width);  g.rotate(-Math.PI / 2); }
+      g.drawImage(src, 0, 0); return c;
+    };
+    return new Promise(function(resolve){
+      var ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:98;display:flex;align-items:center;justify-content:center;direction:rtl;padding:14px;overflow:auto';
+      var bx = document.createElement('div');
+      bx.style.cssText = 'background:#fff;border-radius:14px;max-width:760px;width:100%;padding:17px 19px;text-align:center';
+      ov.appendChild(bx); document.body.appendChild(ov);
+      var done = function(v){ ov.remove(); resolve(v); };
+      var step2 = function(rot, canv){
+        bx.innerHTML = '<div style="font-weight:900;color:#2d3561;margin-bottom:4px">איזה צד הוא השער (העמוד הראשון)?</div>'
+          + '<div style="font-size:.82rem;color:#666;margin-bottom:10px">הצד השני ישובץ כגב-העיתון בסוף הגיליון.</div>';
+        var wrap = document.createElement('div'); wrap.style.cssText = 'position:relative;display:inline-block;max-width:100%';
+        canv.style.cssText = 'max-width:100%;height:auto;border:1px solid #e5e7eb;border-radius:8px';
+        wrap.appendChild(canv);
+        ['right', 'left'].forEach(function(side){
+          var b = document.createElement('button');
+          b.textContent = side === 'right' ? '⬅ זה השער (ימין)' : 'זה השער (שמאל) ➡';
+          b.style.cssText = 'position:absolute;bottom:10px;' + (side === 'right' ? 'right:10px' : 'left:10px')
+            + ';background:#2d3561;color:#fff;border:0;border-radius:9px;padding:8px 13px;font-weight:800;cursor:pointer;font-family:inherit';
+          b.onclick = function(){ done({ rot: rot, coverHalf: side }); };
+          wrap.appendChild(b);
+        });
+        bx.appendChild(wrap);
+        var cn = document.createElement('button');
+        cn.textContent = 'ביטול';
+        cn.style.cssText = 'display:block;margin:10px auto 0;border:1.5px solid #e2e8f0;background:#fff;border-radius:9px;padding:7px 14px;cursor:pointer;font-weight:700;font-family:inherit';
+        cn.onclick = function(){ done(null); };
+        bx.appendChild(cn);
+      };
+      bx.innerHTML = '<div style="font-weight:900;color:#2d3561;margin-bottom:4px">🔄 באיזו מהתצוגות העמוד עומד ישר?</div>'
+        + '<div style="font-size:.82rem;color:#666;margin-bottom:11px">לחצו על התצוגה הנכונה</div>';
+      var row = document.createElement('div'); row.style.cssText = 'display:flex;gap:12px;justify-content:center;flex-wrap:wrap';
+      [{ cw: false, rot: 90 }, { cw: true, rot: -90 }].forEach(function(o){
+        var c = rotC(o.cw);
+        c.style.cssText = 'max-width:46%;height:auto;border:2px solid #e5e7eb;border-radius:10px;cursor:pointer';
+        c.onclick = function(){ step2(o.rot, rotC(o.cw)); };
+        row.appendChild(c);
+      });
+      bx.appendChild(row);
+      var cn2 = document.createElement('button');
+      cn2.textContent = 'ביטול';
+      cn2.style.cssText = 'display:block;margin:11px auto 0;border:1.5px solid #e2e8f0;background:#fff;border-radius:9px;padding:7px 14px;cursor:pointer;font-weight:700;font-family:inherit';
+      cn2.onclick = function(){ done(null); };
+      bx.appendChild(cn2);
+    });
+  });
+}
+async function _csSplit(id, i){
+  var reg2 = _sgTiles[id], rec = _sgReg[id];
+  var t = reg2 && reg2.tiles[i];
+  if (!t || !rec || String(t.target).indexOf('file_') !== 0){ toast('הפיצול זמין לעמוד שהועלה כקובץ-בודד'); return; }
+  if (!window.CoverSplit){ toast('⚠️ רכיב-הפיצול לא נטען — רעננו את הדף'); return; }
+  var cs = await _csAsk(t);
+  if (!cs) return;
+  var declared = Number(rec.declaredPages) || 0;
+  var backV = prompt('לאיזה מספר-עמוד לשבץ את הגב (העמוד האחרון)?', declared || '');
+  if (backV === null) return;
+  var backN = parseInt(String(backV).trim(), 10);
+  if (!isFinite(backN) || backN < 2 || backN > 200){ toast('מספר-עמוד לגב בין 2 ל-200'); return; }
+  if (!_lock('upload')) { toast('העלאה כבר מתבצעת — רגע…'); return; }
+  try {
+    showOv('מפצל את הכפולה…', true);
+    var PDFLib = await _loadPdfLib();
+    if (!PDFLib) throw new Error('רכיב-PDF לא נטען ברשת הזו');
+    var srcB = await (await fetch(t.url)).arrayBuffer();
+    var doc = await PDFLib.PDFDocument.load(srcB, { ignoreEncryption: true });
+    var pg = doc.getPage(Math.max(0, (t.page || 1) - 1));
+    var mb = pg.getMediaBox();
+    var plan = CoverSplit.splitPlan(cs.rot, cs.coverHalf, { x: mb.x, y: mb.y, w: mb.width, h: mb.height });
+    if (!plan) throw new Error('בחירת-הפיצול אינה תקינה');
+    var mkDoc = async function(part){
+      var d = await PDFLib.PDFDocument.create();
+      var emb = await d.embedPage(pg, part.box);
+      var p2 = d.addPage([part.draw.outW, part.draw.outH]);
+      p2.drawPage(emb, { x: part.draw.x, y: part.draw.y, rotate: PDFLib.degrees(part.draw.deg) });
+      return new Uint8Array(await d.save());
+    };
+    var coverB = await mkDoc(plan.cover), backB = await mkDoc(plan.back);
+    showOv('מעלה שער וגב…', true, 30);
+    var ts = Date.now().toString(36);
+    var coverUrl = await uploadBytes('customerProofs/' + SLUG + '/' + id + '/p1_cover_' + ts + '.pdf', coverB, null);
+    var backUrl  = await uploadBytes('customerProofs/' + SLUG + '/' + id + '/p' + backN + '_back_' + ts + '.pdf', backB, null);
+    showOv('משבץ בגיליון…', true, 85);
+    var origKey = 'f' + String(t.target).slice(5);
+    /* סדר-הכתיבות מכוון: הגב קודם (תוספת בלתי-מזיקה), החלפת-המקורי-בשער
+       אחרונה — כשל באמצע משאיר את השער המקורי במקומו, לא גיליון בלי שער.
+       ‏fileName "עמוד N" = מקור-האמת של השיבוץ. */
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${id}/files/f${ts}bk.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ fileUrl: backUrl, filePath: 'customerProofs/' + SLUG + '/' + id + '/p' + backN + '_back_' + ts + '.pdf',
+          fileName: 'עמוד ' + backN + '.pdf', fileSize: backB.byteLength }) }, 'csSplit:back');
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${id}/files/${origKey}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ fileUrl: coverUrl, filePath: 'customerProofs/' + SLUG + '/' + id + '/p1_cover_' + ts + '.pdf',
+          fileName: 'עמוד 1.pdf', fileSize: coverB.byteLength, replacedAt: Date.now() }) }, 'csSplit:cover');
+    await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ fileCount: Object.keys(rec.files || {}).length + 1, shopSeenAt: null }) }, 'csSplit:count');
+    showOv('', false);
+    toast('✓ הכפולה פוצלה: שער → עמוד 1 · גב → עמוד ' + backN);
+    await loadHistory();
+  } catch(e){
+    console.error('סובב-וחלק נכשל', e); showOv('', false);
+    toast('⚠️ הפיצול נכשל: ' + ((e && e.message) || 'שגיאה') + ' — רעננו ובדקו את מפת-הגיליון לפני ניסיון חוזר');
+  } finally { _unlock('upload'); }
+}
 async function _sgDeclare(id){
   var p = _sgReg[id]; if (!p) return;
   var cur = Number(p.declaredPages) || '';
