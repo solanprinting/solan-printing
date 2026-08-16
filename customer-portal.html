@@ -9,23 +9,23 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786879087"></script>
-<script src="page-add.js?v=1786879087"></script>
-<script src="portal-context.js?v=1786879087"></script>
-<script src="portal-return.js?v=1786879087"></script>
-<script src="portal-chat.js?v=1786879087"></script>
+<script src="portal-download.js?v=1786879826"></script>
+<script src="page-add.js?v=1786879826"></script>
+<script src="portal-context.js?v=1786879826"></script>
+<script src="portal-return.js?v=1786879826"></script>
+<script src="portal-chat.js?v=1786879826"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786879087"></script>
+<script src="chat-alert.js?v=1786879826"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786879087"></script>
-<script src="cover-split.js?v=1786879087"></script>
-<script src="page-swap.js?v=1786879087"></script>
-<script src="rip-load.js?v=1786879087"></script>
-<script src="page-replace.js?v=1786879087"></script>
-<script src="page-marks.js?v=1786879087"></script>
+<script src="shop-issue.js?v=1786879826"></script>
+<script src="cover-split.js?v=1786879826"></script>
+<script src="page-swap.js?v=1786879826"></script>
+<script src="rip-load.js?v=1786879826"></script>
+<script src="page-replace.js?v=1786879826"></script>
+<script src="page-marks.js?v=1786879826"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1643,6 +1643,14 @@ function _csAsk(t){
     });
   });
 }
+/* תיבת-התרים של עמוד-המקור, רק כשהיא באמת קטנה מהמדיה */
+function _csTrimOf(pg, mb){
+  try { var t = pg.getTrimBox();
+    if (t && (t.width < mb.width - 0.5 || t.height < mb.height - 0.5))
+      return { x: t.x, y: t.y, w: t.width, h: t.height };
+  } catch(e){}
+  return null;
+}
 async function _csSplit(id, i){
   var reg2 = _sgTiles[id], rec = _sgReg[id];
   var t = reg2 && reg2.tiles[i];
@@ -1668,13 +1676,14 @@ async function _csSplit(id, i){
     var doc = await PDFLib.PDFDocument.load(srcB, { ignoreEncryption: true });
     var pg = doc.getPage(Math.max(0, (t.page || 1) - 1));
     var mb = pg.getMediaBox();
-    var plan = CoverSplit.splitPlan(cs.rot, cs.coverHalf, { x: mb.x, y: mb.y, w: mb.width, h: mb.height });
+    var plan = CoverSplit.splitPlan(cs.rot, cs.coverHalf, { x: mb.x, y: mb.y, w: mb.width, h: mb.height }, _csTrimOf(pg, mb));
     if (!plan) throw new Error('בחירת-הפיצול אינה תקינה');
     var mkDoc = async function(part){
       var d = await PDFLib.PDFDocument.create();
       var emb = await d.embedPage(pg, part.box);
       var p2 = d.addPage([part.draw.outW, part.draw.outH]);
       p2.drawPage(emb, { x: part.draw.x, y: part.draw.y, rotate: PDFLib.degrees(part.draw.deg) });
+      if (part.trim) p2.setTrimBox(part.trim.x, part.trim.y, part.trim.w, part.trim.h);
       return new Uint8Array(await d.save());
     };
     var coverB = await mkDoc(plan.cover), backB = await mkDoc(plan.back);
@@ -1720,13 +1729,14 @@ async function _csSplitFull(id, rec, t, cs){
     var doc = await PDFLib.PDFDocument.load(srcB, { ignoreEncryption: true });
     var idx = Math.max(0, Math.min((t.page || 1) - 1, doc.getPageCount() - 1));
     var pg = doc.getPage(idx), mb = pg.getMediaBox();
-    var plan = CoverSplit.splitPlan(cs.rot, cs.coverHalf, { x: mb.x, y: mb.y, w: mb.width, h: mb.height });
+    var plan = CoverSplit.splitPlan(cs.rot, cs.coverHalf, { x: mb.x, y: mb.y, w: mb.width, h: mb.height }, _csTrimOf(pg, mb));
     if (!plan) throw new Error('בחירת-הפיצול אינה תקינה');
     var out = await PDFLib.PDFDocument.create();
     var mkHalf = async function(part){
       var emb = await out.embedPage(pg, part.box);
       var p2 = out.addPage([part.draw.outW, part.draw.outH]);
       p2.drawPage(emb, { x: part.draw.x, y: part.draw.y, rotate: PDFLib.degrees(part.draw.deg) });
+      if (part.trim) p2.setTrimBox(part.trim.x, part.trim.y, part.trim.w, part.trim.h);
     };
     await mkHalf(plan.cover);
     var rest = doc.getPageIndices().filter(function(x){ return x !== idx; });

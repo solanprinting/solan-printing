@@ -12,21 +12,21 @@
 <script src="page-spine.js?v=bidi1"></script>
 <!-- סימוני-עמודים (עיצוב-מחדש 13/08/2026): הלוגיקה ב-shop-issue (טהורה),
      הציור והגרירה ב-page-marks — משותפים למסך-הדפוס ולדפדוף הזה. -->
-<script src="shop-issue.js?v=1786879087"></script>
-<script src="cover-split.js?v=1786879087"></script>
-<script src="page-marks.js?v=1786879087"></script>
+<script src="shop-issue.js?v=1786879826"></script>
+<script src="cover-split.js?v=1786879826"></script>
+<script src="page-marks.js?v=1786879826"></script>
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1786879087"></script>
-<script src="proof-fetch.js?v=1786879087"></script>
+<script src="portal-context.js?v=1786879826"></script>
+<script src="proof-fetch.js?v=1786879826"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786879087"></script>
-<script src="auth-client.js?v=1786879087"></script>
-<script src="auth-guard.js?v=1786879087" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786879826"></script>
+<script src="auth-client.js?v=1786879826"></script>
+<script src="auth-guard.js?v=1786879826" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -522,13 +522,20 @@ async function _coverSpreadFix(bytes){
   }
   var srcPage = pages[idx], mb2 = srcPage.getMediaBox();
   /* המתמטיקה כולה ב-CoverSplit (טהור, מאומת נומרית) — כאן רק ביצוע. */
-  var plan = CoverSplit.splitPlan(cs.rot, cs.coverHalf, { x: mb2.x, y: mb2.y, w: mb2.width, h: mb2.height });
+  /* תיבת-החיתוך של המקור עוברת לחצאים (16/08) — בלעדיה העמוד המפוצל
+     נולד בלי תרים, וקו-החיתוך נעלם מהדפדוף ומהדפוס. */
+  var _tb0 = null;
+  try { var _t = srcPage.getTrimBox();
+        if (_t && (_t.width < mb2.width - 0.5 || _t.height < mb2.height - 0.5))
+          _tb0 = { x: _t.x, y: _t.y, w: _t.width, h: _t.height }; } catch(e){}
+  var plan = CoverSplit.splitPlan(cs.rot, cs.coverHalf, { x: mb2.x, y: mb2.y, w: mb2.width, h: mb2.height }, _tb0);
   if (!plan) return bytes;
   var out = await PDFLib.PDFDocument.create();
   var mkHalf = async function(part){
     var emb = await out.embedPage(srcPage, part.box);
     var pg = out.addPage([part.draw.outW, part.draw.outH]);
     pg.drawPage(emb, { x: part.draw.x, y: part.draw.y, rotate: PDFLib.degrees(part.draw.deg) });
+    if (part.trim) pg.setTrimBox(part.trim.x, part.trim.y, part.trim.w, part.trim.h);
   };
   await mkHalf(plan.cover);                                      // שער — עמוד ראשון
   var rest = doc.getPageIndices().filter(function(x){ return x !== idx; });
