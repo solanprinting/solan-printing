@@ -9,23 +9,23 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786875342"></script>
-<script src="page-add.js?v=1786875342"></script>
-<script src="portal-context.js?v=1786875342"></script>
-<script src="portal-return.js?v=1786875342"></script>
-<script src="portal-chat.js?v=1786875342"></script>
+<script src="portal-download.js?v=1786876270"></script>
+<script src="page-add.js?v=1786876270"></script>
+<script src="portal-context.js?v=1786876270"></script>
+<script src="portal-return.js?v=1786876270"></script>
+<script src="portal-chat.js?v=1786876270"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786875342"></script>
+<script src="chat-alert.js?v=1786876270"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786875342"></script>
-<script src="cover-split.js?v=1786875342"></script>
-<script src="page-swap.js?v=1786875342"></script>
-<script src="rip-load.js?v=1786875342"></script>
-<script src="page-replace.js?v=1786875342"></script>
-<script src="page-marks.js?v=1786875342"></script>
+<script src="shop-issue.js?v=1786876270"></script>
+<script src="cover-split.js?v=1786876270"></script>
+<script src="page-swap.js?v=1786876270"></script>
+<script src="rip-load.js?v=1786876270"></script>
+<script src="page-replace.js?v=1786876270"></script>
+<script src="page-marks.js?v=1786876270"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1098,7 +1098,16 @@ async function _sgRenderTo(canvasHost, t, maxH){
   g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);   // רקע לבן — עמודי-שקיפות
   await pg.render({ canvasContext: g, viewport: vp }).promise;
   canvasHost.innerHTML = ''; canvasHost.appendChild(c);
-  return { wmm: vp0.width * 25.4 / 72, hmm: vp0.height * 25.4 / 72 };
+  /* ⚠️ זיהוי עמוד-ריק (16/08): עמוד לבן לגמרי נראה כמו "עוד עמוד" ברשת
+     ומתגלה רק בדפוס. נדגם 1 מכל 4 פיקסלים; מתחת ל-0.2% פיקסלים לא-לבנים
+     זה עמוד ריק. ‏getImageData יכול לזרוק (קנבס מזוהם) — אז לא מכריעים. */
+  var blank = false;
+  try {
+    var px = g.getImageData(0, 0, c.width, c.height).data, ink = 0, n = 0;
+    for (var q = 0; q < px.length; q += 16) { n++; if (px[q] < 245 || px[q+1] < 245 || px[q+2] < 245) ink++; }
+    blank = n > 0 && (ink / n) < 0.002;
+  } catch(e){}
+  return { wmm: vp0.width * 25.4 / 72, hmm: vp0.height * 25.4 / 72, blank: blank };
 }
 async function _sgThumbs(){
   var els = Array.prototype.slice.call(document.querySelectorAll('.sgPv[data-sgpv]'));
@@ -1112,6 +1121,14 @@ async function _sgThumbs(){
       var sz = await _sgRenderTo(els[i], t, 120);
       if (sz && sz.wmm) { reg.sizes = reg.sizes || {}; reg.sizes[parseInt(kv[1], 10)] = sz;
         done.push({ el: els[i], id: kv[0], ix: parseInt(kv[1], 10) }); }
+      if (sz && sz.blank) {
+        reg.blank = reg.blank || {}; reg.blank[parseInt(kv[1], 10)] = true;
+        var bt = els[i].closest('.sgT');
+        if (bt && !bt.querySelector('.sgBlank')) {
+          bt.style.borderColor = '#dc2626'; bt.style.background = '#fff7f7';
+          bt.insertAdjacentHTML('beforeend', '<div class="sgBlank" style="font-size:.66rem;font-weight:800;color:#b91c1c">⛔ עמוד ריק — לא להדפסה</div>');
+        }
+      }
     }
     catch(e){ /* אחסון חסום/קובץ בעייתי — האייקון נשאר, הדפדוף הוא הגיבוי */ }
   }
@@ -1360,6 +1377,7 @@ function _sgLight(id, i){
   ov.innerHTML = '<div style="color:#fff;font-weight:900;font-size:1.02rem">' + esc(t.label)
       + (t.mark && t.mark.note ? ' — <span style="color:#fca5a5">' + esc(String(t.mark.note).slice(0, 60)) + '</span>' : '') + '</div>'
     /* עמוד שאינו בגודל-הנדרש — אזהרה מפורשת (בקשת-בעלים 16/08) */
+    + ((reg.blank && reg.blank[i]) ? '<div style="background:#fef2f2;border:2px solid #fca5a5;color:#b91c1c;border-radius:10px;padding:9px 13px;font-weight:900;font-size:.9rem;max-width:94vw">⛔ העמוד ריק לגמרי (לבן) — אין בו תוכן. יש להחליף אותו או למחוק אותו מהגיליון.</div>' : '')
     + (_bs ? '<div style="background:#fffbeb;border:1.5px solid #fcd34d;color:#92400e;border-radius:10px;padding:8px 13px;font-weight:800;font-size:.86rem;max-width:94vw">⚠️ העמוד אינו בגודל הנדרש: '
         + esc(_bs.got) + ' מ״מ במקום ' + esc(_bs.want) + ' מ״מ — יש לתקן (🛠 עריכה / 📤 החלפה) או לאשר להדפסה כך; הדפסה בגודל שונה עלולה לפגוע באיכות העיתון.</div>' : '')
     + '<div id="sgLightPg" style="max-width:94vw;max-height:74vh;overflow:auto;background:#fff;border-radius:10px;min-width:200px;min-height:180px;display:flex;align-items:center;justify-content:center"><span style="color:#6b7280;padding:40px">טוען…</span></div>'
