@@ -12,15 +12,15 @@
 <script src="vendor/pdf-lib.min.js"></script>
 <script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js'; }catch(e){}</script>
 <script src="lib-loader.js"></script>
-<script src="page-swap.js?v=1786864787"></script>
-<script src="page-replace.js?v=1786864787"></script>
-<script src="shop-issue.js?v=1786864787"></script>
-<script src="page-marks.js?v=1786864787"></script>
-<script src="page-edit-engine.js?v=1786864787"></script>
-<script src="pdf-objects.js?v=1786864787"></script>
-<script src="firebase-auth.bundle.js?v=1786864787"></script>
-<script src="auth-client.js?v=1786864787"></script>
-<script src="auth-guard.js?v=1786864787" data-page="page-editor.html" data-mode="enforce"></script>
+<script src="page-swap.js?v=1786865771"></script>
+<script src="page-replace.js?v=1786865771"></script>
+<script src="shop-issue.js?v=1786865771"></script>
+<script src="page-marks.js?v=1786865771"></script>
+<script src="page-edit-engine.js?v=1786865771"></script>
+<script src="pdf-objects.js?v=1786865771"></script>
+<script src="firebase-auth.bundle.js?v=1786865771"></script>
+<script src="auth-client.js?v=1786865771"></script>
+<script src="auth-guard.js?v=1786865771" data-page="page-editor.html" data-mode="enforce"></script>
 <style>
   :root { --press:#2d3561; --press-d:#222a4d; --gold:#c9a84c; --gold-light:#e8d5a3;
           --green:#16a34a; --red:#dc2626; --amber:#d97706; --line:#e5e7eb; --ink:#1f2937; }
@@ -61,9 +61,11 @@
              border-radius:8px; padding:7px 9px; margin-top:6px; min-height:2em; }
   .opsList b { color:var(--press); }
   .note { font-size:.72rem; color:#9ca3af; line-height:1.5; margin-top:8px; }
-  .stageWrap { background:#1a1a2e; border-radius:14px; display:flex; align-items:center; justify-content:center;
-               position:relative; overflow:auto; min-height:0; overscroll-behavior:contain; }
-  #stageBox { position:relative; margin:18px; }
+  /* ⚠️ 16/08, דיווח-בעלים: בזום אי-אפשר היה לגלול לראש-העמוד — מרכוז-flex
+     חותך את מה שגולש מעל. ‏margin:auto ממרכז כשקטן ומאפשר גלילה-מלאה כשגדול. */
+  .stageWrap { background:#1a1a2e; border-radius:14px; display:flex;
+               position:relative; overflow:auto; min-height:0; overscroll-behavior:contain; padding:18px; }
+  #stageBox { position:relative; margin:auto; flex:none; }
   #stage { display:block; background:#fff; box-shadow:0 8px 30px rgba(0,0,0,.5); max-width:none; }
   #hint { position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:60; display:none;
           background:var(--press); color:#fff; border-radius:10px; padding:8px 16px; font-weight:800; font-size:.84rem; }
@@ -124,6 +126,17 @@
       <input id="frameMm" type="number" min="0.5" max="30" step="0.5" value="3">
       <button class="btn" id="opFrameAdd" title="הדף גדל ב-N מ״מ מכל צד והתוכן נשאר שלם — מסגרת שמתווספת, לא על חשבון הגרפיקה">➕ מסגרת מוסיפה (הדף גדל)</button>
       <button class="btn" id="opFrame" title="מלבין את הקצוות הקיימים — לניקוי צלבי-חיתוך; כן על חשבון הקצה">🧹 נקה קצוות (צלבים)</button>
+      <button class="btn" id="opErase" title="כלי-דביק: כל לחיצה על צלב/כתם מוחקת ריבוע לבן סביבו — בלי לפגוע בשאר העמוד">🧽 מחק צלב בלחיצה</button>
+      <div style="display:flex;gap:6px;align-items:center"><label style="margin:0;flex:1">גודל-המחק (מ״מ)</label><input id="eraseMm" type="number" min="2" max="50" value="8" style="width:74px"></div>
+    </div>
+
+    <div class="grp">
+      <label>🔁 סיבוב-עמוד (נשמר מסובב)</label>
+      <div style="display:flex;gap:6px">
+        <button class="btn" id="opRotCW" title="90° עם כיוון-השעון" style="flex:1">↻ 90°</button>
+        <button class="btn" id="opRot180" style="flex:1">180°</button>
+        <button class="btn" id="opRotCCW" title="90° נגד כיוון-השעון" style="flex:1">↺ 90°</button>
+      </div>
     </div>
 
     <div class="grp">
@@ -499,7 +512,12 @@ function _objOverlayPaint(){
     el.dataset.obj = i;
     el.title = (o.kind === 'image' ? 'תמונה' : o.kind === 'form' ? 'רכיב (Form)' : o.kind === 'text' ? 'טקסט (משוער)' : 'גרפיקה')
       + ' — גררו להזזה · Delete למחיקה';
-    el.style.cssText = 'position:absolute;z-index:7;cursor:grab;border:1.5px solid '
+    /* אובייקט קטן מעל גדול (16/08, בקשת-בעלים "שיזהה אובייקטים"): בלי זה
+       מודעה קטנה שיושבת על רקע-עמוד גדול לא הייתה ניתנת ללחיצה כלל —
+       הרקע בלע כל קליק. ‏z לפי שטח הפוך: הקטן תמיד למעלה. */
+    const _area = Math.max(1, o.bbox.w * o.bbox.h);
+    const _z = 7 + Math.max(0, Math.min(400, Math.round(400 - 400 * _area / (_objPage.w * _objPage.h))));
+    el.style.cssText = 'position:absolute;z-index:' + _z + ';cursor:grab;border:1.5px solid '
       + (o.kind === 'text' ? '#7c3aed' : o.kind === 'path' ? '#0d9488' : '#2563eb')
       + (o.approx ? ';border-style:dashed' : '')
       + ';left:' + xPct + '%;top:' + yPct + '%;width:' + (o.bbox.w / _objPage.w * 100) + '%;height:' + (o.bbox.h / _objPage.h * 100) + '%';
@@ -572,12 +590,25 @@ document.addEventListener('pointerdown', (ev) => {
 });
 document.addEventListener('keydown', async (ev) => {
   if (!_objMode || _objSel == null) return;
+  if (ev.target && /INPUT|TEXTAREA/.test(ev.target.tagName)) return;
   if (ev.key === 'Delete' || ev.key === 'Backspace') {
-    if (ev.target && /INPUT|TEXTAREA/.test(ev.target.tagName)) return;
     if (!confirm('למחוק את האובייקט מהעמוד? מה שמתחתיו יתגלה.')) return;
     _objEdits = _objEdits.filter(e => e.index !== _objSel);
     _objEdits.push({ index: _objSel, del: true });
     _objSel = null;
+    await _objApply();
+    return;
+  }
+  /* כוונון-עדין בחיצים (16/08): 1 מ"מ, ‏Shift = 5 מ"מ. ‏dy חיובי = למעלה (PDF) */
+  if (/^Arrow/.test(ev.key)) {
+    ev.preventDefault();
+    const MMPT = 72 / 25.4, st = (ev.shiftKey ? 5 : 1) * MMPT;
+    const prev = _objEdits.find(e => e.index === _objSel && !e.del) || { dx: 0, dy: 0 };
+    let dx = prev.dx || 0, dy = prev.dy || 0;
+    if (ev.key === 'ArrowLeft') dx -= st; else if (ev.key === 'ArrowRight') dx += st;
+    else if (ev.key === 'ArrowUp') dy += st; else if (ev.key === 'ArrowDown') dy -= st;
+    _objEdits = _objEdits.filter(e => e.index !== _objSel);
+    _objEdits.push({ index: _objSel, dx: dx, dy: dy });
     await _objApply();
   }
 });
@@ -591,6 +622,16 @@ function execPlan(cur, plan){
   plan.steps.forEach(s => {
     if (s.op === 'fillRect') { ctx.fillStyle = '#fff'; ctx.fillRect(s.x, s.y, s.w, s.h); return; }
     if (s.op === 'blackRect') { ctx.fillStyle = '#000'; ctx.fillRect(s.x, s.y, s.w, s.h); return; }
+    if (s.op === 'drawBaseRot') {
+      /* סיבוב חזותי עם-השעון בקנבס (ציר-y למטה): rotate(+θ) הוא עם-השעון */
+      ctx.save();
+      if (s.deg === 90)       { ctx.translate(out.width, 0); ctx.rotate(Math.PI / 2); }
+      else if (s.deg === 180) { ctx.translate(out.width, out.height); ctx.rotate(Math.PI); }
+      else                    { ctx.translate(0, out.height); ctx.rotate(-Math.PI / 2); }
+      ctx.drawImage(cur, 0, 0);
+      ctx.restore();
+      return;
+    }
     const src = cur;                                    // גם drawBase וגם drawSelf דוגמים מהרסטר הנוכחי
     if (s.flipX || s.flipY) {
       ctx.save();
@@ -768,7 +809,28 @@ function _moveLoop(){
     _moveWithSelection(rect, () => _moveLoop());        // אחרי הזזה — הכלי נשאר חמוש
   });
 }
-$('opMove').onclick = () => { if (_objMode) _objModeToggle(); _moveArm(!_moveArmed); };
+$('opMove').onclick = () => { if (_objMode) _objModeToggle(); if (_eraseArmed) _eraseArm(false); _moveArm(!_moveArmed); };
+/* 🧽 מחק-נקודתי דביק (16/08, בקשת-בעלים: "ללחוץ על צלב ולמחוק אותו") —
+   כל לחיצה על הבמה מוחקת ריבוע-לבן סביב הנקודה; המחיקה היא op רגיל
+   ולכן Ctrl+Z מבטל. הכלי נשאר חמוש עד Esc/כלי-אחר. */
+let _eraseArmed = false;
+function _eraseArm(on){
+  _eraseArmed = on;
+  $('opErase').style.background = on ? '#e0e7ff' : '';
+  $('opErase').textContent = on ? '🧽 מחק פעיל — לחצו על הצלב (Esc)' : '🧽 מחק צלב בלחיצה';
+  hint(on ? '🧽 לחצו על הצלב/הכתם למחיקה — כל לחיצה מוחקת (Esc ליציאה)' : false);
+}
+$('opErase').onclick = () => { if (_objMode) _objModeToggle(); if (_moveArmed) _moveArm(false); _eraseArm(!_eraseArmed); };
+$('stageBox').addEventListener('click', (ev) => {
+  if (!_eraseArmed) return;
+  const b = $('stageBox').getBoundingClientRect();
+  const cx = (ev.clientX - b.left) / b.width * 100, cy = (ev.clientY - b.top) / b.height * 100;
+  const mm = parseFloat($('eraseMm').value) || 8;
+  pushOp({ type: 'eraseSpot', cxPct: cx, cyPct: cy, mm: mm });
+});
+$('opRotCW').onclick  = () => pushOp({ type: 'rotate', deg: 90 });
+$('opRot180').onclick = () => pushOp({ type: 'rotate', deg: 180 });
+$('opRotCCW').onclick = () => pushOp({ type: 'rotate', deg: 270 });
 /* לחיצה-כפולה על מודעה — זיהוי-גבולות אוטומטי: מתרחבים מנקודת-הלחיצה עד
    שורה/עמודה שכמעט-כולה לבנה (רווח-העימוד שמסביב למודעה). */
 function _detectBlock(cur, xPct, yPct){
@@ -827,6 +889,7 @@ document.addEventListener('keydown', ev => {
   if (ev.key === '+' || ev.key === '=') _zoomSet(_zoom * 1.25);
   else if (ev.key === '-') _zoomSet(_zoom / 1.25);
   else if (ev.key === '0') _zoomSet(1);
+  else if (ev.key === 'Escape' && _eraseArmed) _eraseArm(false);
 });
 
 /* ═══ שמירה — גרסה חדשה לפי חוזה-ההחלפה של page-replace ═══════════════════
@@ -879,6 +942,14 @@ async function vectorCompose(doc, srcPage){
       const emb = await doc.embedPage(curPage, {
         left: bb.x, right: bb.x + bb.w,
         top: curH - bb.y, bottom: curH - (bb.y + bb.h) });
+      if (it.rot) {
+        /* סיבוב-עמוד (16/08): deg חזותי-עם-השעון → זוויות-PDF (y-למעלה,
+           חיובי=נגד-השעון). אותן הזזות מאומתות-נומרית של cover-split. */
+        if (it.rot === 90)       np.drawPage(emb, { x: 0, y: plan.outH, rotate: PDFLib.degrees(-90) });
+        else if (it.rot === 180) np.drawPage(emb, { x: plan.outW, y: plan.outH, rotate: PDFLib.degrees(180) });
+        else                     np.drawPage(emb, { x: plan.outW, y: 0, rotate: PDFLib.degrees(90) });
+        continue;
+      }
       np.drawPage(emb, { x: it.dst.x, y: plan.outH - it.dst.y - it.dst.h,
         xScale: it.dst.w / bb.w, yScale: it.dst.h / bb.h });
     }

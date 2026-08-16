@@ -24,7 +24,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var OPS = ['bleed', 'shrink', 'center', 'moveRegion', 'crop', 'whiteFrame', 'frameAdd', 'addMarks'];
+  var OPS = ['bleed', 'shrink', 'center', 'moveRegion', 'crop', 'whiteFrame', 'frameAdd', 'addMarks',
+             'rotate', 'eraseSpot'];
 
   function _num(v, d) { var n = Number(v); return isFinite(n) ? n : (d || 0); }
   function _clampPct(v) { return Math.max(0, Math.min(100, _num(v))); }
@@ -85,6 +86,21 @@
       var s = _num(op.mm);
       if (!(s > 0 && s <= 50)) return null;
       return { type: 'shrink', mm: s };
+    }
+    if (op.type === 'rotate') {
+      /* סיבוב-עמוד ושמירה כך (בקשת-בעלים 16/08). ‏deg = סיבוב **חזותי**
+         עם-כיוון-השעון: 90 · 180 · 270 (=90 נגד-השעון). ערך אחר → null. */
+      var dg = _num(op.deg);
+      if (dg !== 90 && dg !== 180 && dg !== 270) return null;
+      return { type: 'rotate', deg: dg };
+    }
+    if (op.type === 'eraseSpot') {
+      /* מחק-נקודתי (בקשת-בעלים 16/08: "ללחוץ על צלב ולמחוק אותו") —
+         ריבוע-לבן שממורכז בנקורת-הלחיצה. גודל 2..50 מ"מ, ברירת-מחדל 8. */
+      var ex = _clampPct(op.cxPct), ey = _clampPct(op.cyPct);
+      var em = _num(op.mm, 8);
+      if (!(em >= 2 && em <= 50)) em = 8;
+      return { type: 'eraseSpot', cxPct: ex, cyPct: ey, mm: em };
     }
     if (op.type === 'center') {
       /* מירכוז לפי מלבן-התוכן שנמדד בדפדפן (contentBounds באחוזים).
@@ -187,6 +203,19 @@
       var fa2 = mmToPx(o.mm, dpi);
       return { outW: curW + 2 * fa2, outH: curH + 2 * fa2, steps: [
         { op: 'drawBase', sx: 0, sy: 0, sw: curW, sh: curH, dx: fa2, dy: fa2, dw: curW, dh: curH },
+      ] };
+    }
+    if (o.type === 'rotate') {
+      var sw2 = (o.deg === 180) ? curW : curH, sh3 = (o.deg === 180) ? curH : curW;
+      return { outW: sw2, outH: sh3, steps: [{ op: 'drawBaseRot', deg: o.deg }] };
+    }
+    if (o.type === 'eraseSpot') {
+      var es = mmToPx(o.mm, dpi);
+      var ecx = Math.round(o.cxPct / 100 * curW), ecy = Math.round(o.cyPct / 100 * curH);
+      return { outW: curW, outH: curH, steps: [
+        { op: 'drawBase', sx: 0, sy: 0, sw: curW, sh: curH, dx: 0, dy: 0, dw: curW, dh: curH },
+        { op: 'fillRect', x: Math.max(0, ecx - Math.round(es / 2)), y: Math.max(0, ecy - Math.round(es / 2)),
+          w: es, h: es },
       ] };
     }
 
@@ -351,6 +380,22 @@
       PG(0, 0, curW, curH, fa3, fa3, curW, curH);
       return { outW: curW + 2 * fa3, outH: curH + 2 * fa3, items: items };
     }
+    if (o.type === 'rotate') {
+      /* פריט-page עם rot — המבצע (vectorCompose) מסובב את ההטמעה עצמה.
+         ‏deg חזותי-עם-השעון; ההמרה לזוויות-PDF (y-למעלה) אצל המבצע. */
+      var rw = (o.deg === 180) ? curW : curH, rh = (o.deg === 180) ? curH : curW;
+      items.push({ kind: 'page', bbox: { x: 0, y: 0, w: curW, h: curH },
+                   dst: { x: 0, y: 0, w: rw, h: rh }, rot: o.deg });
+      return { outW: rw, outH: rh, items: items };
+    }
+    if (o.type === 'eraseSpot') {
+      var esp = mmToPt(o.mm);
+      var ecx2 = o.cxPct / 100 * curW, ecy2 = o.cyPct / 100 * curH;
+      PG(0, 0, curW, curH, 0, 0, curW, curH);
+      items.push({ kind: 'whiteRect', x: Math.max(0, ecx2 - esp / 2), y: Math.max(0, ecy2 - esp / 2),
+                   w: esp, h: esp });
+      return { outW: curW, outH: curH, items: items };
+    }
     if (o.type === 'addMarks') {
       var tw = mmToPt(o.wMm), th2 = mmToPt(o.hMm);
       if (tw > curW || th2 > curH) return null;
@@ -412,13 +457,15 @@
         if (o.box) { w = Math.round(o.box.w / 100 * w); h = Math.round(o.box.h / 100 * h); }
         else { var ci = mmToPx(o.insetMm, dpi); w -= 2 * ci; h -= 2 * ci; }
       }
+      else if (o.type === 'rotate' && o.deg !== 180) { var t2 = w; w = h; h = t2; }
     });
     return { w: w, h: h };
   }
 
   /* תיאור-לביקורת של רשימת-ops — נכנס ל-correctedNote של הגרסה */
   var LABELS = { bleed: 'גלישה', shrink: 'הקטנה-לשוליים', center: 'מירכוז', moveRegion: 'הזזת-אזור',
-                 crop: 'חיתוך', whiteFrame: 'ניקוי-קצוות לבן', frameAdd: 'מסגרת-לבנה מוסיפה', addMarks: 'צלבי-חיתוך' };
+                 crop: 'חיתוך', whiteFrame: 'ניקוי-קצוות לבן', frameAdd: 'מסגרת-לבנה מוסיפה', addMarks: 'צלבי-חיתוך',
+                 rotate: 'סיבוב-עמוד', eraseSpot: 'מחק-נקודתי' };
   function describeOps(ops) {
     var parts = [];
     (ops || []).forEach(function (op) {
@@ -430,6 +477,8 @@
       else if (o.type === 'whiteFrame') parts.push('ניקוי-קצוות ' + o.mm + ' מ"מ');
       else if (o.type === 'frameAdd') parts.push('מסגרת-לבנה +' + o.mm + ' מ"מ');
       else if (o.type === 'addMarks') parts.push('צלבי-חיתוך ל-' + o.wMm + '×' + o.hMm);
+      else if (o.type === 'rotate') parts.push('סיבוב ' + (o.deg === 270 ? '90° נגד-השעון' : o.deg + '°'));
+      else if (o.type === 'eraseSpot') parts.push('מחק-נקודתי ' + o.mm + ' מ"מ');
       else parts.push(LABELS[o.type]);
     });
     return parts.length ? ('תוקן בעורך-הדפוס: ' + parts.join(' · ')) : '';
