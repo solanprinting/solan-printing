@@ -51,36 +51,42 @@
     return line.slice(i + marker.length).trim().split(/\s+/);
   }
 
+  /* ⚠️ **הכול מתחיל מ-`%SSiSignature`.** לפניה יושבות הצהרות-ברירת-מחדל של
+     הפריסה: גיליון "נייר" אחר, ושורת-`%SSiPrshPage` תבניתית. בקובץ הראשון
+     שנבדק היא הייתה עם רוחב/גובה 0 ולכן נדלגה במקרה; בקובץ `740x570` היא
+     ‏612×792 (Letter) עם קוד-סיבוב 3 — וקריאתה ייצרה שלוש אזהרות-שווא:
+     ‏UNKNOWN_ROTATION_CODE:3 · MULTIPLE_PRESS_SHEET_SIZES · PAGE_COUNT_MISMATCH.
+     סינון לפי מיקום ביחס לחתימה פותר את שלושתן, ובלי לנחש מה קוד 3 אומר. */
   function parseTpl(text) {
-    var warnings = [], sheet = null, pagesPerSignature = null, slots = [];
+    var warnings = [], sheet = null, preSheet = null, pagesPerSignature = null, slots = [];
+    var seenSignature = false;
     var lines = String(text == null ? '' : text).split(/\r?\n/);
 
     lines.forEach(function (line) {
       var f;
-      /* ⚠️ יש **כמה** שורות PressSheet בקובץ (אחת לכל section/signature).
-         נלקחת הראשונה: כולן תיארו את אותו גיליון בקובץ שנבדק, ושינוי-גיליון
-         בין sections הוא מקרה שלא נצפה — אם יקרה, האזהרה תצוף. */
       if ((f = _fields(line, '%SSiPressSheet:'))) {
         var w = _num(f[0]), h = _num(f[1]);
-        if (w > 0 && h > 0) {
-          var cand = { wMm: _round(ptToMm(w)), hMm: _round(ptToMm(h)) };
-          if (!sheet) sheet = cand;
-          else if (Math.abs(cand.wMm - sheet.wMm) > 0.5 || Math.abs(cand.hMm - sheet.hMm) > 0.5)
-            warnings.push('MULTIPLE_PRESS_SHEET_SIZES');
-        }
+        if (!(w > 0 && h > 0)) return;
+        var cand = { wMm: _round(ptToMm(w)), hMm: _round(ptToMm(h)) };
+        /* הגיליון הקובע הוא זה של החתימה. מה שלפניה נשמר בנפרד ומשמש רק
+           כנפילה-לאחור אם אין אף גיליון אחריה. */
+        if (!seenSignature) { if (!preSheet) preSheet = cand; return; }
+        if (!sheet) sheet = cand;
+        else if (Math.abs(cand.wMm - sheet.wMm) > 0.5 || Math.abs(cand.hMm - sheet.hMm) > 0.5)
+          warnings.push('MULTIPLE_PRESS_SHEET_SIZES');
         return;
       }
-      if ((f = _fields(line, '%SSiSignature:'))) {
+      if (_fields(line, '%SSiSignature:')) {
+        seenSignature = true;
         // |Full Signature| 32 6 1 1 |avalon2| — המספר הראשון שאחרי השם
         var m = line.match(/%SSiSignature:\s*\|[^|]*\|\s*(\d+)/);
         if (m) pagesPerSignature = parseInt(m[1], 10);
         return;
       }
       if ((f = _fields(line, '%SSiPrshPage:'))) {
+        if (!seenSignature) return;                       // שורת-ברירת-מחדל, לא משבצת
         var x = _num(f[0]), y = _num(f[1]), pw = _num(f[2]), ph = _num(f[3]);
         var rotCode = _num(f[4]), pa = _num(f[5]), pb = _num(f[6]);
-        /* שורת-PrshPage מופיעה גם כתבנית-ברירת-מחדל בראש הקובץ עם רוחב/גובה 0
-           ובלי מספרי-עמוד אמיתיים — היא אינה משבצת ויש לדלג עליה. */
         if (!(pw > 0 && ph > 0)) return;
         if (!(pa > 0)) return;
         var rot = ROT_CODES.hasOwnProperty(rotCode) ? ROT_CODES[rotCode] : null;
@@ -99,14 +105,21 @@
       }
     });
 
+    if (!sheet) sheet = preSheet;                          // קובץ בלי גיליון אחרי החתימה
     if (!sheet) warnings.push('NO_PRESS_SHEET');
     if (!slots.length) warnings.push('NO_PAGE_SLOTS');
     var sides = slots.some(function (s) { return s.pageBack != null; }) ? 2 : 1;
-    // סה"כ העמודים שהמשבצות מכסות בפועל — מול מה שהקובץ הצהיר
-    var covered = 0;
-    slots.forEach(function (s) { covered += 1 + (s.pageBack != null ? 1 : 0); });
+    /* ⚠️ נספרים **עמודים ייחודיים** ולא סכום-המשבצות: בפריסת 2-up אותם 4
+       עמודים יושבים פעמיים על הגיליון (‏740×570 4+4p), ולכן ספירת-משבצות
+       נתנה 10 מול הצהרה של 4 — אזהרת-שווא שחסמה טעינה של טמפלט תקין. */
+    var uniq = {};
+    slots.forEach(function (s) {
+      uniq[s.pageFront] = true;
+      if (s.pageBack != null) uniq[s.pageBack] = true;
+    });
+    var covered = Object.keys(uniq).length;
     if (pagesPerSignature != null && covered !== pagesPerSignature)
-      warnings.push('PAGE_COUNT_MISMATCH:declared=' + pagesPerSignature + ',slots=' + covered);
+      warnings.push('PAGE_COUNT_MISMATCH:declared=' + pagesPerSignature + ',pages=' + covered);
 
     return {
       sheet: sheet, pagesPerSignature: pagesPerSignature != null ? pagesPerSignature : covered,
@@ -172,18 +185,22 @@
      האחורית המאומתת היא [3,14,15,2] = בדיוק ההיפוך. */
   function tplToCellMap(parsed, layout) {
     if (!parsed || !layout) return [];
-    var cells = [];
+    var cells = [], taken = {};
+    /* ⚠️ בפריסת 2-up (‏740×570 4+4p) אותו עמוד יושב ב**שתי** משבצות על
+       הגיליון. לפירוק צריך מקום אחד לכל עמוד — נלקחת המשבצת הראשונה,
+       ובלעדי זה נוצרים שני תאים לאותו outputPageOffset ו-validateCellMap
+       פוסל את המפה כולה (DUPLICATE_OFFSET). */
+    var put = function (side, row, col, page, rot) {
+      if (page == null || taken[page]) return;
+      taken[page] = true;
+      cells.push({ sourceSide: side, row: row, column: col, outputPageOffset: page - 1, rotation: rot });
+    };
     parsed.slots.forEach(function (s) {
       var fp = slotFootprint(s);
       var col = _nearest(layout.colLeftsTrimMm, s.xMm);
       var row = _nearest(layout.rowTopsTrimMm, _topFromBottom(parsed.sheet.hMm, s.yBottomMm, fp.hMm));
-      cells.push({ sourceSide: 0, row: row, column: col, outputPageOffset: s.pageFront - 1, rotation: s.rotation });
-      if (s.pageBack != null) {
-        cells.push({
-          sourceSide: 1, row: row, column: (layout.cols - 1 - col),
-          outputPageOffset: s.pageBack - 1, rotation: s.rotation
-        });
-      }
+      put(0, row, col, s.pageFront, s.rotation);
+      put(1, row, (layout.cols - 1 - col), s.pageBack, s.rotation);
     });
     cells.sort(function (a, b) { return a.outputPageOffset - b.outputPageOffset; });
     return cells;
