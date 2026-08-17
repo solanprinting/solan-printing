@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786962554"></script>
-<script src="chat-alert.js?v=1786962554"></script>
-<script src="shop-issue.js?v=1786962554"></script>
-<script src="page-marks.js?v=1786962554"></script>
-<script src="kontres-split.js?v=1786962554"></script>
+<script src="portal-chat.js?v=1786963262"></script>
+<script src="chat-alert.js?v=1786963262"></script>
+<script src="shop-issue.js?v=1786963262"></script>
+<script src="page-marks.js?v=1786963262"></script>
+<script src="kontres-split.js?v=1786963262"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786962554"></script>
-<script src="auth-client.js?v=1786962554"></script>
+<script src="firebase-auth.bundle.js?v=1786963262"></script>
+<script src="auth-client.js?v=1786963262"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786962554" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786963262" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2228,7 +2228,13 @@ function render(rows) {
     }
     /* כמה ריצות → כל אחת בקובץ נפרד ובשמה. מיזוג לקובץ אחד נשאר בכפתור
        "📚 לפי ריצות" — כאן לא ממזגים, כי ריצה בודדת שוקלת מעל 100MB
-       ומיזוג בדפדפן היה מפיל את הלשונית. */
+       ומיזוג בדפדפן היה מפיל את הלשונית.
+       ⚠️ שואלים לפני משיכה של כמה ריצות: ריצה שוקלת מעל 100MB, ולעיתים כבר
+       הורדתם אחת מהן. להורדת ריצה בודדת — לוחצים עליה ברשת (בקשת-בעלים
+       17/08/2026: "ריצה 1 כבר הורדתי, לא מופיע הורדה בנפרד לכל ריצה"). */
+    if (items.length > 1 && !confirm('הורדת כל ' + items.length + ' הריצות של הגיליון:\n\n'
+        + items.map(x => '· ' + x.name).join('\n')
+        + '\n\nלהורדת ריצה בודדת — לחצו עליה ברשת-העמודים ואז "⬇ הורד".\n\nלהוריד את כולן?')) return;
     for (let i = 0; i < items.length; i++) {
       await downloadFile(items[i].url, String(items[i].name || 'עיתון').replace(/[\\/:*?"<>|]/g,'_') + '.pdf', b);
     }
@@ -2844,12 +2850,19 @@ async function _runExpand(reg, t, pt) {
   if (!host) return;
   _runExpKey = t.partId;
   const title = escapeHtml(t.label || 'ריצה');
+  /* ⚠️ בקשת-בעלים 17/08/2026: "יש לי 2 ריצות, ריצה 1 כבר הורדתי — לא מופיע
+     הורדה בנפרד לכל ריצה". כפתור-ההורדה הראשי הוא ברמת-**הגיליון** ומושך את
+     כל הריצות ברצף; עם ריצה של 117MB זו משיכה חוזרת מיותרת של מה שכבר ביד.
+     כאן ההורדה היא של **הריצה הזו בלבד**, בשמה. */
+  const dlBtn = pt.fileUrl
+    ? '<button class="isBtn" data-rundl="1">⬇ הורד ' + title + '</button>' : '';
   if (!pt.pagesUrl) {
     host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
       + '<span class="runExpNote">אין תצוגה מוכנה לריצה הזו — אפשר לפתוח בדפדוף</span>'
+      + dlBtn
       + '<button class="isBtn" data-runflip="1">📖 פתח בדפדוף</button>'
       + '<button class="isBtn" data-runclose="1">✕ סגור</button></div>';
-    _runExpWire(reg, t);
+    _runExpWire(reg, t, pt);
     return;
   }
   host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
@@ -2866,6 +2879,7 @@ async function _runExpand(reg, t, pt) {
     if (_runExpKey !== t.partId) return;       // המשתמש עבר לריצה אחרת בינתיים
     host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
       + '<span class="runExpNote">' + pages.length + ' עמודים · לחיצה על עמוד: הגדלה · לחיצה נוספת על הריצה: דפדוף</span>'
+      + dlBtn
       + '<button class="isBtn" data-runflip="1">📖 דפדוף</button>'
       + '<button class="isBtn" data-runclose="1">✕ סגור</button></div>'
       + '<div class="isPages runExpPages">'
@@ -2873,19 +2887,20 @@ async function _runExpand(reg, t, pt) {
           + '<div class="pgTh"><img src="' + src + '" alt=""></div>'
           + '<div class="pgNm">עמוד ' + (n + 1) + '</div></div>').join('')
       + '</div>';
-    _runExpWire(reg, t);
+    _runExpWire(reg, t, pt);
     host.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   } catch (e) {
     console.error('פריסת-ריצה נכשלה', (e && e.message) || e);
     if (_runExpKey !== t.partId) return;
     host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
       + '<span class="runExpNote bad">טעינת העמודים נכשלה (' + escapeHtml(String((e && e.message) || e)) + ')</span>'
+      + dlBtn
       + '<button class="isBtn" data-runflip="1">📖 פתח בדפדוף</button>'
       + '<button class="isBtn" data-runclose="1">✕ סגור</button></div>';
-    _runExpWire(reg, t);
+    _runExpWire(reg, t, pt);
   }
 }
-function _runExpWire(reg, t) {
+function _runExpWire(reg, t, pt) {
   const host = document.getElementById('runExp');
   if (!host) return;
   const fl = host.querySelector('[data-runflip]');
@@ -2893,6 +2908,10 @@ function _runExpWire(reg, t) {
         + '&part=' + encodeURIComponent(t.partId), '_blank', 'noopener');
   const cl = host.querySelector('[data-runclose]');
   if (cl) cl.onclick = _runExpClose;
+  /* הורדת **הריצה הזו בלבד**, בשמה (R-N) — דרך downloadFile, על כל שעריו. */
+  const dl = host.querySelector('[data-rundl]');
+  if (dl && pt && pt.fileUrl) dl.onclick = () => downloadFile(pt.fileUrl,
+    String(runFileName(reg.p, t.label)).replace(/[\/:*?"<>|]/g, '_') + '.pdf', dl);
   /* לחיצה על עמוד בפריסה → אותו חלון-הגדלה של הרשת הראשית, עם מספר-העמוד
      **בתוך הריצה**. זו בדיוק החתימה `_pgLightOpen(tileIdx, pg)`, ולכן
      החיצים בהגדלה (‎_plFlat‎ שטוח ברמת-עמוד) ממשיכים לעבור את כל הגיליון. */
