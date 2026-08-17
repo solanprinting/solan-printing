@@ -109,7 +109,10 @@
   function customerFoldTemplateAllowed(id) {
     if (typeof id !== 'string' || !id) return false;
     if (CFP_TEMPLATES.indexOf(id) >= 0) return true;
-    return id.indexOf('legacy:') === 0 || id.indexOf('custom:') === 0 || id.indexOf('multi:') === 0;
+    /* ‏tpl: = טמפלט שנקרא מקובץ Preps .tpl. מותר כי הנתונים מפורשים ומגיעים
+       מקובץ-הטמפלט של הדפוס עצמו — ראה imposition-tpl-parser.js. */
+    return id.indexOf('legacy:') === 0 || id.indexOf('custom:') === 0 ||
+           id.indexOf('multi:') === 0 || id.indexOf('tpl:') === 0;
   }
 
   // ── עיתון מרובה-קונטרסים (תפירת-אוכף מקוננת) ─────────────────────────────────

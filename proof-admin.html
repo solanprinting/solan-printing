@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786953274"></script>
-<script src="chat-alert.js?v=1786953274"></script>
-<script src="shop-issue.js?v=1786953274"></script>
-<script src="page-marks.js?v=1786953274"></script>
-<script src="kontres-split.js?v=1786953274"></script>
+<script src="portal-chat.js?v=1786957148"></script>
+<script src="chat-alert.js?v=1786957148"></script>
+<script src="shop-issue.js?v=1786957148"></script>
+<script src="page-marks.js?v=1786957148"></script>
+<script src="kontres-split.js?v=1786957148"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786953274"></script>
-<script src="auth-client.js?v=1786953274"></script>
+<script src="firebase-auth.bundle.js?v=1786957148"></script>
+<script src="auth-client.js?v=1786957148"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786953274" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786957148" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2189,9 +2189,36 @@ function render(rows) {
     const [jobId, pid, fp] = b.dataset.delpart.split('|');
     deletePart(jobId, pid, decodeURIComponent(fp));
   });
-  document.querySelectorAll('[data-dl]').forEach(b => b.onclick = () => {
+  /* ⚠️ תקרית 17/08/2026 — "הורדה מייצרת קובץ פגום של 30KB".
+     כרטיס-הגיליון קורא ל-genCell עם כתובת **ריקה** (`genCell('', …)`), כי
+     בגיליון מסוג `parts` אין קובץ ברמת-העבודה — הוא יושב על הריצה. הכתובת
+     הריקה הגיעה עד fetch, שם היא נפתרה לדף-הנוכחי, וה-HTML נשמר כ-‎.pdf‎.
+     כאן נפתרת הכתובת מהרשומה עצמה במקום להסתמך על מה שנרשם בכרטיס. */
+  const _dlResolve = (t) => {
+    if (t && t.fileUrl) return [{ url: t.fileUrl, name: t.title }];
+    const p = (_allRows || []).find(r => r.id === (t && t.jobId));
+    if (!p) return [];
+    if (p.fileUrl || p.apogeeUrl) return [{ url: p.fileUrl || p.apogeeUrl, name: jobName(p) }];
+    // ריצות — לפי סדר-האישור, כמו בכל שאר המסך
+    const parts = Object.entries(p.parts || {})
+      .map(([pid, pt]) => ({ pid, ...pt }))
+      .filter(pt => pt.fileUrl)
+      .sort((a, b) => (a.approvedAt || 0) - (b.approvedAt || 0));
+    return parts.map(pt => ({ url: pt.fileUrl, name: runFileName(p, pt.name) }));
+  };
+  document.querySelectorAll('[data-dl]').forEach(b => b.onclick = async () => {
     const t = _genReg[b.dataset.dl];
-    downloadFile(t.fileUrl, (t.title || 'עיתון').replace(/[\\/:*?"<>|]/g,'_') + '.pdf', b);
+    const items = _dlResolve(t);
+    if (!items.length) {
+      alert('⛔ לא נמצא קובץ להורדה בעבודה הזו — לא ברמת-העבודה ולא בריצות.');
+      return;
+    }
+    /* כמה ריצות → כל אחת בקובץ נפרד ובשמה. מיזוג לקובץ אחד נשאר בכפתור
+       "📚 לפי ריצות" — כאן לא ממזגים, כי ריצה בודדת שוקלת מעל 100MB
+       ומיזוג בדפדפן היה מפיל את הלשונית. */
+    for (let i = 0; i < items.length; i++) {
+      await downloadFile(items[i].url, String(items[i].name || 'עיתון').replace(/[\\/:*?"<>|]/g,'_') + '.pdf', b);
+    }
   });
 }
 let _genReg = {};
@@ -2200,14 +2227,42 @@ let _custFilter = '';  // טקסט סינון רשימת-הלקוחות (נשמ�
 let _jobCollapsed = {};   // jobId → מכווץ? (כיווץ ריצות של עבודה)
 let _doneOpen = false;    // האם קטגוריית "עיתונים שהושלמו" פתוחה
 
-// הורדת הקובץ למחשב (לשליחה ידנית בוואטסאפ וכו')
+/* הורדת הקובץ למחשב (לשליחה ידנית בוואטסאפ וכו')
+   ⚠️ תקרית 17/08/2026: הבעלים הוריד "ריצה 1" וקיבל קובץ פגום של ~30KB.
+   השורש היה **כתובת ריקה** (ראה המטפל ב-[data-dl]), אבל מה שהפך אותה לקובץ
+   שנשמר בשקט הוא הפונקציה הזו: `fetch('')` בדפדפן מתפרש כ**הדף הנוכחי**,
+   ‏`r.ok` לא נבדק, וה-HTML של המסך נשמר בשם ‎.pdf‎.
+   שלושה שערים עכשיו — כתובת, סטטוס-HTTP, וחתימת-הקובץ. כשל אומר את עצמו
+   ואינו מוריד כלום; "הורדתי ולא עבד" גרוע מ"לא הורדתי ואמרו לי למה". */
 async function downloadFile(url, name, btn) {
   const old = btn ? btn.textContent : '';
+  const fail = (m) => { console.error('הורדה נכשלה:', m, url); try { alert('⛔ ההורדה נכשלה — ' + m); } catch(e){} };
+  if (!url || !String(url).trim()) { fail('לא נמצאה כתובת לקובץ. ייתכן שהקובץ יושב על ריצה ולא על העבודה.'); return; }
   if (btn) { btn.disabled = true; btn.textContent = 'מוריד…'; }
   try {
-    const r = await fetch(url); const blob = await r.blob();
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('השרת החזיר ' + r.status + (r.status === 403 ? ' — אין הרשאה או שהטוקן פג' : ''));
+    const blob = await r.blob();
+    /* ⚠️ 200 אינו ערובה שזה PDF — דף-שגיאה או ה-HTML של המסך חוזרים גם הם
+       בקוד 200. בודקים את חתימת-הקובץ עצמה. */
+    const head = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+    const sig = String.fromCharCode.apply(null, head);
+    if (/\.pdf$/i.test(name) && sig.indexOf('%PDF') !== 0)
+      throw new Error('מה שהתקבל אינו PDF (' + Math.round(blob.size / 1024) + 'KB). הקובץ לא נשמר.');
     downloadBlob(blob, name);
-  } catch (e) { window.open(url, '_blank'); }
+  } catch (e) {
+    /* ⚠️ 17/08/2026 — ל-bucket של Storage **אין CORS** לאתר שלנו (נמדד: אין
+       access-control-allow-origin), ולכן fetch חוצה-מקור נכשל תמיד והנפילה
+       הזו היא המסלול בפועל, לא מקרה-קצה. פתיחה בלשונית נותנת את הקובץ, אבל
+       **בצופה של הדפדפן** — ושמירה משם כותבת את ה-PDF מחדש ומנפחת אותו
+       (הבעלים קיבל 236MB במקום 117MB). לכן אומרים את זה במפורש, ולא
+       שותקים כמו קודם. התיקון האמיתי הוא CORS על ה-bucket. */
+    const cors = !/^(השרת החזיר|מה שהתקבל|לא נמצאה)/.test(String((e && e.message) || ''));
+    if (cors) {
+      try { alert('הדפדפן חסם הורדה ישירה מהאחסון (CORS).\n\nהקובץ ייפתח בלשונית חדשה — שמרו אותו משם.\n\n⚠️ שמירה מתוך צופה-ה-PDF מנפחת את הקובץ. עדיף "שמור בשם" מהלשונית עצמה.'); } catch(_){}
+      window.open(url, '_blank');
+    } else fail((e && e.message) || e);
+  }
   if (btn) { btn.textContent = old; btn.disabled = false; }
 }
 
@@ -3633,7 +3688,26 @@ function jobName(p, partName) {
   const issue = p.issue || p.issueNo || p.edition || '';
   const head = title ? ((cust && title.indexOf(cust) < 0) ? (cust + ' — ' + title) : title)
                      : (cust || 'עיתון');
-  return [head, issue ? ('גיליון ' + issue) : '', partName || ''].filter(Boolean).join(' — ');
+  /* ⚠️ הכותרת האמיתית היא לעיתים "עיתון השבוע — גיליון 278", ואז הוספת
+     הגיליון שוב נתנה "… — גיליון 278 — גיליון 278 — ריצה 1". מדלגים כשהוא
+     כבר שם — אותו היגיון בדיוק כמו השמטת שם-הלקוח מהכותרת למעלה. */
+  const issueTag = issue ? ('גיליון ' + issue) : '';
+  const issuePart = (issueTag && head.indexOf(issueTag) < 0) ? issueTag : '';
+  return [head, issuePart, partName || ''].filter(Boolean).join(' — ');
+}
+/* שם-קובץ להורדת **ריצה** — בקשת-בעלים 17/08/2026: "שבועון אלעד R-1 גיליון 278".
+   ⚠️ בכוונה נפרד מ-jobName: שם-העבודה משמש בהרבה מסלולים ונעול בבדיקות, וכאן
+   נדרש דווקא סימון-הריצה בפורמט R-N — זה שבו הדפוס עובד מול אפוגי (ראה
+   מוסכמת-השמות R-1/R-2 בפרופרים). "ריצה 1" → "R-1"; שם שאינו ממוספר נשמר
+   כמו-שהוא במקום להמציא מספר. */
+function runFileName(p, partName) {
+  p = p || {};
+  const cust = String(p.customer || '').trim();
+  const issue = p.issue || p.issueNo || p.edition || '';
+  const m = String(partName || '').match(/(\d+)/);
+  const run = m ? ('R-' + m[1]) : String(partName || '').trim();
+  const head = cust || String(p.title || '').trim() || 'עיתון';
+  return [head, run, issue ? ('גיליון ' + issue) : ''].filter(Boolean).join(' ');
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 function downloadBlob(blob, name) {

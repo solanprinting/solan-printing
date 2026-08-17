@@ -16,6 +16,8 @@
 <script src="lib-loader.js"></script>
 <script src="imposition-decoder.js"></script>
 <script src="imposition-decoder-exec.js"></script>
+<script src="imposition-tpl-parser.js"></script>
+<script src="imposition-grid-calibration.js"></script>
 <script src="imposition-fold-adapter.js"></script>
 <script src="imposition-result.js"></script>
 <script src="imposition-template-registry.js"></script>
@@ -24,9 +26,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786953274"></script>
-<script src="auth-client.js?v=1786953274"></script>
-<script src="auth-guard.js?v=1786953274" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786957148"></script>
+<script src="auth-client.js?v=1786957148"></script>
+<script src="auth-guard.js?v=1786957148" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -356,10 +358,46 @@ function _legacyTypeFor(tid){
   if(tid==='70x100-32p-165x240-perfector') return '32';
   if(tid.indexOf('legacy:')===0) return tid.slice(7);
   if(tid.indexOf('custom:')===0) return tid.slice(7);
-  return null;
+  return null;   // ‏tpl: אינו legacy — הוא הולך ישר למנוע-הפירוק
+}
+/* ── טמפלטי Preps (.tpl) ────────────────────────────────────────────────────
+   נשמרים מקומית לפי **מפתח-התאמה** (גיליון · נטו · עמודים · צדדים) כדי
+   שהפעם-הבאה תזהה אותם לבד. ⚠️ אחסון מקומי בלבד בשלב הזה — שיתוף-בענן הוא
+   שלב ג'; החוקים כבר מתירים את `impositionTemplates`. */
+var TPL_STORE_KEY='solanPrepsTemplates';
+var _tplDefs={};
+function _tplLoadStore(){
+  try{ var raw=JSON.parse(localStorage.getItem(TPL_STORE_KEY)||'{}')||{};
+       Object.keys(raw).forEach(function(k){ if(raw[k]&&raw[k].layout&&raw[k].cells) _tplDefs[k]=raw[k]; }); }
+  catch(e){ console.error('טעינת טמפלטי-Preps מהאחסון נכשלה', e); }
+}
+function _tplSaveStore(){
+  try{ localStorage.setItem(TPL_STORE_KEY, JSON.stringify(_tplDefs)); return true; }
+  catch(e){ console.error('שמירת טמפלטי-Preps נכשלה', e); return false; }
+}
+function _tplLabelFor(d){
+  var L=d.layout;
+  return (L.pagesPerSignature+' עמ׳ · '+L.finishedWmm+'×'+L.finishedHmm+' · גיליון '+L.trimWmm+'×'+L.trimHmm
+    +' · '+(L.sidesCount===2?'2 צדדים':'צד אחד')+' · מ-TPL');
 }
 async function foldByTemplate(tid, srcU8, bleedMm){
   bleedMm = bleedMm>0 ? bleedMm : 0;
+  /* טמפלט מ-.tpl → ישר למנוע-הפירוק עם cells+layout מפורשים. אין כאן גשר
+     ואין ניחוש: המיקומים מגיעים מקובץ-הטמפלט של הדפוס. הגלישה מוגבלת למה
+     שהטמפלט עצמו מצהיר (3 מ"מ) — מקור-אמת עדיף על מספר קשיח בקוד. */
+  var _td=_tplDefs[tid];
+  if(_td){
+    var _declared=(_td.layout.declaredBleedMm&&_td.layout.declaredBleedMm.top)||0;
+    var _b = (_declared>0 && bleedMm>_declared) ? _declared : bleedMm;
+    const exT=await EXEC.decodeToPdf({ sourceArrayBuffer:srcU8.slice(0),
+      template:{ id:tid, layout:_td.layout, cells:_td.cells },
+      startPage:1, bleedMm:_b, requestId:Date.now(),
+      sheetTransform:(s)=>ADP.sheetTrimFallback(s, _td.layout) });
+    if(!exT.bytes || (exT.errors&&exT.errors.length)) throw new Error('פירוק לפי הטמפלט נכשל: '+(exT.errors||[]).join(', '));
+    const hT=await sha256(new Uint8Array(exT.bytes));
+    const rT=ADP.runDecoderV2Adapter({ plan:exT.plan, bytes:exT.bytes, templateId:tid, templateVersion:1, sourceFile:{fileId:'src'}, outputHash:hT });
+    return { bytes:exT.bytes, result:rT, plan:exT.plan, srcBytes:srcU8, bleedMm:_b };
+  }
   // כל טמפלטי-האפליקציה (מובנים + מותאמים) → המנוע הקיים והמוכח (imposition-tool.html fold) דרך הגשר.
   const legacyType=_legacyTypeFor(tid);
   if(legacyType){
@@ -816,6 +854,14 @@ function workerScreen(){
    + '<div class="card"><b>1–2.</b> פרופר: <input type="file" id="proof" accept="application/pdf"> '
    + '<span id="tplPick">· טמפלט: <select id="tpl"><option value="">— בחר —</option></select></span> '
    + '<button id="foldBtn" disabled>▶ צור חוברת</button>'
+   /* טעינת טמפלט Preps (.tpl) — הקובץ שממנו הדפוס עצמו עובד. הוא מכיל את
+      המיקומים, מפת-העמודים, הסיבובים והגלישה **במפורש**, ולכן אין כאן ניחוש
+      גיאומטריה (שזה מה שנשבר בכלי-הסימון). ראה imposition-tpl-parser.js. */
+   + '<div style="margin-top:9px;padding:9px 11px;border:1.5px dashed #c7d2fe;border-radius:9px;background:#f8faff">'
+   +   '<b>📐 טמפלט מ-Preps</b> <input type="file" id="tplFile" accept=".tpl" multiple> '
+   +   '<span class="muted" style="font-size:.85rem">גרור לכאן את קובץ ה-TPL של הגודל — המיקומים והגלישה נקראים ממנו</span>'
+   +   '<div id="tplInfo" style="margin-top:7px;font-size:.86rem"></div>'
+   + '</div>'
    + '<div id="singleAuto" style="margin-top:6px">עמודים: <select id="singlePages"><option value="0">— בחר —</option><option>4</option><option>8</option><option>16</option><option>32</option></select> <span class="muted" id="sizeSingle"></span> <span class="ok" id="autoNote" style="font-size:.85rem"></span></div>'
    + '<div style="margin-top:8px"><label class="chk"><input type="checkbox" id="multiRun"> <span>עיתון מרובה-קונטרסים (מעל 32 עמ׳ — כמה ריצות R-1, R-2…)</span></label></div>'
    + '<div id="multiBox" style="display:none;margin-top:6px;padding:8px;border:1px dashed var(--line);border-radius:8px">'
@@ -1071,6 +1117,11 @@ function workerScreen(){
       { id:'legacy:4p',   label:'4 עמ׳ · 165×240 · מתהפך', w:165, h:240, engine:'legacy' },
       { id:'88x63-16p-perfector', label:'16 עמ׳ · 210×297 · 88×63 פרפקטור', w:210, h:297, engine:'decoder-v2' }
     ];
+    // טמפלטי-Preps שנטענו מקובץ .tpl — בראש הרשימה, כי הם המדויקים ביותר
+    Object.keys(_tplDefs).forEach(function(k){
+      var d=_tplDefs[k];
+      list.unshift({ id:k, label:'📐 '+_tplLabelFor(d), w:d.layout.finishedWmm, h:d.layout.finishedHmm, engine:'decoder-v2' });
+    });
     // גשר-מאגרים: טמפלטים שנשמרו בכלי סימון-הטמפלט יושבים ב-solanImpositionTemplatesV2
     // (מודל-cells), בעוד מנוע-הקיפול קורא solanFoldTemplates (grids). ממירים ורושמים אותם
     // לפני יצירת ה-iframe של הגשר → מופיעים ברשימה *וגם* עובדים בקיפול.
@@ -1098,7 +1149,7 @@ function workerScreen(){
     }catch(e){}
     return list;
   }
-  const _catalog=_cfpCatalog();
+  let _catalog=_cfpCatalog();   // ‏let ולא const — נבנה מחדש כשנטענים טמפלטי-TPL
   function _tplInfo(tid){ return _catalog.find(t=>t.id===tid)||null; }
   _catalog.forEach(t=>{ const o=document.createElement('option'); o.value=t.id; o.textContent=t.label; $('tpl').appendChild(o); });
   function setStep(n){ for(let i=0;i<5;i++){ const el=$('wstep'+i); if(el) el.className='step'+(i<=n?' active':''); } }
@@ -1198,6 +1249,68 @@ function workerScreen(){
     try{ _srcU8=new Uint8Array(await f.arrayBuffer()); }catch(err){ $('wstatus').innerHTML='<span class="bad">טעינת הקובץ נכשלה: '+(err.message||err)+'</span>'; return; }
     _srcName=f.name; $('wstatus').innerHTML='📄 '+f.name+' <span class="ok">· נטען ('+_mb+' MB)</span>'; setStep(0); await _autoDetectSingle(); updFold(); };
   $('singlePages').onchange=_autoDetectSingle;
+  /* ── טעינת קובצי .tpl ────────────────────────────────────────────────────
+     ⚠️ נקרא כ-latin1 ולא UTF-8: הקובץ הוא PostScript של Preps ועלול להכיל
+     בתים גבוהים בשמות-נתיבים; UTF-8 היה הופך אותם ל-U+FFFD. המספרים עצמם
+     ASCII, ולכן latin1 בטוח לחלוטין לפרסור. */
+  function _tplReadFile(f){
+    return new Promise(function(res, rej){
+      var r=new FileReader();
+      r.onload=function(){ res(String(r.result||'')); };
+      r.onerror=function(){ rej(new Error('קריאת '+f.name+' נכשלה')); };
+      r.readAsText(f, 'windows-1252');
+    });
+  }
+  function _tplRenderInfo(){
+    var keys=Object.keys(_tplDefs);
+    if(!keys.length){ $('tplInfo').innerHTML='<span class="muted">לא נטענו טמפלטים. אחרי טעינה הם נשמרים במכשיר ומופיעים ברשימת-הטמפלטים.</span>'; return; }
+    $('tplInfo').innerHTML='<b>'+keys.length+' טמפלטים טעונים:</b>'
+      + keys.map(function(k){
+          var d=_tplDefs[k];
+          return '<div style="margin-top:4px">✔ '+_esc(d.name||k)+' <span class="muted">— '+_esc(_tplLabelFor(d))+'</span>'
+            + ' <button class="tplDrop" data-k="'+_esc(k)+'" style="font-size:.75rem">הסר</button></div>';
+        }).join('');
+    Array.from(document.getElementsByClassName('tplDrop')).forEach(function(b){
+      b.onclick=function(){ delete _tplDefs[b.dataset.k]; _tplSaveStore(); _tplRenderInfo(); _refreshTplSelect(); };
+    });
+  }
+  // בונה מחדש את בורר-הטמפלטים מהקטלוג (כולל אלה שנטענו מ-TPL), בלי לאבד בחירה
+  function _refreshTplSelect(){
+    var sel=$('tpl'); if(!sel) return;
+    var cur=sel.value;
+    _catalog=_cfpCatalog();
+    sel.innerHTML='<option value="">— בחר —</option>';
+    _catalog.forEach(function(t){ var o=document.createElement('option'); o.value=t.id; o.textContent=t.label; sel.appendChild(o); });
+    if(cur && _catalog.some(function(t){ return t.id===cur; })) sel.value=cur;
+    updFold();
+  }
+  if($('tplFile')) $('tplFile').onchange=async function(e){
+    var files=Array.from(e.target.files||[]);
+    if(!files.length) return;
+    var loaded=0, failed=[];
+    for(var i=0;i<files.length;i++){
+      var f=files[i];
+      try{
+        var txt=await _tplReadFile(f);
+        var r=ImpositionTplParser.readTpl(txt, { id:f.name });
+        /* ⚠️ אזהרה מהמפענח אינה מוסתרת. קוד-סיבוב לא-מוכר, גיליון חסר או
+           אי-התאמה במספר-העמודים — כל אחד מהם מייצר לוחות שגויים אם נבלע. */
+        if(!r.layout){ failed.push(f.name+' — '+(r.warnings.join(', ')||'לא זוהה כטמפלט Preps')); continue; }
+        if(r.warnings.length){ failed.push(f.name+' — '+r.warnings.join(', ')); continue; }
+        var key='tpl:'+ImpositionGridCalibration.layoutMatchKey(r.layout);
+        _tplDefs[key]={ name:f.name.replace(/\.tpl$/i,''), layout:r.layout, cells:r.cells, at:Date.now() };
+        loaded++;
+      }catch(err){ failed.push(f.name+' — '+(err.message||err)); }
+    }
+    var okSave=_tplSaveStore();
+    _tplRenderInfo(); _refreshTplSelect();
+    var msg = loaded ? ('✅ נטענו '+loaded+' טמפלטים') : '';
+    if(!okSave && loaded) msg += ' <span class="bad">(השמירה במכשיר נכשלה — יטענו מחדש בפתיחה הבאה)</span>';
+    if(failed.length) msg += '<div class="bad" style="margin-top:5px">⚠️ לא נטענו: '+failed.map(_esc).join(' · ')+'</div>';
+    $('wstatus').innerHTML=msg || '<span class="bad">לא נטען אף טמפלט</span>';
+    e.target.value='';
+  };
+  _tplLoadStore(); _tplRenderInfo(); _refreshTplSelect();
   $('tpl').onchange=()=>{ $('autoNote').textContent=''; updFold(); };
   $('multiRun').onchange=()=>{ const m=_multi(); $('multiBox').style.display=m?'':'none'; $('singleAuto').style.display=m?'none':'';
     if($('tplPick')) $('tplPick').style.display=m?'none':'';   // מרובה → הטמפלט נבחר פר-ריצה בטבלה
