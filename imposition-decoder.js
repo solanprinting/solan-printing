@@ -186,14 +186,47 @@
   function spineSideForCell(col, layout) {
     return (col % 2 === 0) ? 'right' : 'left';
   }
-  // הרחבת clip בגלישה: 3 מ"מ בראש/רגל/fore-edge, ולא בצד-השדרה.
-  function _bleedClip(clip, spineSide, bleedMm) {
+  /* ⚠️ תיקון 17/08/2026 — הגלישה חייבת להיות מודעת-לסיבוב.
+     הגרסה הקודמת הוסיפה תמיד ל**מעלה ומטה של התא בגיליון** והניחה שאלה ראש
+     ורגל העמוד. זה נכון רק לעמוד זקוף. ב-70×100 32p העמוד **שוכב** (90/270),
+     ואז ראש-העמוד הוא הקצה הימני של התא והשדרה היא הקצה העליון — כלומר
+     הגלישה נחתה בדיוק **בשדרה**, ומשכה לתוכה את תוכן העמוד השכן.
+     נמדד על ה-TPL האמיתי: פלט 171×243 מ"מ במקום 168×246.
+     ‏0° נשאר זהה-לביט. ‏180° מתקן את ה**צד** — קודם הגלישה נכנסה בשדרה.
+     החוק שמעליהם: [[solan-rtl-booklet-spine-rule]] — לשדרה אף פעם לא נכנסת גלישה. */
+  /* איזה קצה **של התא בגיליון** הוא צד-ימין/שמאל **של העמוד**, לפי הסיבוב
+     שבו העמוד יושב. אומת מול המפות המאומתות:
+       ‏rot 90 → תחתית-התא היא ימין-העמוד · rot 270 → ראש-התא הוא ימין-העמוד. */
+  var _PAGE_SIDE_TO_CELL_EDGE = {
+    0:   { right: 'right',  left: 'left' },
+    90:  { right: 'bottom', left: 'top' },
+    180: { right: 'left',   left: 'right' },
+    270: { right: 'top',    left: 'bottom' }
+  };
+  /* קצה-השדרה של התא — הקצה היחיד שלעולם אינו מקבל גלישה.
+     נגזר מחוק-הברזל של חוברת עברית ([[solan-rtl-booklet-spine-rule]]):
+     עמוד אי-זוגי שדרה-ימין · זוגי שדרה-שמאל — וממופה לקצה-תא לפי הסיבוב.
+     ⚠️ אומת שהוא משחזר **בדיוק** את כלל-עמודות-הזוגות שאושר ל-88×63
+     (‏col זוגי→right · אי-זוגי→left), ומכליל אותו נכון לתאים שוכבים:
+     ב-32p כל תאי-השורה-העליונה מקבלים שדרה בתחתית — צמודים לשורה שמתחתם,
+     שהיא בן-הזוג ראש-לראש. */
+  function spineEdgeForCell(pageNumber, rotation) {
+    var m = _PAGE_SIDE_TO_CELL_EDGE[rotation] || _PAGE_SIDE_TO_CELL_EDGE[0];
+    return ((pageNumber | 0) % 2 === 1) ? m.right : m.left;
+  }
+  /* הרחבת clip בגלישה. ⚠️ תיקון 17/08/2026 — הגרסה הקודמת הוסיפה תמיד
+     ל**מעלה ומטה של התא** והניחה שאלה ראש ורגל העמוד. זה נכון רק לעמוד זקוף;
+     ב-70×100 32p העמוד **שוכב**, ואז המרווח נחת על השדרה ועל ה-fore-edge
+     במקום על הראש והרגל. נמדד על ה-TPL האמיתי: 171×243 מ"מ במקום 168×246.
+     הכלל עכשיו פשוט ואינו תלוי-כיוון: **כל הקצוות חוץ מקצה-השדרה.** */
+  function _bleedClip(clip, spineEdge, bleedMm) {
     var b = (bleedMm || 0) * MM;
     var bc = { left: clip.left, bottom: clip.bottom, right: clip.right, top: clip.top };
     if (b <= 0) return bc;
-    bc.top += b; bc.bottom -= b;                       // ראש + רגל
-    if (spineSide === 'right') bc.left -= b;            // fore-edge משמאל
-    else bc.right += b;                                 // fore-edge מימין
+    if (spineEdge !== 'top') bc.top += b;
+    if (spineEdge !== 'bottom') bc.bottom -= b;
+    if (spineEdge !== 'left') bc.left -= b;
+    if (spineEdge !== 'right') bc.right += b;
     return bc;
   }
 
@@ -216,7 +249,9 @@
     var pages = cells.map(function (c) {
       var rectMm = cellRectDisplayMm(c.row, c.column, L, S, c.rotation);
       var clip = _cellClipPt(rectMm, S.mediaHmm);
-      var spineSide = spineSideForCell(c.column, L);
+      // קצה-השדרה נגזר מהעמוד ומהסיבוב (ולא מהעמודה בלבד) — כך הוא נכון גם
+      // לתאים שוכבים. ל-88×63 (0°/180°) התוצאה זהה לכלל-העמודות הקודם.
+      var spineSide = spineEdgeForCell(startPage + c.outputPageOffset, c.rotation);
       var bClip = _bleedClip(clip, spineSide, bleedMm);
       var mediaWpt = S.mediaWmm * MM, mediaHpt = S.mediaHmm * MM;
       var w = [];
@@ -276,6 +311,7 @@
     CELL_MAP_70x100_32P: CELL_MAP_70x100_32P, LAYOUT_70x100_32P: LAYOUT_70x100_32P,
     cellRectDisplayMm: cellRectDisplayMm, cellRatios: cellRatios, validateCellMap: validateCellMap,
     rotateCellMap180: rotateCellMap180,
-    spineSideForCell: spineSideForCell, buildDecodePlan: buildDecodePlan, toNormalizedCells: toNormalizedCells
+    spineSideForCell: spineSideForCell, spineEdgeForCell: spineEdgeForCell,
+    buildDecodePlan: buildDecodePlan, toNormalizedCells: toNormalizedCells
   };
 });

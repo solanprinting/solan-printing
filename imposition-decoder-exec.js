@@ -43,6 +43,13 @@
   //    (מפת-התאים המכוילת CELL_MAP_88x63_16P_PERFECTOR + DEFAULT_LAYOUT_88x63 מסופקות ע"י ה-decoder.)
   function _templateToDecodeOpts(template) {
     var id = template && (template.id || template.templateId);
+    /* ⚠️ טמפלט שנושא cells+layout **מפורשים** מועבר כמו-שהוא. זה אינו סותר את
+       הכלל "לא ממציאים cells" — להפך: המקור הוא קובץ-הטמפלט של הדפוס עצמו
+       (‏Preps .tpl, ראה imposition-tpl-parser.js), ולכן הנתונים מוסמכים יותר
+       מכל כיול. אדיטיבי לגמרי: הענף יורה רק כשיש cells באורך>0 וגם layout,
+       ואף קורא קיים אינו מעביר אותם → התנהגות 88x63/32p זהה לביט. */
+    if (template && Array.isArray(template.cells) && template.cells.length && template.layout)
+      return { cells: template.cells, layout: template.layout };
     if (!id || id === TEMPLATE_ID) return {};   // 88x63 → ברירת-מחדל של ה-decoder (cells+layout מכוילים)
     if (id === TEMPLATE_ID_32) return { cells: DEC.CELL_MAP_70x100_32P, layout: DEC.LAYOUT_70x100_32P };
     return { unsupported: true, templateId: id };   // אחר → לא נתמך (לא ממציאים cells)
