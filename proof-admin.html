@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786960898"></script>
-<script src="chat-alert.js?v=1786960898"></script>
-<script src="shop-issue.js?v=1786960898"></script>
-<script src="page-marks.js?v=1786960898"></script>
-<script src="kontres-split.js?v=1786960898"></script>
+<script src="portal-chat.js?v=1786961845"></script>
+<script src="chat-alert.js?v=1786961845"></script>
+<script src="shop-issue.js?v=1786961845"></script>
+<script src="page-marks.js?v=1786961845"></script>
+<script src="kontres-split.js?v=1786961845"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786960898"></script>
-<script src="auth-client.js?v=1786960898"></script>
+<script src="firebase-auth.bundle.js?v=1786961845"></script>
+<script src="auth-client.js?v=1786961845"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786960898" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786961845" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2992,6 +2992,10 @@ async function _pgLightOpen(idx, pg){
     wrap.querySelector('#plSpot').style.display = mk ? '' : 'none';
     wrap.querySelector('#plClear').style.display = mk ? '' : 'none';
     wrap.querySelector('#plDemand').style.display = (mk && mk.kind === 'replace') ? '' : 'none';
+    /* ⚠️ בקשת-בעלים 17/08/2026: "הלקוח אישר להדפסה כך" הוא **תשובה** לבעיה
+       מסומנת, לא פעולה עצמאית. כשאין דרישת-החלפה אין מה לאשר "כך", והכפתור
+       רק הזמין סימון-מיותר על עמוד תקין. מוצג רק מול סימון-החלפה פתוח. */
+    wrap.querySelector('#plOk').style.display = (mk && mk.kind === 'replace') ? '' : 'none';
     const note = wrap.querySelector('#plNote');
     note.innerHTML = mk
       ? `<span class="${mk.kind==='replace'?'plRep':'plOkTag'}">${mk.kind==='replace'?'🔁 דרוש החלפה':'✔ הלקוח אישר להדפסה כך'}</span>${mk.note?(' — '+escapeHtml(mk.note)):''}`
@@ -3056,7 +3060,13 @@ async function _pgLightOpen(idx, pg){
        חוק-הברזל: RTL אי-זוגי שדרה-ימין, זוגי-שמאל. */
     try {
       const _rec2 = (_allRows || []).find(r => r.id === t.jobId) || {};
-      const _mn = t.target === 'full' ? (t.pageNo || 1) : (t.pageNo || pageIn);
+      /* ⚠️ תקלה 17/08/2026: באריח-ריצה `t.pageNo` נגזר **משם הריצה**
+         (‏"ריצה 1" → 1) והוא קבוע לכל 32 העמודים, ולכן `t.pageNo || pageIn`
+         אף פעם לא הגיע ל-pageIn — והשדרה הוצגה תמיד באותו צד.
+         בריצה הנכון הוא **העמוד בתוך הריצה**: ריצות מתחילות בעמוד אי-זוגי
+         (‏1, 33, 65…) ואורכן זוגי, ולכן זוגיות-pageIn שווה לזוגיות-העמוד
+         בעיתון — וזה כל מה שחוק-השדרה צריך. */
+      const _mn = t.target === 'full' ? (t.pageNo || 1) : (pageIn || 1);
       if (_mn) {
         const _rtl = (_rec2.readingDirection || 'rtl') !== 'ltr';
         const _sr = _rtl ? (_mn % 2 === 1) : (_mn % 2 === 0);
