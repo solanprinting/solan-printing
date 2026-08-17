@@ -26,9 +26,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786963262"></script>
-<script src="auth-client.js?v=1786963262"></script>
-<script src="auth-guard.js?v=1786963262" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786964256"></script>
+<script src="auth-client.js?v=1786964256"></script>
+<script src="auth-guard.js?v=1786964256" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -883,7 +883,12 @@ function workerScreen(){
    + '<div class="card" style="margin-top:6px"><input type="text" id="jobName" placeholder="שם העבודה" style="width:170px"> <input type="text" id="custName" placeholder="שם לקוח" style="width:140px"> <input type="text" id="custPhone" placeholder="טלפון לקוח (וואטסאפ)" style="width:160px"> <input type="text" id="jobId" placeholder="מס׳ עבודה" style="width:100px"></div>'
    + '<div id="wstatus" class="muted" style="margin-top:8px">בחר פרופר וטמפלט.</div></div>'
    + '<div class="card" id="previewCard" style="display:none"><h3>3. תצוגה <span class="muted" id="metaLine"></span></h3>'
-   + '<div style="margin-bottom:8px">גלישות: <select id="bleedSel"><option value="0">בלי גלישות (נטו)</option><option value="3">עם גלישות (3 מ״מ)</option></select> <span class="muted" id="bleedNote"></span></div>'
+   + '<div style="margin-bottom:8px">גלישות: <select id="bleedSel"><option value="0">בלי גלישות (נטו)</option><option value="3">עם גלישות (3 מ״מ)</option></select> <span class="muted" id="bleedNote"></span>'
+   /* ⚠️ בקשת-בעלים 17/08/2026: "אין כפתור הורדה". החוברת נוצרה בדפדפן
+      (`_folded.bytes`) והייתה זמינה **רק** דרך קישור-הלקוח — כלומר כדי
+      לבדוק אותה באקרובט היה צריך לשלוח אותה קודם ללקוח. */
+   + ' <button id="dlFold" style="margin-right:10px">⬇ הורד חוברת (PDF)</button>'
+   + '<span class="muted" id="dlFoldNote" style="margin-right:6px"></span></div>'
    + '<div id="warns" class="muted"></div><div id="flip"></div><h3 style="margin-top:12px">Thumbnails</h3><div id="thumbs"></div></div>'
    + '<div class="card" id="checkCard" style="display:none"><h3>4. בדיקה פנימית → שליחה</h3>'
    + '<label class="chk" id="intChkWrap" style="display:block;padding:10px;border:2px solid #f59e0b;border-radius:8px;background:rgba(245,158,11,.08);cursor:pointer"><input type="checkbox" id="intChk" style="transform:scale(1.4);margin-left:6px;vertical-align:middle"> <b>סמן כאן:</b> בדקתי שהשער, סדר העמודים, הכיוונים והחיתוך תקינים.</label>'
@@ -1383,6 +1388,33 @@ function workerScreen(){
     }catch(err){ $('wstatus').innerHTML='<span class="bad">'+(err.message||err)+'</span>'; }
     finally{ $('foldBtn').disabled=false; if($('bleedSel'))$('bleedSel').disabled=false; }
   }
+  /* הורדת החוברת שנוצרה — מאותם bytes שמהם נבנים גם הדפדוף וגם הקישור
+     ללקוח, כדי שמה שנבדק באקרובט יהיה בדיוק מה שיישלח.
+     ⚠️ שם-הקובץ כולל את הגלישה: "נטו" ו"עם גלישות" הם שני פלטים שונים,
+     ובתיקיית-ההורדות אי-אפשר להבדיל ביניהם בלי זה. */
+  if($('dlFold')) $('dlFold').onclick=()=>{
+    if(!_folded || !_folded.bytes || !_folded.bytes.length){
+      $('dlFoldNote').innerHTML='<span class="bad">אין עדיין חוברת — צרו אותה קודם</span>'; return;
+    }
+    try{
+      const b=_folded.bleedMm>0 ? (' — גלישות '+_folded.bleedMm+'מ״מ') : ' — נטו';
+      /* ⚠️ ‏_srcName ולא jobLabel: ‏jobLabel הוא const **בתוך** פונקציית-הקישור
+         (‏~1468) ואינו קיים כאן. זה הבאג החוזר של הפרויקט — פונקציה שמשתמשת
+         במשתנה מקומי של פונקציה אחרת — שיש עליו scope-sentinel-tests.js. */
+      const nm=String(($('jobName')&&$('jobName').value)||_srcName||'חוברת')
+                 .replace(/\.pdf$/i,'').trim();
+      const blob=new Blob([_u8(_folded.bytes)],{type:'application/pdf'});
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=(nm+b).replace(/[\\/:*?"<>|]/g,'_')+'.pdf';
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+      $('dlFoldNote').innerHTML='<span class="ok">✓ ירד</span>';
+    }catch(e){
+      console.error('הורדת החוברת נכשלה', e);
+      $('dlFoldNote').innerHTML='<span class="bad">ההורדה נכשלה: '+_esc((e&&e.message)||e)+'</span>';
+    }
+  };
   $('foldBtn').onclick=()=>doFold(+(($('bleedSel')&&$('bleedSel').value)||0));
   $('bleedSel').onchange=()=>{ if(_folded && _srcU8) doFold(+$('bleedSel').value); };
   $('intChk').onchange=()=>{ const on=$('intChk').checked && _folded; $('linkBtn').disabled = !on;

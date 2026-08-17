@@ -21,7 +21,13 @@
   function templateSupported(id) {
     if (typeof id !== 'string' || !id) return false;
     if (SUPPORTED_TEMPLATES.indexOf(id) >= 0) return true;
-    return id.indexOf('legacy:') === 0 || id.indexOf('custom:') === 0 || id.indexOf('multi:') === 0;
+    /* ⚠️ 17/08/2026 — `tpl:` = טמפלט שנקרא מקובץ Preps .tpl. הקיפול עבד, אבל
+       **יצירת-הקישור נכשלה** ב-UNSUPPORTED_TEMPLATE: זו רשימת-היתר **שנייה**,
+       מקבילה ל-`customerFoldTemplateAllowed` ב-imposition-fold-adapter.js,
+       ורק אחת מהן עודכנה. שתי רשימות לאותה שאלה = בדיוק סוג התקלה הזה.
+       ⚠️ מי שמוסיף קידומת-טמפלט חייב לעדכן את שתיהן; יש סנטינל שמשווה ביניהן. */
+    return id.indexOf('legacy:') === 0 || id.indexOf('custom:') === 0 ||
+           id.indexOf('multi:') === 0 || id.indexOf('tpl:') === 0;
   }
 
   // ── אקראיות: crypto (דפדפן/Node). rng אופציונלי להזרקה בבדיקות (מחזיר Uint8Array). ──
