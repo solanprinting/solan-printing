@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786958407"></script>
-<script src="chat-alert.js?v=1786958407"></script>
-<script src="shop-issue.js?v=1786958407"></script>
-<script src="page-marks.js?v=1786958407"></script>
-<script src="kontres-split.js?v=1786958407"></script>
+<script src="portal-chat.js?v=1786959858"></script>
+<script src="chat-alert.js?v=1786959858"></script>
+<script src="shop-issue.js?v=1786959858"></script>
+<script src="page-marks.js?v=1786959858"></script>
+<script src="kontres-split.js?v=1786959858"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786958407"></script>
-<script src="auth-client.js?v=1786958407"></script>
+<script src="firebase-auth.bundle.js?v=1786959858"></script>
+<script src="auth-client.js?v=1786959858"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786958407" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786959858" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -610,6 +610,18 @@ window.addEventListener('appinstalled', function(){
   .swapBan .psOk { background:#16a34a; color:#fff; }
   .swapBan .psNo { background:#e5e7eb; color:#374151; }
   /* פעולות-משנה: קיימות, אך אינן מתחרות בעין עם הראשיות */
+  /* פריסת-ריצה בתוך המסך (17/08/2026) — נפתחת מתחת לרשת-הריצות, באותו חלון.
+     ⚠️ ‏max-height + overflow: ריצה של 32 עמודים דוחפת את כל מה שמתחתיה
+     (השיחה, הפעולות) הרחק מהמסך; כאן היא נשארת אזור-גלילה משלה. */
+  .runExp:empty { display:none; }
+  .runExp { margin:10px 13px 0; border:1.5px solid #c7d2fe; border-radius:11px;
+    background:#f8faff; overflow:hidden; }
+  .runExpBar { display:flex; align-items:center; gap:9px; flex-wrap:wrap;
+    padding:8px 11px; border-bottom:1px solid #e0e7ff; background:#eef2ff; font-size:.86rem; }
+  .runExpNote { color:#4b5563; font-size:.82rem; }
+  .runExpNote.bad { color:var(--red); font-weight:700; }
+  .runExpPages { max-height:56vh; overflow-y:auto; padding:10px 11px; }
+  .runExpPages .pgTh img { width:100%; height:100%; object-fit:contain; background:#fff; }
   .isMore { margin-top:11px; padding-top:11px; border-top:1px dashed var(--line); }
   .isMore .acts { gap:6px; }
   .isSeen { font-size:.79rem; color:#166534; font-weight:800; }
@@ -1255,7 +1267,8 @@ function render(rows) {
              <div class="pgTh" data-thumb="${i}"><span class="pgPh">📄</span>${mk?`<span class="pgMk">${mk.kind==='replace'?'🔁':'✔'}</span>`:''}</div>
              <div class="pgNm">${escapeHtml(t.label)}</div>
              ${mk&&mk.note?`<div class="pgNote">${escapeHtml(String(mk.note).slice(0,42))}</div>`:(t.at?`<div class="pgSub">${fmt(t.at)}</div>`:'')}
-           </div>`; }).join('')}</div>`
+           </div>`; }).join('')}</div>
+         <div id="runExp" class="runExp"></div>`
       : '<div style="color:#9ca3af;font-size:.86rem;padding:6px 14px">טרם התקבלו קבצים לגיליון הזה.</div>';
 
     /* ⚠️ "אשר קבלה ללקוח" הוא ‎shopSeenAt‎ הקיים — אותו שדה שהפורטל כבר
@@ -2162,7 +2175,7 @@ function render(rows) {
     if (ta) { ta.value = el.dataset.quick; ta.focus(); }
   });
   /* רשת-העמודים: הגדלה בלחיצה, תזכורת-עמוד-חסר, ותצוגות-מקדימות עצלות */
-  document.querySelectorAll('[data-tile]').forEach(el => el.onclick = () => _pgLightOpen(parseInt(el.dataset.tile, 10)));
+  document.querySelectorAll('[data-tile]').forEach(el => el.onclick = () => _tileClick(parseInt(el.dataset.tile, 10)));
   document.querySelectorAll('[data-remind]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _pgRemind(b.dataset.remind); });
   _thumbPaint();
   /* "אשר קבלה ללקוח" — מסמן את הגיליון **וכל ריצותיו**, כי מבחינת הלקוח
@@ -2795,6 +2808,99 @@ async function _pmAdminWrite(p, patch){
     alert('⛔ שמירת הסימון נכשלה: ' + ((e && e.message) || 'שגיאה') + '\nנסו שוב.');
     return false;
   }
+}
+
+/* ── פריסת-ריצה בתוך המסך (בקשת-בעלים 17/08/2026) ──────────────────────────
+   "בלחיצה על הריצה תיפתח מתחתיה פריסה של כל העמודים… באותו חלון של הפורטל,
+   אין צורך שייפתח חלון חדש. בלחיצה נוספת ייפתח הדפדוף המהיר."
+
+   ⚠️ המקור הוא **מטמון-העמודים** (`parts[pid].pagesUrl`) — מערך JSON של
+   תמונות base64, ~2.3MB ל-32 עמודים. **לא** קובץ-הריצה עצמו, שהוא 117MB:
+   רינדור 32 עמודים ממנו ב-pdf.js היה תוקע את הלשונית.
+   ⚠️ אין מטמון → אומרים זאת ומציעים דפדוף, במקום לחיצה שלא עושה כלום. */
+let _runExpKey = null;                       // partId שפרוס כרגע (null = סגור)
+const _runPagesCache = new Map();            // pagesUrl → מערך-תמונות
+function _tileClick(i) {
+  const reg = window._tileReg;
+  const t = reg && reg.tiles && reg.tiles[i];
+  if (!t) return;
+  const pt = t.partId ? ((reg.p && reg.p.parts) || {})[t.partId] : null;
+  // אריח-ריצה = קובץ רב-עמודים. אריח של עמוד בודד ממשיך להתנהג כמו קודם.
+  if (!pt || (pt.pageCount | 0) <= 1) { _pgLightOpen(i); return; }
+  if (_runExpKey === t.partId) {              // כבר פרוס → לחיצה שנייה פותחת דפדוף
+    window.open('proof-viewer.html?id=' + encodeURIComponent(reg.id)
+              + '&part=' + encodeURIComponent(t.partId), '_blank', 'noopener');
+    return;
+  }
+  _runExpand(reg, t, pt);
+}
+function _runExpClose() {
+  _runExpKey = null;
+  const h = document.getElementById('runExp');
+  if (h) h.innerHTML = '';
+}
+async function _runExpand(reg, t, pt) {
+  const host = document.getElementById('runExp');
+  if (!host) return;
+  _runExpKey = t.partId;
+  const title = escapeHtml(t.label || 'ריצה');
+  if (!pt.pagesUrl) {
+    host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
+      + '<span class="runExpNote">אין תצוגה מוכנה לריצה הזו — אפשר לפתוח בדפדוף</span>'
+      + '<button class="isBtn" data-runflip="1">📖 פתח בדפדוף</button>'
+      + '<button class="isBtn" data-runclose="1">✕ סגור</button></div>';
+    _runExpWire(reg, t);
+    return;
+  }
+  host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
+    + '<span class="runExpNote">טוען עמודים…</span></div>';
+  try {
+    let pages = _runPagesCache.get(pt.pagesUrl);
+    if (!pages) {
+      const r = await fetch(pt.pagesUrl);
+      if (!r.ok) throw new Error('מטמון-העמודים החזיר ' + r.status);
+      pages = await r.json();
+      if (!Array.isArray(pages) || !pages.length) throw new Error('מטמון-העמודים ריק');
+      _runPagesCache.set(pt.pagesUrl, pages);
+    }
+    if (_runExpKey !== t.partId) return;       // המשתמש עבר לריצה אחרת בינתיים
+    host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
+      + '<span class="runExpNote">' + pages.length + ' עמודים · לחיצה על עמוד: הגדלה · לחיצה נוספת על הריצה: דפדוף</span>'
+      + '<button class="isBtn" data-runflip="1">📖 דפדוף</button>'
+      + '<button class="isBtn" data-runclose="1">✕ סגור</button></div>'
+      + '<div class="isPages runExpPages">'
+      + pages.map((src, n) => '<div class="pgT" data-runpg="' + n + '" title="עמוד ' + (n + 1) + '">'
+          + '<div class="pgTh"><img src="' + src + '" alt=""></div>'
+          + '<div class="pgNm">עמוד ' + (n + 1) + '</div></div>').join('')
+      + '</div>';
+    _runExpWire(reg, t);
+    host.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  } catch (e) {
+    console.error('פריסת-ריצה נכשלה', (e && e.message) || e);
+    if (_runExpKey !== t.partId) return;
+    host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
+      + '<span class="runExpNote bad">טעינת העמודים נכשלה (' + escapeHtml(String((e && e.message) || e)) + ')</span>'
+      + '<button class="isBtn" data-runflip="1">📖 פתח בדפדוף</button>'
+      + '<button class="isBtn" data-runclose="1">✕ סגור</button></div>';
+    _runExpWire(reg, t);
+  }
+}
+function _runExpWire(reg, t) {
+  const host = document.getElementById('runExp');
+  if (!host) return;
+  const fl = host.querySelector('[data-runflip]');
+  if (fl) fl.onclick = () => window.open('proof-viewer.html?id=' + encodeURIComponent(reg.id)
+        + '&part=' + encodeURIComponent(t.partId), '_blank', 'noopener');
+  const cl = host.querySelector('[data-runclose]');
+  if (cl) cl.onclick = _runExpClose;
+  /* לחיצה על עמוד בפריסה → אותו חלון-הגדלה של הרשת הראשית, עם מספר-העמוד
+     **בתוך הריצה**. זו בדיוק החתימה `_pgLightOpen(tileIdx, pg)`, ולכן
+     החיצים בהגדלה (‎_plFlat‎ שטוח ברמת-עמוד) ממשיכים לעבור את כל הגיליון. */
+  const tileIdx = reg.tiles.indexOf(t);
+  host.querySelectorAll('[data-runpg]').forEach(el => el.onclick = () => {
+    if (tileIdx < 0) return;
+    _pgLightOpen(tileIdx, parseInt(el.dataset.runpg, 10) + 1);
+  });
 }
 
 /* ── הגדלת-עמוד (לייטבוקס) — לראות מה הבעיה, לסמן, ולדרוש תיקון ──────── */
