@@ -229,6 +229,69 @@
     var re = /((?:^|[^A-Za-z0-9])(?:r|ריצה)\s*[-_ ]?\s*)(\d{1,2})(?![0-9])/i;
     return re.test(s) ? s.replace(re, function(_, pre){ return pre + n; }) : ('ריצה ' + n);
   }
+  /* ── כמה עמודים בגיליון-מלא ─────────────────────────────────────────────
+     ⚠️ בקשת-בעלים 17/08/2026: "כשהעיתון 16.5×24 הגיליון 70×100, וכשהעיתון
+     A4 הגיליון 64×90" — כלומר הגודל **נגזר מהעיתון** ואינו נבחר בכל הורדה.
+     ⚠️ אבל **לא מנחשים**: גודל שאינו מזוהה מחזיר 0, והמסך שואל במקום
+     להניח. זה הכלל מ-30/07 (‏96 עמ' חולקו ל-6×16 במקום 3×32 בגלל ניחוש
+     שקט) — ‏`sheetPages` שנשמר על הגיליון גובר על הגזירה. */
+  function sheetPagesFromMM(w, h) {
+    var mx = Math.max(num(w) || 0, num(h) || 0), mn = Math.min(num(w) || 0, num(h) || 0);
+    if (!mx || !mn) return 0;
+    if (Math.abs(mx - 240) < 12 && Math.abs(mn - 165) < 12) return 32;   // 16.5×24 → 70×100
+    if (Math.abs(mx - 297) < 14 && Math.abs(mn - 210) < 14) return 16;   // A4 → 64×90
+    if (Math.abs(mx - 330) < 14 && Math.abs(mn - 240) < 14) return 16;   // 24×33 → 64×90
+    return 0;                                                            // לא מזוהה — לא מנחשים
+  }
+  /* מחזיר { sheet, src } · src: 'saved' (נשמר על הגיליון) · 'size' (נגזר
+     מגודל-העמוד) · 'unknown' (צריך לשאול). sheet=0 רק ב-unknown. */
+  function sheetPagesOf(p) {
+    var r = p || {};
+    var saved = num(r.sheetPages) || 0;
+    if (saved >= 2) return { sheet: saved, src: 'saved' };
+    var d = sheetPagesFromMM(r.reqW, r.reqH);
+    return d ? { sheet: d, src: 'size' } : { sheet: 0, src: 'unknown' };
+  }
+  function sheetLabel(n) { return n === 32 ? '70×100' : (n === 16 ? '64×90' : ''); }
+
+  /* ── סדר-הריצות ומיספור-העמודים — מקור-אמת אחד לכל המסכים ──────────────
+     ⚠️ 17/08/2026: הלוגיקה ישבה **בתוך** proof-admin.html בלבד, ולכן הפורטל
+     הציג לריצה "עמוד 1..n" מקומיים בזמן שהדפוס הציג מספרים בגיליון. שני
+     מסכים שמדברים על אותו עמוד בשני מספרים — זה מה שמייצר טלפון לדפוס.
+     כאן זה טהור, ושני המסכים מושכים מכאן. */
+  function runsOrdered(p) {
+    var parts = (p || {}).parts || {};
+    return Object.keys(parts).map(function (pid) {
+      var o = {};
+      Object.keys(parts[pid] || {}).forEach(function (k) { o[k] = parts[pid][k]; });
+      o.pid = pid;
+      o._no = runNoOfName(parts[pid] && (parts[pid].name || parts[pid].fileName));
+      return o;
+    }).sort(function (a, b) {
+      if (a._no != null && b._no != null && a._no !== b._no) return a._no - b._no;
+      if (a._no != null && b._no == null) return -1;      // ממוספרות קודם
+      if (a._no == null && b._no != null) return 1;
+      return (num(a.approvedAt) || 0) - (num(b.approvedAt) || 0)
+          || String(a.pid).localeCompare(String(b.pid));
+    });
+  }
+  /* מספר-העמוד-בגיליון שבו מתחילה הריצה. ⚠️ מסכום-העמודים של הריצות
+     שלפניה, ולא (מספר-ריצה × 16) — לריצות יש אורכים שונים (16 + 32). */
+  function runFirstPageNo(p, partId) {
+    var list = runsOrdered(p), base = 0;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].pid === partId) return base + 1;
+      base += num(list[i].pageCount) | 0;
+    }
+    return 1;   // לא נמצאה — לא ממציאים היסט
+  }
+  /* סדר-הריצות אינו סדר-ההעלאה — סימן שהלקוח התבלבל, ושווה בדיקה. */
+  function runOrderReversed(p) {
+    var ord = runsOrdered(p).filter(function (pt) { return pt._no != null && num(pt.approvedAt); });
+    for (var i = 1; i < ord.length; i++) if (num(ord[i].approvedAt) < num(ord[i-1].approvedAt)) return true;
+    return false;
+  }
+
   /* מחזיר { updates: {'<pid>': {name}}, swappedWith } או { error } */
   function runRenumberPatch(p, partId, newNo) {
     var parts = (p || {}).parts || {};
@@ -402,6 +465,8 @@
     pageNoOf: pageNoOf, pageTiles: pageTiles, markOf: markOf, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
-    runNoOfName: runNoOfName, renameRunNo: renameRunNo, runRenumberPatch: runRenumberPatch
+    runNoOfName: runNoOfName, renameRunNo: renameRunNo, runRenumberPatch: runRenumberPatch,
+    runsOrdered: runsOrdered, runFirstPageNo: runFirstPageNo, runOrderReversed: runOrderReversed,
+    sheetPagesFromMM: sheetPagesFromMM, sheetPagesOf: sheetPagesOf, sheetLabel: sheetLabel
   };
 });

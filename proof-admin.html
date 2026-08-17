@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786982571"></script>
-<script src="chat-alert.js?v=1786982571"></script>
-<script src="shop-issue.js?v=1786982571"></script>
-<script src="page-marks.js?v=1786982571"></script>
-<script src="kontres-split.js?v=1786982571"></script>
+<script src="portal-chat.js?v=1786985992"></script>
+<script src="chat-alert.js?v=1786985992"></script>
+<script src="shop-issue.js?v=1786985992"></script>
+<script src="page-marks.js?v=1786985992"></script>
+<script src="kontres-split.js?v=1786985992"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786982571"></script>
-<script src="auth-client.js?v=1786982571"></script>
+<script src="firebase-auth.bundle.js?v=1786985992"></script>
+<script src="auth-client.js?v=1786985992"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786982571" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786985992" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -644,14 +644,15 @@ window.addEventListener('appinstalled', function(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;position:relative">
       <button class="btn ghost" id="invite">+ לקוח / עבודה חדשה</button>
       <button class="btn" id="refresh">↻ רענן</button>
-      <button class="btn ghost" id="moreBtn" title="פעולות נוספות">⋮ פעולות נוספות</button>
-      <div id="moreMenu" class="moreMenu" style="display:none">
-        <button class="btn ghost" id="installBtn" style="display:none" title="התקנת המסך הזה כאפליקציה על שולחן העבודה">📥 התקן כאפליקציה</button>
-        <button class="btn ghost" id="portalsBtn" title="פתיחת פורטל אישי לכל לקוח שמופיע ביומן השבועי">🏢 פורטלים ליומן</button>
-        <button class="btn ghost" id="usageBtn">💾 ניצול אחסון</button>
-        <button class="btn ghost" id="cleanupBtn" title="מחיקת קובצי-Storage של עבודות שהושלמו מזמן — הרשומות נשארות, רק הקבצים נמחקים">🧹 ניקוי קבצים ישנים</button>
-        <button class="btn ghost" id="trashBtn" title="קבצים שהוסרו — ניתן לשחזר">🗑 סל מיחזור</button>
-      </div>
+      <!-- ⚠️ בקשת-בעלים 17/08/2026: "⋮ פעולות נוספות" נפרס לכפתורים בודדים.
+           התפריט הוסתר ב-06/08 כדי לצמצם עומס-מסך, אבל בפועל הוא הסתיר
+           פעולות יומיומיות מאחורי קליק נוסף. הכפתורים **נשארו באותם
+           מזהים** — כל המטפלים הקיימים נקשרים בדיוק כמו קודם. -->
+      <button class="btn ghost" id="portalsBtn" title="פתיחת פורטל אישי לכל לקוח שמופיע ביומן השבועי">🏢 פורטלים ליומן</button>
+      <button class="btn ghost" id="usageBtn">💾 ניצול אחסון</button>
+      <button class="btn ghost" id="cleanupBtn" title="מחיקת קובצי-Storage של עבודות שהושלמו מזמן — הרשומות נשארות, רק הקבצים נמחקים">🧹 ניקוי קבצים ישנים</button>
+      <button class="btn ghost" id="trashBtn" title="קבצים שהוסרו — ניתן לשחזר">🗑 סל מיחזור</button>
+      <button class="btn ghost" id="installBtn" style="display:none" title="התקנת המסך הזה כאפליקציה על שולחן העבודה">📥 התקן כאפליקציה</button>
     </div>
   </div>
   <div id="usage"></div>
@@ -1126,10 +1127,22 @@ function render(rows) {
      כפעולה משנית ("✂ פיצול לריצות"), כי הוא נדרש רק כשעיתון שלם צריך להתפצל. */
   const genCell = (fileUrl, title, jobId, partId) => {
     const key = 'g' + (gi++); _genReg[key] = { fileUrl, title, jobId, partId };
+    /* ⚠️ 17/08/2026, בקשת-בעלים: בורר "70×100 / 64×90" ירד. גודל-הגיליון
+       **נגזר מגודל-העיתון** (16.5×24 → 70×100 · A4 → 64×90) ולא נבחר מחדש
+       בכל הורדה. ⚠️ אבל לא מנחשים: גודל שאינו מזוהה ואינו שמור על הגיליון
+       מחזיר בורר — זה הכלל מ-30/07, שבו ניחוש שקט חילק 96 עמ' ל-6×16
+       במקום 3×32. שמור על הגיליון (`sheetPages`) גובר על הגזירה. */
+    const _sp = ShopIssue.sheetPagesOf((_allRows || []).find(r => r.id === jobId) || {});
+    const sheetCtl = _sp.sheet
+      ? `<input type="hidden" data-sheet="${key}" value="${_sp.sheet}">`
+        + `<span class="psTag" title="${_sp.src === 'saved' ? 'נשמר על הגיליון' : 'נגזר מגודל-העיתון'}">`
+        + `${ShopIssue.sheetLabel(_sp.sheet)} · ${_sp.sheet} עמ׳</span>`
+      : `<select data-sheet="${key}" title="גודל-העיתון לא זוהה — בחרו גיליון (ולא ננחש)">`
+        + `<option value="">גיליון?</option><option value="32">70×100</option><option value="16">64×90</option></select>`;
     return `<button class="dl" data-dl="${key}" title="קובץ-PDF יחיד בשם: ${escapeHtml(title)}">⬇ הורד</button>
-            <select data-sheet="${key}" title="גודל גיליון לפיצול לקונטרסים"><option value="32">70×100</option><option value="16">64×90</option></select>
-            <button class="gen" data-gen="${key}" title="עיתון שלם → קובץ-PDF לכל ריצה (לגרירה ישירה לאפוגי)">✂ פיצול לריצות</button>
-            <button class="gen" data-runpdf="${key}" title="קובץ אחד: כל העיתון בסדר-הריצות, וכל כפולה מפוצלת לשני עמודים בודדים">📚 לפי ריצות</button>`;
+            ${sheetCtl}
+            <button class="gen" data-gen="${key}" title="עיתון שלם → **כמה קבצים**: קובץ-PDF נפרד לכל ריצה, לגרירה ישירה לאפוגי (כפולות משוכפלות)">✂ קובץ נפרד לכל ריצה</button>
+            <button class="gen" data-runpdf="${key}" title="**קובץ אחד**: כל העיתון בסדר-הריצות, וכל כפולה מפוצלת פיזית לשני עמודים">📚 עיתון מלא בסדר-הריצות</button>`;
   };
 
   /* ── בקשות לקוח להחלפת עמודים ────────────────────────────────────────────
@@ -1349,10 +1362,8 @@ function render(rows) {
         ${pagesGrid}
         <div class="isMore"><div class="acts">
           <button data-link="${base}proof-client.html?id=${p.id}">📤 קישור העלאה ללקוח</button>
-          <button data-link="${base}proof-viewer.html?id=${p.id}">👁 קישור צפייה לעובדים</button>
           ${act.canDownload?genCell('', jobName(p), p.id, ''):''}
           ${notifyBtn(p)}${editBtn(p)}
-          <button data-donejob="${p.id}" data-on="${p.completedAt?1:0}">${p.completedAt?'↩ החזר לפעילות':'🏁 סמן כהושלם'}</button>
           ${prTag(p)}${psCell(p.id, 'full', psReqOf(p, 'full'))}
           <button class="del" data-deljob="${p.id}">🗑 מחק</button>
         </div></div>
@@ -1374,8 +1385,6 @@ function render(rows) {
         <td><div class="acts">
           <a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>
           <button data-link="${clientLink}" title="דף ההעלאה של הלקוח — הוא יכול להוסיף/להחליף עמודים ולאשר">📤 קישור העלאה ללקוח</button>
-          <button data-link="${viewerLink}" title="דפדוף לצפייה בלבד — בלי העלאה ובלי אישור. לעובדים/למכונה">👁 קישור צפייה לעובדים</button>
-          <button data-donejob="${p.id}" data-on="${p.completedAt?1:0}" title="${p.completedAt?'החזר לעבודות פעילות':'סמן כהושלם — יעבור ל"עיתונים שהושלמו"'}">${p.completedAt?'↩ החזר':'✅ הושלם'}</button>
           ${notifyBtn(p)}${editBtn(p)}${closeBtn(p)}
           <button class="del" data-deljob="${p.id}" title="מחק עבודה וכל הריצות">🗑</button>
         </div></td></tr>`;
@@ -1433,7 +1442,10 @@ function render(rows) {
     const gen = p.status === 'approved' ? genCell(p.fileUrl, jobName(p), p.id, null)
       : `<button disabled title="זמין רק לאחר אישור">⬇ הורד</button>`;
     const view = p.fileUrl ? `<a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>` : '';
-    const toWorkers = p.fileUrl ? `<button data-link="${viewerLink}" title="דפדוף לצפייה בלבד — בלי העלאה ובלי אישור. לעובדים/למכונה">👁 קישור צפייה לעובדים</button>` : '';
+    /* ⚠️ 17/08/2026, בקשת-בעלים: "קישור צפייה לעובדים" הוסר —
+       אפשר להיכנס לפורטל הלקוח ולהעתיק משם את הקישור.
+       ⚠️ הדף `proof-viewer.html` עצמו **לא** הוסר — "👁 צפה בדפדוף"
+       ממשיך לפתוח אותו, וקישורים שכבר נשלחו לעובדים ממשיכים לעבוד. */
     const note = (p.status === 'rejected' && p.customerNote) ? `<div class="note">📝 ${escapeHtml(p.customerNote)}</div>` : '';
     const approvedLine = p.approvedAt ? `<div class="note" style="color:#16a34a">✓ אושר: ${fmt(p.approvedAt)}</div>` : '';
     return `<tr class="${p.status==='approved'?'row-ok':''}">
@@ -1443,7 +1455,7 @@ function render(rows) {
       <td><div class="acts">
         <a href="${clientLink}" target="_blank">🔗 פתח</a>
         <button data-link="${clientLink}" title="דף ההעלאה של הלקוח — הוא יכול להוסיף/להחליף עמודים ולאשר">📤 קישור העלאה ללקוח</button>
-        ${view}${toWorkers}${seenBtn(p, null)}${gen}${prTag(p)}${psCell(p.id, 'full', psReqOf(p, 'full'))}${notifyBtn(p)}
+        ${view}${seenBtn(p, null)}${gen}${prTag(p)}${psCell(p.id, 'full', psReqOf(p, 'full'))}${notifyBtn(p)}
         ${editBtn(p)}${closeBtn(p)}
         <button class="del" data-deljob="${p.id}" title="מחק עבודה">🗑</button>
       </div></td></tr>`;
@@ -2196,16 +2208,22 @@ function render(rows) {
   document.querySelectorAll('[data-needfix]').forEach(b => b.onclick = () => needFix(b.dataset.needfix));
   // (data-apogee הוסר — השליחה לאישור עברה ללשונית "📤 פרופר ללקוח")
   document.querySelectorAll('[data-unlock]').forEach(b => b.onclick = () => unlockProof(b.dataset.unlock));
+  /* ⚠️ 17/08/2026: גודל-הגיליון נגזר מגודל-העיתון ומגיע בשדה-מוסתר. כשהוא
+     לא זוהה נשאר בורר — ואז חובה לומר שצריך לבחור, ולא לרוץ עם NaN. */
+  const _sheetOf = (key) => {
+    const el = document.querySelector(`[data-sheet="${key}"]`);
+    const n = parseInt(el && el.value, 10);
+    if (!(n >= 2)) { alert('⛔ גודל-העיתון לא זוהה — בחרו גודל גיליון (70×100 או 64×90) לפני הפיצול.'); return 0; }
+    return n;
+  };
   document.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => {
-    const t = _genReg[b.dataset.gen];
-    const sheet = parseInt(document.querySelector(`[data-sheet="${b.dataset.gen}"]`).value, 10);
-    generateRuns(t, sheet, b);
+    const sheet = _sheetOf(b.dataset.gen); if (!sheet) return;
+    generateRuns(_genReg[b.dataset.gen], sheet, b);
   });
-  /* "📚 לפי ריצות" — אותו רישום (_genReg) ואותו בורר-גיליון; מסלול-בנייה אחר */
+  /* אותו רישום (_genReg) ואותו גודל-גיליון; מסלול-בנייה אחר */
   document.querySelectorAll('[data-runpdf]').forEach(b => b.onclick = () => {
-    const t = _genReg[b.dataset.runpdf];
-    const sheet = parseInt(document.querySelector(`[data-sheet="${b.dataset.runpdf}"]`).value, 10);
-    generateRunOrderedPdf(t, sheet, b);
+    const sheet = _sheetOf(b.dataset.runpdf); if (!sheet) return;
+    generateRunOrderedPdf(_genReg[b.dataset.runpdf], sheet, b);
   });
   document.querySelectorAll('[data-deljob]').forEach(b => b.onclick = () =>
     deleteProof(_allRows.find(r => r.id === b.dataset.deljob)));
@@ -2853,43 +2871,12 @@ const _runPagesCache = new Map();            // pagesUrl → מערך-תמונו
    ‏`_runFirstPageNo` סידר לפי מספר-הריצה שבשם — כלומר מספרי-העמודים
    שהוצגו לא תיארו את הקובץ שנמסר. מעכשיו כולם דרך `_partsOrdered`.
    זמן-ההעלאה נשאר שובר-שוויון בלבד, לריצות בלי מספר בשם. */
-function _runNoOfPart(pt) {
-  const src = String((pt && (pt.name || pt.fileName)) || '');
-  // "ריצה 2" · "R-2" · "R2" — ולא מספר-גיליון צמוד לאות ולא "4color"
-  let m = src.match(/(?:^|[^A-Za-z0-9])(?:r|ריצה)\s*[-_ ]?\s*(\d{1,2})(?![0-9])/i);
-  if (m) return parseInt(m[1], 10) || null;
-  m = src.match(/(\d{1,2})(?![0-9])/);     // "2" לבד — התנהגות היסטורית
-  return m ? (parseInt(m[1], 10) || null) : null;
-}
-function _partsOrdered(p) {
-  return Object.entries((p && p.parts) || {})
-    .map(([pid, pt]) => Object.assign({ pid: pid, _no: _runNoOfPart(pt) }, pt))
-    .sort(function(a, b){
-      if (a._no != null && b._no != null && a._no !== b._no) return a._no - b._no;
-      if (a._no != null && b._no == null) return -1;      // ממוספרות קודם
-      if (a._no == null && b._no != null) return 1;
-      return (a.approvedAt || 0) - (b.approvedAt || 0)
-          || String(a.pid).localeCompare(String(b.pid));
-    });
-}
-/* זיהוי התרחיש שנשבר: סדר-הריצות אינו סדר-ההעלאה. קדם-דפוס חייב לראות
-   זאת — הקובץ תקין, אבל הלקוח העלה הפוך, וזו הנקודה לבדוק לפני לוחות. */
-function _runOrderReversed(p) {
-  const ord = _partsOrdered(p).filter(function(pt){ return pt._no != null && pt.approvedAt; });
-  if (ord.length < 2) return false;
-  for (let i = 1; i < ord.length; i++) if (ord[i].approvedAt < ord[i-1].approvedAt) return true;
-  return false;
-}
-function _runFirstPageNo(p, partId) {
-  const parts = _partsOrdered(p)
-    .map(pt => ({ pid: pt.pid, pages: (pt.pageCount) | 0 }));
-  let base = 0;
-  for (const q of parts) {
-    if (q.pid === partId) return base + 1;
-    base += q.pages;
-  }
-  return 1;   // לא נמצאה — לא ממציאים היסט
-}
+/* ⚠️ 17/08/2026 — הלוגיקה עברה ל-shop-issue.js כדי שהפורטל והדפוס יציגו
+   **אותו** מספר לאותו עמוד. כאן נשארו עטיפות בלבד; אין כאן מתמטיקה. */
+function _runNoOfPart(pt) { return ShopIssue.runNoOfName(pt && (pt.name || pt.fileName)); }
+function _partsOrdered(p) { return ShopIssue.runsOrdered(p); }
+function _runOrderReversed(p) { return ShopIssue.runOrderReversed(p); }
+function _runFirstPageNo(p, partId) { return ShopIssue.runFirstPageNo(p, partId); }
 function _tileClick(i) {
   const reg = window._tileReg;
   const t = reg && reg.tiles && reg.tiles[i];
@@ -3602,18 +3589,28 @@ async function openTrash() {
    "✂ פיצול לריצות" (שכפול-כפולות, כמו תמיד) ו"📚 לפי ריצות" (פיצול-אמיתי). */
 const splitToKontresim = (totalPages, fullSheet) => KontresSplit.splitToKontresim(totalPages, fullSheet);
 
-// עמודי "כפולה" (עמוד PDF ברוחב כפול = שני עמודי עיתון מחוברים): לא חותכים —
-// משאירים את הקובץ כמו שהוא, פשוט מכפילים אותו לשני קבצים זהים (אחד לכל מקום בריצה)
-// ומסמנים "כפולה" בשם. מחזיר { doc, labels, spread } — labels[i] = מספרי העמוד ("16-17").
+/* עמודי "כפולה" = עמוד-PDF ברוחב כפול, שני עמודי-עיתון מחוברים.
+   ⚠️ בקשת-בעלים 17/08/2026: "הכפולות תמיד ירדו בתור בודדים ולא בתור
+   כפולות". עד היום המסלול הזה **שכפל** את הכפולה — אותו עמוד-רוחב-כפול
+   נכנס פעמיים, פעם לכל מקום בריצה, עם "כפולה" בשם. זה הכריח את קדם-הדפוס
+   לחתוך ידנית אחרי ההורדה. עכשיו הכפולה נחתכת כאן, וקטורית (embedPage על
+   חצי-קופסה — לא רסטר), בסדר-הקריאה שהמודול קובע.
+   מחזיר { doc, labels, spread } — labels[i] = מספר-העמוד. */
 async function normalizeSpreads(src) {
   const pages = src.getPages();
   const sizes = pages.map(pg => { const mb = pg.getMediaBox(); return { w: mb.width, h: mb.height }; });
-  const plan = KontresSplit.spreadPlan(sizes, { mode: 'duplicate' });
+  const plan = KontresSplit.spreadPlan(sizes, { mode: 'split' });
   const labels = plan.entries.map(e => e.label), spread = plan.entries.map(e => e.spread);
   if (!plan.hasSpread) return { doc: src, labels, spread };
   const out = await PDFLib.PDFDocument.create();
   for (const e of plan.entries) {
-    const [pg] = await out.copyPages(src, [e.src]); out.addPage(pg);
+    if (!e.half) { const [pg] = await out.copyPages(src, [e.src]); out.addPage(pg); continue; }
+    const srcPg = pages[e.src], mb = srcPg.getMediaBox();
+    const halfW = mb.width / 2;
+    const left = e.half === 'left' ? mb.x : mb.x + halfW;
+    const emb = await out.embedPage(srcPg, { left: left, bottom: mb.y, right: left + halfW, top: mb.y + mb.height });
+    const pg = out.addPage([halfW, mb.height]);
+    pg.drawPage(emb, { x: 0, y: 0, width: halfW, height: mb.height });
   }
   return { doc: out, labels, spread };
 }
@@ -4336,21 +4333,12 @@ document.addEventListener('keydown', ev => { if (ev.key === 'Escape') _actCloseM
 window.addEventListener('resize', _actCloseMenu);
 window.addEventListener('scroll', _actCloseMenu, true);
 
-/* ⚠️ חיווט "⋮ פעולות נוספות" — בלעדיו התפריט קיים ב-DOM אבל display:none
-   ואף אחד לא פותח אותו, כלומר 4 הפעולות שבתוכו (התקנה/חלון-נפרד · פורטלים
-   ליומן · ניצול-אחסון · סל-מיחזור) פשוט בלתי-נגישות. זה בדיוק דפוס
-   "כפתור שלא מחווט" שנתפס כאן בעבר — לכן יש עליו גם בדיקה. */
-(function(){
-  const btn = $('moreBtn'), menu = $('moreMenu');
-  if (!btn || !menu) return;
-  const open = on => { menu.style.display = on ? 'flex' : 'none'; btn.setAttribute('aria-expanded', on ? 'true' : 'false'); };
-  open(false);
-  btn.onclick = (e) => { e.stopPropagation(); open(menu.style.display === 'none'); };
-  // בחירה בתפריט סוגרת אותו (הפעולה עצמה מטופלת ע"י המטפל הקיים של הכפתור)
-  menu.addEventListener('click', (e) => { if (e.target.closest('button')) setTimeout(() => open(false), 0); });
-  document.addEventListener('click', (e) => { if (!menu.contains(e.target) && e.target !== btn) open(false); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') open(false); });
-})();
+/* ⚠️ 17/08/2026, בקשת-בעלים: תפריט "⋮ פעולות נוספות" בסרגל-העליון פורק
+   לכפתורים גלויים, ולכן חיווט-הפתיחה שהיה כאן ירד. הכפתורים עצמם
+   (‏portalsBtn · usageBtn · cleanupBtn · trashBtn · installBtn) נשארו
+   באותם מזהים והמטפלים שלהם לא נגעו — הם פשוט כבר לא מוסתרים.
+   ⚠️ אין לשחזר `display:none` על הקבוצה הזו בלי להחזיר גם פותח, אחרת
+   הפעולות חוזרות להיות בלתי-נגישות — הבאג שהחיווט הזה נכתב נגדו. */
 
 /* ברירת-המחדל של כיוון-הדפדוף לפי הלקוח (customers[].defaultReadingDirection).
    נקרא **פעם אחת בזמן יצירת-עבודה** ומועתק לרשומת-העבודה. התאמת-שם מנורמלת
