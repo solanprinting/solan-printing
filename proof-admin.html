@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786965448"></script>
-<script src="chat-alert.js?v=1786965448"></script>
-<script src="shop-issue.js?v=1786965448"></script>
-<script src="page-marks.js?v=1786965448"></script>
-<script src="kontres-split.js?v=1786965448"></script>
+<script src="portal-chat.js?v=1786968646"></script>
+<script src="chat-alert.js?v=1786968646"></script>
+<script src="shop-issue.js?v=1786968646"></script>
+<script src="page-marks.js?v=1786968646"></script>
+<script src="kontres-split.js?v=1786968646"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786965448"></script>
-<script src="auth-client.js?v=1786965448"></script>
+<script src="firebase-auth.bundle.js?v=1786968646"></script>
+<script src="auth-client.js?v=1786968646"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786965448" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786968646" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2826,6 +2826,24 @@ async function _pmAdminWrite(p, patch){
    ⚠️ אין מטמון → אומרים זאת ומציעים דפדוף, במקום לחיצה שלא עושה כלום. */
 let _runExpKey = null;                       // partId שפרוס כרגע (null = סגור)
 const _runPagesCache = new Map();            // pagesUrl → מערך-תמונות
+/* מספר-העמוד **בגיליון** של העמוד הראשון בריצה (בקשת-בעלים 17/08/2026:
+   "מספרי-העמודים שרשומים מתחת לכל עמוד צריכים להיות המספרים הנכונים שלו
+   בגיליון"). עד עכשיו הוצג האינדקס בתוך קובץ-הריצה — "עמוד 1" לכל ריצה.
+   ⚠️ מחושב מ**סכום העמודים של הריצות שלפניה**, ולא מ-(מספר-ריצה × 16):
+   לריצות יכולים להיות אורכים שונים (למשל 16 + 32), ונוסחה קבועה הייתה
+   מספרת נכון רק כשכולן שוות. סדר-הריצות נלקח ממספר-הריצה שבשם. */
+function _runFirstPageNo(p, partId) {
+  const runNo = (nm) => { const m = String(nm || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : 9999; };
+  const parts = Object.entries((p && p.parts) || {})
+    .map(([pid, pt]) => ({ pid, no: runNo(pt && pt.name), pages: (pt && pt.pageCount) | 0 }))
+    .sort((a, b) => a.no - b.no || String(a.pid).localeCompare(String(b.pid)));
+  let base = 0;
+  for (const q of parts) {
+    if (q.pid === partId) return base + 1;
+    base += q.pages;
+  }
+  return 1;   // לא נמצאה — לא ממציאים היסט
+}
 function _tileClick(i) {
   const reg = window._tileReg;
   const t = reg && reg.tiles && reg.tiles[i];
@@ -2877,15 +2895,17 @@ async function _runExpand(reg, t, pt) {
       _runPagesCache.set(pt.pagesUrl, pages);
     }
     if (_runExpKey !== t.partId) return;       // המשתמש עבר לריצה אחרת בינתיים
+    const baseNo = _runFirstPageNo(reg.p, t.partId);
     host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
-      + '<span class="runExpNote">' + pages.length + ' עמודים · לחיצה על עמוד: הגדלה · לחיצה נוספת על הריצה: דפדוף</span>'
+      + '<span class="runExpNote">' + pages.length + ' עמודים · עמ׳ ' + baseNo + '–' + (baseNo + pages.length - 1)
+          + ' בגיליון · לחיצה על עמוד: הגדלה · לחיצה נוספת על הריצה: דפדוף</span>'
       + dlBtn
       + '<button class="isBtn" data-runflip="1">📖 דפדוף</button>'
       + '<button class="isBtn" data-runclose="1">✕ סגור</button></div>'
       + '<div class="isPages runExpPages">'
-      + pages.map((src, n) => '<div class="pgT" data-runpg="' + n + '" title="עמוד ' + (n + 1) + '">'
+      + pages.map((src, n) => '<div class="pgT" data-runpg="' + n + '" title="עמוד ' + (baseNo + n) + ' בגיליון">'
           + '<div class="pgTh"><img src="' + src + '" alt=""></div>'
-          + '<div class="pgNm">עמוד ' + (n + 1) + '</div></div>').join('')
+          + '<div class="pgNm">עמוד ' + (baseNo + n) + '</div></div>').join('')
       + '</div>';
     _runExpWire(reg, t, pt);
     host.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
