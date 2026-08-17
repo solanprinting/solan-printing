@@ -219,8 +219,20 @@
     if (!noTrim) return sheet;                                        // TrimBox אמיתי — לא נוגעים
     var nw = layout.nominalMediaWmm, nh = layout.nominalMediaHmm;
     if (!(nw > 0 && nh > 0)) return sheet;
-    var sx = sheet.mediaWmm / nw, sy = sheet.mediaHmm / nh;
-    if (Math.abs(sx - 1) > 0.02 || Math.abs(sy - 1) > 0.02) return sheet;   // לא 1:1 — לא ממציאים גיאומטריה
+    /* ⚠️ תוקן 17/08/2026 — הכלל היה **אחוזי**: ‏±2% בכל ציר. פרופר-ייצור אמיתי
+       (‏Israel Hayom 57×74) הגיע 747×583.2 מול גיליון נומינלי 740×570 — ‏+0.95%
+       ברוחב (עבר) אבל **+2.32% בגובה** (נפל). לכן המנגנון ויתר, הגיליון נלקח
+       כ-747×583.2 עם מוצא (0,0), וכל חלונות-החיתוך זזו ב-(3.5, 6.6) מ"מ —
+       העמוד נחתך מצד אחד ומשך את תוכן השכן מהצד השני ("העמוד השמאלי השתלט
+       על הימני"). אחוז הוא מדד שגוי כאן: אזור-הסימנים הוא תוספת **מוחלטת**
+       במ"מ, ולכן ככל שהגיליון קטן יותר כך אותו אזור חורג מהאחוז.
+       הכלל עכשיו פיזי: סימני-דפוס **מוסיפים** שטח ולעולם אינם מורידים, והעודף
+       חייב להיות בסדר-גודל של אזור-סימנים. ‏ MARKS_MAX נדיב אך לא אינסופי —
+       פרופר של גיליון אחר לגמרי עדיין נדחה ולא "ממציאים גיאומטריה". */
+    var MARKS_MAX_MM = 60;
+    var dw = sheet.mediaWmm - nw, dh = sheet.mediaHmm - nh;
+    if (dw < -1 || dh < -1) return sheet;                 // קטן מהנומינלי — אינו אותו גיליון
+    if (dw > MARKS_MAX_MM || dh > MARKS_MAX_MM) return sheet;
     var tw = layout.trimWmm, th = layout.trimHmm;
     return { mediaWmm: sheet.mediaWmm, mediaHmm: sheet.mediaHmm,
       trimWmm: tw, trimHmm: th,
