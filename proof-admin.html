@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786985992"></script>
-<script src="chat-alert.js?v=1786985992"></script>
-<script src="shop-issue.js?v=1786985992"></script>
-<script src="page-marks.js?v=1786985992"></script>
-<script src="kontres-split.js?v=1786985992"></script>
+<script src="portal-chat.js?v=1786996449"></script>
+<script src="chat-alert.js?v=1786996449"></script>
+<script src="shop-issue.js?v=1786996449"></script>
+<script src="page-marks.js?v=1786996449"></script>
+<script src="kontres-split.js?v=1786996449"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786985992"></script>
-<script src="auth-client.js?v=1786985992"></script>
+<script src="firebase-auth.bundle.js?v=1786996449"></script>
+<script src="auth-client.js?v=1786996449"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786985992" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786996449" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -241,6 +241,17 @@ window.addEventListener('appinstalled', function(){
   .folder table { box-shadow:none; border-radius:0; }
   /* ── עיצוב-מחדש 2026-08-06: תיבת "חדש מהלקוחות" + תפריט-פעולות ─────────── */
   .ibxCount { background:#dc2626; color:#fff; border-radius:12px; padding:2px 10px; font-size:.8rem; font-weight:800; vertical-align:middle; }
+  /* רצועת "אמורים לשלוח היום" בכותרת (17/08/2026) — גלילה אופקית ולא
+     גלישה, כדי שהכותרת לא תגדל כשיש הרבה לקוחות ביום עמוס. */
+  .tdStrip { display:flex; gap:6px; align-items:center; overflow-x:auto; flex:1 1 auto;
+             min-width:0; padding:2px 4px; scrollbar-width:thin; }
+  .tdLbl { font-size:.78rem; font-weight:800; color:#6b7280; white-space:nowrap; }
+  .tdNone { font-size:.78rem; color:#9ca3af; white-space:nowrap; }
+  .tdChip { min-height:28px; padding:3px 10px; border-radius:999px; cursor:pointer;
+            border:1.5px solid #bbf7d0; background:#f0fdf4; color:#166534;
+            font-size:.78rem; font-weight:800; white-space:nowrap; }
+  .tdChip.late { border-color:#fecaca; background:#fef2f2; color:#b91c1c; }
+  .tdChip:hover { filter:brightness(.97); }
   .moreMenu { position:absolute; top:100%; left:0; z-index:60; background:#fff; border:1px solid var(--line);
     border-radius:10px; box-shadow:0 8px 22px rgba(0,0,0,.14); padding:8px; display:flex; flex-direction:column; gap:6px; min-width:190px; }
   .ibxWrap { background:#fff; border:1.5px solid var(--gold,#b8860b); border-radius:12px; margin-bottom:12px; overflow:hidden; }
@@ -1847,9 +1858,29 @@ function render(rows) {
         ${d===_today?'📌 ':''}${escapeHtml(lbl)} <span class="c">${n}</span>${nw?`<span class="newDot">🆕${nw}</span>`:''}</button>`;
     }).join('');
     const _selName = (_selCust && _selCust !== '__today__') ? _selCust : '';
+    /* ⚠️ בקשת-בעלים 17/08/2026: "מי אמור לשלוח היום" צריך להיות **על המסך**
+       ולא מאחורי לשונית. הרצועה העליונה הייתה ריקה; הרשימה בצד ימין נשארת
+       לבחירה לפי ימים, כמו שהייתה. אותה חלוקה בדיוק של "📅 סיכום היום"
+       (‏ShopView.todayBoard) — מקור-אמת אחד, לא ספירה שנייה שתסתור אותו. */
+    const _tDue = custNames.filter(c => _dayOf[c] === _today).sort((a,b)=>a.localeCompare(b,'he'));
+    const _tBoard = window.ShopView
+      ? ShopView.todayBoard(_tDue.map(c => ({ name:c, day:_today, proofs: byCustomer.get(c) || [] })), Date.now())
+      : { missing: [], sent: [] };
+    const _tMiss = _tBoard.missing, _tSent = _tDue.filter(c => _tMiss.indexOf(c) < 0);
+    /* לחיצה על שם פותחת את הלקוח — אותו data-cust של רשימת-הלקוחות, ולכן
+       אותו מאזין בדיוק ולא מסלול-פתיחה שני. */
+    const _tChip = (c, late) => `<button class="tdChip${late?' late':''}" data-cust="${escapeHtml(c)}"`
+      + ` title="${late?'טרם נרשמה שליחה היום':'שלח היום'} · ${escapeHtml(c)}">`
+      + `${late?'⏰ ':'✓ '}${escapeHtml(c)}</button>`;
+    const todayStrip = !_tDue.length
+      ? `<span class="tdNone">אין לקוחות ל${escapeHtml(_today)} ביומן השבועי</span>`
+      : `<span class="tdLbl">📅 ${escapeHtml(_today)} · ${_tMiss.length} טרם מתוך ${_tDue.length}</span>`
+        + _tMiss.map(c => _tChip(c, true)).join('')
+        + _tSent.map(c => _tChip(c, false)).join('');
     portalHtml = `<div class="pvWrap">
       <div class="pvDays">
         <b style="font-size:.9rem;color:#2d3561">📁 לקוחות ועבודות</b>
+        <div class="tdStrip">${todayStrip}</div>
         <span class="pvSpacer"></span>
         <button class="pvDay${_selCust==='__today__'?' on':''}" data-cust="__today__" title="מי אמור לשלוח היום ומי טרם שלח">📅 סיכום היום</button>
         <button class="pvSwitch" id="uiClassic" title="חזרה למסך הרשימה הקודם">↩ תצוגה קודמת</button>
@@ -1942,9 +1973,8 @@ function render(rows) {
      כמו .custItem, כולל מעבר-יום במבנה-פורטל) — כל הפעולות הקיימות של
      חלון-הלקוח (👁 נצפה, ⬇ הורד, קישור, דרישה…) זמינות משם כרגיל. */
   /* ארגון-הפעולות בשורות — אחרי שה-HTML נכתב ולפני שהמשתמש נוגע.
-     ⚠️ התפריטים יושבים על <body> (כדי שלא ייחתכו ב-overflow של הטבלה),
-     ולכן ברינדור-מחדש מנקים את הישנים כדי שלא יצטברו. */
-  _actCloseMenu();
+     ⚠️ 17/08/2026: התפריט הצף בוטל; הניקוי נשאר כדי לפנות תפריטים שנשארו
+     ב-DOM מלשונית שנפתחה על הגרסה הקודמת ולא רועננה. */
   document.querySelectorAll('body > .actMenu').forEach(m => m.remove());
   _applyActionGroups(document);
 
@@ -4262,8 +4292,7 @@ const ACT_DANGER = el => el.matches('.del,[data-deljob],[data-delpart]');
 /* סדר-עדיפות לפעולה הראשית — הראשון שקיים בשורה זוכה. הכל מתוך מה שכבר רונדר. */
 const ACT_PRIMARY_ORDER = ['[data-opencust]', 'a[href*="proof-viewer"]', '[data-link*="proof-client"]',
                            '[data-dl]', '[data-link]', '[data-portal]', '[data-editproof]'];
-let _actOpenMenu = null;
-function _actCloseMenu(){ if (_actOpenMenu){ _actOpenMenu.classList.remove('on'); _actOpenMenu = null; } }
+/* ⚠️ 17/08/2026: תפריט-השורה בוטל — אין תפריט צף לסגור. */
 function _applyActionGroups(root){
   (root || document).querySelectorAll('.acts:not([data-grouped])').forEach(box => {
     box.setAttribute('data-grouped', '1');
@@ -4280,58 +4309,31 @@ function _applyActionGroups(root){
     if (picked[0]) picked[0].classList.add('actPrimary');
     if (picked[1]) picked[1].classList.add('actSecondary');
 
-    const wrap = document.createElement('span'); wrap.className = 'actMoreWrap';
-    const btn = document.createElement('button');
-    btn.className = 'actMoreBtn'; btn.type = 'button';
-    btn.textContent = '⋮ פעולות נוספות'; btn.title = 'פעולות נוספות';
-    btn.setAttribute('aria-haspopup', 'true'); btn.setAttribute('aria-expanded', 'false');
-    const menu = document.createElement('div'); menu.className = 'actMenu';
+    /* ⚠️ בקשת-בעלים 17/08/2026: תפריט "⋮ פעולות נוספות" ברמת-השורה בוטל.
+       הפעולות שנשארו אחרי ניקוי-המסך מעטות, והתפריט רק הסתיר אותן מאחורי
+       קליק נוסף. הרכיב ממשיך **לא ליצור ולא למחוק** כפתורים — הוא רק
+       מסדר: ראשי · משני · השאר · ומסוכנות בסוף, באדום ועם אישור. */
     const safe = rest.filter(x => !ACT_DANGER(x)), danger = rest.filter(ACT_DANGER);
-    safe.forEach(el => menu.appendChild(el));            // אותו צומת — לא עותק
-    if (danger.length) {
-      const sep = document.createElement('div'); sep.className = 'actDangerSep';
-      menu.appendChild(sep);
-      danger.forEach(el => {
-        /* אישור שמציג במפורש את שם-העבודה ואת הפעולה. ⚠️ נוסף כשכבה מקדימה
-           בלבד — ה-handler המקורי נשאר ורץ רק אם אושר. */
-        if (!el.dataset.confirmWired) {
-          el.dataset.confirmWired = '1';
-          const jobName = (box.closest('tr')?.querySelector('td b')?.textContent || '').trim();
-          el.addEventListener('click', ev => {
-            const what = el.matches('[data-delpart]') ? 'מחיקת ריצה' : 'מחיקת עבודה';
-            const msg = what + (jobName ? ('\n\nעבודה: ' + jobName) : '') + '\n\nהפעולה אינה הפיכה. להמשיך?';
-            if (!confirm(msg)) { ev.stopImmediatePropagation(); ev.preventDefault(); }
-          }, true);                                       // capture — לפני ה-handler הקיים
-        }
-        if (!el.textContent.trim() || el.textContent.trim() === '🗑')
-          el.textContent = el.matches('[data-delpart]') ? '🗑 מחק ריצה' : '🗑 מחק עבודה';
-        menu.appendChild(el);
-      });
-    }
-    box.appendChild(wrap); wrap.appendChild(btn); document.body.appendChild(menu);
-
-    btn.addEventListener('click', ev => {
-      ev.preventDefault(); ev.stopPropagation();          // לא לפתוח את הכרטיס שמתחת
-      const isOpen = menu.classList.contains('on');
-      _actCloseMenu();                                    // תפריט אחד פתוח בכל רגע
-      if (isOpen) { btn.setAttribute('aria-expanded', 'false'); return; }
-      const r = btn.getBoundingClientRect();
-      menu.classList.add('on'); _actOpenMenu = menu;
-      btn.setAttribute('aria-expanded', 'true');
-      const mh = menu.offsetHeight, mw = menu.offsetWidth;
-      menu.style.top  = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - mh - 8)) + 'px';
-      menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8)) + 'px';
-      try { (menu.querySelector('button,a') || menu).focus({ preventScroll: true }); } catch(e){}
+    safe.forEach(el => box.appendChild(el));              // אותו צומת — לא עותק
+    danger.forEach(el => {
+      /* אישור שמציג במפורש את שם-העבודה ואת הפעולה. ⚠️ שכבה מקדימה בלבד —
+         ה-handler המקורי נשאר ורץ רק אם אושר. */
+      if (!el.dataset.confirmWired) {
+        el.dataset.confirmWired = '1';
+        const jobName = (box.closest('tr')?.querySelector('td b')?.textContent || '').trim();
+        el.addEventListener('click', ev => {
+          const what = el.matches('[data-delpart]') ? 'מחיקת ריצה' : 'מחיקת עבודה';
+          const msg = what + (jobName ? ('\n\nעבודה: ' + jobName) : '') + '\n\nהפעולה אינה הפיכה. להמשיך?';
+          if (!confirm(msg)) { ev.stopImmediatePropagation(); ev.preventDefault(); }
+        }, true);                                          // capture — לפני ה-handler הקיים
+      }
+      if (!el.textContent.trim() || el.textContent.trim() === '🗑')
+        el.textContent = el.matches('[data-delpart]') ? '🗑 מחק ריצה' : '🗑 מחק עבודה';
+      el.classList.add('actDanger');
+      box.appendChild(el);                                 // מסוכנת — אחרונה בשורה
     });
-    menu.addEventListener('click', ev => { if (ev.target.closest('button,a')) _actCloseMenu(); });
   });
 }
-document.addEventListener('click', ev => {
-  if (_actOpenMenu && !_actOpenMenu.contains(ev.target) && !ev.target.closest('.actMoreBtn')) _actCloseMenu();
-});
-document.addEventListener('keydown', ev => { if (ev.key === 'Escape') _actCloseMenu(); });
-window.addEventListener('resize', _actCloseMenu);
-window.addEventListener('scroll', _actCloseMenu, true);
 
 /* ⚠️ 17/08/2026, בקשת-בעלים: תפריט "⋮ פעולות נוספות" בסרגל-העליון פורק
    לכפתורים גלויים, ולכן חיווט-הפתיחה שהיה כאן ירד. הכפתורים עצמם
