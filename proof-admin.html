@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786879826"></script>
-<script src="chat-alert.js?v=1786879826"></script>
-<script src="shop-issue.js?v=1786879826"></script>
-<script src="page-marks.js?v=1786879826"></script>
-<script src="kontres-split.js?v=1786879826"></script>
+<script src="portal-chat.js?v=1786948785"></script>
+<script src="chat-alert.js?v=1786948785"></script>
+<script src="shop-issue.js?v=1786948785"></script>
+<script src="page-marks.js?v=1786948785"></script>
+<script src="kontres-split.js?v=1786948785"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786879826"></script>
-<script src="auth-client.js?v=1786879826"></script>
+<script src="firebase-auth.bundle.js?v=1786948785"></script>
+<script src="auth-client.js?v=1786948785"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786879826" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786948785" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -812,6 +812,7 @@ const _DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','ש�
 let _dayByCustomer = {};      // שם-לקוח (מנורמל) → יום בשבוע (מהיומן השבועי)
 let _dayOverride = {};        // דריסה ידנית של יום-הלקוח (מנצחת את היומן) — customerDayOverride ב-Firebase
 let _activeCardCusts = {};    // שם-לקוח (מנורמל) → true אם יש כרטיס פעיל
+let _activeCardsByCust = {};  // שם-לקוח (מנורמל) → הכרטיס הפעיל העדכני ביותר (אובייקט מלא) — לתמצית-כרטיס→פורטל
 let _dayCollapsed = {};       // day → true אם קבוצת-היום מקווצת (ברירת-מחדל: מקווץ)
 /* ── מבנה חדש: ימי-השבוע כניווט ראשי (בקשת-בעלים 2026-07-31) ─────────────────
    "חלון כמו של פורטל הלקוחות: בצד אחד ימי השבוע, בלחיצה על יום נפתחים כל
@@ -973,13 +974,19 @@ async function _loadWeeklyContext(){
     npArr.forEach(n=>{ if (n && n.name && n.day && _DAYS.indexOf(n.day)>=0) dayMap[_normName(n.name)] = n.day; });
     _dayByCustomer = dayMap;
     const active = {};
+    const byCust = {};   // שם-לקוח → הכרטיס הפעיל העדכני-ביותר (לתמצית-כרטיס→פורטל, invite.onclick)
     const cdArr = Array.isArray(cds) ? cds : (cds && typeof cds==='object' ? Object.values(cds) : []);
     // גם שם-הכרטיס וגם שדה-הלקוח שבו — שדה-הלקוח הוא ההתאמה המדויקת, ולכן עדיף
     cdArr.forEach(c=>{
       if (!c || (c.status==='done' || c.status==='trash' || c.status==='done_hidden' || c.status==='archived')) return;
-      [c.name, c.customer].forEach(v=>{ const k = _normName(v); if (k) active[k] = true; });
+      [c.name, c.customer].forEach(v=>{
+        const k = _normName(v); if (!k) return;
+        active[k] = true;
+        if (!byCust[k] || (c.id||0) > (byCust[k].id||0)) byCust[k] = c;
+      });
     });
     _activeCardCusts = active;
+    _activeCardsByCust = byCust;
   } catch(e){}
 }
 
@@ -1599,6 +1606,10 @@ function render(rows) {
       const seenTag = it.p.shopSeenAt
         ? `<span class="ibxTag seen" title="${escapeHtml(it.p.shopSeenBy || '')} · ${fmt(it.p.shopSeenAt)}">👁 נצפה</span>`
         : '';
+      // תמצית-כרטיס→פורטל (שלב א', 16/08/2026): חיווי לא-חוסם בלבד — היעדרו
+      // אינו שגיאה (לקוח בלי כרטיס-עבודה תואם הוא מצב תקין ורגיל).
+      const cardTag = it.p.cardSummary
+        ? `<span class="ibxTag" title="עמודים/ריצות זרמו אוטומטית מכרטיס-עבודה">🔗 מכרטיס</span>` : '';
       const stubNote = it.status === 'stub'
         ? '<div class="ibxNote">הלקוח התחיל תהליך העלאה אך עדיין לא הגיע קובץ</div>' : '';
       /* פעולות לפי סדר-העבודה: פתיחה ובדיקה → צפייה → הורדה → משניות.
@@ -1619,7 +1630,7 @@ function render(rows) {
           </div>
           <span class="ibxSt2">${bl.icon} ${escapeHtml(bl.label)}</span>
         </div>
-        <div class="ibxTags">${kind ? `<span class="ibxTag src">${escapeHtml(kind)}</span>` : ''}${seenTag}${pend}${_seenBadge(it.customer)}</div>
+        <div class="ibxTags">${kind ? `<span class="ibxTag src">${escapeHtml(kind)}</span>` : ''}${seenTag}${pend}${cardTag}${_seenBadge(it.customer)}</div>
         ${stubNote}
         ${facts ? `<div class="ibxFacts">${facts}</div>` : ''}${missing}
         <div class="ibxActs">${act}${_viewBtn(it.p)}${_dlBtn(it.p)}${dis}</div></div>`;
@@ -3720,6 +3731,33 @@ $('invite').onclick = async () => {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: 'awaiting_upload', customer: customer.trim(), title: title.trim(), reqW, reqH, readingDirection, createdAt: Date.now() }),
   });
+  /* תמצית-כרטיס → פורטל (שלב א', מפרט-בעלים 16/08/2026): אם יש כרטיס-עבודה
+     פעיל בשם תואם (מהיומן/מהמסך), מצרפים cardSummary לרשומה החדשה — כך
+     שהפורטל יוכל להציג ריצות מוכנות בלי לשאול את הלקוח עמודים/גודל. כתיבה
+     חד-כיוונית בלבד; לא נוגעים ב-reqW/reqH העליונים שהעובד הזין למעלה. */
+  const _actCard = _activeCardsByCust && _activeCardsByCust[_normName(customer.trim())];
+  if (_actCard) {
+    const _mm = _parseSize(_actCard.size);
+    const _cs = {
+      cardId: _actCard.id,
+      pages: parseInt(_actCard.pages, 10) || null,
+      runs: (_actCard.runs || []).map(r => ({ num: r.num, pages: r.pages, pageRange: r.pageRange || '' })),
+      // standard=false → פיצול-ידני/שארית-מפוצלת בכרטיס; proof-client.html אינו יודע
+      // לשחזר את זה מ-total+fullSheet בלבד, ולכן לא מדלגים אצל הלקוח על שאלת-הריצות.
+      standard: !(_actCard.manualSplit || _actCard.splitRemainder),
+      source: 'card', updatedAt: Date.now(),
+    };
+    if (_mm) { _cs.reqW = _mm.w; _cs.reqH = _mm.h; }
+    const _csPatch = { cardSummary: _cs };
+    // ממלאים reqW/reqH/totalPages ברמה-העליונה רק אם עוד ריקים — לא דורסים מה שהעובד הזין למעלה
+    if (_mm && !(reqW > 0 && reqH > 0)) { _csPatch.reqW = _mm.w; _csPatch.reqH = _mm.h; }
+    if (_cs.pages) { _csPatch.totalPages = _cs.pages; }
+    const _csOk = await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(_csPatch),
+    }).then(r => r.ok).catch(() => false);
+    if (!_csOk) console.error('cardSummary: כתיבה נכשלה ביצירת-עבודה', id, customer.trim());
+  }
   const base = location.href.replace(/[^/]+(\?.*)?$/, '');
   const link = `${base}proof-client.html?id=${id}`;
   await loadProofs();

@@ -19,13 +19,13 @@
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1786879826"></script>
-<script src="portal-context.js?v=1786879826"></script>
+<script src="upload-type.js?v=1786948785"></script>
+<script src="portal-context.js?v=1786948785"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi1"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1786879826"></script>
-<script src="portal-return.js?v=1786879826"></script>
+<script src="page-replace.js?v=1786948785"></script>
+<script src="portal-return.js?v=1786948785"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1098,10 +1098,37 @@ function _pcRunListHtml(total) {
     return '<button onclick="_pcPickRun('+r.num+')" style="display:block;width:100%;text-align:right;margin-bottom:6px;padding:11px 13px;border:'+(on?'2.5px solid #16a34a':'1.5px solid #c7d2fe')+';border-radius:10px;background:'+(on?'#f0fdf4':'#eef2ff')+';color:'+(on?'#166534':'#3730a3')+';font-weight:'+(on?'800':'700')+';cursor:pointer;font-family:inherit;font-size:.9rem">📄 ריצה '+r.num+' · '+r.label+' <span style="color:#6b7280;font-weight:500">('+r.pages+' עמ\')</span>'+(on?' <span style="background:#16a34a;color:#fff;border-radius:8px;padding:1px 7px;font-size:.72rem">מומלץ</span>':'')+'</button>';
   }).join('');
 }
+/* תמצית-כרטיס→פורטל (שלב א', מפרט-בעלים 16/08/2026): כשהדפוס כבר קבע
+   עמודים+גודל דרך כרטיס-העבודה, לא שואלים את הלקוח שוב — ה-cardSummary
+   ממלא רק שדות ריקים ולעולם לא דורס (אם הלקוח כבר קבע totalPages/reqW/reqH
+   בעצמו, זה נשאר). standard=false (פיצול-ידני בכרטיס) → _pcRunLayout כאן
+   אינו יודע לשחזר את זה מ-total+fullSheet בלבד, ולכן ממשיכים בשאלה הרגילה. */
+function _pcCardReady(){
+  var cs = record && record.cardSummary;
+  if (!cs || !cs.standard || !(cs.pages > 0)) return false;
+  return !!((record.reqW && record.reqH) || (cs.reqW && cs.reqH));
+}
+function _pcCardApplySummary(){
+  var cs = record.cardSummary, p = {};
+  if (!record.totalPages && cs.pages) { record.totalPages = cs.pages; p.totalPages = cs.pages; }
+  if (!(record.reqW && record.reqH) && cs.reqW && cs.reqH) { record.reqW = cs.reqW; record.reqH = cs.reqH; p.reqW = cs.reqW; p.reqH = cs.reqH; }
+  if (Object.keys(p).length) patch(p).catch(function(e){ console.error('שמירת מטא-נתוני-גיליון (מכרטיס) נכשלה', e); });
+}
 function _pcRunPicker() {
   var m = document.getElementById('pc-runpick');
   if (!m) { m = document.createElement('div'); m.id='pc-runpick'; document.body.appendChild(m); }
   m.style.cssText = 'position:fixed;inset:0;z-index:130;background:rgba(15,23,42,.62);display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
+  if (_pcCardReady()) {
+    _pcCardApplySummary();
+    var totalC = parseInt(record.totalPages, 10) || 0;
+    m.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:540px;width:96vw;max-height:88vh;overflow:auto;padding:18px 20px;font-family:Heebo,Arial,sans-serif">' +
+      '<div style="font-size:1.12rem;font-weight:900;color:#1d4ed8;margin-bottom:6px">📖 איזו ריצה אתם מעלים?</div>' +
+      '<div style="font-size:.85rem;color:#555;margin-bottom:12px">מספר-העמודים וגודל-העמוד כבר ידועים מכרטיס-העבודה (' + totalC + ' עמ׳) — רק בחרו את הריצה.</div>' +
+      '<div id="pc-runlist">' + _pcRunListHtml(totalC) + '</div>' +
+      '<div style="margin-top:12px;text-align:left"><button onclick="_pcSkipRun()" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:.85rem;text-decoration:underline">דלג — אבחר ידנית לכל כפולה</button></div>' +
+    '</div>';
+    return;
+  }
   var total = parseInt(record.totalPages)||'';
   m.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:540px;width:96vw;max-height:88vh;overflow:auto;padding:18px 20px;font-family:Heebo,Arial,sans-serif">' +
     '<div style="font-size:1.12rem;font-weight:900;color:#1d4ed8;margin-bottom:6px">📖 איזו ריצה אתם מעלים?</div>' +

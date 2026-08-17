@@ -24,9 +24,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786879826"></script>
-<script src="auth-client.js?v=1786879826"></script>
-<script src="auth-guard.js?v=1786879826" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1786948785"></script>
+<script src="auth-client.js?v=1786948785"></script>
+<script src="auth-guard.js?v=1786948785" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -77,9 +77,15 @@
   #_fbwrap.fsOn #_sp{flex:1 1 auto;min-height:0!important;border:none;border-radius:0;background:#000;
     padding:0!important;overflow:hidden;display:flex;align-items:center;justify-content:center}
   /* ⚠️ max-height/max-width במקום height קבוע — כך אותו כלל משרת גם לאורך
-     וגם לרוחב: בסיבוב-המכשיר העמוד מתאים את עצמו בלי קוד JS ובלי נעילה. */
+     וגם לרוחב: בסיבוב-המכשיר העמוד מתאים את עצמו בלי קוד JS ובלי נעילה.
+     ⚠️ 17/08/2026 — היה כאן ‎height:auto;width:auto‎, ואז ה-100% רק *חסמו*
+     מלמעלה: העמוד הוצג בגודל שבו רונדר ו**מעולם לא גדל** למסך, כך שבמסך
+     גדול הוא ישב קטן באמצע עם שוליים שחורים (דווח מהייצור). עכשיו 100%
+     מלא + object-fit:contain — העמוד גדל עד קצה המסך **בלי לעוות**, וזה
+     מסך-אישור-פרופר שבו עיוות אינו מקובל (בשונה ממסך-המפעיל שבו נבחר fill).
+     ‏flex:1 1 0 + min-width:0 — כדי שגם כפולה (שתי תמונות) תתחלק ולא תגלוש. */
   #_fbwrap.fsOn #_sp img,#_fbwrap.fsOn #_sp>canvas{
-    height:auto;width:auto;max-height:100%;max-width:100%;object-fit:contain}
+    flex:1 1 0;min-width:0;height:100%;width:100%;max-height:100%;max-width:100%;object-fit:contain}
   #_fbwrap.fsOn .fbctl{flex:0 0 auto;position:static;transform:none;width:auto;margin:0!important;
     background:rgba(11,18,32,.94);border-radius:0;flex-wrap:wrap;row-gap:6px;
     padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px))}
@@ -1018,11 +1024,45 @@ function workerScreen(){
   let _srcU8=null, _srcName='', _folded=null, _multiU8=[], _multiNames=[];   // {bytes,result}
   // מיון-טבעי לפי שם-קובץ → R-1 לפני R-2 לפני R-10 (בחירת-קבצים מרובה לא שומרת סדר)
   function _natSort(a,b){ return String(a).localeCompare(String(b), undefined, {numeric:true, sensitivity:'base'}); }
+  /* ⚠️ 17/08/2026 — מיון-השם-המלא לבדו אינו אמין לסדר-הריצות, ובייצור הוא אכן
+     החליף בין R-2 ל-R-3. הסיבה: בשם יש **שלושה** מספרים — גיליון (719), ריצה
+     (R-2) ומספר-צבעים (4color / 8 color) — והמיון הטבעי אינו יודע מי מהם קובע.
+     די בכך שריצה אחת נכתבה "R-3 8 color" והשנייה "R-2 _4color" (רווח מול
+     קו-תחתון) כדי שההשוואה תוכרע על התו שאחרי המספר ולא על המספר עצמו.
+     מעכשיו מספר-הריצה נחלץ מפורשות והוא המפתח הראשון; השם הוא רק שובר-שוויון. */
+  function _runNoOf(name){
+    const m = String(name==null?'':name).match(/(?:^|[^A-Za-z0-9])(?:r|ריצה)\s*[-_ ]?\s*(\d{1,2})(?![0-9])/i);
+    return m ? (parseInt(m[1],10)||null) : null;
+  }
+  // קבצים בלי סימון-ריצה נשארים אחרי הממוספרים, בסדר-שם — ולא משתלבים ביניהם בשקט
+  function _runSort(a,b){
+    const ra=_runNoOf(a), rb=_runNoOf(b);
+    if(ra!=null && rb!=null && ra!==rb) return ra-rb;
+    if(ra!=null && rb==null) return -1;
+    if(ra==null && rb!=null) return 1;
+    return _natSort(a,b);
+  }
+  /* כמה עמודים נכנסים בגיליון מלא לפי גודל-העמוד. זה הסף שמעליו 4 צבעים אינו
+     "מתהפך": מתהפך = חצי-גיליון בסט-לוחות אחד. 16.5×24 → 32 · A4 ו-24×33 → 16.
+     ‏(אותם ספים בדיוק כמו _pcSheetFromMM ב-proof-client — אל תפצל ביניהם.) */
+  function _sheetCapFor(w,h){
+    const mx=Math.max(w||0,h||0), mn=Math.min(w||0,h||0);
+    if(!mx||!mn) return 32;
+    if(Math.abs(mx-240)<12 && Math.abs(mn-165)<12) return 32;   // 16.5×24
+    if(Math.abs(mx-297)<14 && Math.abs(mn-210)<14) return 16;   // A4
+    if(Math.abs(mx-330)<14 && Math.abs(mn-240)<14) return 16;   // 24×33
+    return 32;
+  }
+  function _fourColLabel(pages,w,h){ return (pages|0) >= _sheetCapFor(w,h) ? 'קדמי+אחורי (4 צבע)' : 'מתהפך (4 צבע)'; }
   // ── קטלוג-הטמפלטים: 3 המאושרים + כל המובנים של מנוע-האפליקציה + מותאמים מכלי סימון-הטמפלט ──
   function _cfpCatalog(){
     const list=[
       { id:'70x100-32p-165x240-perfector', label:'32 עמ׳ · 165×240 · פרפקטור (8 צבעים)', w:165, h:240, engine:'legacy' },
-      { id:'legacy:32p',  label:'32 עמ׳ · 165×240 · מתהפך (4 צבעים)', w:165, h:240, engine:'legacy' },
+      /* ⚠️ אינו "מתהפך" — הטמפלט 32p הוא sides:2 · sheetwise, כלומר קדמי+אחורי
+         בשני סטי-לוחות. מתהפך הוא חצי-גיליון בסט-לוחות אחד, ולכן ב-165×240
+         (32 עמ' לגיליון) הוא אפשרי רק **מתחת** ל-32 עמ'. התווית "מתהפך" כאן
+         הייתה שגויה ודווחה מהייצור (17/08/2026); הלוחות עצמם היו תקינים. */
+      { id:'legacy:32p',  label:'32 עמ׳ · 165×240 · קדמי+אחורי (4 צבעים)', w:165, h:240, engine:'legacy' },
       { id:'16perf',      label:'16 עמ׳ · 165×240 · פרפקטור', w:165, h:240, engine:'legacy' },
       { id:'legacy:16p',  label:'16 עמ׳ · 165×240 · מתהפך', w:165, h:240, engine:'legacy' },
       { id:'legacy:8perf',label:'8 עמ׳ · 165×240 · פרפקטור', w:165, h:240, engine:'legacy' },
@@ -1088,12 +1128,18 @@ function workerScreen(){
       + '<table style="width:100%;border-collapse:collapse;font-size:.85rem"><tr style="opacity:.7"><th></th><th style="text-align:right">ריצה</th><th style="text-align:right">קובץ</th><th>סוג</th><th>עמ׳</th><th>טמפלט לריצה</th></tr>';
     _runRows.forEach((r,i)=>{
       const curTpl = r.tplId || _catalogIdForLegacy(r.legacyType) || '';
+      const _ti=_tplInfo(curTpl)||{}, _w=_ti.w||165, _h=_ti.h||240;
+      // מספר-הריצה שנקרא מהשם — מוצג כדי שאי-התאמה לסדר תיראה מיד ולא תתגלה בלוחות
+      const _rn=_runNoOf(r.name);
+      const _rnTag = _rn==null
+        ? ' <span class="bad" style="font-size:.75rem" title="לא נמצא סימון ריצה בשם-הקובץ — הסדר נקבע לפי שם בלבד">⚠ ללא R-</span>'
+        : (_rn!==i+1 ? ' <span class="bad" style="font-size:.75rem" title="שם-הקובץ אומר R-'+_rn+' אך הריצה יושבת במקום '+(i+1)+'">⚠ בשם: R-'+_rn+'</span>' : '');
       html+='<tr><td style="white-space:nowrap">'
         + '<button class="rowUp" data-i="'+i+'"'+(i===0?' disabled':'')+' title="העלה ריצה" style="padding:1px 6px;font-size:.75rem">▲</button>'
         + '<button class="rowDn" data-i="'+i+'"'+(i===_runRows.length-1?' disabled':'')+' title="הורד ריצה" style="padding:1px 6px;font-size:.75rem">▼</button></td>'
         + '<td><b>R-'+(i+1)+'</b>'+(i===0?' <span class="muted">(חיצוני)</span>':'')+'</td>'
-        + '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.name+'">'+r.name+'</td>'
-        + '<td><select data-i="'+i+'" class="rowType"><option value="perf"'+(r.perfector?' selected':'')+'>פרפקטור (8 צבע)</option><option value="tumble"'+(!r.perfector?' selected':'')+'>מתהפך (4 צבע)</option></select></td>'
+        + '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.name+'">'+r.name+_rnTag+'</td>'
+        + '<td><select data-i="'+i+'" class="rowType"><option value="perf"'+(r.perfector?' selected':'')+'>פרפקטור (8 צבע)</option><option value="tumble"'+(!r.perfector?' selected':'')+'>'+_fourColLabel(r.pages,_w,_h)+'</option></select></td>'
         + '<td><input type="number" data-i="'+i+'" class="rowPages" value="'+r.pages+'" step="2" min="4" style="width:66px"></td>'
         + '<td><select data-i="'+i+'" class="rowTpl" style="max-width:230px">'+_tplOpts(curTpl)+'</select></td></tr>';
     });
@@ -1157,15 +1203,24 @@ function workerScreen(){
     if($('tplPick')) $('tplPick').style.display=m?'none':'';   // מרובה → הטמפלט נבחר פר-ריצה בטבלה
     $('proof').disabled=m; updFold(); };
   $('totPages').onchange=renderMultiTable;
+  /* ⚠️ בחירה שנייה בזמן שהראשונה עוד קוראת קבצים דרסה את המערכים באמצע הלולאה,
+     ושתי הריצות דחפו לאותו מקום — הסדר יצא מעורבב בלי שום הודעה. אותו כשל בדיוק
+     תוקן ב-proof-client (‏_addFilesBusy) ולא הוכלל לכאן. מונה-דורות: רק הבחירה
+     האחרונה כותבת, והקודמת נוטשת בשקט (היא הוחלפה במכוון). */
+  let _multiGen=0;
   $('proofMulti').onchange=async e=>{
-    const files=Array.from(e.target.files||[]).sort((a,b)=>_natSort(a.name,b.name));   // R-1 לפני R-2…
-    _multiU8=[]; _multiNames=[];
+    const myGen=++_multiGen;
+    const files=Array.from(e.target.files||[]).sort((a,b)=>_runSort(a.name,b.name));   // R-1 לפני R-2…
+    const u8=[], names=[];
     const _tot=files.length, _totMb=(files.reduce((a,f)=>a+f.size,0)/1048576).toFixed(0);
     for(let _i=0;_i<files.length;_i++){ const f=files[_i];
       $('wstatus').innerHTML='⏳ טוען קובץ <b>'+(_i+1)+'/'+_tot+'</b> — '+f.name+' <span class="muted">(סה״כ ~'+_totMb+' MB)</span>';
-      try{ _multiU8.push(new Uint8Array(await f.arrayBuffer())); _multiNames.push(f.name); }
-      catch(err){ $('wstatus').innerHTML='<span class="bad">טעינת '+f.name+' נכשלה: '+(err.message||err)+'</span>'; return; }
+      try{ const b=new Uint8Array(await f.arrayBuffer()); if(myGen!==_multiGen) return; u8.push(b); names.push(f.name); }
+      catch(err){ if(myGen!==_multiGen) return;
+        $('wstatus').innerHTML='<span class="bad">טעינת '+f.name+' נכשלה: '+(err.message||err)+'</span>'; return; }
     }
+    if(myGen!==_multiGen) return;
+    _multiU8=u8; _multiNames=names;
     _srcName=_multiNames[0]||''; if(_multiU8.length) $('wstatus').textContent='📄 '+_multiU8.length+' ריצות';
     const sz = _multiU8.length ? await _detectSizeLabel(_multiU8[0]) : null;   // זיהוי-גודל מהפרופר
     $('sizeDetected').textContent = sz ? ('· '+sz) : '';
