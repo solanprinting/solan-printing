@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786957148"></script>
-<script src="chat-alert.js?v=1786957148"></script>
-<script src="shop-issue.js?v=1786957148"></script>
-<script src="page-marks.js?v=1786957148"></script>
-<script src="kontres-split.js?v=1786957148"></script>
+<script src="portal-chat.js?v=1786958407"></script>
+<script src="chat-alert.js?v=1786958407"></script>
+<script src="shop-issue.js?v=1786958407"></script>
+<script src="page-marks.js?v=1786958407"></script>
+<script src="kontres-split.js?v=1786958407"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786957148"></script>
-<script src="auth-client.js?v=1786957148"></script>
+<script src="firebase-auth.bundle.js?v=1786958407"></script>
+<script src="auth-client.js?v=1786958407"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786957148" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786958407" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2859,7 +2859,12 @@ async function _pgLightOpen(idx, pg){
         <a id="plView" class="isBtn view" target="_blank" href="proof-viewer.html?id=${encodeURIComponent(p.id)}${t.partId?('&part='+encodeURIComponent(t.partId)):''}">👁 פתח בדפדוף</a>
         <a id="plEdit" class="isBtn" target="_blank" title="גלישות · הקטנה-לשוליים · מירכוז · הזזת-אזור — נשמר כגרסה חדשה"
            href="page-editor.html?id=${encodeURIComponent(p.id)}&target=${encodeURIComponent(t.target==='full'?'full':(t.partId||t.target))}&page=${encodeURIComponent(t.target==='full'?(t.page||1):pageIn)}">🛠 ערוך עמוד</a>
-        <a class="isBtn" target="_blank" rel="noopener" href="${t.url}" download>⬇ הורדה</a>
+        <!-- ⚠️ 17/08/2026 — היה כאן <a … download>. תכונת download **אינה חלה
+             חוצה-מקור**: הדפדפן התעלם ממנה, פתח לשונית עם צופה-ה-PDF, והבעלים
+             שמר משם — כרום כתב את הקובץ מחדש ו-117MB הפכו ל-236MB, בלי שם.
+             ‏CORS על ה-Storage דווקא פתוח (Access-Control-Allow-Origin: *),
+             ולכן הורדת-blob עובדת ומחזירה את הקובץ כפי שהוא, בשמו הנכון. -->
+        <button class="isBtn" data-pldl="${escapeHtml(t.url)}" data-plname="${escapeHtml(_plDlName(p, t))}">⬇ הורדה</button>
         <button id="plDemand" class="isBtn fix" style="display:none">📢 שלח דרישת-תיקון ללקוח</button>
       </div>
     </div>`;
@@ -2892,6 +2897,12 @@ async function _pgLightOpen(idx, pg){
   const markN = t.target === 'full' ? (t.pageNo || 1) : pageIn;
   const rerenderGrid = () => { render(_allRows); };
 
+  /* ⚠️ ההורדה מחלון-ההגדלה עוברת ב-downloadFile (blob) ולא בקישור-ישיר,
+     כי download חוצה-מקור נדחה בשקט והדפדפן פותח צופה-PDF במקום להוריד. */
+  (function(){
+    const _b = wrap.querySelector('[data-pldl]');
+    if (_b) _b.onclick = () => downloadFile(_b.dataset.pldl, _b.dataset.plname, _b);
+  })();
   wrap.querySelector('#plRep').onclick = async () => {
     const note = window.prompt('מה הבעיה בעמוד? (ההערה תוצג ללקוח)', '');
     if (note === null) return;
@@ -3708,6 +3719,15 @@ function runFileName(p, partName) {
   const run = m ? ('R-' + m[1]) : String(partName || '').trim();
   const head = cust || String(p.title || '').trim() || 'עיתון';
   return [head, run, issue ? ('גיליון ' + issue) : ''].filter(Boolean).join(' ');
+}
+/* שם-הקובץ בהורדה מחלון-ההגדלה. אריח-ריצה → שם-הריצה (R-N); עמוד בודד
+   מתוך העיתון המלא → שם-העבודה + מספר-העמוד, כדי שבתיקיית-ההורדות יהיה
+   ברור מה ירד. */
+function _plDlName(p, t) {
+  t = t || {};
+  const base = t.partId ? runFileName(p, t.label) : jobName(p);
+  const page = (!t.partId && t.pageNo) ? (' — עמוד ' + t.pageNo) : '';
+  return String(base + page).replace(/[\\/:*?"<>|]/g, '_') + '.pdf';
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 function downloadBlob(blob, name) {
