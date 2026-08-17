@@ -192,12 +192,61 @@
   /* ── הפעולה "אושר להדפסה" ────────────────────────────────────────────────
      ⚠️ מתג דו-כיווני: אישור בטעות חייב להיות הפיך, אחרת מתקנים אותו
      במסד-הנתונים. ‎null‎ מוחק את השדה במסלול REST. */
+  /* ⚠️ בקשת-בעלים 17/08/2026: "אושר להדפסה" סוגר את הגיליון להעלאה. עד עכשיו
+     היו אלה שתי פעולות נפרדות, ובפועל אושר גיליון שנשאר פתוח — הלקוח המשיך
+     להעלות **אחרי** שהלוחות יצאו. אישור = סגירה.
+     ⚠️ הסגירה מסומנת ב-`closedBy:'print-approval'` כדי שביטול-האישור יחזיר
+     **רק** סגירה שנולדה מהאישור. גיליון שנסגר ידנית קודם נשאר סגור — אחרת
+     ביטול-אישור היה פותח בשקט גיליון שמישהו סגר בכוונה. */
   function printApprovePatch(p, opts) {
-    var o = opts || {};
-    return printApproved(p)
-      ? { printApprovedAt: null, printApprovedBy: null }
-      : { printApprovedAt: num(o.at) || 0, printApprovedBy: str(o.by) || 'בית-הדפוס' };
+    var o = opts || {}, r = p || {};
+    if (printApproved(r)) {
+      var patch = { printApprovedAt: null, printApprovedBy: null };
+      if (r.closedBy === 'print-approval') { patch.closedAt = null; patch.closedBy = null; }
+      return patch;
+    }
+    var at = num(o.at) || 0;
+    var out = { printApprovedAt: at, printApprovedBy: str(o.by) || 'בית-הדפוס' };
+    if (!num(r.closedAt)) { out.closedAt = at; out.closedBy = 'print-approval'; }
+    return out;
   }
+  /* ── העברת ריצה למקומה (מיספור-מחדש) ────────────────────────────────────
+     ⚠️ אירוע-ייצור 17/08/2026: לקוח העלה את הריצות בסדר הפוך — השער היה
+     ב"ריצה 2". שם-הריצה הוא מה שקובע את הסדר (ראה `_partsOrdered`), ולכן
+     "להעביר ריצה למקום הנכון" = לשנות את **מספר-הריצה שבשם**.
+     שני כללים שנלמדו בדרך:
+       1. **לא מוחקים את השם** — מחליפים בו את המספר בלבד. השם נושא גם
+          מספר-גיליון ומספר-צבעים ("… 719 R-2 4color"), והם ראיה.
+       2. אם המספר תפוס — **מחליפים** בין השתיים ולא דורסים. שתי ריצות
+          באותו מספר משמעותן סדר לא-מוגדר, כלומר בדיוק הבאג מחדש. */
+  function runNoOfName(nm) {
+    var s = str(nm);
+    var m = s.match(/(?:^|[^A-Za-z0-9])(?:r|ריצה)\s*[-_ ]?\s*(\d{1,2})(?![0-9])/i);
+    return m ? (parseInt(m[1], 10) || null) : null;
+  }
+  function renameRunNo(nm, n) {
+    var s = str(nm);
+    var re = /((?:^|[^A-Za-z0-9])(?:r|ריצה)\s*[-_ ]?\s*)(\d{1,2})(?![0-9])/i;
+    return re.test(s) ? s.replace(re, function(_, pre){ return pre + n; }) : ('ריצה ' + n);
+  }
+  /* מחזיר { updates: {'<pid>': {name}}, swappedWith } או { error } */
+  function runRenumberPatch(p, partId, newNo) {
+    var parts = (p || {}).parts || {};
+    var n = num(newNo);
+    if (!parts[partId]) return { error: 'הריצה לא נמצאה בגיליון הזה' };
+    if (!(n >= 1 && n <= 99)) return { error: 'מספר-ריצה בין 1 ל-99' };
+    var cur = runNoOfName(parts[partId].name);
+    if (cur === n) return { error: 'הריצה כבר במקום ' + n };
+    var updates = {}, swappedWith = null;
+    Object.keys(parts).forEach(function (k) {
+      if (k !== partId && runNoOfName(parts[k].name) === n) swappedWith = k;
+    });
+    updates[partId] = { name: renameRunNo(parts[partId].name, n) };
+    // ההחלפה הדדית: מי שישב ב-n מקבל את המקום שהתפנה
+    if (swappedWith && cur != null) updates[swappedWith] = { name: renameRunNo(parts[swappedWith].name, cur) };
+    return { updates: updates, swappedWith: swappedWith, from: cur, to: n };
+  }
+
   function printApproveLabel(p) {
     return printApproved(p) ? '↩ בטל אישור-הדפסה' : '✅ אושר להדפסה';
   }
@@ -352,6 +401,7 @@
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
     pageNoOf: pageNoOf, pageTiles: pageTiles, markOf: markOf, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
-    printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel
+    printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
+    runNoOfName: runNoOfName, renameRunNo: renameRunNo, runRenumberPatch: runRenumberPatch
   };
 });

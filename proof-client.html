@@ -19,13 +19,13 @@
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1786968646"></script>
-<script src="portal-context.js?v=1786968646"></script>
+<script src="upload-type.js?v=1786982571"></script>
+<script src="portal-context.js?v=1786982571"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi1"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1786968646"></script>
-<script src="portal-return.js?v=1786968646"></script>
+<script src="page-replace.js?v=1786982571"></script>
+<script src="portal-return.js?v=1786982571"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -579,8 +579,17 @@ function goHome() {
   pages = []; sources.clear(); vIndex = 0;
   show('editor', false); show('status', false); show('home', true);
   // partId נשמר על הפריט — נדרש לכפתורי "בקשת החלפת עמודים" לכל ריצה
+  /* ⚠️ 17/08/2026 — הרשימה סודרה לפי זמן-ההעלאה, ולכן לקוח שהעלה הפוך ראה
+     "ריצה 2" לפני "ריצה 1" ולא היה לו סימן שמשהו לא במקום. סדר-הריצות הוא
+     מספר-הריצה; זמן-ההעלאה רק שובר-שוויון. (אותו כלל ב-proof-admin.) */
   const parts = Object.entries(record.parts || {}).map(([pid, p]) => Object.assign({ partId: pid }, p))
-                  .sort((a,b)=>(a.approvedAt||0)-(b.approvedAt||0));
+                  .sort((a,b)=>{
+                    const ra=_pcRunNoOf(a.name||a.fileName), rb=_pcRunNoOf(b.name||b.fileName);
+                    if(ra!=null && rb!=null && ra!==rb) return ra-rb;
+                    if(ra!=null && rb==null) return -1;
+                    if(ra==null && rb!=null) return 1;
+                    return (a.approvedAt||0)-(b.approvedAt||0);
+                  });
   $('partsBox').innerHTML = parts.length
     ? `<div class="parts"><h3>✓ ריצות שכבר נשלחו</h3>${parts.map(p=>`<div class="row"><span>${esc(p.name)}</span>
         <span class="ok">התקבל · ${p.pageCount} עמ'</span>${_psRowActions(p)}</div>`).join('')}</div>`
@@ -789,10 +798,15 @@ async function _addFilesNow(fileArr) {
   // ⚠️ מנגנון מניעת-בלגן: בבחירה מרובת-קבצים הדפדפן מוסר את הקבצים לפי סדר הבחירה בסייר —
   // לא לפי שם! (זה גרם ל"עמודים מבולגנים"). ממיינים דטרמיניסטית לפי שם קובץ במיון טבעי
   // (עמ' 2 לפני עמ' 10), כך שקבצים ממוספרים תמיד נכנסים בסדר הנכון.
+  /* ⚠️ 17/08/2026 — מיון-השם-המלא לבדו הפך בייצור בין R-2 ל-R-3, והשער נכנס
+     לריצה השנייה. בשם יש **שלושה** מספרים — גיליון (719), ריצה (R-2) ומספר-
+     צבעים (4color / "8 color") — והמיון הטבעי אינו יודע מי מהם קובע. די
+     שריצה אחת נכתבה "R-3 8 color" והשנייה "R-2 _4color" כדי שההכרעה תיפול על
+     התו שאחרי המספר. מספר-הריצה נחלץ מפורשות והוא המפתח הראשון; השם רק
+     שובר-שוויון. אותה לוגיקה בדיוק ב-customer-fold-preview — אל תפצל ביניהן. */
   if (files.length > 1) {
-    const col = new Intl.Collator('he', { numeric: true, sensitivity: 'base' });
-    files.sort((a, b) => col.compare(a.name, b.name));
-    _orderNotice(files.length);
+    files.sort((a, b) => _pcRunSort(a.name, b.name));
+    _orderNotice(files.length, files.map(f => f.name));
   }
   // ספירת עמודים כוללת למד התקדמות
   let total = 0, doneN = 0;
@@ -872,7 +886,31 @@ async function _addFilesNow(fileArr) {
   _pcAnomalyCheck();   // שאל את הלקוח על עמודים בגודל לא רגיל (כפולה / גלישות)
 }
 // באנר סידור-קבצים: מודיע ללקוח שקבצים מרובים סודרו לפי שם הקובץ ושיש לבדוק את הסדר לפני אישור
-function _orderNotice(n) {
+/* סדר-הריצות: מספר-הריצה הוא המפתח, לא השם המלא.
+   ⚠️ תאום עם ‎_runNoOf/_runSort‎ ב-customer-fold-preview.html — אותה רגקס
+   ואותם כללי-הכרעה. שינוי כאן בלי שינוי שם = סדר שונה בין המסכים. */
+function _pcRunNoOf(name) {
+  const m = String(name == null ? '' : name).match(/(?:^|[^A-Za-z0-9])(?:r|ריצה)\s*[-_ ]?\s*(\d{1,2})(?![0-9])/i);
+  return m ? (parseInt(m[1], 10) || null) : null;
+}
+function _pcNatSort(a, b) {
+  return String(a).localeCompare(String(b), 'he', { numeric: true, sensitivity: 'base' });
+}
+// קבצים בלי סימון-ריצה נדחקים לסוף בסדר-שם — ולא משתלבים בין הממוספרים בשקט
+function _pcRunSort(a, b) {
+  const ra = _pcRunNoOf(a), rb = _pcRunNoOf(b);
+  if (ra != null && rb != null && ra !== rb) return ra - rb;
+  if (ra != null && rb == null) return -1;
+  if (ra == null && rb != null) return 1;
+  return _pcNatSort(a, b);
+}
+
+/* ⚠️ ההודעה הקודמת אמרה "סודרו לפי שם הקובץ" ולא הראתה את הסדר שנבחר, ולכן
+   לקוח שהעלה את השער בריצה השנייה לא יכול היה לראות זאת לפני האישור.
+   עכשיו הסדר עצמו מוצג, וקובץ בלי סימון-ריצה מסומן במפורש. */
+function _orderNotice(n, names) {
+  const list = Array.isArray(names) ? names : [];
+  const unmarked = list.filter(nm => _pcRunNoOf(nm) == null);
   let el = document.getElementById('orderNotice');
   if (!el) {
     el = document.createElement('div');
@@ -880,10 +918,19 @@ function _orderNotice(n) {
     el.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:120;background:#1d4ed8;color:#fff;padding:11px 20px;border-radius:12px;font-size:.92rem;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.3);direction:rtl;max-width:92vw;text-align:center';
     document.body.appendChild(el);
   }
-  el.textContent = '📑 ' + n + ' קבצים סודרו אוטומטית לפי שם הקובץ — בדקו שסדר העמודים נכון לפני האישור';
+  // שם-קובץ הוא קלט-משתמש — לברוח מכל שם בנפרד ורק אחר-כך לחבר עם <br>
+  const order = list.map(function(nm){
+    const r = _pcRunNoOf(nm);
+    return esc(r == null ? '⚠ ללא ריצה' : 'ריצה ' + r) + ': ' + esc(nm);
+  }).join('<br>');
+  el.innerHTML = '📑 ' + n + ' קבצים סודרו לפי <b>מספר הריצה</b> — בדקו שהסדר נכון לפני האישור'
+    + (order ? '<div style="font-weight:400;font-size:.84rem;margin-top:6px;text-align:right;opacity:.95">' + order + '</div>' : '')
+    + (unmarked.length ? '<div style="font-weight:700;font-size:.86rem;margin-top:6px;background:#b91c1c;border-radius:8px;padding:6px 9px">'
+        + unmarked.length + ' קבצים ללא סימון ריצה (R-1 / R-2) נכנסו בסוף — ודאו שזה הסדר הנכון</div>' : '');
   el.style.display = 'block';
   clearTimeout(el._tid);
-  el._tid = setTimeout(() => { el.style.display = 'none'; }, 9000);
+  // ⚠️ בלי סימון-ריצה זו אזהרה, לא חיווי — היא נשארת עד שהמשתמש ממשיך.
+  if (!unmarked.length) el._tid = setTimeout(() => { el.style.display = 'none'; }, 12000);
 }
 // ── הערות דרישות קבצים (סטטי, ללא בדיקת הקובץ) + הערת סטיית צבע מסך↔הדפסה ──
 function buildPreflight(){

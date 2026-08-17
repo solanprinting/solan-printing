@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786968646"></script>
-<script src="chat-alert.js?v=1786968646"></script>
-<script src="shop-issue.js?v=1786968646"></script>
-<script src="page-marks.js?v=1786968646"></script>
-<script src="kontres-split.js?v=1786968646"></script>
+<script src="portal-chat.js?v=1786982571"></script>
+<script src="chat-alert.js?v=1786982571"></script>
+<script src="shop-issue.js?v=1786982571"></script>
+<script src="page-marks.js?v=1786982571"></script>
+<script src="kontres-split.js?v=1786982571"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786968646"></script>
-<script src="auth-client.js?v=1786968646"></script>
+<script src="firebase-auth.bundle.js?v=1786982571"></script>
+<script src="auth-client.js?v=1786982571"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786968646" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1786982571" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1203,6 +1203,18 @@ function render(rows) {
     return miss.length ? `<span class="pendTag" title="הלקוח טרם שלח את העמודים האלה">⏳ חסרים עמ׳ ${miss.join(', ')}</span>` : '';
   };
 
+  /* ⚠️ אירוע-ייצור 17/08/2026: לקוח העלה את הריצות בסדר הפוך והשער יצא
+     בריצה השנייה. הסדר כבר מתוקן אוטומטית (`_partsOrdered` — לפי מספר-הריצה),
+     אבל **הפער עצמו נשאר סימן-אזהרה**: אם הלקוח התבלבל בסדר-ההעלאה, סביר
+     שהוא התבלבל גם בתוכן. התג אומר לקדם-דפוס לבדוק לפני לוחות. */
+  const revTag = (p) => {
+    if (!_runOrderReversed(p)) return '';
+    const order = _partsOrdered(p).map(pt => pt.name || pt.fileName || '—').join(' → ');
+    return `<span class="pendTag" style="background:#fef2f2;color:#b91c1c;border-color:#fca5a5"`
+      + ` title="הלקוח העלה את הריצות בסדר אחר ממספרן. הסדר שבשימוש: ${escapeHtml(order)}">`
+      + `⇅ הועלה בסדר הפוך — לבדוק</span>`;
+  };
+
   /* 👁 סימון-צפייה: מופיע רק כשיש מה לסמן (הלקוח שלח וטרם סומן). כשכבר סומן —
      תג עם מי ומתי, כדי שלא יסמנו פעמיים ולא יתווכחו מי ראה. */
   const seenBtn = (p, pid) => {
@@ -1350,15 +1362,14 @@ function render(rows) {
   const rowHtml = p => {
     const clientLink = `${base}proof-client.html?id=${p.id}`;
     const viewerLink = `${base}proof-viewer.html?id=${p.id}`;  // צפייה בלבד — לשליחה לעובדים
-    const parts = p.parts ? Object.entries(p.parts).map(([pid, pt]) => ({ pid, ...pt }))
-                                 .sort((a,b)=>(a.approvedAt||0)-(b.approvedAt||0)) : [];
+    const parts = _partsOrdered(p);   // לפי מספר-הריצה, לא לפי זמן-ההעלאה
 
     // ── עבודה לפי ריצות ──
     if (parts.length) {
       const _col = !!_jobCollapsed[p.id];   // עבודה מכווצת → שורות-הריצות מוסתרות
       const head = `<tr class="row-ok">
         <td><span data-jobtoggle="${p.id}" style="cursor:pointer;user-select:none;color:#2d3561;font-weight:900;margin-left:4px" title="${_col?'פתח':'כווץ'} ריצות">${_col?'▶':'▼'}</span> <b>${escapeHtml(p.title || '—')}</b></td>
-        <td><span class="badge b-approved">${parts.length} ריצות התקבלו</span>${pendTag(p)}${stageBar(p)}</td>
+        <td><span class="badge b-approved">${parts.length} ריצות התקבלו</span>${revTag(p)}${pendTag(p)}${stageBar(p)}</td>
         <td>נוצר: ${fmt(p.createdAt)}</td>
         <td><div class="acts">
           <a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>
@@ -2212,11 +2223,8 @@ function render(rows) {
     const p = (_allRows || []).find(r => r.id === (t && t.jobId));
     if (!p) return [];
     if (p.fileUrl || p.apogeeUrl) return [{ url: p.fileUrl || p.apogeeUrl, name: jobName(p) }];
-    // ריצות — לפי סדר-האישור, כמו בכל שאר המסך
-    const parts = Object.entries(p.parts || {})
-      .map(([pid, pt]) => ({ pid, ...pt }))
-      .filter(pt => pt.fileUrl)
-      .sort((a, b) => (a.approvedAt || 0) - (b.approvedAt || 0));
+    // ריצות — לפי מספר-הריצה, כמו בכל שאר המסך (ראה _partsOrdered)
+    const parts = _partsOrdered(p).filter(pt => pt.fileUrl);
     return parts.map(pt => ({ url: pt.fileUrl, name: runFileName(p, pt.name) }));
   };
   document.querySelectorAll('[data-dl]').forEach(b => b.onclick = async () => {
@@ -2656,13 +2664,18 @@ async function togglePrintApproved(id, btn){
   const was = ShopIssue.printApproved(p);
   if (was && !confirm('לבטל את אישור-ההדפסה? הלקוח יראה שהגיליון חזר להמתנה.')) return;
   const patch = ShopIssue.printApprovePatch(p, { at: Date.now(), by: 'בית-הדפוס' });
+  /* בקשת-בעלים 17/08: האישור סוגר להעלאה. אומרים זאת במפורש — סגירה שקטה
+     נראית ללקוח כתקלה ("למה אני לא יכול להעלות?"). */
+  if (!was && patch.closedAt
+      && !confirm('לאשר להדפסה?\nהגיליון ייסגר גם להעלאות של הלקוח.')) return;
   if (btn){ btn.disabled = true; btn.textContent = '…'; }
   try {
     const r = await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`),
       { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(patch) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     Object.assign(p, patch);
-    msg(was ? '↩ אישור-ההדפסה בוטל' : '✅ הגיליון אושר להדפסה'); render(_allRows);
+    msg(was ? ('↩ אישור-ההדפסה בוטל' + (patch.closedAt === null ? ' · הגיליון נפתח שוב להעלאה' : ''))
+            : ('✅ הגיליון אושר להדפסה' + (patch.closedAt ? ' ונסגר להעלאה' : ''))); render(_allRows);
   } catch(e){
     if (btn){ btn.disabled = false; btn.textContent = ShopIssue.printApproveLabel(p); }
     alert('העדכון נכשל: ' + ((e && e.message) || e));
@@ -2832,11 +2845,44 @@ const _runPagesCache = new Map();            // pagesUrl → מערך-תמונו
    ⚠️ מחושב מ**סכום העמודים של הריצות שלפניה**, ולא מ-(מספר-ריצה × 16):
    לריצות יכולים להיות אורכים שונים (למשל 16 + 32), ונוסחה קבועה הייתה
    מספרת נכון רק כשכולן שוות. סדר-הריצות נלקח ממספר-הריצה שבשם. */
+/* ── סדר-הריצות: מקור-אמת אחד ─────────────────────────────────────────
+   ⚠️ אירוע-ייצור 17/08/2026: לקוח העלה את הריצות בסדר הפוך, והשער יצא
+   בריצה השנייה. הסיבה לא הייתה בשם-הקובץ — הוא כן נשא R-1/R-2 — אלא
+   בכך שהמסך הזה סידר ריצות לפי **approvedAt** (זמן-ההעלאה) בשלושה
+   מקומות: רשימת-הגיליון · ההורדה המאוחדת · מיזוג-ה-PDF. במקביל
+   ‏`_runFirstPageNo` סידר לפי מספר-הריצה שבשם — כלומר מספרי-העמודים
+   שהוצגו לא תיארו את הקובץ שנמסר. מעכשיו כולם דרך `_partsOrdered`.
+   זמן-ההעלאה נשאר שובר-שוויון בלבד, לריצות בלי מספר בשם. */
+function _runNoOfPart(pt) {
+  const src = String((pt && (pt.name || pt.fileName)) || '');
+  // "ריצה 2" · "R-2" · "R2" — ולא מספר-גיליון צמוד לאות ולא "4color"
+  let m = src.match(/(?:^|[^A-Za-z0-9])(?:r|ריצה)\s*[-_ ]?\s*(\d{1,2})(?![0-9])/i);
+  if (m) return parseInt(m[1], 10) || null;
+  m = src.match(/(\d{1,2})(?![0-9])/);     // "2" לבד — התנהגות היסטורית
+  return m ? (parseInt(m[1], 10) || null) : null;
+}
+function _partsOrdered(p) {
+  return Object.entries((p && p.parts) || {})
+    .map(([pid, pt]) => Object.assign({ pid: pid, _no: _runNoOfPart(pt) }, pt))
+    .sort(function(a, b){
+      if (a._no != null && b._no != null && a._no !== b._no) return a._no - b._no;
+      if (a._no != null && b._no == null) return -1;      // ממוספרות קודם
+      if (a._no == null && b._no != null) return 1;
+      return (a.approvedAt || 0) - (b.approvedAt || 0)
+          || String(a.pid).localeCompare(String(b.pid));
+    });
+}
+/* זיהוי התרחיש שנשבר: סדר-הריצות אינו סדר-ההעלאה. קדם-דפוס חייב לראות
+   זאת — הקובץ תקין, אבל הלקוח העלה הפוך, וזו הנקודה לבדוק לפני לוחות. */
+function _runOrderReversed(p) {
+  const ord = _partsOrdered(p).filter(function(pt){ return pt._no != null && pt.approvedAt; });
+  if (ord.length < 2) return false;
+  for (let i = 1; i < ord.length; i++) if (ord[i].approvedAt < ord[i-1].approvedAt) return true;
+  return false;
+}
 function _runFirstPageNo(p, partId) {
-  const runNo = (nm) => { const m = String(nm || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : 9999; };
-  const parts = Object.entries((p && p.parts) || {})
-    .map(([pid, pt]) => ({ pid, no: runNo(pt && pt.name), pages: (pt && pt.pageCount) | 0 }))
-    .sort((a, b) => a.no - b.no || String(a.pid).localeCompare(String(b.pid)));
+  const parts = _partsOrdered(p)
+    .map(pt => ({ pid: pt.pid, pages: (pt.pageCount) | 0 }));
   let base = 0;
   for (const q of parts) {
     if (q.pid === partId) return base + 1;
@@ -3592,9 +3638,9 @@ async function _runSourceBytes(t) {
   else if (rec.fileUrl) urls.push(rec.fileUrl);
   let weave = null;                 // עמודים-בודדים מהפורטל שנשזרים למקומם בין הריצות
   if (!urls.length) {
-    Object.values(rec.parts || {})
+    // ⚠️ מיזוג-ה-PDF חייב את **אותו** סדר שהמסך מציג ושמספרי-העמודים מניחים
+    _partsOrdered(rec)
       .filter(p => p && p.fileUrl)
-      .sort((a, b) => (a.approvedAt || 0) - (b.approvedAt || 0))
       .forEach(p => urls.push(p.fileUrl));
     /* ⚠️ 15/08/2026, בקשת-בעלים: עמוד-בודד שהועלה מהפורטל למשבצת-חסרה
        (למשל עמ' 128) חייב להיכנס **למקומו** בעיתון — עד היום הוא נבלע
