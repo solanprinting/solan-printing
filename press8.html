@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מכונה 8 צבעים — כניסה</title>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     press8.html — **מסך הכניסה** של מכונת שמונת הצבעים, ותו לא.
+
+     ⚠️ זה אינו עותק של מסך המפעיל. המסך שהדפס עובד איתו הוא
+     `index.html?machineView=8` — הוא קיים, הוא בשימוש, והוא לא משתנה.
+     מה שהשתנה (בקשת-בעלים 18/08/2026) הוא רק **איך נכנסים אליו**: קוד
+     מכונה וקוד אישי, במקום מייל וסיסמה של הצוות.
+
+     ⚠️ ולמה בכלל קובץ נפרד לכניסה, אם היעד הוא כתובת-עם-פרמטר:
+     שומר-הכניסה מזהה מסכים לפי **שם-הקובץ** ואינו מסתכל על פרמטרים
+     בכתובת — פרמטר הוא דבר שהמשתמש כותב, ושער שנפתח בהקלדה אינו שער.
+     קובץ נפרד הוא הדרך לומר "כאן מותר להגיע בלי חשבון" בלי לפתוח את
+     האפליקציה כולה לכל מי שיוסיף ‎?machineView=8‎ לכתובת.
+
+     ⚠️ שני שלבים, ושניהם נדרשים: קוד-המכונה פותח את המסך, והקוד האישי
+     אומר **מי** מפעיל אותו. בלי השני כל פעולה נרשמת בלי בעלים — וזו
+     בדיוק הסיבה שהוא קיים גם במסך ארבעת הצבעים.
+
+     ⚠️ אין כאן מייל, אין סיסמה ואין reCAPTCHA. רשת כשרה חוסמת את
+     google.com, ולכן App Check היה הופך את המסך למת. הגופן והספריות
+     מתארחים אצלנו מאותה סיבה בדיוק.
+
+     ⚠️ אין כאן שום קישור למסך אחר. מסך-כניסה שיש בו ניווט הוא מסך שאפשר
+     לצאת ממנו לכל מקום.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script src="firebase-auth.bundle.js?v=1787051702"></script>
+<script src="auth-client.js?v=1787051702"></script>
+<script src="auth-guard.js?v=1787051702" data-page="press8.html" data-mode="enforce"></script>
+<!-- ⚠️ הגופן מתארח אצלנו — ראה ההערה הזהה ב-press4.html. -->
+<link href="heebo.css?v=1787051702" rel="stylesheet">
+<style>
+  /* ⚠️ הועתק אחד-לאחד מ-press4.html: אותו רקע, אותה קופסה, אותו שדה-קוד.
+     המפעילים עוברים בין שתי המכונות, ומסך-כניסה שנראה אחרת בכל אחת הוא
+     מסך שמזמין טעות. */
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%}
+  body{background:#f1f5f9;font-family:Heebo,system-ui,sans-serif;direction:rtl;
+       display:flex;flex-direction:column}
+  .hidden{display:none !important}
+  .top{background:#fff;padding:10px 16px;box-shadow:0 1px 4px rgba(15,23,42,.08);
+       display:flex;align-items:center;gap:10px}
+  .top b{color:#1a1a4e;font-size:1.05rem}
+  .mid{flex:1;overflow-y:auto;padding:24px 16px}
+  .card{background:#fff;border-radius:14px;padding:24px;max-width:440px;margin:40px auto;
+        text-align:center;box-shadow:0 4px 18px rgba(15,23,42,.08)}
+  .card .ttl{font-weight:900;color:#1e293b;font-size:1.2rem;margin-bottom:10px}
+  .card .sub{color:#94a3b8;font-size:.88rem;line-height:1.8}
+  .gate{text-align:center;padding:60px 20px;color:#94a3b8}
+  .pin{width:100%;padding:14px;border:1.5px solid #e2e8f0;border-radius:10px;background:#f8fafc;
+       font-family:inherit;font-size:1.6rem;font-weight:800;letter-spacing:.5em;text-align:center}
+  .pin:focus{outline:none;border-color:#1a1a4e;background:#fff}
+  .b{width:100%;border:none;border-radius:8px;cursor:pointer;font-family:inherit;
+     -webkit-tap-highlight-color:transparent}
+  .b:disabled{opacity:.5;cursor:default}
+  .b-main{background:#1a1a4e;color:#fff;padding:13px;border-radius:10px;font-size:.95rem;
+          font-weight:800;margin-top:12px}
+  .msg{margin:12px 0 0;font-size:.9rem;font-weight:700;border-radius:9px;padding:10px 14px}
+  .msg.err{background:#fef2f2;border:1.5px solid #fecaca;color:#b91c1c}
+</style>
+</head>
+<body>
+
+<div class="top"><b>🖨️ מכונה 8 צבעים</b></div>
+
+<div id="gate" class="mid"><div class="gate">טוען…</div></div>
+
+<!-- ⚠️ שלב א׳. אין כאן שדה מייל ואין שדה סיסמה — במכוון. -->
+<div id="pinCard" class="mid hidden">
+  <div class="card">
+    <div style="font-size:3rem;margin-bottom:8px">🔒</div>
+    <div class="ttl">קוד כניסה למכונה</div>
+    <input id="pin" class="pin" type="password" inputmode="numeric" autocomplete="off"
+           maxlength="6" placeholder="••••••" dir="ltr">
+    <button class="b b-main" id="pinBtn">כניסה</button>
+    <div id="pinMsg" class="msg hidden"></div>
+  </div>
+</div>
+
+<!-- ⚠️ שלב ב׳. מבנה זהה לשלב א׳ — אותן מחלקות בדיוק, אפס CSS חדש. -->
+<div id="staffCard" class="mid hidden">
+  <div class="card">
+    <div style="font-size:3rem;margin-bottom:8px">👤</div>
+    <div class="ttl">קוד עובד אישי</div>
+    <input id="spin" class="pin" type="password" inputmode="numeric" autocomplete="off"
+           maxlength="8" placeholder="••••" dir="ltr">
+    <button class="b b-main" id="spinBtn">כניסה</button>
+    <div id="spinMsg" class="msg hidden"></div>
+  </div>
+</div>
+
+<script>
+var FB_CONFIG = {
+  apiKey: 'AIzaSyAFp99furP4L5hqTI-horBHmGZC9s13dGg',
+  authDomain: 'solan-printing.firebaseapp.com',
+  projectId: 'solan-printing',
+  databaseURL: 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app',
+};
+var FN = 'https://europe-west1-solan-printing.cloudfunctions.net';
+/* ⚠️ מזהה-המכונה נשלח כ**רמז** בלבד, והשרת אינו נותן לו דבר: הקוד הוא
+   שקובע לאיזו מכונה מונפק האסימון. הרמז אומר לשרת על איזו רשומה לספור
+   ניסיון-כושל, כדי שחמש טעויות כאן לא ינעלו את מכונת 4 הצבעים. */
+var MACHINE_ID = 'press8';
+/* ⚠️ היעד. מסך-המפעיל הוא בתוך האפליקציה, לא קובץ נפרד. */
+var HOME = 'index.html?machineView=8';
+
+var $ = function(id){ return document.getElementById(id); };
+var _busy = false;
+
+var _BAKED = '1787051702';
+AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
+
+/* ⚠️ הודעה אחידה לכל מסלולי-הכשל, והיא מגיעה מהשרת: קוד שגוי, מכונה
+   שאינה מוגדרת, מושבתת או נעולה — כולם נראים אותו דבר. הודעה מבדילה
+   היא כלי-מיפוי בידי מי שמנחש. */
+function say(id, text){
+  var el = $(id);
+  el.className = 'msg err'; el.textContent = text; el.classList.remove('hidden');
+}
+function show(which){
+  ['gate', 'pinCard', 'staffCard'].forEach(function(id){
+    $(id).classList[id === which ? 'remove' : 'add']('hidden');
+  });
+  var f = which === 'pinCard' ? 'pin' : (which === 'staffCard' ? 'spin' : null);
+  if (f) { try { $(f).focus(); } catch (e) {} }
+}
+
+/* מי מחובר עכשיו קובע מה מוצג. ⚠️ שלושה מצבים ולא שניים: אין אסימון ·
+   יש אסימון-מכונה בלי עובד · יש שניהם. השלישי הוא היחיד שעובר הביתה. */
+function applyAuth(user){
+  if (!user) { show('pinCard'); return; }
+  SolanAuth.claims(true).then(function(c){
+    c = c || {};
+    if (c.accountType !== 'machine' || c.machineId !== MACHINE_ID) {
+      /* ⚠️ מי שכבר מחובר כאדם (מנהל שבודק את המסך) אינו מתבקש להזין
+         קוד-מכונה — הוא פשוט ממשיך הביתה, בדיוק כמו היום. */
+      location.replace(HOME);
+      return;
+    }
+    if (!c.staffId) { show('staffCard'); return; }
+    location.replace(HOME);
+  }).catch(function(){
+    /* ⚠️ כשל בקריאת ה-claims אינו "אין אסימון": לומר זאת, ולא להחזיר
+       בשקט למסך הקוד כאילו לא קרה כלום. */
+    show('pinCard');
+    say('pinMsg', 'לא הצלחנו לאמת את הכניסה. נסו שוב.');
+  });
+}
+
+function boot(){
+  /* ⚠️ ‏persistence='session' — זהה למסך ארבעת הצבעים ומאותה סיבה:
+     הכניסה שורדת רענון ומעבר-לעמוד באותה לשונית, ונמחקת כשסוגרים את
+     הסשן. מכונה משותפת אינה נשארת מחוברת לנצח. */
+  SolanAuth.init(FB_CONFIG, 'session');
+  SolanAuth.onAuthStateChanged(function(user){ applyAuth(user); });
+}
+
+/* ── שלב א׳: קוד המכונה ──────────────────────────────────────────────── */
+async function doPinLogin(){
+  if (_busy) return;
+  var code = String($('pin').value || '').trim();
+  if (!/^[0-9]{6}$/.test(code)) { say('pinMsg', 'יש להזין קוד בן 6 ספרות.'); return; }
+  _busy = true; $('pinBtn').disabled = true; $('pin').disabled = true;
+  var old = $('pinBtn').textContent; $('pinBtn').textContent = 'רגע…';
+  try {
+    var r = await fetch(FN + '/press4MachineLogin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: { pin: code, machineId: MACHINE_ID } })
+    });
+    var j = null; try { j = await r.json(); } catch (e) {}
+    /* ⚠️ ‏r.ok נבדק ולא נגזר מקיום-הגוף: הפונקציות מחזירות שגיאה כתגובת
+       HTTP תקינה עם גוף JSON, ו"קיבלנו תשובה" אינו "הצלחנו". */
+    if (!r.ok) throw new Error((j && j.error && j.error.message) || 'קוד שגוי או שהמכונה אינה פעילה');
+    var tok = j && j.result && j.result.token;
+    if (!tok) throw new Error('קוד שגוי או שהמכונה אינה פעילה');
+    $('pin').value = '';                       /* ⚠️ הקוד לא נשאר בשדה */
+    await SolanAuth.signInWithCustomToken(tok);
+    /* onChange יטפל בשאר — אין רענון-דף. */
+  } catch (e) {
+    say('pinMsg', e.message || 'הכניסה נכשלה');
+    $('pin').value = '';
+  }
+  $('pinBtn').textContent = old;
+  $('pinBtn').disabled = false; $('pin').disabled = false;
+  _busy = false;
+}
+
+/* ── שלב ב׳: הקוד האישי ──────────────────────────────────────────────────
+   ⚠️ הקריאה נושאת את אסימון-המכונה. בלי קוד-מכונה תקף היא נדחית בשרת,
+   ולכן זהו שלב שני ולא חלופי. */
+async function doStaffLogin(){
+  if (_busy) return;
+  var code = String($('spin').value || '').trim();
+  if (!/^[0-9]{4,8}$/.test(code)) { say('spinMsg', 'יש להזין את קוד העובד האישי.'); return; }
+  _busy = true; $('spinBtn').disabled = true; $('spin').disabled = true;
+  var old = $('spinBtn').textContent; $('spinBtn').textContent = 'רגע…';
+  try {
+    var t = await SolanAuth.idToken(false);
+    var r = await fetch(FN + '/press4StaffLogin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t },
+      body: JSON.stringify({ data: { pin: code } })
+    });
+    var j = null; try { j = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error((j && j.error && j.error.message) || 'קוד עובד שגוי');
+    var tok = j && j.result && j.result.token;
+    if (!tok) throw new Error('קוד עובד שגוי');
+    $('spin').value = '';                      /* ⚠️ הקוד לא נשאר בשדה */
+    /* ⚠️ שם המפעיל נשמר מקומית כדי שמסך-המפעיל יציג אותו מיד. הוא תווית
+       תצוגה בלבד — הזהות שקובעת היא ה-staffId שבאסימון. */
+    try { localStorage.setItem('solanOperatorName', String((j.result && j.result.name) || '')); } catch (e) {}
+    await SolanAuth.signInWithCustomToken(tok);
+    /* ⚠️ **מעבר מפורש, ולא הסתמכות על onChange**: זהו Custom Token חדש
+       לאותו uid, ולכן מבחינת Firebase המשתמש לא השתנה וההנדלר אינו
+       נורה. בלי השורה הזו המסך היה נשאר על כרטיס הקוד אחרי כניסה
+       שהצליחה בשרת — בדיוק מה שקרה במסך ארבעת הצבעים. */
+    location.replace(HOME);
+  } catch (e) {
+    say('spinMsg', e.message || 'הכניסה נכשלה');
+    $('spin').value = '';
+  }
+  $('spinBtn').textContent = old;
+  $('spinBtn').disabled = false; $('spin').disabled = false;
+  _busy = false;
+}
+
+$('pinBtn').addEventListener('click', function(){ doPinLogin(); });
+$('spinBtn').addEventListener('click', function(){ doStaffLogin(); });
+$('pin').addEventListener('keydown', function(e){ if (e.key === 'Enter') doPinLogin(); });
+$('spin').addEventListener('keydown', function(e){ if (e.key === 'Enter') doStaffLogin(); });
+</script>
+</body>
+</html>

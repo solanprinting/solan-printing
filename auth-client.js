@@ -92,6 +92,19 @@
   var PRESS4_HOME  = 'press4.html';
   var PRESS4_PAGES = ['press4.html'];
 
+  /* ⚠️ מכונת 8 הצבעים — קהל משלה, ו**לא** press4. בקשת-בעלים 18/08/2026:
+     הדפס של 8 נשאר על המסך שהוא כבר מכיר — ‏`index.html?machineView=8`,
+     כלומר מסך-המפעיל שבתוך האפליקציה — ורק הכניסה משתנה לקוד-מכונה
+     וקוד-אישי. לכן הבית שלו הוא כתובת-עם-פרמטר ולא קובץ נפרד.
+     ⚠️ ‏`press8.html` אינו עותק של המסך אלא **מסך-הכניסה בלבד**: שם
+     מקישים את שני הקודים, ומשם עוברים הביתה. קובץ נפרד ולא פרמטר, כדי
+     ששומר-הכניסה יזהה אותו לפי **שם-המסך** — הוא אינו מסתכל על פרמטרים
+     בכתובת, ובכוונה (פרמטר הוא דבר שהמשתמש כותב).
+     ⚠️ ‏index.html ברשימה כי זה הבית — והאפליקציה עצמה מזהה אסימון-מכונה
+     ונכנסת למצב-מפעיל, כך שהיא אינה נפתחת ככלי-ניהול. */
+  var PRESS8_HOME  = STAFF_HOME + '?machineView=8';
+  var PRESS8_PAGES = ['press8.html', STAFF_HOME];
+
   /* ⚠️ office אינו "עובד עם פחות כפתורים" אלא קהל משלו, בדיוק כמו press4.
      שני מסכים: כרטיסי-העבודה, ומסך-המשרד. כל השאר — הצעות, מחירונים,
      מלאי, דוחות, ניהול-עובדים, פורטלים, מסכי-מכונה ואימפוזיציה — אינם
@@ -144,6 +157,9 @@
        עם Custom Token, בלי מייל ובלי סיסמה. חשבון-עובד בתפקיד press4
        כבר אינו מסלול קיים. */
     if (c.accountType === 'machine' && c.role === 'press4') return 'press4';
+    /* ⚠️ מכונה שנייה, קהל שני. שיתוף-סיווג עם press4 היה נותן לכל אחת
+       מהן את רשימת-המסכים של השנייה — ובדיוק מפני שהמסכים שונים. */
+    if (c.accountType === 'machine' && c.role === 'press8') return 'press8';
     /* ⚠️ office **חייב** staffId: בלעדיו החשבון אינו יודע מי הוא ברשימת
        העובדים, וכל פעולה שלו הייתה נרשמת בלי בעלים. בלי staffId הוא
        נשאר pending — כלומר חסום, ולא "עובד עם פחות". */
@@ -192,6 +208,7 @@
     if (k === 'pending') return false;
     if (k === 'customer') return CUSTOMER_PAGES.indexOf(pageOf(page)) >= 0;
     if (k === 'press4')   return PRESS4_PAGES.indexOf(pageOf(page)) >= 0;
+    if (k === 'press8')   return PRESS8_PAGES.indexOf(pageOf(page)) >= 0;
     if (k === 'office')   return OFFICE_PAGES.indexOf(pageOf(page)) >= 0;
     /* ⚠️ prepress — רשימת-היתר סגורה משלו (fail-closed). כולל press4.html
        (צפייה ב-P1); ההרשאה התפעולית שם עדיין נחסמת בשער-ה-Function. */
@@ -199,6 +216,9 @@
     /* ⚠️ 'staff' כאן הוא admin או worker, ו-return true גורף היה נותן גם
        ל-worker את מסך המכונה. המסך פתוח ל-press4 ול-admin בלבד. */
     if (PRESS4_PAGES.indexOf(pageOf(page)) >= 0) return (claims || {}).role === 'admin';
+    /* ⚠️ ‏press8.html הוא מסך-כניסה של מכונה, ולכן אותו כלל בדיוק —
+       ובלי index.html, שהוא הבית של כולם. */
+    if (pageOf(page) === 'press8.html') return (claims || {}).role === 'admin';
     return true;
   }
 
@@ -219,7 +239,13 @@
              : (k === 'office')   ? OFFICE_HOME
              : (k === 'prepress') ? PREPRESS_HOME
              : (k === 'press4')   ? PRESS4_HOME
+             : (k === 'press8')   ? PRESS8_HOME
              : custHome;
+    /* ⚠️ ‏press8 אינו מכבד יעד-מבוקש, וזו החריגה היחידה כאן: הבית שלו
+       נבדל מהיעד רק בפרמטר (`?machineView=8`), ו-mayOpen בודק שם-מסך
+       בלבד. בלי החריגה, "index.html" היה נחשב מותר — והמכונה הייתה
+       נוחתת באפליקציה המלאה במקום במסך-המפעיל. */
+    if (k === 'press8') return { kind: k, to: home };
     if (requested && mayOpen(claims, requested)) return { kind: k, to: requested };
     return { kind: k, to: home };
   }

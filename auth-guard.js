@@ -101,7 +101,12 @@
     /* ⚠️ מסך-המכונה אינו שולח ל-login.html: אין שם מייל וסיסמה להזין.
        הוא נשאר במקומו ומציג את מסך ה-PIN שלו. */
     if (!s.signedIn) {
-      if (AC.pageOf(s.page) === 'press4.html') return { action: 'allow', reason: 'machine-pin' };
+      /* ⚠️ שם-המסך, ולא פרמטר בכתובת. מכונת 8 הצבעים חיה בתוך
+         `index.html?machineView=8`, אבל **הכניסה** שלה יושבת בקובץ נפרד
+         בדיוק כדי שהשער יוכל לזהות אותה בלי להסתכל על ?machineView —
+         פרמטר הוא דבר שהמשתמש כותב, ושער שנפתח בהקלדה אינו שער. */
+      if (['press4.html', 'press8.html'].indexOf(AC.pageOf(s.page)) >= 0)
+        return { action: 'allow', reason: 'machine-pin' };
       return { action: 'login', to: AC.loginUrlFor(s.here || s.page, s.origin), reason: 'anonymous' };
     }
     var claims = s.claims || {};
@@ -154,6 +159,9 @@
        רואה נתונים פנימיים. לו היה מסווג staff, הוא היה מקבל את יכולות
        העובד הגנריות בכל מסך מעורב. */
     if (c.accountType === 'machine' && c.role === 'press4' && c.machineId === 'press4') return 'press4';
+    /* ⚠️ אותה תבנית בדיוק, כולל הדרישה ש-role ו-machineId יסכימו: אסימון
+       שבו הם נפרדים הוא בדיוק "מכונה אחת שמתחזה לשנייה". */
+    if (c.accountType === 'machine' && c.role === 'press8' && c.machineId === 'press8') return 'press8';
     if (c.accountType === 'staff' && (c.role === 'admin' || c.role === 'worker') && c.staffId) return 'staff';
     /* ⚠️ office הוא קהל-עובד לכל דבר במסכים המעורבים: הוא מייצר ועורך
        כרטיסים. ההבדל בינו לבין staff אינו כאן אלא ברשימת-המסכים
@@ -183,6 +191,12 @@
     prepress: { produce: true,  edit: true,  internalData: false, prepress: true },
     /* מפעיל המכונה: מדפיס — ותו לא. אין עריכה ואין נתונים פנימיים. */
     press4:   { produce: true,  edit: false, internalData: false },
+    /* ⚠️ ‏press8 יושב בתוך האפליקציה המלאה, ולכן דווקא כאן חשוב
+       ש-edit=false ו-internalData=false ייאמרו במפורש: המסך שסביבו יודע
+       לערוך כרטיסים ולהציג מחירים, והדגלים האלה הם מה שמכבה את זה.
+       ⚠️ ואינם גבול-אבטחה — הגבול הוא חוקי-המסד, שאינם נותנים למכונה
+       כתיבה ל-cards כלל. */
+    press8:   { produce: true,  edit: false, internalData: false },
     customer: { produce: false, edit: false, internalData: false },
     legacy:   { produce: false, edit: false, internalData: false },
   };
