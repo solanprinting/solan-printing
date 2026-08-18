@@ -183,6 +183,32 @@ window._officeMayWrite = function (path) {
   return OC.mayWriteDirect(window._officeClaims, String(path || '').split('/')[0]);
 };
 
+/* ── מה שחשבון-מכונה רשאי לכתוב ישירות (18/08/2026) ──────────────────────
+   ⚠️ מכונת 8 הצבעים נכנסה למסך-המפעיל שבתוך האפליקציה, ומסביבו רצה
+   האפליקציה **המלאה** — עם שגרות-אתחול שכותבות צמתים ניהוליים
+   (‏deptOrder · iditSites). תחת אסימון-מכונה כל אחת מהן חוזרת 401, ובלולאת
+   הרענון זה חוזר כל 20 שניות. קונסולה שמלאה בשגיאות-קבע היא קונסולה שאיש
+   כבר לא קורא — ואז השגיאה **האמיתית** נבלעת בתוכה.
+
+   ⚠️ הרשימה זהה למה שחוקי-המסד מתירים לתפקיד-מכונה, ובכוונה: שני מקורות
+   שנפרדים היו יוצרים כתיבה שהדפדפן מאשר והשרת דוחה.
+
+   ⚠️ החסימה היא **לפי הזהות ולא לפי המסך**: עובד שפותח את אותו
+   ‎?machineView=8‎ מהמשרד ממשיך לכתוב כרגיל, כי הוא אינו מכונה. תלייה
+   ב-‎_isMachineView‎ הייתה חוסמת גם אותו.
+
+   ⚠️ ומחזיר false — לא "מצליח בשקט". כתיבה חסומה שנראית כהצלחה היא הבאג. */
+window._MACHINE_WRITE_OK = ['printingState', 'opInkTone'];
+window._machineMayWrite = function (path) {
+  var g = window.SolanGuard;
+  var c = (g && typeof g.state === 'function' && g.state().claims) || null;
+  if (!c || c.accountType !== 'machine') return true;
+  var head = String(path || '').split('/')[0];
+  if (window._MACHINE_WRITE_OK.indexOf(head) >= 0) return true;
+  console.error('[machine] כתיבה שאינה מותרת לחשבון-מכונה נחסמה מקומית: ' + path);
+  return false;
+};
+
 window._fbGet = async path => {
   if (!window._officeMayLoad(path)) return null;      // לא בתחום התפקיד — לא מנסים
   try {
@@ -244,6 +270,7 @@ window._fbPut = async (path, data) => {
      למחוק את כולו. מסלול-הכתיבה שלו הוא officeCreateCard/officeUpdateCard.
      ⚠️ מחזיר false ולא "מצליח בשקט" — כשל שנראה כהצלחה הוא הבאג. */
   if (!window._officeMayWrite(path)) return false;
+  if (!window._machineMayWrite(path)) return false;
   try {
     var t = await window._fbAuthToken();
     var ac = await window._appCheckToken();
