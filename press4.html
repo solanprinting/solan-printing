@@ -36,16 +36,16 @@
      לא למלאי, לא להצעות ולא לאימפוזיציה. אין מה להסתיר כי אין מה
      להציג — וזו ההגנה, לא הסתרת כפתורים.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1787057529"></script>
-<script src="auth-client.js?v=1787057529"></script>
-<script src="auth-guard.js?v=1787057529" data-page="press4.html" data-mode="enforce"></script>
-<script src="pdfjs-engine.js?v=1787057529"></script>
+<script src="firebase-auth.bundle.js?v=1787060109"></script>
+<script src="auth-client.js?v=1787060109"></script>
+<script src="auth-guard.js?v=1787060109" data-page="press4.html" data-mode="enforce"></script>
+<script src="pdfjs-engine.js?v=1787060109"></script>
 <!-- ⚠️ הגופן מתארח **אצלנו**, לא ב-Google. קישור ל-fonts.googleapis לא
      הספיק: גיליון-הסגנון מגיע משם, אבל קובצי הגופן עצמם מגיעים
      מ-fonts.gstatic.com — ומספיק שאחד מהשניים חסום ברשת המסוננת
      כדי שהמסך ייפול לגופן-מערכת, והמלל ייצא דק ושונה ממה
      שהמפעילים מכירים. עכשיו אין תלות ברשת חיצונית בכלל. -->
-<link href="heebo.css?v=1787057529" rel="stylesheet">
+<link href="heebo.css?v=1787060109" rel="stylesheet">
 <style>
   /* ⚠️ העיצוב כאן אינו חדש והוא לא הומצא: הוא הועתק מ-_renderOperatorScreen
      במסך הדפסים ?machineView=4 שהמפעילים כבר עובדים
@@ -264,7 +264,7 @@ var $ = function(id){ return document.getElementById(id); };
 var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
   return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); };
 
-var _BAKED = '1787057529';
+var _BAKED = '1787060109';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ אותם מפתחות בדיוק כמו ב-press4-enroll.html. */
@@ -510,7 +510,11 @@ function queueHtml(items, printing){
         + '<div class="q-sub"><b>' + esc(j.paper || '') + '</b>'
         + (j.copies ? ' · ' + _fmt(j.copies) + ' גיל\'' : '') + '</div>'
         + '</div></div>'
-        + (j.hasProof ? '<button class="b b-proof" data-act="proof" data-key="'
+        /* ⚠️ החלטת-בעלים 18/08/2026: בתור הכפתור הוא **חיווי** שצורף
+           פרופר, ולא פתיחה — הצפייה היא על העבודה שבהדפסה, כדי שמה
+           שעל המסך יהיה תמיד מה שבמכונה. ‏proofq ולא proof: פעולה
+           נפרדת, ולא דגל שנבדק אחר-כך במסלול הפתיחה. */
+        + (j.hasProof ? '<button class="b b-proof" data-act="proofq" data-key="'
                         + esc(j.jobKey) + '">📄 פרופר</button>' : '')
         + '<button class="b ' + (printing ? 'b-switch' : 'b-start') + '" data-act="start" data-key="'
         + esc(j.jobKey) + '">▶ ' + (printing ? 'עבור לזה' : 'התחל הדפסה') + '</button>'
@@ -613,7 +617,8 @@ async function act(kind, jobKey, btn){
   var old = btn.textContent; btn.textContent = 'רגע…';
   clearMsg();
   try {
-    if (kind === 'proof') await openProof(jobKey);
+    if (kind === 'proofq') msg('ok', '📄 יש פרופר לעבודה הזו. התחילו הדפסה כדי לצפות בו.');
+    else if (kind === 'proof') await openProof(jobKey);
     else {
       var FN_OF = { start: 'startPress4Job', finish: 'finishPress4Job', reopen: 'reopenPress4Job' };
       var r = await callFn(FN_OF[kind], { jobKey: jobKey });
@@ -668,6 +673,12 @@ function pvRender(){
     ? [imgs[idx], imgs[idx + 1]].filter(Boolean) : [imgs[idx]];
   vp.innerHTML = '<div class="pv-stage" style="transform:scale(' + _pv.zoom + ')">'
     + show.map(function(src){ return '<img class="pv-img" src="' + src + '">'; }).join('') + '</div>';
+  /* מספר-העמודים גדל תוך-כדי — גם בשלב-א' (עמוד אחר עמוד)
+     וגם כש-pvUpgradeFromSource מגלה שבקובץ יש יותר ממה שהיה במטמון. */
+  var multi = Math.max(_pv.total || 0, imgs.length) > 1;
+  var vis = function(id, show){ var e = document.getElementById(id); if (e) e.style.display = show ? '' : 'none'; };
+  vis('pv-prev', multi); vis('pv-next', multi); vis('pv-sel', multi); vis('pv-spread', multi);
+  vis('pv-label', !multi);
   var sel = document.getElementById('pv-sel');
   if (sel) {
     var opts = '';
@@ -689,22 +700,25 @@ function pvGo(d){
 }
 
 function pvBuild(ov, label){
-  var multi = _pv.total > 1;
+  /* ⚠️ פקדי-הדפדוף נבנים **תמיד**, ומוסתרים ב-pvRender לפי מספר-העמודים
+     הנוכחי. עד היום הסרגל נבנה פעם-אחת לפי מה שהיה במטמון: מטמון של
+     עמוד אחד מול קובץ של שניים השאיר את הדפס מול "עמוד 1 מתוך 2"
+     בלי חץ, בלי בורר ובלי כפולה — שני עמודים שמהם אחד בלתי-נגיש. */
   var bar = document.createElement('div');
   bar.className = 'pvbar';
   bar.innerHTML =
       '<span class="ttl">' + esc(label || 'פרופר') + '</span>'
     + '<span id="pv-note" style="display:none;background:#1d4ed8;color:#fff;border-radius:14px;'
     + 'padding:4px 11px;font-size:.78rem;font-weight:800"></span>'
-    + (multi ? '<button id="pv-prev" title="עמוד קודם">‹</button>' : '')
-    + (multi ? '<select id="pv-sel"></select>'
-             : '<span id="pv-label" style="color:#cbd5e1;font-size:.85rem;font-weight:700"></span>')
-    + (multi ? '<button id="pv-next" title="עמוד הבא">›</button>' : '')
+    + '<button id="pv-prev" title="עמוד קודם">‹</button>'
+    + '<select id="pv-sel"></select>'
+    + '<span id="pv-label" style="color:#cbd5e1;font-size:.85rem;font-weight:700"></span>'
+    + '<button id="pv-next" title="עמוד הבא">›</button>'
     + '<span style="width:10px"></span>'
     + '<button id="pv-zout" title="הקטן">🔍➖</button>'
     + '<button id="pv-fit" title="התאם למסך">⤢ התאם</button>'
     + '<button id="pv-zin" title="הגדל">🔍➕</button>'
-    + (multi ? '<button id="pv-spread" title="הצג שני עמודים">⊞ כפולה</button>' : '')
+    + '<button id="pv-spread" title="הצג שני עמודים">⊞ כפולה</button>'
     + '<button id="pv-fs" title="מסך מלא">⛶</button>'
     + '<button id="pv-close" title="סגור">✕</button>';
   ov.insertBefore(bar, ov.firstChild);
@@ -1148,6 +1162,7 @@ function pvProofFail(err, label, retryFn) {
     + '📂 פתח פרופר מהמחשב</button>'
     + '<div style="font-size:.74rem;color:#94a3b8;margin-top:6px;line-height:1.45">'
     + 'נפתח חלון בחירת-קובץ. נווט לתיקיית הפרופרים ובחר את הקובץ.</div>'
+    + pvFolderHtml()
     + '<button id="p4-diag" style="margin-top:12px;background:none;border:none;color:#64748b;font-size:.8rem;'
     + 'font-weight:700;text-decoration:underline;cursor:pointer;font-family:inherit">🔧 פרטי תקלה</button>'
     + '<div id="p4-diag-rows" style="text-align:right;font-size:.86rem;line-height:1.9;color:#0f172a;margin-top:10px"></div>'
@@ -1156,6 +1171,8 @@ function pvProofFail(err, label, retryFn) {
   document.getElementById('p4-close').onclick = pvClose;
   document.getElementById('p4-retry').onclick = function () { pvClose(); if (retryFn) retryFn(); };
   document.getElementById('p4-local').onclick = pvOpenLocal;
+  var fc = document.getElementById('p4-folder-copy');
+  if (fc) fc.onclick = pvCopyFolder;
   document.getElementById('p4-diag').onclick = function () { pvDiag(); };
   /* ⚠️ **בלי console.** סנטינל ב-press4-tests אוסר פלט-קונסול בקובץ הזה,
      והוא צודק: במסך קיוסק אין קונסול, ולכן שורה כזו היא קוד-מת שנותן
@@ -1226,6 +1243,62 @@ function pvDiag() {
 
 /* ⚠️ מסלול-גיבוי ללא רשת. קישור ל-file:// חסום מדף https ואינו אפשרי
    בקיוסק; בורר-הקבצים של הדפדפן כן נפתח ומגיע לאותה תיקייה. */
+/* ═══ תיקיית-הפרופרים ברשת ═══════════════════════════════════════════════
+   הנתיב נמסר ע"י הבעלים 18/08/2026.
+   ⚠️ אי-אפשר לפתוח תיקייה מהדפדפן: ניווט ל-
+       file://
+   חסום מדף https והלחיצה שקטה, ובקיוסק סייר-הקבצים חסום ממילא. מה שכן
+   עובד הוא בורר-הקבצים — ואפשר להדביק בו נתיב. לכן הנתיב מוצג ליד
+   הכפתור, מוכן להעתקה.
+   ⚠️ אותו נתיב מוצהר גם במסך-המכונה המלא, בשם
+       OP_PROOF_FOLDER
+   שני המסכים אינם חולקים מודול, ולכן זו הצהרה שנייה ולא ייבוא;
+   ‏proof-folder-tests.js מוודא ששתיהן זהות. (שם-הקובץ של המסך השני אינו
+   נכתב כאן בכוונה — סנטינל אוסר הפניה למסכים אחרים מתוך מסך-המכונה.) */
+var PROOF_FOLDER = '\\\\APOGEEX\\ProoferPDFRoot';
+function pvFolderHtml() {
+  return '<div style="margin-top:8px;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap">'
+    + '<span style="font-size:.72rem;color:#64748b;font-weight:700">תיקיית הפרופרים:</span>'
+    + '<span dir="ltr" style="font-size:.74rem;font-family:Consolas,monospace;color:#0f172a;background:#f1f5f9;'
+    + 'border:1px solid #cbd5e1;border-radius:6px;padding:3px 7px;user-select:all;-webkit-user-select:all">'
+    + esc(PROOF_FOLDER) + '</span>'
+    + '<button id="p4-folder-copy" style="background:#e2e8f0;color:#0f172a;border:none;border-radius:7px;'
+    + 'padding:4px 9px;font-size:.72rem;font-weight:800;cursor:pointer;font-family:inherit">העתק נתיב</button>'
+    + '<div id="p4-folder-msg" style="width:100%;font-size:.72rem;color:#b45309;font-weight:700"></div>'
+    + '</div>';
+}
+/* ⚠️ "הועתק" נאמר רק אחרי שההעתקה אושרה. ‏navigator.clipboard נחסם
+   בהקשר לא-מאובטח ובחלק ממצבי-הקיוסק; יש נפילה ל-execCommand, וכששניהם
+   נכשלים ההודעה נאמרת **על המסך** — בקיוסק אין קונסול שיגיד אותה. */
+function pvCopyFolder() {
+  var btn = document.getElementById('p4-folder-copy');
+  var msg = document.getElementById('p4-folder-msg');
+  var done = function (okc) {
+    if (btn) {
+      var t = btn.textContent;
+      btn.textContent = okc ? '✓ הועתק' : '✕ לא הועתק';
+      setTimeout(function () { try { btn.textContent = t; } catch (e) {} }, 2200);
+    }
+    if (msg) msg.textContent = okc ? '' : 'ההעתקה נחסמה בדפדפן — סמנו את הנתיב והעתיקו ידנית.';
+  };
+  var legacy = function () {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = PROOF_FOLDER;
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+      document.body.appendChild(ta); ta.select();
+      var okc = document.execCommand('copy');
+      try { ta.remove(); } catch (e) {}
+      done(!!okc);
+    } catch (e) { done(false); }
+  };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(PROOF_FOLDER).then(function () { done(true); }, legacy);
+    else legacy();
+  } catch (e) { legacy(); }
+}
+
 function pvOpenLocal() {
   var inp = document.createElement('input');
   inp.type = 'file';
