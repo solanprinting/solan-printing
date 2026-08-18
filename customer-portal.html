@@ -9,23 +9,23 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1786996449"></script>
-<script src="page-add.js?v=1786996449"></script>
-<script src="portal-context.js?v=1786996449"></script>
-<script src="portal-return.js?v=1786996449"></script>
-<script src="portal-chat.js?v=1786996449"></script>
+<script src="portal-download.js?v=1787033321"></script>
+<script src="page-add.js?v=1787033321"></script>
+<script src="portal-context.js?v=1787033321"></script>
+<script src="portal-return.js?v=1787033321"></script>
+<script src="portal-chat.js?v=1787033321"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1786996449"></script>
+<script src="chat-alert.js?v=1787033321"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1786996449"></script>
-<script src="cover-split.js?v=1786996449"></script>
-<script src="page-swap.js?v=1786996449"></script>
-<script src="rip-load.js?v=1786996449"></script>
-<script src="page-replace.js?v=1786996449"></script>
-<script src="page-marks.js?v=1786996449"></script>
+<script src="shop-issue.js?v=1787033321"></script>
+<script src="cover-split.js?v=1787033321"></script>
+<script src="page-swap.js?v=1787033321"></script>
+<script src="rip-load.js?v=1787033321"></script>
+<script src="page-replace.js?v=1787033321"></script>
+<script src="page-marks.js?v=1787033321"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2175,7 +2175,16 @@ async function _editDone(id){
           changes: { note: 'הלקוח סיים לערוך ואישר להדפסה' } })) }, 'editDone:close');
     await fbWrite(await _au(`${_FBURL}/customerProofs/${id}.json`),
       { method:'PATCH', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ approvedAt: at, shopSeenAt: null }) }, 'editDone:approve');
+        /* ⚠️ בקשת-בעלים 18/08/2026: "כשהלקוח מסיים לערוך ולסדר, הדפוס מקבל
+           הודעה שהלקוח שלח קבצים ואישר". עד היום האישור היה **משתמע** —
+           ‏approvedAt מתעדכן וגם העלאה רגילה מעדכנת אותו, ולכן הדפוס לא
+           יכול היה להבחין בין "הגיע עוד קובץ" לבין "הלקוח סיים, זה סופי".
+           ‏customerDoneAt הוא אירוע נפרד ומפורש. הוא נמחק כשהדפוס מסמן
+           שראה (shopSeenAt), כדי שההתראה לא תדלוק לנצח. */
+        body: JSON.stringify({ approvedAt: at, shopSeenAt: null,
+          customerDoneAt: at,
+          customerDoneBy: (window.PortalContext && PortalContext.displayName) || SLUG || 'הלקוח',
+          customerDonePages: Number(rec.totalPages) || null }) }, 'editDone:approve');
     showOv('', false);
     toast('✅ הגיליון אושר להדפסה — תודה!');
     await loadHistory();

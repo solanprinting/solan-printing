@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1786996449"></script>
-<script src="chat-alert.js?v=1786996449"></script>
-<script src="shop-issue.js?v=1786996449"></script>
-<script src="page-marks.js?v=1786996449"></script>
-<script src="kontres-split.js?v=1786996449"></script>
+<script src="portal-chat.js?v=1787033321"></script>
+<script src="chat-alert.js?v=1787033321"></script>
+<script src="shop-issue.js?v=1787033321"></script>
+<script src="page-marks.js?v=1787033321"></script>
+<script src="kontres-split.js?v=1787033321"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1786996449"></script>
-<script src="auth-client.js?v=1786996449"></script>
+<script src="firebase-auth.bundle.js?v=1787033321"></script>
+<script src="auth-client.js?v=1787033321"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1786996449" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787033321" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1231,6 +1231,18 @@ function render(rows) {
      בריצה השנייה. הסדר כבר מתוקן אוטומטית (`_partsOrdered` — לפי מספר-הריצה),
      אבל **הפער עצמו נשאר סימן-אזהרה**: אם הלקוח התבלבל בסדר-ההעלאה, סביר
      שהוא התבלבל גם בתוכן. התג אומר לקדם-דפוס לבדוק לפני לוחות. */
+  /* ⚠️ בקשת-בעלים 18/08/2026: כשהלקוח מסיים לערוך ולוחץ "מאושר להדפסה",
+     הדפוס צריך **לראות** שזה קרה ולא להסיק זאת מהגעת-קבצים. התג נדלק על
+     `customerDoneAt` ונכבה כשמסמנים "נצפה" (‏shopSeenAt) — אותו סימון-צפייה
+     שכבר קיים, ולא מנגנון-קריאה שני שיסתור אותו. */
+  const doneTag = (p) => {
+    if (!p || !p.customerDoneAt || p.shopSeenAt) return '';
+    return `<span class="pendTag" style="background:#dcfce7;color:#166534;border-color:#86efac"`
+      + ` title="הלקוח סיים לערוך ואישר להדפסה · ${fmt(p.customerDoneAt)}`
+      + `${p.customerDoneBy ? (' · ' + escapeHtml(String(p.customerDoneBy))) : ''}">`
+      + `✅ הלקוח סיים ואישר${p.customerDonePages ? (' · ' + (p.customerDonePages|0) + ' עמ׳') : ''}</span>`;
+  };
+
   const revTag = (p) => {
     if (!_runOrderReversed(p)) return '';
     const order = _partsOrdered(p).map(pt => pt.name || pt.fileName || '—').join(' → ');
@@ -1391,7 +1403,7 @@ function render(rows) {
       const _col = !!_jobCollapsed[p.id];   // עבודה מכווצת → שורות-הריצות מוסתרות
       const head = `<tr class="row-ok">
         <td><span data-jobtoggle="${p.id}" style="cursor:pointer;user-select:none;color:#2d3561;font-weight:900;margin-left:4px" title="${_col?'פתח':'כווץ'} ריצות">${_col?'▶':'▼'}</span> <b>${escapeHtml(p.title || '—')}</b></td>
-        <td><span class="badge b-approved">${parts.length} ריצות התקבלו</span>${revTag(p)}${pendTag(p)}${stageBar(p)}</td>
+        <td><span class="badge b-approved">${parts.length} ריצות התקבלו</span>${doneTag(p)}${revTag(p)}${pendTag(p)}${stageBar(p)}</td>
         <td>נוצר: ${fmt(p.createdAt)}</td>
         <td><div class="acts">
           <a href="${viewerLink}" target="_blank">👁 צפה בדפדוף</a>
@@ -1461,7 +1473,7 @@ function render(rows) {
     const approvedLine = p.approvedAt ? `<div class="note" style="color:#16a34a">✓ אושר: ${fmt(p.approvedAt)}</div>` : '';
     return `<tr class="${p.status==='approved'?'row-ok':''}">
       <td>${escapeHtml(p.title || (p.customer ? p.customer + ' — עיתון' : 'עיתון'))}${note}</td>
-      <td><span class="badge ${cls}">${txt}</span>${pendTag(p)}${stageBar(p)}</td>
+      <td><span class="badge ${cls}">${txt}</span>${doneTag(p)}${pendTag(p)}${stageBar(p)}</td>
       <td>נוצר: ${fmt(p.createdAt)}${approvedLine}</td>
       <td><div class="acts">
         <a href="${clientLink}" target="_blank">🔗 פתח</a>
@@ -1817,6 +1829,8 @@ function render(rows) {
         uploadingNow: window.ShopView && items.some(p => ShopView.uploadingNow(p, _nowMs)),
         dueTodayNotSent: window.ShopView && _dayOf[c] === _today
           && !items.some(p => ShopView.sentOn(p, _dayStart)),
+        /* אירוע-האישור של הלקוח (18/08) — כל עוד לא סומן "נצפה" */
+        customerDone: items.some(p => p && p.customerDoneAt && !p.shopSeenAt),
       };
     };
     const _sumOf = (c) => window.ShopView
