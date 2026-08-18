@@ -229,6 +229,56 @@
     var re = /((?:^|[^A-Za-z0-9])(?:r|ריצה)\s*[-_ ]?\s*)(\d{1,2})(?![0-9])/i;
     return re.test(s) ? s.replace(re, function(_, pre){ return pre + n; }) : ('ריצה ' + n);
   }
+  /* ── כרטיס-לקוח (בקשת-בעלים 18/08/2026) ─────────────────────────────────
+     "פרטי-קשר מלאים לכל לקוח". ⚠️ הנתונים **כבר קיימים** — 2,850 רשומות
+     ב-`customers` (name/phone/email/address) ו-43 ב-`newspapers`
+     (day/size/paper/color/copies/notes). לא נוצר כאן שדה חדש ולא מסד שני;
+     זו הרכבה בלבד. השמות אינם זהים בין המקורות, ולכן ההתאמה עוברת
+     בנרמול-שם הקיים (normName) ולא בהשוואת-מחרוזות.
+     ⚠️ שדה חסר מוצג כחסר. לא ממציאים "לא ידוע" ולא מסתירים את השורה —
+     דפוס שמתקשר למספר שהומצא מתקשר למישהו אחר. */
+  function _norm(v) {
+    return str(v).replace(/["'׳״]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+  /* ⚠️ נרמול-טלפון לוואטסאפ — אותו כלל שכבר רץ ב-customer-fold-preview
+     (0→972). הועבר לכאן כדי שלא יהיו שני מנגנונים שיסתרו זה את זה. */
+  function waNumber(phone) {
+    var ph = str(phone).replace(/\D/g, '');
+    if (!ph) return '';
+    if (ph.indexOf('972') === 0) return ph;
+    if (ph.charAt(0) === '0') return '972' + ph.slice(1);
+    return ph.length <= 10 ? ('972' + ph) : ph;
+  }
+  /* מייל אחד לשליחה — בשדה יש לפעמים כמה מופרדים בפסיק. */
+  function firstEmail(email) {
+    var e = str(email).split(/[,;]/)[0].trim();
+    return /.+@.+\..+/.test(e) ? e : '';
+  }
+  function customerCard(name, customers, newspapers) {
+    var key = _norm(name), rec = null, np = null;
+    var cs = customers || {}, ns = newspapers || {};
+    Object.keys(cs).forEach(function (k) {
+      if (!rec && cs[k] && _norm(cs[k].name) === key) rec = cs[k];
+    });
+    Object.keys(ns).forEach(function (k) {
+      if (!np && ns[k] && _norm(ns[k].name) === key) np = ns[k];
+    });
+    var phone = str(rec && rec.phone), email = firstEmail(rec && rec.email);
+    return {
+      name: str(name),
+      found: !!(rec || np),
+      phone: phone, wa: waNumber(phone),
+      email: email, address: str(rec && rec.address),
+      day: str(np && np.day), size: str(np && np.size), paper: str(np && np.paper),
+      color: str(np && np.color), copies: str(np && np.copies),
+      notes: str(np && np.notes),
+      /* מה חסר — כדי שהמסך יאמר זאת ולא ישתוק */
+      missing: ['phone', 'email', 'address'].filter(function (f) {
+        return !str(f === 'email' ? email : (rec && rec[f]));
+      })
+    };
+  }
+
   /* ── כמה עמודים בגיליון-מלא ─────────────────────────────────────────────
      ⚠️ בקשת-בעלים 17/08/2026: "כשהעיתון 16.5×24 הגיליון 70×100, וכשהעיתון
      A4 הגיליון 64×90" — כלומר הגודל **נגזר מהעיתון** ואינו נבחר בכל הורדה.
@@ -467,6 +517,7 @@
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
     runNoOfName: runNoOfName, renameRunNo: renameRunNo, runRenumberPatch: runRenumberPatch,
     runsOrdered: runsOrdered, runFirstPageNo: runFirstPageNo, runOrderReversed: runOrderReversed,
-    sheetPagesFromMM: sheetPagesFromMM, sheetPagesOf: sheetPagesOf, sheetLabel: sheetLabel
+    sheetPagesFromMM: sheetPagesFromMM, sheetPagesOf: sheetPagesOf, sheetLabel: sheetLabel,
+    customerCard: customerCard, waNumber: waNumber, firstEmail: firstEmail
   };
 });

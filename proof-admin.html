@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787033321"></script>
-<script src="chat-alert.js?v=1787033321"></script>
-<script src="shop-issue.js?v=1787033321"></script>
-<script src="page-marks.js?v=1787033321"></script>
-<script src="kontres-split.js?v=1787033321"></script>
+<script src="portal-chat.js?v=1787037106"></script>
+<script src="chat-alert.js?v=1787037106"></script>
+<script src="shop-issue.js?v=1787037106"></script>
+<script src="page-marks.js?v=1787037106"></script>
+<script src="kontres-split.js?v=1787037106"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787033321"></script>
-<script src="auth-client.js?v=1787033321"></script>
+<script src="firebase-auth.bundle.js?v=1787037106"></script>
+<script src="auth-client.js?v=1787037106"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787033321" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787037106" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -252,6 +252,21 @@ window.addEventListener('appinstalled', function(){
             font-size:.78rem; font-weight:800; white-space:nowrap; }
   .tdChip.late { border-color:#fecaca; background:#fef2f2; color:#b91c1c; }
   .tdChip:hover { filter:brightness(.97); }
+  /* כרטיס-לקוח (18/08/2026) — שורה מתחת לכותרת, לא מסך נפרד. */
+  .ccard { padding:8px 14px; background:#fffdf6; border-bottom:1px solid var(--line);
+           display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; }
+  .ccToggle { background:none; border:none; cursor:pointer; font-weight:900;
+              color:#2d3561; font-size:.86rem; padding:2px 0; }
+  .ccBody { display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; }
+  .ccItem { font-size:.83rem; color:#374151; white-space:nowrap; }
+  .ccItem b { color:#6b7280; font-weight:700; }
+  .ccGo { font-size:.78rem; font-weight:800; color:#166534; background:#f0fdf4;
+          border:1.5px solid #bbf7d0; border-radius:999px; padding:1px 8px;
+          text-decoration:none; margin-inline-start:3px; }
+  .ccGo:hover { filter:brightness(.97); }
+  .ccSep { width:1px; height:16px; background:#e5e7eb; }
+  .ccWarn { font-size:.8rem; font-weight:800; color:#b45309; background:#fffbeb;
+            border:1.5px solid #fcd34d; border-radius:8px; padding:2px 9px; }
   .moreMenu { position:absolute; top:100%; left:0; z-index:60; background:#fff; border:1px solid var(--line);
     border-radius:10px; box-shadow:0 8px 22px rgba(0,0,0,.14); padding:8px; display:flex; flex-direction:column; gap:6px; min-width:190px; }
   .ibxWrap { background:#fff; border:1.5px solid var(--gold,#b8860b); border-radius:12px; margin-bottom:12px; overflow:hidden; }
@@ -969,18 +984,58 @@ function _seenBadge(customer){
     ? `<span class="seenNow" title="נכנס לפורטל ${_fmtSeenAt(s.at)}">🟢 נכנס לפורטל ${_seenAgo(s.age)}</span>`
     : `<span class="seenAgo" title="כניסה אחרונה: ${_fmtSeenAt(s.at)}${s.count ? (' · סה״כ ' + s.count + ' כניסות') : ''}">👤 נכנס ${_seenAgo(s.age)}</span>`;
 }
+let _customersDb = null, _newspapersDb = null;   // מקורות כרטיס-הלקוח
+/* ── כרטיס-לקוח (בקשת-בעלים 18/08/2026) ─────────────────────────────────────
+   "פרטי-קשר מלאים לכל לקוח". ⚠️ **לא נוצר מסד שני** — הנתונים כבר קיימים:
+   ‏`customers` (טלפון/מייל/כתובת) ו-`newspapers` (יום/גודל/נייר/צבע/כמות).
+   ההרכבה בשכבה הטהורה (ShopIssue.customerCard) והמסך רק מצייר.
+   ⚠️ שדה חסר נאמר במפורש ולא מוסתר: דפוס שמחייג למספר שהומצא מחייג
+   למישהו אחר. וכשל-טעינה אינו "אין פרטים" — הוא נאמר בנפרד. */
+function _custCardHtml(name){
+  if (!name || !window.ShopIssue || !ShopIssue.customerCard) return '';
+  if (_customersDb === null && _newspapersDb === null)
+    return `<div class="ccard"><span class="ccWarn">⚠️ פרטי-הלקוח לא נטענו — רעננו את המסך</span></div>`;
+  const c = ShopIssue.customerCard(name, _customersDb, _newspapersDb);
+  const open = !_ccCollapsed;
+  const row = (icon, label, val, extra) => val
+    ? `<span class="ccItem"><b>${icon} ${label}:</b> ${escapeHtml(val)}${extra||''}</span>` : '';
+  const waTxt = encodeURIComponent('שלום, כאן סולן הדפסות בנוגע ל' + name);
+  const contact = [
+    row('📞', 'טלפון', c.phone, c.wa
+      ? ` <a class="ccGo" href="https://wa.me/${c.wa}?text=${waTxt}" target="_blank" rel="noopener" title="פתיחת וואטסאפ">וואטסאפ</a>`
+        + ` <a class="ccGo" href="tel:${escapeHtml(c.phone)}" title="חיוג">חיוג</a>` : ''),
+    row('✉️', 'מייל', c.email, ` <a class="ccGo" href="mailto:${escapeHtml(c.email)}" title="שליחת מייל">שלח</a>`),
+    row('📍', 'כתובת', c.address)
+  ].filter(Boolean).join('');
+  const spec = [ row('📅','יום',c.day), row('📐','גודל',c.size), row('📄','נייר',c.paper),
+                 row('🎨','צבע',c.color), row('🔢','כמות',c.copies), row('📝','הערות',c.notes)
+               ].filter(Boolean).join('');
+  const miss = c.missing.length
+    ? `<span class="ccWarn">חסר: ${c.missing.map(f=>({phone:'טלפון',email:'מייל',address:'כתובת'}[f])).join(' · ')}</span>` : '';
+  if (!c.found) return `<div class="ccard"><span class="ccWarn">ℹ️ אין רשומת-לקוח בשם הזה — הפרטים נשמרים במסך הלקוחות</span></div>`;
+  return `<div class="ccard">
+    <button class="ccToggle" id="ccToggle">${open?'▾':'▸'} 👤 כרטיס לקוח</button>
+    ${open ? `<div class="ccBody">${contact}${spec?`<span class="ccSep"></span>${spec}`:''}${miss}</div>` : ''}
+  </div>`;
+}
+let _ccCollapsed = false;
+
 async function _loadWeeklyContext(){
   try {
-    const [np, cds, ov, po] = await Promise.all([
+    const [np, cds, ov, po, cu] = await Promise.all([
       fetch(await _au(`${_FBURL}/newspapers.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(await _au(`${_FBURL}/cards.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(await _au(`${_FBURL}/customerDayOverride.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
-      fetch(await _au(`${_FBURL}/customerPortals.json`)).then(r=>r.ok?r.json():null).catch(()=>null)
+      fetch(await _au(`${_FBURL}/customerPortals.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
+      /* כרטיס-לקוח (18/08): פרטי-הקשר כבר קיימים ב-customers — נטענים כאן
+         ולא במסך נפרד. ⚠️ כשל-טעינה משאיר null, והכרטיס אומר שלא נטען. */
+      fetch(await _au(`${_FBURL}/customers.json`)).then(r=>r.ok?r.json():null).catch(()=>null)
     ]);
     /* ⚠️ באג שדווח 31/07/2026: נפתחו פורטלים ל-35 לקוחות, ואף אחד מהם לא הופיע
        במסך. הסיבה: רשימת-הלקוחות נבנתה **רק** מ-customerProofs, כלומר לקוח
        "קיים" רק אחרי שהעלה קובץ ראשון. פורטל שנפתח ולא נראה בשום מקום הוא
        פורטל שאי-אפשר לנהל — אי-אפשר לשלוח ממנו קישור או דרישה. */
+    _customersDb = cu; _newspapersDb = np;
     _portalCusts = po && typeof po === 'object'
       ? Object.keys(po).map(k => (po[k] && po[k].name) || String(k).replace(/_/g,' ')).filter(Boolean)
       : [];
@@ -1742,6 +1797,7 @@ function render(rows) {
         <button class="chChip ghost" data-notice="${escapeHtml(_selCust)}" title="שלח דרישה שתופיע בפורטל הלקוח">📢 שלח דרישה</button>
         <button class="chChip ghost" data-editcust="${escapeHtml(_selCust)}" title="שינוי שם הלקוח בכל העבודות שלו">✎ ערוך לקוח</button>
       </div>
+      ${_custCardHtml(_selCust)}
       ${sel.length > 1 ? `<div style="padding:6px 14px;background:#faf8f2;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span style="font-size:.82rem;color:#555">${sel.length} עבודות</span>
         <button id="jobsCollapseAll" style="font-size:.8rem">➖ כווץ הכל</button>
@@ -2134,6 +2190,12 @@ function render(rows) {
     shareLink(u, { kind, customer: _selCust && _selCust !== '__today__' ? _selCust : '' });
   });
   document.querySelectorAll('[data-portal]').forEach(b => b.onclick = () => portalLink(b.dataset.portal));
+  /* כרטיס-לקוח — קיפול/פתיחה. ⚠️ מצב הקיפול נשמר בזיכרון-המסך בלבד:
+     זו העדפת-תצוגה רגעית ולא נתון שצריך לנסוע לשרת. */
+  {
+    const _cc = $('ccToggle');
+    if (_cc) _cc.onclick = () => { _ccCollapsed = !_ccCollapsed; render(_allRows); };
+  }
   document.querySelectorAll('[data-editcust]').forEach(b => b.onclick = () => renameCustomer(b.dataset.editcust));
   // סימון "הושלם" → העבודה עוברת לקטגוריית "עיתונים שהושלמו" של אותו לקוח (הפיך)
   document.querySelectorAll('[data-donejob]').forEach(b => b.onclick = async () => {
