@@ -232,10 +232,22 @@
     } catch (e) { return null; }
   }
 
-  /* אילו אסימונים מתקבלים בכל מצב */
-  function tokenOkFor(mode, prov) {
+  /* אילו אסימונים מתקבלים בכל מצב.
+     ⚠️ 18/08/2026 — **התקלה שהתיקון הזה סוגר:** מכונת 8 הצבעים נכנסה
+     למסך-המפעיל שבתוך האפליקציה, וכל קריאה ל-RTDB נדחתה כאן לפני שיצאה
+     לרשת. המסך הציג "אין עבודות בתור" בזמן שהיו ארבע — כלומר בדיוק
+     "ריק שאינו ריק". הכלל `prov === 'password'` נכתב כשכל מי שנכנס
+     למסכים האלה היה אדם עם מייל וסיסמה.
+     ⚠️ ההרחבה **צרה בכוונה**: לא "כל Custom Token", אלא חשבון-מכונה עם
+     claims מלאות שמסכימות זו עם זו. אנונימי נשאר פסול — וזו כל הסיבה
+     שהבדיקה הזו קיימת: אסימון אנונימי שדולף לכאן חייב להפיל את המסך
+     ברעש ולא להריץ אותו "כאילו". */
+  function tokenOkFor(mode, prov, claims) {
     if (mode !== 'enforce') return true;
-    return prov === 'password';
+    if (prov === 'password') return true;
+    var c = claims || {};
+    return prov === 'custom' && c.accountType === 'machine'
+        && !!c.role && c.role === c.machineId;
   }
 
   /* ניסוח ההחלטה לבן-אדם (מוצג בשבב-התצפית וברישום) */
@@ -409,8 +421,8 @@
         /* ⚠️ בדיקה-עצמית: באכיפה האסימון חייב להיות של Email/Password.
            אם אי-פעם נחזיר כאן אסימון אנונימי בגלל באג, עדיף שהמסך ייפול
            ברעש מאשר שימשיך לעבוד "כאילו" עם זהות אנונימית. */
-        if (!tokenOkFor(st.mode, providerOf(t)))
-          return Promise.reject(new Error('האסימון אינו של Email/Password'));
+        if (!tokenOkFor(st.mode, providerOf(t), st.claims))
+          return Promise.reject(new Error('האסימון אינו של Email/Password או של מכונה מוכרת'));
         return t;
       });
     });
