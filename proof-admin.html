@@ -33,24 +33,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787144841"></script>
-<script src="chat-alert.js?v=1787144841"></script>
-<script src="shop-issue.js?v=1787144841"></script>
-<script src="page-marks.js?v=1787144841"></script>
+<script src="portal-chat.js?v=1787146756"></script>
+<script src="chat-alert.js?v=1787146756"></script>
+<script src="shop-issue.js?v=1787146756"></script>
+<script src="page-marks.js?v=1787146756"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787144841"></script>
-<script src="kontres-split.js?v=1787144841"></script>
+<script src="page-box.js?v=1787146756"></script>
+<script src="kontres-split.js?v=1787146756"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787144841"></script>
-<script src="auth-client.js?v=1787144841"></script>
+<script src="firebase-auth.bundle.js?v=1787146756"></script>
+<script src="auth-client.js?v=1787146756"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787144841" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787146756" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -3890,6 +3890,7 @@ async function normalizeSpreads(src) {
   const labels = plan.entries.map(e => e.label), spread = plan.entries.map(e => e.spread);
   if (!plan.hasSpread) return { doc: src, labels, spread };
   const out = await PDFLib.PDFDocument.create();
+  _pdfReadDir(out, (typeof proof!=="undefined"?proof:(typeof p!=="undefined"?p:null)));
   for (const e of plan.entries) {
     if (!e.half) { const [pg] = await out.copyPages(src, [e.src]); out.addPage(pg); continue; }
     const srcPg = pages[e.src], mb = srcPg.getMediaBox();
@@ -3959,6 +3960,7 @@ async function _runSourceBytes(t) {
   }
   if (bufs.length === 1 && !weave) return bufs[0];
   const out = await PDFLib.PDFDocument.create();
+  _pdfReadDir(out, (typeof proof!=="undefined"?proof:(typeof p!=="undefined"?p:null)));
   for (const b of bufs) {
     const d = await PDFLib.PDFDocument.load(b);
     const pages = await out.copyPages(d, d.getPageIndices());
@@ -4003,6 +4005,7 @@ async function generateRunOrderedPdf(proof, fullSheet, btn) {
     const ro = KontresSplit.runOrderedEntries(plan.entries, fullSheet);
 
     const out = await PDFLib.PDFDocument.create();
+    _pdfReadDir(out, (typeof proof!=="undefined"?proof:(typeof p!=="undefined"?p:null)));
     let done = 0;
     for (const e of ro.order) {
       if ((++done) % 8 === 0) stage(`בונה עמוד ${done}/${ro.order.length}…`);
@@ -4065,6 +4068,7 @@ async function generateRuns(proof, fullSheet, btn) {
     for (const run of runs) {
       stage(`בונה ריצה ${run.num}/${runs.length}…`);
       const out = await PDFLib.PDFDocument.create();
+      _pdfReadDir(out, (typeof proof!=="undefined"?proof:(typeof p!=="undefined"?p:null)));
       const idxs = run.pages.filter(sp => sp <= total).map(sp => sp - 1);
       if (!idxs.length) continue;
       const copied = await out.copyPages(src, idxs);      // קריאה-אחת → משאבים משותפים לא משוכפלים
@@ -4196,6 +4200,24 @@ function jobName(p, partName) {
    נדרש דווקא סימון-הריצה בפורמט R-N — זה שבו הדפוס עובד מול אפוגי (ראה
    מוסכמת-השמות R-1/R-2 בפרופרים). "ריצה 1" → "R-1"; שם שאינו ממוספר נשמר
    כמו-שהוא במקום להמציא מספר. */
+/* ── כיוון-הדפדוף בקובץ שיורד למחשב (דיווח-בעלים 19/08/2026) ─────────────
+   ⚠️ **התסמין:** "הורדתי את העיתון ודיפדפתי ב-PDF במחשב — הכיוון היה
+   משמאל לימין ולא מימין לשמאל". זו לא בחירה שגויה של הלקוח: כיוון-הדפדוף
+   בקורא-PDF נקבע משדה בקטלוג הקובץ — ‎/ViewerPreferences /Direction /R2L‎ —
+   ואנחנו לא כתבנו אותו **בשום מקום**. ‏readingDirection שנשמר על העבודה
+   השפיע רק על הדפדוף שלנו במסך, לא על הקובץ עצמו.
+   ⚠️ ברירת-המחדל היא R2L: הלקוחות כאן הם עיתונים בעברית. עבודה שסומנה
+   במפורש ‎ltr‎ מקבלת L2R.
+   ⚠️ אינו זורק: קובץ שיורד בלי הכיוון עדיף על הורדה שנכשלת. */
+function _pdfReadDir(out, rec){
+  try {
+    var dir = ((rec && rec.readingDirection) || "rtl").toLowerCase();
+    var RD = PDFLib.ReadingDirection;
+    if (!RD || !out || !out.catalog) return;
+    out.catalog.getOrCreateViewerPreferences()
+       .setReadingDirection(dir === "ltr" ? RD.L2R : RD.R2L);
+  } catch(e){ console.warn("קביעת כיוון-הדפדוף בקובץ נכשלה (הקובץ תקין)", (e&&e.message)||e); }
+}
 function runFileName(p, partName) {
   p = p || {};
   const cust = String(p.customer || '').trim();
