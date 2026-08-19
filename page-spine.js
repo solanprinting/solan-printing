@@ -232,7 +232,32 @@
     return out;
   }
 
-  return { compareGeometry: compareGeometry, GEOM_TOL_MM: GEOM_TOL_MM,
+  /* ── תיבת-החיתוך של חצי-כפולה (19/08/2026, תקרית מידע-העיר 1840) ────────
+     ⚠️ נמדד בייצור: הרכבת-הריצה ב-proof-client פיצלה כפולות לחצאים
+     **בלי להעביר את ה-TrimBox** — 9 מתוך 32 עמודי-הריצה יצאו בלי הצהרת-
+     חיתוך. אפוגי מודד תרים ([[solan-trimbox-page-size]]): עמוד כזה נמדד
+     ‏177.4×264.8 במקום 165×240, הצלבים והגלישה נכנסים לגיליון, והכפולות
+     "יוצאות לא טוב". ‏copyPages משמר תיבות — רק מסלול-הפיצול איבד אותן.
+     אותו לקח בדיוק תוקן ב-cover-split ב-16/08 (halfTrimBox) — אבל רק שם.
+
+     הקלט בנקודות, צירי-PDF (y-למעלה): mb/tb = {x,y,w,h} של עמוד-המקור.
+     ‏side: 'right'|'left' — החתך במחצית רוחב-המדיה, כמו בהרכבה עצמה.
+     הפלט: תרים בצירי עמוד-החצי (ראשית בפינת אזור-ההטמעה), או null —
+     כשאין תרים אמיתי במקור לא ממציאים אחד. */
+  function spreadHalfTrim(mb, tb, side) {
+    if (!mb || !(mb.w > 0 && mb.h > 0)) return null;
+    if (!tb || !(tb.w > 0 && tb.h > 0)) return null;
+    if (Math.abs(tb.w - mb.w) < 0.5 && Math.abs(tb.h - mb.h) < 0.5) return null;   // תרים=מדיה → אין הצהרה
+    var half = mb.w / 2;
+    var L = side === 'right' ? mb.x + half : mb.x;
+    var R = side === 'right' ? mb.x + mb.w : mb.x + half;
+    var x1 = Math.max(tb.x, L), x2 = Math.min(tb.x + tb.w, R);
+    var y1 = Math.max(tb.y, mb.y), y2 = Math.min(tb.y + tb.h, mb.y + mb.h);
+    if (!(x2 - x1 > 1 && y2 - y1 > 1)) return null;                                // אין חפיפה — לא ממציאים
+    return { x: x1 - L, y: y1 - mb.y, w: x2 - x1, h: y2 - y1 };
+  }
+
+  return { compareGeometry: compareGeometry, GEOM_TOL_MM: GEOM_TOL_MM, spreadHalfTrim: spreadHalfTrim,
            spineFor: spineFor, spineForIndex: spineForIndex, bleedSide: bleedSide,
            isMirrorPair: isMirrorPair, netSpec: netSpec, normDir: normDir,
            isOversize: isOversize, logicalTrimFrac: logicalTrimFrac, resolveBleed: resolveBleed,

@@ -19,13 +19,13 @@
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1787160615"></script>
-<script src="portal-context.js?v=1787160615"></script>
+<script src="upload-type.js?v=1787163978"></script>
+<script src="portal-context.js?v=1787163978"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
-<script src="page-spine.js?v=bidi1"></script>
+<script src="page-spine.js?v=bidi2"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1787160615"></script>
-<script src="portal-return.js?v=1787160615"></script>
+<script src="page-replace.js?v=1787163978"></script>
+<script src="portal-return.js?v=1787163978"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1837,9 +1837,24 @@ async function _pcComposePdf(){
       // כפולה: מפצלים את העמוד הרחב לחצאים (RTL: החצי הימני = העמוד הנמוך, קודם).
       // אם נבחר רק צד אחד (גבול ריצה) — מוציאים רק אותו, כדי שהעמוד המחובר לא ידלוף לריצה.
       const sp = lib.getPage(p.pageIndex);
-      const w = sp.getWidth(), h = sp.getHeight(), half = w / 2;
-      const embR = async () => { const e = await out.embedPage(sp, { left: half, bottom: 0, right: w, top: h }); out.addPage([half, h]).drawPage(e); };   // חצי ימין (עמוד נמוך)
-      const embL = async () => { const e = await out.embedPage(sp, { left: 0, bottom: 0, right: half, top: h }); out.addPage([half, h]).drawPage(e); };    // חצי שמאל (עמוד גבוה)
+      /* ⚠️ תקרית מידע-העיר 1840 (19/08/2026): החצאים נולדו **בלי TrimBox**
+         — אפוגי מדד אותם עם הצלבים והגלישה, והכפולות יצאו לא-טוב בגיליון.
+         התרים של הכפולה נחתך-ומועבר לכל חצי (spreadHalfTrim, page-spine).
+         ובאותה הזדמנות: החיתוך לפי ה-MediaBox האמיתי ולא מ-(0,0) — אותו
+         לקח של 16/08 בעורך (מדיה שאינה מתחילה באפס = חצי ריק). */
+      const _mb0 = sp.getMediaBox(), _tb0 = sp.getTrimBox();
+      const mb = { x: _mb0.x, y: _mb0.y, w: _mb0.width, h: _mb0.height };
+      const tb = { x: _tb0.x, y: _tb0.y, w: _tb0.width, h: _tb0.height };
+      const h = mb.h, half = mb.w / 2;
+      const _half = async (side) => {
+        const L = side === 'right' ? mb.x + half : mb.x;
+        const e = await out.embedPage(sp, { left: L, bottom: mb.y, right: L + half, top: mb.y + mb.h });
+        const pg = out.addPage([half, h]); pg.drawPage(e);
+        const tr = window.PageSpine && PageSpine.spreadHalfTrim ? PageSpine.spreadHalfTrim(mb, tb, side) : null;
+        if (tr) pg.setTrimBox(tr.x, tr.y, tr.w, tr.h);
+      };
+      const embR = () => _half('right');   // חצי ימין (עמוד נמוך)
+      const embL = () => _half('left');    // חצי שמאל (עמוד גבוה)
       if (p.spreadKeep === 'right') { await embR(); }
       else if (p.spreadKeep === 'left') { await embL(); }
       /* שני העמודים — בסדר-הקריאה של העבודה: RTL ימני-קודם, LTR שמאלי-קודם.
