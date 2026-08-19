@@ -535,6 +535,65 @@
     return { nos: [ok[0]], spread: false, sure: false, candidates: ok };
   }
 
+  /* ── גרירת כמה קבצים לגיליון הפרוס (בקשת-בעלים 19/08/2026) ───────────────
+     „שיוכל לגרור עמודים בודדים למקום שלהם, או כמה עמודים במקביל, ושהם
+     יסתדרו במקום שלהם; ובמקרה של כפולה שיישאל איזה עמודים אלה."
+
+     ⚠️ עד היום הגרירה קיבלה קובץ **אחד**: "נגררו כמה קבצים — הראשון
+     ישובץ" והשאר נזרקו בשקט-למחצה. זה מה שמתקן כאן.
+
+     ⚠️ **שם-הקובץ גובר על מיקום-הנפילה.** קובץ בשם "עמוד 7" הולך לעמוד 7
+     גם אם נגרר על משבצת 3 — הלקוח כתב את הכוונה, והגרירה היא רק אמצעי.
+     ⚠️ **מה שאי-אפשר להכריע — נשאל, לא מנוחש.** קובץ בלי מספר, או עם
+     כמה מועמדים ("12 34 56"), מקבל ‎ask:true‎ והמסך שואל. ניחוש שקט כאן
+     הוא עמוד שיודפס במקום הלא-נכון.
+     ⚠️ **כפולה מאושרת ולא מונחת.** "עמודים 8 9" מזוהה, אבל נשאלת —
+     בדיוק התקרית של היום.
+     ⚠️ סדר-השיבוץ הרציף הוא **סדר-הגרירה**, ומדלג על משבצות שכבר נתפסו
+     ע"י שם-קובץ מפורש או ע"י עמוד שכבר קיים בגיליון. */
+  function dropPlan(names, startSlot, takenSlots) {
+    var list = (names || []).map(function (n) { return str(n); });
+    var start = Math.max(1, num(startSlot) | 0 || 1);
+    var taken = {};
+    (takenSlots || []).forEach(function (s) { var v = num(s) | 0; if (v >= 1) taken[v] = true; });
+    var items = [];
+    /* מעבר ראשון: מי שהשם שלו מכריע — משבץ ותופס */
+    list.forEach(function (nm, i) {
+      var pn = pagesOfName(nm);
+      if (pn && pn.sure) {
+        items[i] = { name: nm, nos: pn.nos.slice(), spread: !!pn.spread,
+                     from: 'name', ask: !!pn.spread };
+        pn.nos.forEach(function (v) { taken[v] = true; });
+      } else {
+        items[i] = { name: nm, nos: [], spread: false, from: 'sequence', ask: true,
+                     candidates: (pn && pn.candidates) || [] };
+      }
+    });
+    /* מעבר שני: השאר ברצף מנקודת-הנפילה, מדלגים על תפוס */
+    var next = start;
+    items.forEach(function (it) {
+      if (it.from !== 'sequence') return;
+      while (taken[next]) next++;
+      it.nos = [next]; taken[next] = true; next++;
+    });
+    return {
+      items: items,
+      /* כמה מהם דורשים שאלה — המסך מציג דיאלוג אחד ולא N טוסטים */
+      askCount: items.filter(function (x) { return x.ask; }).length,
+      /* ⚠️ התנגשות: שני קבצים שנפלו על אותו עמוד. נאמר, לא נבלע. */
+      conflicts: (function () {
+        var seen = {}, bad = [];
+        items.forEach(function (it) {
+          it.nos.forEach(function (v) {
+            if (seen[v]) { if (bad.indexOf(v) < 0) bad.push(v); }
+            seen[v] = true;
+          });
+        });
+        return bad;
+      })()
+    };
+  }
+
   function marksFor(p, target) {
     var r = p || {}, all = (r.pageMarks && typeof r.pageMarks === 'object') ? r.pageMarks : {};
     var t = all[str(target) || 'full'];
@@ -765,7 +824,7 @@
     statusOf: statusOf, printApproved: printApproved,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
-    pageNoOf: pageNoOf, pagesOfName: pagesOfName, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, markPatch: markPatch,
+    pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
     runNoOfName: runNoOfName, renameRunNo: renameRunNo, runRenumberPatch: runRenumberPatch,

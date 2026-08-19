@@ -9,29 +9,29 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1787157770"></script>
-<script src="page-add.js?v=1787157770"></script>
-<script src="portal-context.js?v=1787157770"></script>
-<script src="portal-return.js?v=1787157770"></script>
-<script src="portal-chat.js?v=1787157770"></script>
+<script src="portal-download.js?v=1787158496"></script>
+<script src="page-add.js?v=1787158496"></script>
+<script src="portal-context.js?v=1787158496"></script>
+<script src="portal-return.js?v=1787158496"></script>
+<script src="portal-chat.js?v=1787158496"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1787157770"></script>
+<script src="chat-alert.js?v=1787158496"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1787157770"></script>
-<script src="cover-split.js?v=1787157770"></script>
-<script src="page-swap.js?v=1787157770"></script>
-<script src="rip-load.js?v=1787157770"></script>
-<script src="page-replace.js?v=1787157770"></script>
-<script src="page-marks.js?v=1787157770"></script>
+<script src="shop-issue.js?v=1787158496"></script>
+<script src="cover-split.js?v=1787158496"></script>
+<script src="page-swap.js?v=1787158496"></script>
+<script src="rip-load.js?v=1787158496"></script>
+<script src="page-replace.js?v=1787158496"></script>
+<script src="page-marks.js?v=1787158496"></script>
 <!-- ⚠️ page-box: איזו תיבה היא "העמוד". עד 19/08 הפורטל מדד CropBox,
      הדפדוף MediaBox ואפוגי TrimBox — שלוש מסקנות סותרות לאותו עמוד. -->
-<script src="page-box.js?v=1787157770"></script>
+<script src="page-box.js?v=1787158496"></script>
 <!-- ⚠️ קו-שערה ומרחב-צבע: אפוגי תיקן 88 קווים ל-0.25pt ובפורטל היה שקט.
      קו-שערה עלול למחוק אותיות מהגיליון — לכן הוא אזהרה, ו-RGB רק מידע. -->
-<script src="preflight-ink.js?v=1787157770"></script>
+<script src="preflight-ink.js?v=1787158496"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2211,7 +2211,14 @@ document.addEventListener('drop', function(ev){
   if (dropped && dropped.length){
     var pf = Array.prototype.slice.call(dropped).filter(function(f){ return f.type === 'application/pdf' || /\.pdf$/i.test(f.name || ''); });
     if (!pf.length){ toast('נא לגרור קובץ-PDF'); return; }
-    if (pf.length > 1) toast('נגררו כמה קבצים — הראשון ישובץ למשבצת ' + slotEl.dataset.sgslot);
+    /* ⚠️ **גרירה מרובה (בקשת-בעלים 19/08/2026).** עד היום: "נגררו כמה
+       קבצים — הראשון ישובץ", והשאר נזרקו בשקט-למחצה. עכשיו כולם משובצים
+       לפי ShopIssue.dropPlan: שם-הקובץ גובר על מקום-הנפילה, והשאר ברצף
+       מהמשבצת שעליה נפלו — מדלגים על משבצת תפוסה. */
+    if (pf.length > 1 && window.ShopIssue && ShopIssue.dropPlan) {
+      _sgDropMany(slotEl.dataset.sgid, parseInt(slotEl.dataset.sgslot, 10), pf);
+      return;
+    }
     _sgDropFile(slotEl.dataset.sgid, parseInt(slotEl.dataset.sgslot, 10), pf[0]);
     return;
   }
@@ -2221,6 +2228,48 @@ document.addEventListener('drop', function(ev){
   if (parts[0] !== slotEl.dataset.sgid) { toast('אפשר לשבץ רק בתוך אותו גיליון'); return; }
   _sgMoveTo(parts[0], parts[1] + '|' + parts[2], slotEl.dataset.sgslot);
 });
+/* ── גרירת כמה קבצים בבת-אחת (בקשת-בעלים 19/08/2026) ─────────────────────
+   ⚠️ **אישור אחד לכל השיבוץ, ולא N שאלות.** הלקוח גורר 12 עמודים; שתים-
+   עשרה תיבות-אישור הן דרך בטוחה לגרום לו ללחוץ "אישור" בלי לקרוא.
+   הטבלה מראה מה ילך לאן, והוא מאשר פעם אחת — או מתקן ידנית.
+   ⚠️ **כפולה נשאלת במפורש** — זו התקרית של היום ("עמודים 8 9" שתפס
+   משבצת אחת). היא מסומנת בטבלה, והלקוח רואה בדיוק לאילו עמודים.
+   ⚠️ **ההחלטה עצמה ב-ShopIssue.dropPlan** (טהורה ונבדקת); כאן רק ציור,
+   שאלה והעלאה. */
+async function _sgDropMany(id, slot, files){
+  var rec = _sgReg[id]; if (!rec){ toast('⚠️ הגיליון לא נמצא — רעננו'); return; }
+  if (_sgTiles[id] && _sgTiles[id].locked){ toast('🔒 הגיליון נשלח לדפוס'); return; }
+  /* משבצות תפוסות = עמודים שכבר קיימים בגיליון, כדי שהרצף ידלג עליהן */
+  var taken = [];
+  ((_sgTiles[id] || {}).tiles || []).forEach(function(t){
+    if (t.kind !== 'page') return;
+    if (t.seq && t.seq.length) t.seq.forEach(function(q){ taken.push(q); });
+    else if (t.pageNo >= 1) taken.push(t.pageNo);
+  });
+  var plan = ShopIssue.dropPlan(files.map(function(f){ return f.name || ''; }),
+                                isFinite(slot) ? slot : 1, taken);
+  if (!confirm('לשבץ ' + files.length + ' קבצים?\n\n'
+      + plan.items.map(function(it,i){
+          return '• ' + (files[i].name||'') + '  →  '
+               + (it.nos.length>1 ? ('עמ׳ '+it.nos[0]+'–'+it.nos[it.nos.length-1]+' (כפולה)') : ('עמוד '+it.nos[0]));
+        }).join('\n')
+      + (plan.conflicts.length ? ('\n\n⚠️ שני קבצים לאותו עמוד: ' + plan.conflicts.join(', ')) : '')
+      + '\n\nאפשר לבטל ולשבץ ידנית.')) return;
+  if (!_lock('upload')) { toast('העלאה כבר מתבצעת — רגע…'); return; }
+  try {
+    /* ⚠️ שם-הקובץ נכתב למשבצת — זהו מקור-האמת של pagesOfName בשני
+       המסכים. כפולה מקבלת "עמודים A B" כדי שתמשיך להיקרא ככפולה. */
+    var named = plan.items.map(function(it, i){
+      var nm = it.nos.length > 1 ? ('עמודים ' + it.nos[0] + ' ' + it.nos[1] + '.pdf')
+                                 : ('עמוד ' + it.nos[0] + '.pdf');
+      try { return new File([files[i]], nm, { type:'application/pdf' }); } catch(e){ return files[i]; }
+    });
+    await _quickAddToIssue(rec, named, null);
+  } catch(e){
+    console.error('שיבוץ-הקבצים הנגררים נכשל', e);
+    showOv('', false); toast('⚠️ השיבוץ נכשל — נסו שוב');
+  } finally { _unlock('upload'); }
+}
 /* העלאת קובץ-שנגרר למשבצת — אותו מסלול של "העלה עמוד מתוקן" */
 async function _sgDropFile(id, slot, f){
   var rec = _sgReg[id]; if (!rec){ toast('⚠️ הגיליון לא נמצא — רעננו'); return; }
