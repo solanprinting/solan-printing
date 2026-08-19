@@ -33,24 +33,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787159589"></script>
-<script src="chat-alert.js?v=1787159589"></script>
-<script src="shop-issue.js?v=1787159589"></script>
-<script src="page-marks.js?v=1787159589"></script>
+<script src="portal-chat.js?v=1787160615"></script>
+<script src="chat-alert.js?v=1787160615"></script>
+<script src="shop-issue.js?v=1787160615"></script>
+<script src="page-marks.js?v=1787160615"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787159589"></script>
-<script src="kontres-split.js?v=1787159589"></script>
+<script src="page-box.js?v=1787160615"></script>
+<script src="kontres-split.js?v=1787160615"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787159589"></script>
-<script src="auth-client.js?v=1787159589"></script>
+<script src="firebase-auth.bundle.js?v=1787160615"></script>
+<script src="auth-client.js?v=1787160615"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787159589" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787160615" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -4574,7 +4574,52 @@ function _renderUsage(total){
   </div>`;
   const b = document.getElementById('freeSpaceBtn'); if(b) b.onclick = () => _offerCleanup(total);
 }
-$('usageBtn').onclick = () => _renderUsage(_usageBytes());
+/* ── מדידת-אמת מהדלי (19/08/2026, בקשת-בעלים) ─────────────────────────────
+   ⚠️ הפס שלמעלה סוכם fileSize מהרשומות מול תקרת-5GB מומצאת — הוא הראה
+   ‏2.74GB בזמן שהדלי החזיק 19.75GB, ורוב ההפרש (9GB) הוא פרופרי-כרטיסים
+   שלא נספרו כלל. השאלה "יהיה ללקוח מקום להעלות?" נענית מהדלי בלבד.
+   ‏Blaze — אין תקרה קשיחה; מה שיש הוא **חשבון**, ולכן מוצג ₪ ולא אחוז. */
+const _USD_GB_MONTH = 0.026;                       // Cloud Storage, europe-west
+async function _renderUsageReal(){
+  const u = $('usage'); if(!u) return;
+  u.innerHTML = '<div style="padding:10px;color:#6b7280">מודד את האחסון בפועל…</div>';
+  try {
+    const r = await _fnCall('storageCleanup', { action: 'usage' });
+    /* ⚠️ נכשל-סגור מול שרת ישן: גרסה קודמת של ה-callable מתעלמת מ-action
+       לא-מוכר ומחזירה מועמדים. בלי הבדיקה הזו המסך היה מציג "0 בייטים"
+       ונראה כמו דלי ריק — בדיוק ההפך מהאמת. */
+    if (!r || !Array.isArray(r.roots)) throw new Error('השרת אינו תומך במדידה (הפונקציה טרם עודכנה)');
+    const roots = r.roots;
+    const tot = r.totalBytes || 0, gb = tot / 1073741824;
+    const rows = roots.map(x => `<tr style="border-bottom:1px solid var(--line)">
+        <td style="padding:5px 6px">${escapeHtml(x.label || x.root)}</td>
+        <td style="padding:5px 6px;color:#6b7280">${x.files.toLocaleString('he-IL')} קבצים</td>
+        <td style="padding:5px 6px;font-weight:800">${_fmtGB(x.bytes)}</td>
+        <td style="padding:5px 6px;color:#6b7280">${tot ? Math.round(x.bytes / tot * 100) : 0}%</td></tr>`).join('');
+    u.innerHTML = `<div style="background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:12px 14px;margin:4px 0">
+      <div style="font-size:1.02rem;font-weight:800">אחסון בפועל: ${_fmtGB(tot)}
+        <span style="font-weight:400;color:#6b7280;font-size:.82rem"> · ${(r.totalFiles||0).toLocaleString('he-IL')} קבצים · כ-$${(gb*_USD_GB_MONTH).toFixed(2)} לחודש</span></div>
+      <div style="font-size:.78rem;color:#6b7280;margin:4px 0 8px">אין תקרה קשיחה בתוכנית — מקום ייגמר רק אם נפסיק לשלם. הלקוחות אינם חסומים.</div>
+      ${r.truncated ? '<div style="background:#fef3c7;color:#92400e;border-radius:8px;padding:8px 10px;font-size:.8rem;margin-bottom:8px">⚠️ הסריקה נעצרה אחרי 60 אלף קבצים — המספר כאן הוא <b>מינימום</b>, לא הסך-הכול.</div>' : ''}
+      <table style="width:100%;border-collapse:collapse;font-size:.84rem">${rows}</table>
+      <div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap">
+        <button id="clnProofsBtn" class="btn ghost" style="font-size:.8rem">🧹 נקה פרופרי-לקוחות ישנים</button>
+        <button id="clnCardsBtn" class="btn ghost" style="font-size:.8rem">🧹 נקה פרופרי כרטיסי-עבודה ישנים</button>
+      </div></div>`;
+    const p = document.getElementById('clnProofsBtn'), c = document.getElementById('clnCardsBtn');
+    if (p) p.onclick = () => _storageCleanup('proofs');
+    if (c) c.onclick = () => _storageCleanup('cards');
+  } catch(e){
+    /* ⚠️ "לא הצלחנו למדוד" ולא נפילה חזרה להערכה בשקט — הערכה שמוצגת
+       כמדידה היא בדיוק הבאג שתיקנו כאן. */
+    console.error('מדידת-אחסון נכשלה', e);
+    u.innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:9px;padding:11px 13px;margin:4px 0;font-size:.85rem">'
+      + '⚠️ מדידת-האחסון נכשלה: ' + escapeHtml(String(e.message || e))
+      + '<div style="margin-top:6px;color:#7f1d1d">ההערכה מהרשומות (חלקית, ללא פרופרי-כרטיסים): <b>'
+      + _fmtGB(_usageBytes()) + '</b></div></div>';
+  }
+}
+$('usageBtn').onclick = () => _renderUsageReal();
 /* ── 🧹 ניקוי-אחסון (בקשת-בעלים 15/08/2026) ───────────────────────────────
    המחיקה עצמה ב-Function (חוקי-Storage חוסמים delete מהדפדפן, בכוונה);
    כאן רק: רשימת-מועמדים → אישור-בעלים מפורש עם שמות וגדלים → מחיקה.
@@ -4591,34 +4636,41 @@ async function _fnCall(name, body){
 }
 const _fmtGB = (b) => b >= 1024*1024*1024 ? (b/(1024*1024*1024)).toFixed(2) + ' GB'
                     : b >= 1024*1024 ? (b/(1024*1024)).toFixed(1) + ' MB' : Math.round(b/1024) + ' KB';
-async function _storageCleanup(){
-  const v = prompt('למחוק קבצים של עבודות שהושלמו לפני כמה ימים?\n(מינימום 30 — נאכף גם בשרת; הרשומות והיסטוריית-העבודה נשארות)', '60');
+async function _storageCleanup(scope){
+  /* שתי משפחות (19/08/2026): פרופרי-לקוחות, ופרופרי כרטיסי-עבודה שלא
+     היו בשדה-הראייה של הכלי עד היום ותופסים בפועל יותר מהם. */
+  const isCards = scope === 'cards';
+  const what = isCards ? 'כרטיסי-עבודה שהסתיימו' : 'עבודות-לקוח שהושלמו';
+  const v = prompt('למחוק קבצים של ' + what + ' לפני כמה ימים?\n(מינימום 30 — נאכף גם בשרת; הרשומות והיסטוריית-העבודה נשארות)', '60');
   if (v === null) return;
   const days = parseInt(v, 10);
   if (!isFinite(days) || days < 30){ alert('מינימום 30 יום.'); return; }
   const b = $('cleanupBtn'); b.disabled = true; b.textContent = '🧹 בודק…';
   try {
-    const res = await _fnCall('storageCleanup', { days: days });
+    const res = await _fnCall('storageCleanup', { days: days, scope: scope || 'proofs' });
     const cands = (res && res.candidates) || [];
-    if (!cands.length){ alert('אין עבודות שהושלמו לפני ' + days + '+ ימים עם קבצים לניקוי.'); return; }
+    if (!cands.length){ alert('אין ' + what + ' לפני ' + days + '+ ימים עם קבצים לניקוי.'); return; }
     const total = cands.reduce((s, c) => s + (c.bytes || 0), 0);
     const nl = String.fromCharCode(10);
     const sample = cands.slice(0, 12).map(c =>
       '· ' + c.title + ' (' + new Date(c.completedAt).toLocaleDateString('he-IL') + ')').join(nl);
-    if (!confirm('נמצאו ' + cands.length + ' עבודות — יימחקו כ-' + _fmtGB(total) + ' של קבצים:' + nl + nl
+    /* ⚠️ בכרטיסים אין fileSize ברשומה — הגודל לא ידוע מראש, ולומר "כ-0"
+       גרוע מלומר "לא ידוע". */
+    const sizeTxt = total ? ('כ-' + _fmtGB(total) + ' של קבצים') : 'הקבצים שלהן (הגודל יתברר בסריקה)';
+    if (!confirm('נמצאו ' + cands.length + ' ' + (isCards ? 'כרטיסים' : 'עבודות') + ' — יימחקו ' + sizeTxt + ':' + nl + nl
       + sample + (cands.length > 12 ? (nl + '…ועוד ' + (cands.length - 12)) : '') + nl + nl
       + 'הקבצים נמחקים לצמיתות מהאחסון (הרשומות נשארות). להמשיך?')) return;
     b.textContent = '🧹 מוחק…';
-    const del = await _fnCall('storageCleanup', { action: 'delete', days: days, ids: cands.map(c => c.id) });
+    const del = await _fnCall('storageCleanup', { action: 'delete', days: days, scope: scope || 'proofs', ids: cands.map(c => c.id) });
     const ok = (del.deleted || []).length, bad = (del.failed || []).length;
-    alert('✓ נוקו ' + ok + ' עבודות (~' + _fmtGB(total) + ')' + (bad ? (nl + '⚠️ ' + bad + ' נכשלו — ראו console') : ''));
+    alert('✓ נוקו ' + ok + (isCards ? ' כרטיסים' : ' עבודות') + (total ? (' (~' + _fmtGB(total) + ')') : '') + (bad ? (nl + '⚠️ ' + bad + ' נכשלו — ראו console') : ''));
     if (bad) console.error('ניקוי-אחסון — כשלים:', del.failed);
   } catch(e){
     console.error('ניקוי-אחסון נכשל', e);
     alert('⚠️ ניקוי-האחסון נכשל: ' + (e.message || e));
   } finally { b.disabled = false; b.textContent = '🧹 ניקוי קבצים ישנים'; }
 }
-$('cleanupBtn').onclick = _storageCleanup;
+$('cleanupBtn').onclick = () => _storageCleanup('proofs');
 $('portalsBtn').onclick = () => openPortalsBatch();
 
 /* ── 📥 התקנה כאפליקציה למחשב ────────────────────────────────────────────────
