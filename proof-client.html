@@ -19,13 +19,13 @@
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1787167205"></script>
-<script src="portal-context.js?v=1787167205"></script>
+<script src="upload-type.js?v=1787167969"></script>
+<script src="portal-context.js?v=1787167969"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi2"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1787167205"></script>
-<script src="portal-return.js?v=1787167205"></script>
+<script src="page-replace.js?v=1787167969"></script>
+<script src="portal-return.js?v=1787167969"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -908,29 +908,52 @@ function _pcRunSort(a, b) {
 /* ⚠️ ההודעה הקודמת אמרה "סודרו לפי שם הקובץ" ולא הראתה את הסדר שנבחר, ולכן
    לקוח שהעלה את השער בריצה השנייה לא יכול היה לראות זאת לפני האישור.
    עכשיו הסדר עצמו מוצג, וקובץ בלי סימון-ריצה מסומן במפורש. */
+/* שם שהוא מספר-עמוד או כפולה ("7", "2-3", "עמוד 12") — לא קובץ-ריצה */
+function _pcPageishName(nm) {
+  const s = String(nm == null ? '' : nm).replace(/\.pdf$/i, '').trim();
+  return /^(?:עמוד|עמודים|page)?\s*\d{1,3}(?:\s*[-_ ]\s*\d{1,3})?$/i.test(s);
+}
 function _orderNotice(n, names) {
   const list = Array.isArray(names) ? names : [];
   const unmarked = list.filter(nm => _pcRunNoOf(nm) == null);
+  /* ⚠️ "המסך הכחול" — תקרית 19/08/2026, פעמיים באותו ערב (מידע-העיר):
+     לקוח שהעלה 19 קובצי-**עמודים** ("1", "2-3"…) קיבל את דיאלוג-הריצות —
+     כל קובץ סומן "⚠ ללא ריצה", הרשימה מילאה את המסך, ולבאנר לא היה
+     כפתור-סגירה ולא פסק-זמן. הלקוח בטוח שהמערכת קרסה ("נתקע").
+     קבצים ששמם מספרי-עמודים אינם ריצות — מקבלים חיווי קצר, לא קיר. */
+  const pageish = list.length > 1 && unmarked.length === list.length
+    && list.filter(_pcPageishName).length >= Math.ceil(list.length * 0.6);
   let el = document.getElementById('orderNotice');
   if (!el) {
     el = document.createElement('div');
     el.id = 'orderNotice';
-    el.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:120;background:#1d4ed8;color:#fff;padding:11px 20px;border-radius:12px;font-size:.92rem;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.3);direction:rtl;max-width:92vw;text-align:center';
+    el.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:120;background:#1d4ed8;color:#fff;padding:11px 38px 11px 20px;border-radius:12px;font-size:.92rem;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.3);direction:rtl;max-width:92vw;text-align:center';
     document.body.appendChild(el);
+  }
+  const closeBtn = '<span onclick="document.getElementById(\'orderNotice\').style.display=\'none\'" '
+    + 'style="position:absolute;top:7px;inset-inline-end:10px;cursor:pointer;font-size:1.05rem;opacity:.85;padding:2px 6px">✕</span>';
+  if (pageish) {
+    el.innerHTML = closeBtn + '📑 ' + n + ' עמודים סודרו לפי <b>מספר העמוד</b> — בדקו את הסדר ברשימה למטה';
+    el.style.display = 'block';
+    clearTimeout(el._tid);
+    el._tid = setTimeout(() => { el.style.display = 'none'; }, 8000);
+    return;
   }
   // שם-קובץ הוא קלט-משתמש — לברוח מכל שם בנפרד ורק אחר-כך לחבר עם <br>
   const order = list.map(function(nm){
     const r = _pcRunNoOf(nm);
     return esc(r == null ? '⚠ ללא ריצה' : 'ריצה ' + r) + ': ' + esc(nm);
   }).join('<br>');
-  el.innerHTML = '📑 ' + n + ' קבצים סודרו לפי <b>מספר הריצה</b> — בדקו שהסדר נכון לפני האישור'
-    + (order ? '<div style="font-weight:400;font-size:.84rem;margin-top:6px;text-align:right;opacity:.95">' + order + '</div>' : '')
+  /* ⚠️ הרשימה לעולם אינה ממלאת את המסך — גלילה פנימית */
+  el.innerHTML = closeBtn + '📑 ' + n + ' קבצים סודרו לפי <b>מספר הריצה</b> — בדקו שהסדר נכון לפני האישור'
+    + (order ? '<div style="font-weight:400;font-size:.84rem;margin-top:6px;text-align:right;opacity:.95;max-height:38vh;overflow-y:auto">' + order + '</div>' : '')
     + (unmarked.length ? '<div style="font-weight:700;font-size:.86rem;margin-top:6px;background:#b91c1c;border-radius:8px;padding:6px 9px">'
         + unmarked.length + ' קבצים ללא סימון ריצה (R-1 / R-2) נכנסו בסוף — ודאו שזה הסדר הנכון</div>' : '');
   el.style.display = 'block';
   clearTimeout(el._tid);
-  // ⚠️ בלי סימון-ריצה זו אזהרה, לא חיווי — היא נשארת עד שהמשתמש ממשיך.
-  if (!unmarked.length) el._tid = setTimeout(() => { el.style.display = 'none'; }, 12000);
+  /* ⚠️ גם אזהרה נעלמת בסוף — באנר-נצח בלי סגירה הוא "המסך נתקע" בעיני
+     הלקוח. האזהרה נשארת יותר זמן, אבל לא לנצח. */
+  el._tid = setTimeout(() => { el.style.display = 'none'; }, unmarked.length ? 30000 : 12000);
 }
 // ── הערות דרישות קבצים (סטטי, ללא בדיקת הקובץ) + הערת סטיית צבע מסך↔הדפסה ──
 function buildPreflight(){
