@@ -325,6 +325,58 @@
           || String(a.pid).localeCompare(String(b.pid));
     });
   }
+  /* ── פריסת-העמודים לריצות (קונטרסים) ─────────────────────────────────────
+     ⚠️ 19/08/2026, תיקון-בעלים: **ריצה אינה טווח-עמודים רציף.** קונטרס
+     חיצוני נושא את העמודים הראשונים **ואת האחרונים** יחד — 72 עמודים על
+     גיליון 32 הם שלוש ריצות: 8 (עמ׳ 1–4 + 69–72) · 32 (5–20 + 53–68) ·
+     32 (21–52). הנחת-הרציפות שהייתה כאן ציירה תשע ריצות של 8 ברצף, וזה
+     פשוט לא הגיליון שיוצא לדפוס.
+
+     הלוגיקה עצמה אינה חדשה — היא ‎_pcRunLayout‎ ב-‎proof-client.html‎,
+     המסך שבו הלקוח בוחר ריצה בהעלאה. ⚠️ ‏proof-client אינו טוען את
+     המודול הזה, ולכן זו **הכפלה מודעת** ולא איחוד: הפורט כאן נאמן מילה
+     במילה, ובדיקת-אנטי-סחיפה (‎shop-issue-tests‎, סעיף 7ב-4) מריצה את
+     שתי המימושים זה מול זה. ברגע ש-proof-client יטען את shop-issue —
+     למחוק שם ולהשאיר כאן אחד.
+
+     ⚠️ עמודים אי-זוגיים אינם נפרסים (חצי-קונטרס אינו קיים) — מחזירים
+     רשימה ריקה במקום לחשב חצי-עמוד. */
+  function runLayout(total, sheet) {
+    var t = num(total) | 0, fs = num(sheet) | 0;
+    if (!(t > 0) || !(fs > 1) || (t % 2)) return [];
+    var layers = [];
+    if (fs === 32 && (t === 20 || t === 24)) { layers.push(t - 16); layers.push(16); }
+    else {
+      var rem = t % fs; if (rem) layers.push(rem);
+      var inner = t - rem;
+      while (inner > 0) { layers.push(fs); inner -= fs; }
+    }
+    for (var q = 0; q < layers.length; q++) if (layers[q] % 2) return [];
+    var front = 1, back = t, out = [];
+    layers.forEach(function (lp, i) {
+      var isLast = (i === layers.length - 1), half = lp / 2, seq = [], label, pg;
+      if (isLast && lp === fs) {
+        for (pg = front; pg <= front + lp - 1; pg++) seq.push(pg);
+        label = 'עמ׳ ' + front + '–' + (front + lp - 1);
+        front += lp;
+      } else {
+        var fe = front + half - 1, bs = back - half + 1;
+        for (pg = front; pg <= fe; pg++) seq.push(pg);
+        for (pg = bs; pg <= back; pg++) seq.push(pg);
+        label = (fe + 1 === bs) ? ('עמ׳ ' + front + '–' + back)
+                                : ('עמ׳ ' + front + '–' + fe + ' + ' + bs + '–' + back);
+        front += half; back -= half;
+      }
+      out.push({ num: i + 1, pages: lp, seq: seq, label: label });
+    });
+    return out;
+  }
+  /* הפריסה של גיליון נתון — סה"כ-העמודים מההצהרה, גודל-הגיליון מ-sheetPagesOf */
+  function layoutOf(p) {
+    var r = p || {};
+    var total = Math.min(num(r.declaredPages) | 0 || num(r.totalPages) | 0, 400);
+    return runLayout(total, sheetPagesOf(r).sheet);
+  }
   /* מספר-העמוד-בגיליון שבו מתחילה הריצה. ⚠️ מסכום-העמודים של הריצות
      שלפניה, ולא (מספר-ריצה × 16) — לריצות יש אורכים שונים (16 + 32).
      ⚠️ 19/08/2026: הסכימה ספרה רק ריצות **שכבר הועלו**, ולכן כשריצה 1
@@ -459,28 +511,37 @@
                    partId: '', mark: markOf(r, 'full', 1) });
     }
     var parts = (r.parts && typeof r.parts === 'object') ? r.parts : {};
+    var lay = layoutOf(r);                             // פריסת-הקונטרסים, אם ידועה
     Object.keys(parts).forEach(function (k) {
       var t = parts[k] || {};
       if (!str(t.fileUrl)) return;                     // ריצה בלי קובץ אינה אריח
       /* ⚠️ אירוע-ייצור 19/08/2026, ערדניקים גיליון 283: הלקוח הצהיר 72
          עמודים והעלה ריצה אחת בת 8 — והרשת הציגה 71 אריחי-"חסר", כולל
-         שבעת העמודים שנמצאים **בתוך** אותו קובץ. שני שורשים, שניהם כאן:
+         העמודים שנמצאים **בתוך** אותו קובץ. שני שורשים, שניהם כאן:
          ‏(א) ‎pageNoOf('ריצה 1')‎ תופס את הספרה הראשונה במחרוזת — כלומר
              מספר-הריצה נקרא כמספר-עמוד, וריצה 2 נחתה על משבצת עמוד 2.
-             ‏runFirstPageNo הוא מקור-האמת (סכום-עמודי-הריצות שלפניה),
-             והוא כבר קיים בקובץ — הוא פשוט לא נקרא מכאן.
          ‏(ב) הריצה נספרה כעמוד אחד, ולכן שאר עמודיה נראו ריקים.
-         ריצה נשארת אריח **אחד** — הפריסה הפנימית היא ‎_runExpand‎ במסך-הדפוס
-         ‏(מטמון-העמודים, לא קובץ-הריצה) — אבל היא תופסת את **טווח**-העמודים
-         שלה, ו-‎pages‎ הוא הטווח הזה. */
+         ⚠️ תיקון-בעלים באותו יום: גם "טווח רציף" היה שגוי. **הריצה היא
+         קונטרס** — ריצה 1 של גיליון 72 עמ׳ על גיליון-32 היא עמ׳ 1–4 **וגם**
+         69–72. לכן מקור-האמת הוא ‎runLayout‎ (אותה פריסה של מסך-ההעלאה),
+         והעמודים נשמרים ב-‎seq‎. אין פריסה (חסר גודל-גיליון או הצהרה) —
+         נופלים להתנהגות הקודמת ולא ממציאים קונטרסים. */
       var span = num(t.pageCount) | 0;
-      var no = (span > 1) ? runFirstPageNo(r, k) : pageNoOf(t.name);
       var nm = str(t.name) || 'ריצה';
-      /* הטווח בתווית — אחרת "ריצה 1" במשבצת 1 נקרא כעמוד 1 בודד, וזו בדיוק
-         התלונה שהגיעה מהלקוח ("כל ריצה 1 עומד על המקום של עמוד 1"). */
+      var lr = null;
+      if (span > 1 && lay.length) {
+        var rno = runNoOfName(nm);
+        if (rno) for (var li = 0; li < lay.length; li++) if (lay[li].num === rno) lr = lay[li];
+      }
+      var no = lr ? lr.seq[0] : ((span > 1) ? runFirstPageNo(r, k) : pageNoOf(t.name));
       tiles.push({ kind: 'page', target: k, pageNo: no, page: 1, url: str(t.fileUrl),
-                   label: (span > 1 && no >= 1) ? (nm + ' · עמ׳ ' + no + '–' + (no + span - 1)) : nm,
-                   runName: nm, at: num(t.approvedAt),
+                   label: lr ? (nm + ' · ' + lr.label)
+                             : ((span > 1 && no >= 1) ? (nm + ' · עמ׳ ' + no + '–' + (no + span - 1)) : nm),
+                   runName: nm, at: num(t.approvedAt), seq: lr ? lr.seq : null,
+                   /* ⚠️ ריצה שהגיעה באורך שאינו אורך-הקונטרס שלה: או שגודל-
+                      הגיליון שמור שגוי, או שהקובץ אינו הריצה שנאמר עליה.
+                      נאמר במפורש — הרשת לא תסתיר את זה בחישוב. */
+                   runPagesMismatch: (lr && lr.pages !== span) ? { got: span, want: lr.pages } : null,
                    partId: k, pages: num(t.pageCount) || 0, mark: markOf(r, k, 1) });
     });
     fileEntries(r).forEach(function (f, i) {
@@ -501,11 +562,12 @@
                    partId: '', mark: markOf(r, 'file_' + kk.slice(1), 1) });
     });
     /* עמודים חסרים — רק מספרים שאין להם אריח קיים.
-       ⚠️ אריח-ריצה מכסה ‎pages‎ עמודים, לא אחד: עמוד שנמצא **בתוך** ריצה
-       שהתקבלה אינו חסר. תקרה 400 כמו במסלול עיתון-מלא — ‎pageCount‎ פרוע
-       לא ינפח כאן לולאה. */
+       ⚠️ אריח-ריצה מכסה את **עמודי-הקונטרס שלו** (‎seq‎), ולא טווח רציף:
+       ריצה 1 מכסה 1–4 ו-69–72, ולא 1–8. אין פריסה → נופלים לטווח רציף
+       (התנהגות קודמת), עם תקרה 400 כמו במסלול עיתון-מלא. */
     var have = {};
     tiles.forEach(function (t) {
+      if (t.seq && t.seq.length) { t.seq.forEach(function (q) { have[q] = true; }); return; }
       if (t.pageNo == null) return;
       var span = Math.min(Math.max(1, num(t.pages) | 0), 400);
       for (var j = 0; j < span; j++) have[t.pageNo + j] = true;
@@ -546,62 +608,57 @@
      שהתקבלה לפי אורכה האמיתי, והפערים ביניהן לריצות-שטרם-הגיעו בגודל
      גיליון (‎sheetPages‎). העמוד עצמו לא נעלם — הוא בתוך הריצה.
 
-     ⚠️ אורך-ריצה **נקרא ולא מחושב**: לגיליון יכולות להיות ריצות באורכים
-     שונים (16 + 32). ‏sheetPages משמש רק להערכת ריצה שטרם ראינו — שם אין
-     מה לקרוא. אין sheetPages ואין ריצות → ‎ok:false‎, והמסך נשאר ברשת
+     ⚠️ הפריסה **אינה מחושבת כאן** — היא ‎runLayout‎, אותה פריסת-קונטרסים
+     של מסך-ההעלאה. כאן רק מוצמד מה שהגיע למה שאמור להגיע. אין פריסה
+     (חסר גודל-גיליון או מספר-עמודים) → ‎ok:false‎, והמסך נשאר ברשת
      השטוחה. לא ממציאים חלוקה. */
   function runGrid(p) {
     var r = p || {};
     var tiles = pageTiles(r);
-    var sheet = sheetPagesOf(r).sheet;
-    /* איזה עמוד יושב באיזה אריח — כולל עמודים שבתוך ריצה */
-    var at = {}, last = 0;
+    var lay = layoutOf(r);
+    if (!lay.length) return { ok: false, why: 'אין פריסת-ריצות — חסר גודל-גיליון או מספר-עמודים' };
+    /* איזה אריח מכסה כל עמוד — קונטרס לפי ‎seq‎, קובץ-בודד לפי מספרו */
+    var at = {};
     tiles.forEach(function (t, i) {
-      if (t.kind !== 'page' || t.pageNo == null) return;
+      if (t.kind !== 'page') return;
+      if (t.seq && t.seq.length) { t.seq.forEach(function (q) { at[q] = i; }); return; }
+      if (t.pageNo == null) return;
       var span = Math.min(Math.max(1, num(t.pages) | 0), 400);
-      for (var j = 0; j < span; j++) { at[t.pageNo + j] = i; last = Math.max(last, t.pageNo + j); }
+      for (var j = 0; j < span; j++) at[t.pageNo + j] = i;
     });
-    var runs = [];   // אריחי-ריצה ממשיים, לפי עמוד-הפתיחה
+    /* ריצה שהועלתה מוצמדת לקונטרס **לפי מספר-הריצה שבשמה** — לא לפי
+       עמוד-פתיחה. זה מה שהלקוח כתב על הקובץ, וזה מה שהדפוס קורא. */
+    var byNo = {};
     tiles.forEach(function (t, i) {
-      if (t.kind === 'page' && t.partId && num(t.pages) > 1 && t.pageNo >= 1) runs.push({ t: t, i: i });
+      if (t.kind !== 'page' || !t.partId || num(t.pages) <= 1) return;
+      var n = runNoOfName(t.runName || t.label);
+      if (n && !byNo[n]) byNo[n] = { t: t, i: i };
     });
-    var declared = Math.min(num(r.declaredPages) | 0, 200);
-    var total = Math.max(declared, last);
-    if (!runs.length || total < 1) return { ok: false, why: 'אין ריצות בגיליון הזה' };
-    if (!sheet && total > last) return { ok: false, why: 'אין גודל-גיליון — לא ידוע כמה עמודים בריצה שטרם הגיעה' };
-    var start = {};
-    runs.forEach(function (x) { start[x.t.pageNo] = x; });
-    var out = [], pos = 1, n = 0;
-    while (pos <= total && out.length < 100) {
-      n++;
-      var hit = start[pos];
-      var len;
-      if (hit) len = Math.max(1, num(hit.t.pages) | 0);
-      else {
-        /* לכל היותר גיליון אחד, ולא מעבר לפתח הריצה הממשית הבאה.
-           ⚠️ הקטיעה ב-‎nxt‎ היא הגנה בלבד ואינה נבדקת: היום כל פער נאמד
-           ב-‎runFirstPageNo‎ בדיוק בגודל-גיליון, ולכן היא לעולם אינה
-           מכריעה. היא כאן כדי שריצה שהגיעה לא תיבלע אם חישוב-הפתיחה
-           ישתנה — לא כדי לתקן מצב קיים. */
-        var nxt = 0;
-        runs.forEach(function (x) { if (x.t.pageNo > pos && (!nxt || x.t.pageNo < nxt)) nxt = x.t.pageNo; });
-        len = Math.min(sheet || (total - pos + 1), nxt ? (nxt - pos) : (total - pos + 1), total - pos + 1);
-      }
-      var to = Math.min(pos + len - 1, total);
-      var pages = [], miss = [];
-      for (var q = pos; q <= to; q++) {
+    var out = lay.map(function (L) {
+      var hit = byNo[L.num] || null;
+      var pages = L.seq.map(function (q) {
         var ti = (at[q] == null) ? -1 : at[q];
-        pages.push({ no: q, got: ti >= 0, tileIndex: ti });
-        if (ti < 0) miss.push(q);
-      }
-      out.push({ no: n, from: pos, to: to,
-                 got: !!hit, partId: hit ? hit.t.partId : '',
-                 name: hit ? (hit.t.runName || hit.t.label) : ('ריצה ' + n),
-                 tileIndex: hit ? hit.i : -1,
-                 pageCount: to - pos + 1, pages: pages, missing: miss });
-      pos = to + 1;
-    }
-    return { ok: true, sheet: sheet, total: total, runs: out,
+        return { no: q, got: ti >= 0, tileIndex: ti };
+      });
+      return { no: L.num, label: L.label, from: L.seq[0], to: L.seq[L.seq.length - 1],
+               pageCount: L.pages, got: !!hit,
+               partId: hit ? hit.t.partId : '',
+               name: hit ? (hit.t.runName || ('ריצה ' + L.num)) : ('ריצה ' + L.num),
+               tileIndex: hit ? hit.i : -1,
+               pagesMismatch: hit ? hit.t.runPagesMismatch : null,
+               pages: pages,
+               missing: pages.filter(function (x) { return !x.got; }).map(function (x) { return x.no; }) };
+    });
+    /* ריצה שהועלתה ואין לה קונטרס בפריסה (מספר גבוה מדי / שם חריג) —
+       אינה נעלמת מהמסך. היא נאמרת, כי היא סימן שהפריסה או השם שגויים. */
+    var orphan = [];
+    tiles.forEach(function (t, i) {
+      if (t.kind !== 'page' || !t.partId || num(t.pages) <= 1) return;
+      var n = runNoOfName(t.runName || t.label);
+      if (!n || n > lay.length) orphan.push({ name: t.runName || t.label, tileIndex: i, partId: t.partId });
+    });
+    return { ok: true, sheet: sheetPagesOf(r).sheet, total: lay.reduce(function (s, L) { return s + L.pages; }, 0),
+             runs: out, orphans: orphan,
              gotRuns: out.filter(function (x) { return x.got; }).length };
   }
 
@@ -611,7 +668,7 @@
     statusOf: statusOf, printApproved: printApproved,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
-    pageNoOf: pageNoOf, pageTiles: pageTiles, runGrid: runGrid, markOf: markOf, markPatch: markPatch,
+    pageNoOf: pageNoOf, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
     runNoOfName: runNoOfName, renameRunNo: renameRunNo, runRenumberPatch: runRenumberPatch,

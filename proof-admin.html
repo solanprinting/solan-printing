@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787124114"></script>
-<script src="chat-alert.js?v=1787124114"></script>
-<script src="shop-issue.js?v=1787124114"></script>
-<script src="page-marks.js?v=1787124114"></script>
-<script src="kontres-split.js?v=1787124114"></script>
+<script src="portal-chat.js?v=1787126178"></script>
+<script src="chat-alert.js?v=1787126178"></script>
+<script src="shop-issue.js?v=1787126178"></script>
+<script src="page-marks.js?v=1787126178"></script>
+<script src="kontres-split.js?v=1787126178"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787124114"></script>
-<script src="auth-client.js?v=1787124114"></script>
+<script src="firebase-auth.bundle.js?v=1787126178"></script>
+<script src="auth-client.js?v=1787126178"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787124114" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787126178" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1367,9 +1367,9 @@ function render(rows) {
        השטוחה. */
     const rgrid = ShopIssue.runGrid(p);
     window._runGridReg = rgrid.ok ? { id: p.id, p: p, grid: rgrid } : null;
-    const runsGrid = !rgrid.ok ? '' : `<div class="isGridT">ריצות: <b>${rgrid.gotRuns}</b> מתוך <b>${rgrid.runs.length}</b> · ${nPages} עמודים מתוך ${rgrid.total}${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על ריצה: פריסת עמודיה</div>
+    const runsGrid = !rgrid.ok ? '' : `<div class="isGridT">ריצות: <b>${rgrid.gotRuns}</b> מתוך <b>${rgrid.runs.length}</b> · ${nPages} עמודים מתוך ${rgrid.total} · גיליון: <b>${rgrid.sheet}</b> עמ׳${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על ריצה: פריסת עמודיה</div>
          <div class="isPages">${rgrid.runs.map(rn => {
-           const rng = `עמ׳ ${rn.from}–${rn.to}`;
+           const rng = escapeHtml(rn.label);
            if (!rn.got)
              return `<div class="pgT miss" data-runmiss="${rn.no}" style="cursor:pointer" title="לחיצה — אילו עמודים חסרים בריצה"><div class="pgTh">✚</div>
                <div class="pgNm">${escapeHtml(rn.name)} · ${rng}</div>
@@ -1379,9 +1379,9 @@ function render(rows) {
            return `<div class="pgT${mk?(mk.kind==='replace'?' mRep':' mOk'):''}" data-tile="${rn.tileIndex}" title="${escapeHtml(rn.name)} · ${rng}">
              <div class="pgTh" data-thumb="${rn.tileIndex}"><span class="pgPh">📄</span>${mk?`<span class="pgMk">${mk.kind==='replace'?'🔁':'✔'}</span>`:''}</div>
              <div class="pgNm">${escapeHtml(rn.name)} · ${rng}</div>
-             ${rn.missing.length?`<div class="pgNote" style="color:#b45309">⚠️ ${rn.missing.length} עמ׳ חסרים בריצה</div>`:(t.at?`<div class="pgSub">${fmt(t.at)}</div>`:'')}
+             ${rn.pagesMismatch?`<div class="pgNote" style="color:#b91c1c">⚠️ הגיעו ${rn.pagesMismatch.got} עמ׳ · הקונטרס ${rn.pagesMismatch.want}</div>`:rn.missing.length?`<div class="pgNote" style="color:#b45309">⚠️ ${rn.missing.length} עמ׳ חסרים בריצה</div>`:(t.at?`<div class="pgSub">${fmt(t.at)}</div>`:'')}
            </div>`; }).join('')}</div>
-         <div id="runExp" class="runExp"></div>`;
+         ${rgrid.orphans.length?`<div class="isGridT" style="color:#b91c1c">⚠️ מחוץ לפריסה: ${rgrid.orphans.map(o=>escapeHtml(o.name)).join(" · ")} — או שגודל-הגיליון שמור שגוי, או שהשם אינו מספר-הריצה</div>`:""}<div id="runExp" class="runExp"></div>`;
     const pagesGrid = runsGrid || (tiles.length
       ? `<div class="isGridT">עמודים שהתקבלו (${nPages})${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על עמוד: הגדלה · סימון · הורדה</div>
          <div class="isPages">${tiles.map((t, i) => {
@@ -2961,7 +2961,7 @@ function _runMissExpand(n){
   if (_runExpKey === 'miss:' + n) { _runExpClose(); return; }   // לחיצה שנייה סוגרת
   _runExpKey = 'miss:' + n;
   host.innerHTML = `<div class="runExpBar"><b>${escapeHtml(rn.name)}</b>
-      <span class="runExpNote bad">טרם הגיעה — חסרים ${rn.missing.length} מתוך ${rn.pageCount} עמודים (עמ׳ ${rn.from}–${rn.to})</span>
+      <span class="runExpNote bad">טרם הגיעה — חסרים ${rn.missing.length} מתוך ${rn.pageCount} עמודים (${escapeHtml(rn.label)})</span>
       <button class="isBtn" data-runmissremind="1">📩 תזכורת ללקוח</button>
       <button class="isBtn" data-runclose="1">✕ סגור</button></div>
     <div class="isPages runExpPages">${rn.pages.map(pg => pg.got
@@ -2986,7 +2986,7 @@ function _pgRemindRun(n){
   const rn = reg && reg.grid.runs.find(x => x.no === Number(n));
   if (!rn) { msg('הריצה לא נמצאה — רעננו'); return; }
   const ta = document.getElementById('shChatInput');
-  const txt = 'שלום, חסרה עדיין ' + rn.name + ' (עמ׳ ' + rn.from + '–' + rn.to + ') לגיליון. אפשר לשלוח אותה?';
+  const txt = 'שלום, חסרה עדיין ' + rn.name + ' (' + rn.label + ') לגיליון. אפשר לשלוח אותה?';
   if (ta) { ta.value = txt; ta.focus(); ta.scrollIntoView({ block: 'nearest' }); }
   else msg('פתחו את הלקוח כדי לשלוח לו הודעה');
 }
