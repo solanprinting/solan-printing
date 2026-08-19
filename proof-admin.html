@@ -33,24 +33,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787152465"></script>
-<script src="chat-alert.js?v=1787152465"></script>
-<script src="shop-issue.js?v=1787152465"></script>
-<script src="page-marks.js?v=1787152465"></script>
+<script src="portal-chat.js?v=1787157110"></script>
+<script src="chat-alert.js?v=1787157110"></script>
+<script src="shop-issue.js?v=1787157110"></script>
+<script src="page-marks.js?v=1787157110"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787152465"></script>
-<script src="kontres-split.js?v=1787152465"></script>
+<script src="page-box.js?v=1787157110"></script>
+<script src="kontres-split.js?v=1787157110"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787152465"></script>
-<script src="auth-client.js?v=1787152465"></script>
+<script src="firebase-auth.bundle.js?v=1787157110"></script>
+<script src="auth-client.js?v=1787157110"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787152465" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787157110" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -260,6 +260,8 @@ window.addEventListener('appinstalled', function(){
            display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; }
   .ccToggle { background:none; border:none; cursor:pointer; font-weight:900;
               color:#2d3561; font-size:.86rem; padding:2px 0; }
+  .ccEdit { float:inline-end; font-size:.76rem; font-weight:800; color:#4338ca; background:#eef2ff;
+           border:1px solid #c7d2fe; border-radius:7px; padding:2px 9px; cursor:pointer; }
   .ccBody { display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; }
   .ccItem { font-size:.83rem; color:#374151; white-space:nowrap; }
   .ccItem b { color:#6b7280; font-weight:700; }
@@ -998,16 +1000,25 @@ function _custCardHtml(name){
   if (!name || !window.ShopIssue || !ShopIssue.customerCard) return '';
   if (_customersDb === null && _newspapersDb === null)
     return `<div class="ccard"><span class="ccWarn">⚠️ פרטי-הלקוח לא נטענו — רעננו את המסך</span></div>`;
-  const c = ShopIssue.customerCard(name, _customersDb, _newspapersDb);
+  const c = ShopIssue.customerCard(name, _customersDb, _newspapersDb, _contactsDb);
   const open = !_ccCollapsed;
   const row = (icon, label, val, extra) => val
     ? `<span class="ccItem"><b>${icon} ${label}:</b> ${escapeHtml(val)}${extra||''}</span>` : '';
   const waTxt = encodeURIComponent('שלום, כאן סולן הדפסות בנוגע ל' + name);
+  /* ⚠️ בקשת-בעלים 19/08/2026: **פלאפון בשורה נפרדת**, ווואטסאפ עליו.
+     ⚠️ הוואטסאפ מוצג **רק כשיש נייד אמיתי** — ‏ShopIssue מסנן מספר קווי,
+     כי קישור-וואטסאפ למספר משרד מוביל לשום-מקום, וכפתור שלא עובד גרוע
+     מהיעדרו. חיוג נשאר על הראשי: למשרד עונים, לנייד לא תמיד. */
+  const waLink = c.wa
+    ? ` <a class="ccGo" href="https://wa.me/${c.wa}?text=${waTxt}" target="_blank" rel="noopener" title="פתיחת וואטסאפ (אפליקציה או ווב)">וואטסאפ</a>` : '';
   const contact = [
-    row('📞', 'טלפון', c.phone, c.wa
-      ? ` <a class="ccGo" href="https://wa.me/${c.wa}?text=${waTxt}" target="_blank" rel="noopener" title="פתיחת וואטסאפ">וואטסאפ</a>`
-        + ` <a class="ccGo" href="tel:${escapeHtml(c.phone)}" title="חיוג">חיוג</a>` : ''),
-    row('✉️', 'מייל', c.email, ` <a class="ccGo" href="mailto:${escapeHtml(c.email)}" title="שליחת מייל">שלח</a>`),
+    row('📞', 'טלפון', c.phone,
+      ` <a class="ccGo" href="tel:${escapeHtml(c.phone)}" title="חיוג">חיוג</a>`
+      + (c.waFrom === 'phone' ? waLink : '')),
+    row('📱', 'פלאפון', c.mobile,
+      ` <a class="ccGo" href="tel:${escapeHtml(c.mobile)}" title="חיוג">חיוג</a>`
+      + (c.waFrom === 'mobile' ? waLink : '')),
+    row('✉️', 'מייל', c.email, ` <a class="ccGo" href="mailto:${escapeHtml(c.email)}?subject=${encodeURIComponent('סולן הדפסות — ' + name)}" title="פתיחת תוכנת-המייל">שלח מייל</a>`),
     row('📍', 'כתובת', c.address)
   ].filter(Boolean).join('');
   const spec = [ row('📅','יום',c.day), row('📐','גודל',c.size), row('📄','נייר',c.paper),
@@ -1015,30 +1026,97 @@ function _custCardHtml(name){
                ].filter(Boolean).join('');
   const miss = c.missing.length
     ? `<span class="ccWarn">חסר: ${c.missing.map(f=>({phone:'טלפון',email:'מייל',address:'כתובת'}[f])).join(' · ')}</span>` : '';
-  if (!c.found) return `<div class="ccard"><span class="ccWarn">ℹ️ אין רשומת-לקוח בשם הזה — הפרטים נשמרים במסך הלקוחות</span></div>`;
+  /* ⚠️ גם בלי רשומת-לקוח אפשר להוסיף פרטים — העקיפה עומדת בפני עצמה */
+  if (!c.found && !c.hasOverride) return `<div class="ccard"><span class="ccWarn">ℹ️ אין רשומת-לקוח בשם הזה</span> <button class="ccEdit" data-ccedit="${escapeHtml(name)}">✎ הוסף פרטי-קשר</button></div>`;
   return `<div class="ccard">
+    <button class="ccEdit" data-ccedit="${escapeHtml(name)}" title="הוספה/עריכה ידנית של פלאפון, מייל וטלפון">✎ ערוך פרטי-קשר</button>
     <button class="ccToggle" id="ccToggle">${open?'▾':'▸'} 👤 כרטיס לקוח</button>
     ${open ? `<div class="ccBody">${contact}${spec?`<span class="ccSep"></span>${spec}`:''}${miss}</div>` : ''}
   </div>`;
 }
 let _ccCollapsed = false;
+let _contactsDb = null;   // עקיפות-קשר ידניות — גוברות על רשומת-הלקוח
+
+/* ── עריכת פרטי-קשר (בקשת-בעלים 19/08/2026) ───────────────────────────────
+   „תאפשר לערוך כרטיס לקוח בפורטל לקוחות ואנחנו נוסיף ידנית את המייל
+   והוואטסאפ." — עד היום הפרטים היו לקריאה בלבד, מתוך ‎customers‎.
+
+   ⚠️ **הכתיבה היא ל-‎customerContacts‎ ולא ל-‎customers‎, וזו ההחלטה
+   המרכזית כאן.** ‏customers נדחף כ**מערך שלם** מ-krtis-avoda
+   (‏solan-persist ‎_paths‎), ולכן עריכה נקודתית ממסך זה הייתה נמחקת
+   בסבב-הסנכרון הבא — **בשקט**. זו בדיוק תקרית "ניכויי-המלאי שנדרסו".
+   הצומת החדש הוא תוספת בלבד; איש אינו דוחף אותו בשלמותו.
+
+   ⚠️ **מפתח בטוח:** שם-לקוח יכול להכיל ‎. # $ [ ] /‎ שאסורים כמפתח RTDB.
+   המפתח מנוקה, ו-‎name‎ נשמר **בתוך** הרשומה — ‏ShopIssue מתאים לפי שניהם.
+   ⚠️ **מצב-מסך = מצב-שרת:** הכתיבה נבדקת ב-‎r.ok‎ (‏Firebase מחזיר 403
+   כתגובה תקינה), והמסך מתרענן רק אחריה. */
+function _ccKey(name){
+  return String(name || '').trim().replace(/[.#$\[\]\/]/g, '_').slice(0, 120);
+}
+async function _ccEdit(name){
+  if (!name) return;
+  const cur = (window.ShopIssue && ShopIssue.customerCard)
+    ? ShopIssue.customerCard(name, _customersDb, _newspapersDb, _contactsDb) : {};
+  const ask = (label, val) => {
+    const v = prompt(label + '\n\n(ריק = למחוק את העקיפה ולחזור לרשומת-הלקוח)', val || '');
+    return v === null ? null : v.trim();
+  };
+  const mobile = ask('📱 פלאפון (לוואטסאפ) — ' + name, cur.mobile);
+  if (mobile === null) return;
+  const email = ask('✉️ מייל — ' + name, cur.email);
+  if (email === null) return;
+  const phone = ask('📞 טלפון (לחיוג) — ' + name, cur.phone);
+  if (phone === null) return;
+  /* ⚠️ מספר שאינו נייד לא ייתן וואטסאפ — נאמר עכשיו ולא אחרי שהכפתור
+     לא יעבוד. אינו חוסם: אולי זה מספר בחו"ל. */
+  /* ⚠️ השמירה על ‎isMobileIL‎ מפורשת: מודול ישן במטמון (שומר-הגרסה טרם
+     החליף) היה מפיל את הדיאלוג באמצע עריכה. אין פונקציה → פשוט לא
+     מזהירים, ושומרים. */
+  if (mobile && window.ShopIssue && typeof ShopIssue.isMobileIL === 'function'
+      && !ShopIssue.isMobileIL(ShopIssue.waNumber(mobile))
+      && !confirm('⚠️ "' + mobile + '" אינו נראה כנייד ישראלי (05x).\n'
+                + 'וואטסאפ לא יוצג עליו. לשמור בכל זאת?')) return;
+  const key = _ccKey(name);
+  try {
+    const r = await fetch(await _au(`${_FBURL}/customerContacts/${encodeURIComponent(key)}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        /* ⚠️ null מוחק את השדה ומחזיר לרשומת-הלקוח — כך "ריק" הוא ביטול
+           עקיפה ולא מחיקת-הפרט. ‏name נשמר לצורך התאמה. */
+        body: JSON.stringify({ name: String(name), updatedAt: Date.now(),
+                               mobile: mobile || null, email: email || null, phone: phone || null }) });
+    if (!r.ok) throw new Error('db ' + r.status);
+    _contactsDb = _contactsDb || {};
+    _contactsDb[key] = Object.assign({}, _contactsDb[key], { name: String(name), mobile, email, phone });
+    render(_allRows);
+    msg('✓ פרטי-הקשר נשמרו');
+  } catch(e){
+    console.error('שמירת פרטי-קשר נכשלה', e);
+    alert('⛔ שמירת פרטי-הקשר נכשלה: ' + ((e && e.message) || 'שגיאה') + '\nשום פרט לא שונה. נסו שוב.');
+  }
+}
 
 async function _loadWeeklyContext(){
   try {
-    const [np, cds, ov, po, cu] = await Promise.all([
+    const [np, cds, ov, po, cu, ct] = await Promise.all([
       fetch(await _au(`${_FBURL}/newspapers.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(await _au(`${_FBURL}/cards.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(await _au(`${_FBURL}/customerDayOverride.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(await _au(`${_FBURL}/customerPortals.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
       /* כרטיס-לקוח (18/08): פרטי-הקשר כבר קיימים ב-customers — נטענים כאן
          ולא במסך נפרד. ⚠️ כשל-טעינה משאיר null, והכרטיס אומר שלא נטען. */
-      fetch(await _au(`${_FBURL}/customers.json`)).then(r=>r.ok?r.json():null).catch(()=>null)
+      fetch(await _au(`${_FBURL}/customers.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
+      /* ⚠️ עקיפות-קשר ידניות (בקשת-בעלים 19/08/2026: "נוסיף ידנית את
+         המייל והוואטסאפ"). **צומת נפרד בכוונה:** ‏customers נדחף כמערך
+         שלם מ-krtis-avoda (solan-persist ‎_paths‎), ולכן עריכה נקודתית שם
+         הייתה נדרסת בסבב-הסנכרון הבא — תקרית "ניכויי-המלאי שנדרסו". */
+      fetch(await _au(`${_FBURL}/customerContacts.json`)).then(r=>r.ok?r.json():null).catch(()=>null)
     ]);
     /* ⚠️ באג שדווח 31/07/2026: נפתחו פורטלים ל-35 לקוחות, ואף אחד מהם לא הופיע
        במסך. הסיבה: רשימת-הלקוחות נבנתה **רק** מ-customerProofs, כלומר לקוח
        "קיים" רק אחרי שהעלה קובץ ראשון. פורטל שנפתח ולא נראה בשום מקום הוא
        פורטל שאי-אפשר לנהל — אי-אפשר לשלוח ממנו קישור או דרישה. */
-    _customersDb = cu; _newspapersDb = np;
+    _customersDb = cu; _newspapersDb = np; _contactsDb = ct;
     _portalCusts = po && typeof po === 'object'
       ? Object.keys(po).map(k => (po[k] && po[k].name) || String(k).replace(/_/g,' ')).filter(Boolean)
       : [];
@@ -2242,6 +2320,7 @@ function render(rows) {
     const _cc = $('ccToggle');
     if (_cc) _cc.onclick = () => { _ccCollapsed = !_ccCollapsed; render(_allRows); };
   }
+  document.querySelectorAll('[data-ccedit]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _ccEdit(b.dataset.ccedit); });
   document.querySelectorAll('[data-editcust]').forEach(b => b.onclick = () => renameCustomer(b.dataset.editcust));
   // סימון "הושלם" → העבודה עוברת לקטגוריית "עיתונים שהושלמו" של אותו לקוח (הפיך)
   document.querySelectorAll('[data-donejob]').forEach(b => b.onclick = async () => {

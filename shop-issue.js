@@ -240,6 +240,13 @@
   function _norm(v) {
     return str(v).replace(/["'׳״]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
+  /* האם המספר המנורמל הוא נייד ישראלי (05x → 9725x).
+     ⚠️ 19/08/2026: בלי הבדיקה הזו כל מספר-משרד קיבל כפתור-וואטסאפ
+     שמוביל לשום-מקום. כפתור שלא עובד גרוע מהיעדרו. */
+  function isMobileIL(wa) {
+    var s = str(wa);
+    return /^9725\d{8}$/.test(s);
+  }
   /* ⚠️ נרמול-טלפון לוואטסאפ — אותו כלל שכבר רץ ב-customer-fold-preview
      (0→972). הועבר לכאן כדי שלא יהיו שני מנגנונים שיסתרו זה את זה. */
   function waNumber(phone) {
@@ -254,7 +261,7 @@
     var e = str(email).split(/[,;]/)[0].trim();
     return /.+@.+\..+/.test(e) ? e : '';
   }
-  function customerCard(name, customers, newspapers) {
+  function customerCard(name, customers, newspapers, contacts) {
     var key = _norm(name), rec = null, np = null;
     var cs = customers || {}, ns = newspapers || {};
     Object.keys(cs).forEach(function (k) {
@@ -263,12 +270,41 @@
     Object.keys(ns).forEach(function (k) {
       if (!np && ns[k] && _norm(ns[k].name) === key) np = ns[k];
     });
-    var phone = str(rec && rec.phone), email = firstEmail(rec && rec.email);
+    /* ⚠️ **עקיפות ידניות בצומת נפרד (בקשת-בעלים 19/08/2026).**
+       הבקשה: "נוסיף ידנית את המייל והוואטסאפ של הלקוחות".
+       ⚠️ **ולמה לא לכתוב ל-‎customers‎ עצמו:** הוא נדחף כ**מערך שלם**
+       מ-krtis-avoda (solan-persist ‎_paths‎), ולכן עריכה נקודתית ממסך אחר
+       הייתה נדרסת בסבב-הסנכרון הבא — בדיוק תקרית "ניכויי-המלאי שנדרסו".
+       ‏customerContacts הוא צומת-עקיפות שאיש אינו דוחף בשלמותו, והוא
+       **גובר** על רשומת-הלקוח: הוא נכתב ביד ע"י מי שבדק. */
+    var ov = null, cts = contacts || {};
+    Object.keys(cts).forEach(function (k) {
+      if (!ov && _norm(k) === key) ov = cts[k];
+      if (!ov && cts[k] && _norm(cts[k].name) === key) ov = cts[k];
+    });
+    var pick = function (f) { return str(ov && ov[f]) || str(rec && rec[f]); };
+    var phone = pick('phone'), email = firstEmail(str(ov && ov.email) || (rec && rec.email));
+    /* ⚠️ בקשת-בעלים 19/08/2026: **פלאפון בשדה נפרד.** וואטסאפ על מספר
+       קווי אינו עובד, ועד היום היה שדה-טלפון אחד בלבד — כך שהכפתור הוביל
+       לשום-מקום אצל כל לקוח שהמספר שלו במשרד.
+       ⚠️ וואטסאפ מעדיף פלאפון; אין פלאפון → נופל לטלפון (ייתכן שהוא נייד).
+       ⚠️ החיוג נשאר על הטלפון הראשי — למשרד עונים, לנייד לא תמיד. */
+    var mobile = str(ov && ov.mobile) || str(rec && (rec.mobile || rec.cell || rec.phone2));
+    /* ⚠️ **וואטסאפ רק על מספר נייד.** ‏waNumber מנרמל כל מספר ל-972…,
+       וכך „03-5555555" הפך לקישור-וואטסאפ שמוביל לשום-מקום. נייד ישראלי
+       הוא 05x, כלומר 9725x אחרי נרמול. כפתור שלא עובד גרוע מהיעדרו. */
+    var waM = isMobileIL(waNumber(mobile)) ? waNumber(mobile) : '';
+    var waP = isMobileIL(waNumber(phone))  ? waNumber(phone)  : '';
     return {
       name: str(name),
       found: !!(rec || np),
-      phone: phone, wa: waNumber(phone),
-      email: email, address: str(rec && rec.address),
+      phone: phone, mobile: mobile,
+      wa: waM || waP,
+      waFrom: waM ? 'mobile' : (waP ? 'phone' : ''),
+      email: email, address: pick('address'),
+      /* המפתח שאליו נכתבת עקיפה — כדי שהמסך ידע לאן לשמור */
+      contactKey: str(name),
+      hasOverride: !!ov,
       day: str(np && np.day), size: str(np && np.size), paper: str(np && np.paper),
       color: str(np && np.color), copies: str(np && np.copies),
       notes: str(np && np.notes),
@@ -735,6 +771,6 @@
     runNoOfName: runNoOfName, renameRunNo: renameRunNo, runRenumberPatch: runRenumberPatch,
     runsOrdered: runsOrdered, runFirstPageNo: runFirstPageNo, runOrderReversed: runOrderReversed,
     sheetPagesFromMM: sheetPagesFromMM, sheetPagesOf: sheetPagesOf, sheetLabel: sheetLabel,
-    customerCard: customerCard, waNumber: waNumber, firstEmail: firstEmail
+    customerCard: customerCard, waNumber: waNumber, isMobileIL: isMobileIL, firstEmail: firstEmail
   };
 });
