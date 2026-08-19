@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787131009"></script>
-<script src="chat-alert.js?v=1787131009"></script>
-<script src="shop-issue.js?v=1787131009"></script>
-<script src="page-marks.js?v=1787131009"></script>
-<script src="kontres-split.js?v=1787131009"></script>
+<script src="portal-chat.js?v=1787132281"></script>
+<script src="chat-alert.js?v=1787132281"></script>
+<script src="shop-issue.js?v=1787132281"></script>
+<script src="page-marks.js?v=1787132281"></script>
+<script src="kontres-split.js?v=1787132281"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787131009"></script>
-<script src="auth-client.js?v=1787131009"></script>
+<script src="firebase-auth.bundle.js?v=1787132281"></script>
+<script src="auth-client.js?v=1787132281"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787131009" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787132281" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1132,11 +1132,30 @@ function _rowsSig(rows){
             p.readyNotice?1:0, parts, files, crs].join('|');
   }).sort().join(';'); }catch(e){ return String(Math.random()); }
 }
+/* ── שער-גרסה על הרענון (חיסכון-תעבורה, 19/08/2026) ───────────────────────
+   ⚠️ **זה היה השואב הגדול ביותר.** הרענון משך את כל ‎customerProofs‎ (151kB)
+   כל 15 שניות — 36MB לשעה לכל מסך-דפוס פתוח. חתימת-השורות (‎_sig‎) מנעה
+   רינדור מיותר, אבל רק **אחרי** שהתעבורה כבר שולמה.
+   בפרופיילר (120ש', חלון נקי): 11.10MB מתוך 15.31MB בסך-הכול הגיעו מכאן
+   ומאחיו. המכסה החינמית היא 360MB ליום.
+   עכשיו נשאלת קודם החותמת (~13 בתים) שהטריגר ‎bumpCustomerProofsRev‎ מרים.
+   ⚠️ **נכשל-פתוח:** חותמת שלא הגיעה → משיכה מלאה. מסך-דפוס שמפספס אישור
+   גרוע מתעבורה.
+   ⚠️ משיכה כפויה כל 20 סבבים (~5 דק') — ביטוח אם bump אי-פעם יתפספס. */
+let _arRev = null, _arN = 0;
 async function _autoRefresh(){
   try{
     if (document.hidden) return;                       // בלשונית-רקע אין טעם
     if (document.querySelector('.modal,[data-busy="1"]')) return;   // לא קוטעים דיאלוג פתוח
+    _arN++;
+    const _forced = (_arN % 20 === 1);
+    const _rr = await fetch(await _au(`${_FBURL}/_rev/customerProofs.json`)).catch(() => null);
+    const _rev = (_rr && _rr.ok) ? await _rr.json() : null;
+    if (!_forced && _rev != null && _arRev != null && _rev === _arRev) return;   // לא זז — לא מושכים
     const data = await (await fetch(await _au(`${_FBURL}/customerProofs.json`))).json() || {};
+    /* ⚠️ החותמת נאמצת **אחרי** שהנתון הגיע. אימוץ לפני-כן היה גורם לסבב
+       שנכשל באמצע לקבוע "מסונכרן", והמסך היה נתקע על נתונים ישנים. */
+    _arRev = _rev;
     const rows = Object.entries(data).map(function(e){ return Object.assign({id:e[0]}, e[1]); })
       .sort(function(a,b){ return (b.createdAt||0)-(a.createdAt||0); });
     const sig = _rowsSig(rows);
