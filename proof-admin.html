@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787126178"></script>
-<script src="chat-alert.js?v=1787126178"></script>
-<script src="shop-issue.js?v=1787126178"></script>
-<script src="page-marks.js?v=1787126178"></script>
-<script src="kontres-split.js?v=1787126178"></script>
+<script src="portal-chat.js?v=1787127161"></script>
+<script src="chat-alert.js?v=1787127161"></script>
+<script src="shop-issue.js?v=1787127161"></script>
+<script src="page-marks.js?v=1787127161"></script>
+<script src="kontres-split.js?v=1787127161"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787126178"></script>
-<script src="auth-client.js?v=1787126178"></script>
+<script src="firebase-auth.bundle.js?v=1787127161"></script>
+<script src="auth-client.js?v=1787127161"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787126178" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787127161" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1367,7 +1367,7 @@ function render(rows) {
        השטוחה. */
     const rgrid = ShopIssue.runGrid(p);
     window._runGridReg = rgrid.ok ? { id: p.id, p: p, grid: rgrid } : null;
-    const runsGrid = !rgrid.ok ? '' : `<div class="isGridT">ריצות: <b>${rgrid.gotRuns}</b> מתוך <b>${rgrid.runs.length}</b> · ${nPages} עמודים מתוך ${rgrid.total} · גיליון: <b>${rgrid.sheet}</b> עמ׳${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על ריצה: פריסת עמודיה</div>
+    const runsGrid = !rgrid.ok ? '' : `<div class="isGridT">ריצות: <b>${rgrid.gotRuns}</b> מתוך <b>${rgrid.runs.length}</b> · ${nPages} עמודים מתוך ${rgrid.total} · גיליון: <b>${rgrid.sheet}</b> עמ׳ <button class="pgRemind" data-setsheet="${escapeHtml(p.id)}" title="גודל-הגיליון קובע את כל הפריסה — לתיקון">✎</button>${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על ריצה: פריסת עמודיה</div>
          <div class="isPages">${rgrid.runs.map(rn => {
            const rng = escapeHtml(rn.label);
            if (!rn.got)
@@ -2329,6 +2329,7 @@ function render(rows) {
   /* רשת-העמודים: הגדלה בלחיצה, תזכורת-עמוד-חסר, ותצוגות-מקדימות עצלות */
   document.querySelectorAll('[data-tile]').forEach(el => el.onclick = () => _tileClick(parseInt(el.dataset.tile, 10)));
   document.querySelectorAll('[data-remind]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _pgRemind(b.dataset.remind); });
+  document.querySelectorAll('[data-setsheet]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _setSheetPages(b.dataset.setsheet); });
   document.querySelectorAll('[data-remindrun]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _pgRemindRun(b.dataset.remindrun); });
   document.querySelectorAll('[data-runmiss]').forEach(el => el.onclick = () => _runMissExpand(parseInt(el.dataset.runmiss, 10)));
   _thumbPaint();
@@ -2949,6 +2950,40 @@ function _thumbPump(){
 }
 
 /* ── תזכורת על עמוד חסר → ממלאת את תיבת-השיחה, לא שולחת ─────────────── */
+/* ── גודל-הגיליון: תיקון מהמסך (בקשת-בעלים 19/08/2026) ──────────────────
+   ⚠️ ‏sheetPages קובע את **כל** הפריסה: 72 עמודים על גיליון-32 הם שלוש
+   ריצות (8 · 32 · 32), ועל גיליון-8 תשע ריצות מקוננות. בערדניקים 283
+   נשמר 8 — גודל-**הריצה** שהלקוח העלה, לא גודל-הגיליון — כי השאלה
+   "כמה עמודים נכנסים בגיליון" נשאלת בפורטל, והלקוח אינו יודע על איזה
+   גיליון העבודה רצה. הדפוס יודע, ועד עכשיו לא הייתה לו שום דרך לתקן.
+   ⚠️ רשומת-פרופר אינה מחזיקה ‎reqW/reqH‎ (המידות על כרטיס-העבודה), ולכן
+   אי-אפשר לגזור את הערך כאן — הוא נשאל.
+   ⚠️ המסך אינו זז לפני שהשרת אישר: הכתיבה נבדקת ב-‎r.ok‎, וכשלון נאמר
+   בקול. ‏Firebase מחזיר 401/403 כתגובת-HTTP תקינה ולא כחריגה. */
+async function _setSheetPages(id){
+  const reg = window._runGridReg;
+  const p = (reg && reg.id === id) ? reg.p : null;
+  if (!p) { msg('הגיליון לא נמצא — רעננו'); return; }
+  const cur = parseInt(p.sheetPages, 10) || 0;
+  const ans = prompt('כמה עמודים נכנסים בגיליון-הדפוס?\n\n'
+    + '‏70×100 עם עמוד 16.5×24 → 32\n'
+    + '‏64×90 עם A4 או 24×33 → 16\n\n'
+    + '⚠️ זה גודל-הגיליון, לא מספר-העמודים בריצה שהלקוח שלח.', cur || '32');
+  if (ans === null) return;
+  const n = parseInt(ans, 10);
+  if (!(n >= 2 && n <= 64 && n % 2 === 0)) { msg('גודל-גיליון הוא מספר זוגי בין 2 ל-64'); return; }
+  if (n === cur) return;
+  try {
+    const r = await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sheetPages: n }) });
+    if (!r.ok) throw new Error('db ' + r.status);
+    p.sheetPages = n;                       // רק אחרי אישור-השרת
+    render(_allRows);
+  } catch(e){
+    console.error('שמירת גודל-הגיליון נכשלה', e);
+    alert('⛔ שמירת גודל-הגיליון נכשלה: ' + ((e && e.message) || 'שגיאה') + '\nהערך לא שונה. נסו שוב.');
+  }
+}
 /* ── ריצה שטרם הגיעה (בקשת-בעלים 19/08/2026) ────────────────────────────
    אותה שורת-פריסה של ריצה שהתקבלה (‎#runExp‎), אבל במקום תמונות — אילו
    עמודים חסרים בה. עמוד שכבר הגיע בתוך הטווח מוצג כמו שהוא: "חסרה ריצה 3"
