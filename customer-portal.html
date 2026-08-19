@@ -9,29 +9,29 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1787164507"></script>
-<script src="page-add.js?v=1787164507"></script>
-<script src="portal-context.js?v=1787164507"></script>
-<script src="portal-return.js?v=1787164507"></script>
-<script src="portal-chat.js?v=1787164507"></script>
+<script src="portal-download.js?v=1787165378"></script>
+<script src="page-add.js?v=1787165378"></script>
+<script src="portal-context.js?v=1787165378"></script>
+<script src="portal-return.js?v=1787165378"></script>
+<script src="portal-chat.js?v=1787165378"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1787164507"></script>
+<script src="chat-alert.js?v=1787165378"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1787164507"></script>
-<script src="cover-split.js?v=1787164507"></script>
-<script src="page-swap.js?v=1787164507"></script>
-<script src="rip-load.js?v=1787164507"></script>
-<script src="page-replace.js?v=1787164507"></script>
-<script src="page-marks.js?v=1787164507"></script>
+<script src="shop-issue.js?v=1787165378"></script>
+<script src="cover-split.js?v=1787165378"></script>
+<script src="page-swap.js?v=1787165378"></script>
+<script src="rip-load.js?v=1787165378"></script>
+<script src="page-replace.js?v=1787165378"></script>
+<script src="page-marks.js?v=1787165378"></script>
 <!-- ⚠️ page-box: איזו תיבה היא "העמוד". עד 19/08 הפורטל מדד CropBox,
      הדפדוף MediaBox ואפוגי TrimBox — שלוש מסקנות סותרות לאותו עמוד. -->
-<script src="page-box.js?v=1787164507"></script>
+<script src="page-box.js?v=1787165378"></script>
 <!-- ⚠️ קו-שערה ומרחב-צבע: אפוגי תיקן 88 קווים ל-0.25pt ובפורטל היה שקט.
      קו-שערה עלול למחוק אותיות מהגיליון — לכן הוא אזהרה, ו-RGB רק מידע. -->
-<script src="preflight-ink.js?v=1787164507"></script>
+<script src="preflight-ink.js?v=1787165378"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -3048,47 +3048,10 @@ async function handleUpload(fileList){
        בליד וגודל-עמוד. **קו-שערה הוא החמור**: הבעלים — „הוא יכול לגרום
        לאותיות להיעלם מהגיליון". ‏RGB אפוגי ממיר לבד, ולכן הוא מידע בלבד.
        ⚠️ אינו חוסם העלאה בכשל: בדיקה שנופלת לא תמנע מלקוח לשלוח עיתון. */
-    try {
-      /* ⚠️ תקרית 19/08/2026 ערב — שעות אחרי שהסריקה עלתה: שני לקוחות
-         "נתקע לי". ‏getOperatorList מפענח את כל זרם-התוכן של כל עמוד;
-         עיתון-56-עמודים במחשב-מערכת חלש = דקות שבהן "בודק תקינות
-         קבצים…" נראה קפוא. בדיקה מייעצת לעולם אינה חוסמת העלאה
-         ([[solan-security-yields-to-operations]]) — לכן:
-           · קובץ מעל 40MB — מדולג בהצהרה (עיתון-ריצה; אפוגי בודק ממילא)
-           · תקציב 12 שניות לקובץ, נבדק בין עמודים
-           · עמוד שלא סיים תוך 8 שניות — הסריקה כולה נעצרת ומדווחת חלקית
-           · חיווי-התקדמות עמוד/סה"כ — שלא ייראה תקוע גם כשהוא עובד */
-      if (window.PreflightInk && window.pdfjsLib && pbuf.length <= 40 * 1048576) {
-        var _doc = await pdfjsLib.getDocument({ data: pbuf.slice(0) }).promise;
-        var _nPg = _doc.numPages;
-        var _per = [], _scanned = 0, _stopped = false;
-        var _deadline = Date.now() + 12000;
-        for (var _p = 1; _p <= _nPg; _p++) {
-          if (Date.now() > _deadline) { _stopped = true; break; }
-          showOv('בודק תקינות קבצים… (עמוד ' + _p + '/' + _nPg + ')', true);
-          var _pg = await _doc.getPage(_p);
-          var _ops = await Promise.race([
-            _pg.getOperatorList(),
-            new Promise(function(res){ setTimeout(function(){ res(null); }, 8000); })
-          ]);
-          if (!_ops) { _stopped = true; break; }          // עמוד כבד — לא ממשיכים לגרד
-          _per.push(PreflightInk.scanOps(_ops, pdfjsLib.OPS));
-          _scanned++;
-          _pg.cleanup && _pg.cleanup();
-        }
-        _doc.destroy && _doc.destroy();                    // גם עוצר עבודת-worker תלויה
-        var _ink = PreflightInk.assess(PreflightInk.merge(_per));
-        _ink.warnings.forEach(function(w){ pf.warnings.push('⚠️ ' + w); });
-        /* ⚠️ מידע נשמר לרשומה כדי שהדפוס יראה אותו, אבל **אינו** נכנס
-           ל-warnings — אחרת הוא היה עוצר את הלקוח על משהו שאפוגי מתקן. */
-        if (_ink.info.length) pf.info = (pf.info || []).concat(_ink.info);
-        /* חלקיות נאמרת — "נבדק" שלא נבדק גרוע מ"לא נבדק" */
-        if (_stopped) pf.info = (pf.info || []).concat(
-          ['בדיקת קו-שערה/צבע חלקית: ' + _scanned + ' מתוך ' + _nPg + ' עמודים (קובץ כבד)']);
-      } else if (window.PreflightInk && pbuf.length > 40 * 1048576) {
-        pf.info = (pf.info || []).concat(['קובץ גדול — בדיקת קו-שערה/צבע דולגה (אפוגי בודק בקבלה)']);
-      }
-    } catch(e){ console.warn('בדיקת קו-שערה/צבע נכשלה (לא חוסם)', e); }
+    /* ⚠️ בדיקת קו-השערה/צבע **אינה רצה כאן** — הכרעת-בעלים 19/08/2026,
+       אחרי ששני לקוחות נתקעו על "בודק תקינות קבצים…": ללקוח אסור לחכות
+       לאף בדיקה. היא רצה ברקע אחרי שההעלאה הסתיימה (_inkScanBg) והממצאים
+       נכתבים לרשומה עבור הדפוס בלבד. לא להחזיר אותה לכאן. */
     if (pf.warnings.length) pfIssues.push({ name: files[pi].name||('קובץ '+(pi+1)), warnings: pf.warnings });
   }
   showOv('', false);
@@ -3097,7 +3060,9 @@ async function handleUpload(fileList){
      ‏catch כאן: ה-try החיצוני הוא try/finally בלבד — כשל בלי catch היה
      נעלם בשקט עם overlay תקוע. */
   if (meta.existing){
-    try { await _quickAddToIssue(meta.existing, files, bufs); }
+    try { await _quickAddToIssue(meta.existing, files, bufs);
+      setTimeout(function(){ _inkScanBg(meta.existing._id, files, bufs); }, 800);   // ברקע — הלקוח כבר שוחרר
+    }
     catch(e){ console.error('העלאה-מהירה לגיליון נכשלה', e); showOv('', false); toast('⚠️ העלאת העמודים נכשלה — נסו שוב'); }
     return;
   }
@@ -3131,9 +3096,49 @@ async function handleUpload(fileList){
     await fbWrite(await _au(`${_FBURL}/customerProofs/${jobId}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ customer:(_portalRec&&_portalRec.name)||CUST, title:meta.title, issue:meta.issue||'', status:'awaiting-shop', source:'portal', files:filesObj, fileCount:uploaded.length, preflight:preflight, declaredPages:meta.declaredPages||null, createdAt:Date.now() }) }, 'upload:customerProofs');
     showOv('', false); toast('✓ '+uploaded.length+' קבצים נשלחו — '+meta.title);
+    setTimeout(function(){ _inkScanBg(jobId, files, bufs); }, 800);   // ברקע — הלקוח כבר שוחרר
     await loadHistory();
   } catch(e){ console.error(e); showOv('', false); toast('⚠️ ' + ERR_SAVE_JOB); }
   } finally { _unlock('upload'); }
+}
+/* ── בדיקת קו-שערה/צבע ברקע (הכרעת-בעלים 19/08/2026) ─────────────────────
+   ⚠️ שני לקוחות נתקעו כשהסריקה רצה לפני ההעלאה. הכלל: הלקוח לא מחכה
+   לאף בדיקה — ההעלאה מסתיימת, הוא משוחרר, ורק אז הסריקה רצה כאן בשקט:
+   בלי overlay, בלי toast, בלי לעצור שום דבר. הממצאים נכתבים לרשומה
+   עבור הדפוס בלבד. תקציב-זמן גם ברקע — לא שורפים מחשב-לקוח על עיתון.
+   ‏PATCH עם מפתחות-ילד על preflight — לא דורס את מה שכבר נכתב. */
+async function _inkScanBg(recId, files, bufs){
+  try {
+    if (!window.PreflightInk || !window.pdfjsLib || !recId) return;
+    var warns = [], infos = [];
+    var deadline = Date.now() + 20000;
+    for (var i = 0; i < bufs.length; i++){
+      var buf = bufs[i];
+      if (!buf || !buf.byteLength || buf.byteLength > 40 * 1048576) continue;
+      if (Date.now() > deadline) break;
+      var doc = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
+      var per = [];
+      for (var p = 1; p <= doc.numPages; p++){
+        if (Date.now() > deadline) break;
+        var pg = await doc.getPage(p);
+        var ops = await Promise.race([ pg.getOperatorList(),
+          new Promise(function(res){ setTimeout(function(){ res(null); }, 8000); }) ]);
+        if (!ops) break;                                   // עמוד כבד — הלאה
+        per.push(PreflightInk.scanOps(ops, pdfjsLib.OPS));
+        pg.cleanup && pg.cleanup();
+      }
+      doc.destroy && doc.destroy();                        // גם עוצר עבודת-worker תלויה
+      var ink = PreflightInk.assess(PreflightInk.merge(per));
+      var nm = (files[i] && files[i].name) || ('קובץ ' + (i + 1));
+      ink.warnings.forEach(function(w){ warns.push(nm + ': ' + w); });
+      ink.info.forEach(function(w){ infos.push(nm + ': ' + w); });
+    }
+    if (!warns.length && !infos.length) return;
+    await fbWrite(await _au(_FBURL + '/customerProofs/' + recId + '/preflight.json'),
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ inkWarnings: warns, inkInfo: infos, inkScanAt: Date.now() }) },
+      'bg:inkscan');
+  } catch(e){ console.warn('סריקת-רקע קו-שערה/צבע נכשלה (שקוף ללקוח)', e); }
 }
 async function uploadBytes(path, bytes, onProgress){
   var lastErr;
