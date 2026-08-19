@@ -326,12 +326,21 @@
     });
   }
   /* מספר-העמוד-בגיליון שבו מתחילה הריצה. ⚠️ מסכום-העמודים של הריצות
-     שלפניה, ולא (מספר-ריצה × 16) — לריצות יש אורכים שונים (16 + 32). */
+     שלפניה, ולא (מספר-ריצה × 16) — לריצות יש אורכים שונים (16 + 32).
+     ⚠️ 19/08/2026: הסכימה ספרה רק ריצות **שכבר הועלו**, ולכן כשריצה 1
+     טרם הגיעה — מקרה שגרתי, הלקוח מעלה בסדר משלו (אירוע 17/08) — ריצה 2
+     קיבלה "עמוד 1" ותפסה את משבצות 1..n. ריצה חסרה באמצע נאמדת לפי
+     גודל-הגיליון (‎sheetPages‎, נשמר על הרשומה). אין גודל-גיליון → נשארת
+     ההתנהגות הקודמת; לא ממציאים אורך לריצה שלא ראינו. */
   function runFirstPageNo(p, partId) {
-    var list = runsOrdered(p), base = 0;
+    var list = runsOrdered(p), base = 0, prev = 0;
+    var sheet = sheetPagesOf(p).sheet;
     for (var i = 0; i < list.length; i++) {
+      var no = list[i]._no;
+      if (no != null && no > prev + 1 && sheet) base += (no - prev - 1) * sheet;
       if (list[i].pid === partId) return base + 1;
       base += num(list[i].pageCount) | 0;
+      if (no != null) prev = no;
     }
     return 1;   // לא נמצאה — לא ממציאים היסט
   }
@@ -431,6 +440,7 @@
          (page בתוך אותו PDF) — target='full'.
        · ריצות/קבצים בודדים → אריח ליחידה; אם שם-היחידה הוא עמוד
          ("עמוד 4") האריח ממוין לפי המספר — target=partId.
+       · ריצה רבת-עמודים → אריח **אחד** התופס טווח (pages), ולא עמוד בודד.
      עמודים חסרים (pendingPages) נשזרים כאריחי-'missing' במקומם המספרי.
      סדר: שער (1) → 2 → 3 → …; חסרי-מספר בסוף, לפי זמן-העלאה. */
   function pageTiles(p) {
@@ -452,9 +462,25 @@
     Object.keys(parts).forEach(function (k) {
       var t = parts[k] || {};
       if (!str(t.fileUrl)) return;                     // ריצה בלי קובץ אינה אריח
-      var no = pageNoOf(t.name);
+      /* ⚠️ אירוע-ייצור 19/08/2026, ערדניקים גיליון 283: הלקוח הצהיר 72
+         עמודים והעלה ריצה אחת בת 8 — והרשת הציגה 71 אריחי-"חסר", כולל
+         שבעת העמודים שנמצאים **בתוך** אותו קובץ. שני שורשים, שניהם כאן:
+         ‏(א) ‎pageNoOf('ריצה 1')‎ תופס את הספרה הראשונה במחרוזת — כלומר
+             מספר-הריצה נקרא כמספר-עמוד, וריצה 2 נחתה על משבצת עמוד 2.
+             ‏runFirstPageNo הוא מקור-האמת (סכום-עמודי-הריצות שלפניה),
+             והוא כבר קיים בקובץ — הוא פשוט לא נקרא מכאן.
+         ‏(ב) הריצה נספרה כעמוד אחד, ולכן שאר עמודיה נראו ריקים.
+         ריצה נשארת אריח **אחד** — הפריסה הפנימית היא ‎_runExpand‎ במסך-הדפוס
+         ‏(מטמון-העמודים, לא קובץ-הריצה) — אבל היא תופסת את **טווח**-העמודים
+         שלה, ו-‎pages‎ הוא הטווח הזה. */
+      var span = num(t.pageCount) | 0;
+      var no = (span > 1) ? runFirstPageNo(r, k) : pageNoOf(t.name);
+      var nm = str(t.name) || 'ריצה';
+      /* הטווח בתווית — אחרת "ריצה 1" במשבצת 1 נקרא כעמוד 1 בודד, וזו בדיוק
+         התלונה שהגיעה מהלקוח ("כל ריצה 1 עומד על המקום של עמוד 1"). */
       tiles.push({ kind: 'page', target: k, pageNo: no, page: 1, url: str(t.fileUrl),
-                   label: str(t.name) || 'ריצה', at: num(t.approvedAt),
+                   label: (span > 1 && no >= 1) ? (nm + ' · עמ׳ ' + no + '–' + (no + span - 1)) : nm,
+                   runName: nm, at: num(t.approvedAt),
                    partId: k, pages: num(t.pageCount) || 0, mark: markOf(r, k, 1) });
     });
     fileEntries(r).forEach(function (f, i) {
@@ -474,9 +500,16 @@
                    nameNo: nameNo, slotMismatch: !!(sl >= 1 && nameNo && nameNo !== sl),
                    partId: '', mark: markOf(r, 'file_' + kk.slice(1), 1) });
     });
-    /* עמודים חסרים — רק מספרים שאין להם אריח קיים */
+    /* עמודים חסרים — רק מספרים שאין להם אריח קיים.
+       ⚠️ אריח-ריצה מכסה ‎pages‎ עמודים, לא אחד: עמוד שנמצא **בתוך** ריצה
+       שהתקבלה אינו חסר. תקרה 400 כמו במסלול עיתון-מלא — ‎pageCount‎ פרוע
+       לא ינפח כאן לולאה. */
     var have = {};
-    tiles.forEach(function (t) { if (t.pageNo != null) have[t.pageNo] = true; });
+    tiles.forEach(function (t) {
+      if (t.pageNo == null) return;
+      var span = Math.min(Math.max(1, num(t.pages) | 0), 400);
+      for (var j = 0; j < span; j++) have[t.pageNo + j] = true;
+    });
     var pend = [];
     (r.pendingPages || []).forEach(function (x) { if (pend.indexOf(x) < 0) pend.push(x); });
     Object.keys(parts).forEach(function (k) {

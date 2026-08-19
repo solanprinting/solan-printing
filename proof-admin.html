@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787068387"></script>
-<script src="chat-alert.js?v=1787068387"></script>
-<script src="shop-issue.js?v=1787068387"></script>
-<script src="page-marks.js?v=1787068387"></script>
-<script src="kontres-split.js?v=1787068387"></script>
+<script src="portal-chat.js?v=1787122808"></script>
+<script src="chat-alert.js?v=1787122808"></script>
+<script src="shop-issue.js?v=1787122808"></script>
+<script src="page-marks.js?v=1787122808"></script>
+<script src="kontres-split.js?v=1787122808"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787068387"></script>
-<script src="auth-client.js?v=1787068387"></script>
+<script src="firebase-auth.bundle.js?v=1787122808"></script>
+<script src="auth-client.js?v=1787122808"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787068387" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787122808" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1357,7 +1357,9 @@ function render(rows) {
     /* רשת-העמודים: ההחלטה מה-אריח-ואיפה ב-ShopIssue.pageTiles (טהורה). */
     const tiles = ShopIssue.pageTiles(p);
     window._tileReg = { id: p.id, p: p, tiles: tiles };
-    const nPages = tiles.filter(t => t.kind === 'page').length;
+    /* ⚠️ ספירת-עמודים ולא ספירת-אריחים: אריח-ריצה הוא ‎pages‎ עמודים.
+       "עמודים שהתקבלו (1)" על ריצה בת 8 שלח את הדפוס לחפש 7 עמודים שכבר ביד. */
+    const nPages = tiles.reduce((n, t) => n + (t.kind === 'page' ? Math.max(1, t.pages | 0) : 0), 0);
     const marked = tiles.filter(t => t.mark && t.mark.kind === 'replace').length;
     const pagesGrid = tiles.length
       ? `<div class="isGridT">עמודים שהתקבלו (${nPages})${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על עמוד: הגדלה · סימון · הורדה</div>
@@ -3006,7 +3008,7 @@ async function _runExpand(reg, t, pt) {
   const host = document.getElementById('runExp');
   if (!host) return;
   _runExpKey = t.partId;
-  const title = escapeHtml(t.label || 'ריצה');
+  const title = escapeHtml(t.runName || t.label || 'ריצה');
   /* ⚠️ בקשת-בעלים 17/08/2026: "יש לי 2 ריצות, ריצה 1 כבר הורדתי — לא מופיע
      הורדה בנפרד לכל ריצה". כפתור-ההורדה הראשי הוא ברמת-**הגיליון** ומושך את
      כל הריצות ברצף; עם ריצה של 117MB זו משיכה חוזרת מיותרת של מה שכבר ביד.
@@ -3070,7 +3072,7 @@ function _runExpWire(reg, t, pt) {
   /* הורדת **הריצה הזו בלבד**, בשמה (R-N) — דרך downloadFile, על כל שעריו. */
   const dl = host.querySelector('[data-rundl]');
   if (dl && pt && pt.fileUrl) dl.onclick = () => downloadFile(pt.fileUrl,
-    String(runFileName(reg.p, t.label)).replace(/[\/:*?"<>|]/g, '_') + '.pdf', dl);
+    String(runFileName(reg.p, t.runName || t.label)).replace(/[\/:*?"<>|]/g, '_') + '.pdf', dl);
   /* לחיצה על עמוד בפריסה → אותו חלון-הגדלה של הרשת הראשית, עם מספר-העמוד
      **בתוך הריצה**. זו בדיוק החתימה `_pgLightOpen(tileIdx, pg)`, ולכן
      החיצים בהגדלה (‎_plFlat‎ שטוח ברמת-עמוד) ממשיכים לעבור את כל הגיליון. */
@@ -4029,7 +4031,7 @@ function runFileName(p, partName) {
    ברור מה ירד. */
 function _plDlName(p, t) {
   t = t || {};
-  const base = t.partId ? runFileName(p, t.label) : jobName(p);
+  const base = t.partId ? runFileName(p, t.runName || t.label) : jobName(p);
   const page = (!t.partId && t.pageNo) ? (' — עמוד ' + t.pageNo) : '';
   return String(base + page).replace(/[\\/:*?"<>|]/g, '_') + '.pdf';
 }
