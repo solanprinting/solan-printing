@@ -135,6 +135,18 @@
       var t = _i(p.createdAt) || _i(p.approvedAt) || 0;
       if (!live || t > (_i(live.createdAt) || _i(live.approvedAt) || 0)) live = p;
     });
+    var stage = live ? stageOf(live, { hasActiveCard: !!opts.hasActiveCard })
+                     : (list.length ? 'done' : 'received');
+    /* ⚠️ דיווח-בעלים 19/08/2026: "יש עבודות שהסתיימו מזמן ועדיין מופיע
+       חיווי ירוק הושלם, כאילו הם הושלמו לאחרונה". נכון — ‎stage='done'‎
+       נדבק לנצח, כי הוא נגזר מ"אין גיליון פעיל" ולא מזמן.
+       ‏"הושלם" הוא **חדשה**, ואחרי יממה הוא כבר לא חדשה אלא רעש שמסתיר
+       את מי שבאמת זקוק לתשומת-לב. אחרי 24 שעות מאז ששלח — החיווי יורד.
+       ⚠️ **המצב עצמו לא משתנה** (‎stage‎ נשאר 'done'): רק התצוגה מתיישנת.
+       שינוי ה-stage היה משפיע על מיון-הדחיפות ועל צרכנים אחרים.
+       ⚠️ ‏now מפורש ולא ‎Date.now()‎ פנימי — אחרת אי-אפשר לבדוק. */
+    var now = _i(opts.now) || 0;
+    var FRESH_MS = 24 * 3600 * 1000;
     return {
       customer: _s(name),
       day: opts.day || '',
@@ -143,7 +155,8 @@
       newFiles: nNew,
       pendingPages: pend.sort(function(a,b){ return _i(a) - _i(b); }),
       lastAt: last,
-      stage: live ? stageOf(live, { hasActiveCard: !!opts.hasActiveCard }) : (list.length ? 'done' : 'received'),
+      stage: stage,
+      staleDone: !!(stage === 'done' && now > 0 && last > 0 && (now - last) > FRESH_MS),
       hasActiveCard: !!opts.hasActiveCard
     };
   }

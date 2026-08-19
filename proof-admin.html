@@ -33,21 +33,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787132281"></script>
-<script src="chat-alert.js?v=1787132281"></script>
-<script src="shop-issue.js?v=1787132281"></script>
-<script src="page-marks.js?v=1787132281"></script>
-<script src="kontres-split.js?v=1787132281"></script>
+<script src="portal-chat.js?v=1787140095"></script>
+<script src="chat-alert.js?v=1787140095"></script>
+<script src="shop-issue.js?v=1787140095"></script>
+<script src="page-marks.js?v=1787140095"></script>
+<!-- ⚠️ page-box: אותה תיבה-קובעת (ArtBox) של הפורטל והדפדוף. בלעדיו
+     הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
+<script src="page-box.js?v=1787140095"></script>
+<script src="kontres-split.js?v=1787140095"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787132281"></script>
-<script src="auth-client.js?v=1787132281"></script>
+<script src="firebase-auth.bundle.js?v=1787140095"></script>
+<script src="auth-client.js?v=1787140095"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787132281" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787140095" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -491,7 +494,7 @@ window.addEventListener('appinstalled', function(){
   .isHd2 .isTtl { font-weight:900; color:var(--press); font-size:1rem; }
   /* רשת-העמודים */
   .isGridT { padding:10px 14px 6px; font-size:.8rem; font-weight:800; color:#6b7280; }
-  .isPages { display:grid; grid-template-columns:repeat(auto-fill,minmax(106px,1fr)); gap:10px; padding:0 14px 4px; }
+  .isPages { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:12px; padding:0 14px 4px; }
   .pgT { border:1.5px solid var(--line); border-radius:10px; background:#fff; padding:7px 7px 6px;
          text-align:center; cursor:pointer; position:relative; }
   .pgT:hover { border-color:var(--gold); box-shadow:0 2px 8px rgba(201,168,76,.2); }
@@ -1676,11 +1679,12 @@ function render(rows) {
     const _missing = _board.missing, _sent = dueToday.filter(c => _missing.indexOf(c) < 0);
     todayDetail = `<div class="custHead"><div style="font-size:1.05rem;font-weight:900;color:#2d3561">📅 היום — ${_today}</div>
         <div class="muted" style="font-size:.82rem;color:#6b7280;margin-top:3px">${dueToday.length} אמורים לשלוח · ${_sent.length} שלחו · ${_missing.length} טרם</div></div>`
+      /* ⚠️ בקשת-בעלים 19/08/2026: רשימת "טרם נרשמה שליחה היום" הוסרה —
+         אותם לקוחות כבר מופיעים בסרגל-הלקוחות שמימין, עם חיווי-הסטטוס
+         שלהם. שתי רשימות לאותו מידע הן עומס-מסך, לא יתירות.
+         הספירה נשארה בכותרת ("X טרם") — המספר שימושי, הפירוט כפול. */
       + (dueToday.length ? (
-          `<div class="todaySec lateSec">⏰ טרם נרשמה שליחה היום (${_missing.length})</div>`
-          + (_missing.length ? _missing.map(c => _custRow(c, true)).join('')
-                             : '<div style="padding:14px;color:#16a34a;font-weight:700">✓ כולם שלחו היום</div>')
-          + `<div class="todaySec">✓ שלחו היום (${_sent.length})</div>`
+          `<div class="todaySec">✓ שלחו היום (${_sent.length})</div>`
           + (_sent.length ? _sent.map(c => _custRow(c, false)).join('')
                           : '<div style="padding:14px;color:#9ca3af">עדיין אף אחד</div>')
         ) : '<div style="padding:14px;color:#9ca3af">אין לקוחות ליום זה ביומן השבועי</div>');
@@ -1932,7 +1936,7 @@ function render(rows) {
       };
     };
     const _sumOf = (c) => window.ShopView
-      ? ShopView.customerSummary(c, byCustomer.get(c) || [], { day: _dayOf[c], hasActiveCard: _hasCard(c) })
+      ? ShopView.customerSummary(c, byCustomer.get(c) || [], { day: _dayOf[c], hasActiveCard: _hasCard(c), now: Date.now() })
       : { active: (byCustomer.get(c) || []).length, newFiles: 0, pendingPages: [], stage: 'received', lastAt: 0 };
     const _tri = (window.ShopView && ShopView.triageOrder)
       ? ShopView.triageOrder(custNames.map(c => ({ name: c, sum: _sumOf(c), extra: _extraOf(c) })))
@@ -1946,7 +1950,7 @@ function render(rows) {
         <div class="pvcTop"><span class="pvcName">${urgent?'<span class="uDot"></span>':''}📁 ${escapeHtml(c)}${_hasCard(c)?' <span title="כרטיס עבודה פעיל">📋</span>':''}</span>
           ${(row.extra&&row.extra.unreadChat)?`<span class="newDot">💬 ${row.extra.unreadChat}</span>`:(s.newFiles?`<span class="newDot">🆕 ${s.newFiles}</span>`:'')}</div>
         ${urgent?`<div class="pvcWhy">${escapeHtml(row.why.join(' · '))}</div>`
-                :`<div class="pvcMeta">${st?`<span class="stg cur${s.stage==='done'?' done':''}">${st.icon} ${st.label}</span>`:''}<span class="pvcAct">${s.active} פעילות</span></div>`}
+                :`<div class="pvcMeta">${(st && !s.staleDone)?`<span class="stg cur${s.stage==='done'?' done':''}">${st.icon} ${st.label}</span>`:''}<span class="pvcAct">${s.active} פעילות</span></div>`}
         <div class="pvcFoot">${s.lastAt?('אחרון: '+fmt(s.lastAt)):'טרם התקבלו קבצים'}</div>
       </div>`;
     };
@@ -2962,10 +2966,67 @@ function _thumbPump(){
     if (!document.body.contains(job.el)) continue;     // רינדור-מחדש כבר החליף את האריח
     _thumbBusy++;
     _thumbRender(job.t.url, job.t.page || 1, 180)
-      .then(d => { if (document.body.contains(job.el)) _thumbApply(job.el, d); })
+      .then(d => { if (document.body.contains(job.el)) { _thumbApply(job.el, d); _sizeBadge(job.el, job.t); } })
       .catch(e => console.warn('[thumbs] תצוגה-מקדימה נכשלה', job.t.label, (e && e.message) || e))
       .finally(() => { _thumbBusy--; _thumbPump(); });
   }
+}
+
+/* ── חיווי חריגת-גודל במסך-הדפוס (דיווח-בעלים 19/08/2026) ─────────────────
+   ⚠️ **הפער שדווח:** "בפורטל של הלקוח מוצגת התראה על עמודים שחורגים
+   מהגודל, ואצלנו בדפוס לא רואים את החיווי". נכון — הלוגיקה ישבה **רק**
+   ב-customer-portal. הדפוס, שהוא היחיד שיכול לעצור לוחות, לא ידע.
+   ⚠️ המדידה לפי ArtBox (PageBox), אותה הכרעה בדיוק של הפורטל — אחרת
+   נחזור למצב שבו שני המסכים אומרים דברים שונים על אותו עמוד.
+   ⚠️ הייחוס: ‎reqW/reqH‎ של העבודה. **אין ייחוס → אין חיווי.** ניחוש
+   מחציון-העמודים היה מסמן גיליון תקין כשגוי, וזה גרוע מלשתוק. */
+const _boxCacheA = new Map();
+async function _boxesOf(url, pageN){
+  const key = url + '#' + pageN;
+  if (_boxCacheA.has(key)) return _boxCacheA.get(key);
+  let out = null;
+  try {
+    const L = await _loadPdfLibA();
+    if (L) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('הקובץ החזיר ' + r.status);   // 403 הוא תגובה תקינה
+      const d = await L.PDFDocument.load(await r.arrayBuffer(), { ignoreEncryption: true });
+      const pg = d.getPage(Math.max(0, Math.min(pageN - 1, d.getPageCount() - 1)));
+      const g = (fn) => { try { return pg[fn](); } catch(e){ return null; } };
+      out = { media: g('getMediaBox'), crop: g('getCropBox'), trim: g('getTrimBox'), art: g('getArtBox') };
+    }
+  } catch(e){ console.warn('[size] קריאת תיבות-העמוד נכשלה', (e && e.message) || e); }
+  if (_boxCacheA.size > 40) _boxCacheA.delete(_boxCacheA.keys().next().value);
+  _boxCacheA.set(key, out);
+  return out;
+}
+let _pdflibA = null;
+function _loadPdfLibA(){
+  if (window.PDFLib) return Promise.resolve(window.PDFLib);
+  if (_pdflibA) return _pdflibA;
+  _pdflibA = (window.LibLoader ? LibLoader.ensure('pdflib', { win: window }) : Promise.resolve())
+    .then(() => window.PDFLib || null).catch(() => null);
+  return _pdflibA;
+}
+async function _sizeBadge(el, t){
+  const reg = window._tileReg;
+  const p = reg && reg.p; if (!p || !window.PageBox) return;
+  const ref = (Number(p.reqW) > 0 && Number(p.reqH) > 0)
+    ? { w: Number(p.reqW), h: Number(p.reqH) } : null;
+  if (!ref) return;                                    // בלי גודל-עבודה לא מנחשים
+  /* ⚠️ אותה מגבלה של הפורטל: pdf-lib מושך את הקובץ במלואו, וריצה שוקלת
+     מעל 100MB. עמודים בודדים בלבד — הם גם היחידים שנבדקים מול גודל. */
+  if (t.partId || (t.pages > 1)) return;
+  const bx = await _boxesOf(t.url, t.page || 1);
+  const em = bx ? PageBox.effectiveMM(bx) : null;
+  if (!em) return;
+  const v = PageBox.verdict({ w: em.w, h: em.h }, ref);
+  if (!PageBox.isBad(v)) return;
+  const tile = el.closest('.pgT');
+  if (!tile || tile.querySelector('.pgSize')) return;
+  tile.style.borderColor = '#f59e0b'; tile.style.background = '#fffbeb';
+  tile.insertAdjacentHTML('beforeend',
+    `<div class="pgSize" style="font-size:.66rem;font-weight:800;color:#b45309">${escapeHtml(PageBox.badLabel(v, em.label))}</div>`);
 }
 
 /* ── תזכורת על עמוד חסר → ממלאת את תיבת-השיחה, לא שולחת ─────────────── */

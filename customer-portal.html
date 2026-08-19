@@ -9,23 +9,26 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1787132281"></script>
-<script src="page-add.js?v=1787132281"></script>
-<script src="portal-context.js?v=1787132281"></script>
-<script src="portal-return.js?v=1787132281"></script>
-<script src="portal-chat.js?v=1787132281"></script>
+<script src="portal-download.js?v=1787140095"></script>
+<script src="page-add.js?v=1787140095"></script>
+<script src="portal-context.js?v=1787140095"></script>
+<script src="portal-return.js?v=1787140095"></script>
+<script src="portal-chat.js?v=1787140095"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1787132281"></script>
+<script src="chat-alert.js?v=1787140095"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1787132281"></script>
-<script src="cover-split.js?v=1787132281"></script>
-<script src="page-swap.js?v=1787132281"></script>
-<script src="rip-load.js?v=1787132281"></script>
-<script src="page-replace.js?v=1787132281"></script>
-<script src="page-marks.js?v=1787132281"></script>
+<script src="shop-issue.js?v=1787140095"></script>
+<script src="cover-split.js?v=1787140095"></script>
+<script src="page-swap.js?v=1787140095"></script>
+<script src="rip-load.js?v=1787140095"></script>
+<script src="page-replace.js?v=1787140095"></script>
+<script src="page-marks.js?v=1787140095"></script>
+<!-- ⚠️ page-box: איזו תיבה היא "העמוד". עד 19/08 הפורטל מדד CropBox,
+     הדפדוף MediaBox ואפוגי ArtBox — שלוש מסקנות סותרות לאותו עמוד. -->
+<script src="page-box.js?v=1787140095"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1192,6 +1195,20 @@ async function _sgThumbs(){
       if (isRun) _sgRunOpen(id2, ix); else _sgLight(id2, ix); }; })(kv[0], parseInt(kv[1], 10), !!(t.partId && t.pages > 1));
     try {
       var sz = await _sgRenderTo(els[i], t, 120);
+      /* ⚠️ הגודל **לפי ArtBox** ולא לפי ה-viewport שרונדר (CropBox): על
+         קובץ עם 3 מ"מ גלישה ההפרש הוא 6 מ"מ שאינם קיימים בעמוד, וזה מה
+         שייצר התראות-שווא מול אפוגי ששותק. אין תיבות (קובץ שלא נקרא,
+         ‏pdf-lib חסום) → נשארת המדידה הישנה, עם ציון מקורה. */
+      /* ⚠️ **קריאת-התיבות מושכת את הקובץ במלואו** (pdf-lib אינו יודע
+         לקרוא טווחי-בייטים כמו pdf.js). לכן היא מוגבלת לעמודים בודדים
+         שהלקוח העלה — הם קטנים, והם גם היחידים שיש להם בעיית-גודל.
+         ⚠️ **ריצה לעולם לא**: קובץ-ריצה שוקל מעל 100MB, ומשיכה חוזרת שלו
+         בכל ציור-רשת הייתה מחזירה בדיוק את חריגת-התעבורה שתוקנה היום.
+         ריצה מגיעה מאיתנו ואינה נבדקת-גודל ממילא. */
+      var _bx = (!t.partId && !(t.pages > 1)) ? await _sgBoxes(t.url, t.page || 1) : null;
+      var _em = (window.PageBox && _bx) ? PageBox.effectiveMM(_bx) : null;
+      if (sz && _em) { sz.wmm = _em.w; sz.hmm = _em.h; sz.boxSrc = _em.label; }
+      else if (sz) { sz.boxSrc = 'CropBox'; }
       if (sz && sz.wmm) { reg.sizes = reg.sizes || {}; reg.sizes[parseInt(kv[1], 10)] = sz;
         done.push({ el: els[i], id: kv[0], ix: parseInt(kv[1], 10) }); }
       if (sz && sz.blank) {
@@ -1216,18 +1233,24 @@ async function _sgThumbs(){
       ? { w: Number(rec2.reqW), h: Number(rec2.reqH) }
       : (window.CoverSplit ? CoverSplit.refFromSizes(all) : null);
     if (!ref) return;
-    var s = reg2.sizes[d.ix]; var TOL = 3;
-    var single = Math.abs(s.wmm - ref.w) <= TOL && Math.abs(s.hmm - ref.h) <= TOL;
-    var spread = Math.abs(s.wmm - 2 * ref.w) <= TOL * 2 && Math.abs(s.hmm - ref.h) <= TOL;
-    var rotSpread = window.CoverSplit && CoverSplit.isRotatedSpread(s.wmm, s.hmm, ref.w, ref.h);
-    if (single || spread || rotSpread) return;
+    /* ⚠️ ההכרעה עברה ל-PageBox — אותה הכרעה בדיוק במסך-הדפוס ובדפדוף.
+       שלושה מימושים נפרדים היו שלוש מסקנות לאותו עמוד, וזו הייתה התקרית. */
+    /* ⚠️ **בלי PageBox המסך ממשיך לעבוד.** קובץ-מודול שלא נטען (פריסה
+       חלקית, רשת) אסור לו להפיל את מפת-הגיליון — הפורטל הוא מסלול-הלקוח,
+       וההתראה על גודל היא נוחות, לא תנאי לתפקוד. */
+    if (!window.PageBox) return;
+    var s = reg2.sizes[d.ix];
+    var v = PageBox.verdict({ w: s.wmm, h: s.hmm }, ref);
+    if (!PageBox.isBad(v)) return;
     reg2.badSize = reg2.badSize || {};
-    reg2.badSize[d.ix] = { got: Math.round(s.wmm) + '×' + Math.round(s.hmm), want: Math.round(ref.w) + '×' + Math.round(ref.h) };
+    reg2.badSize[d.ix] = { got: v.got.w + '×' + v.got.h, want: v.want.w + '×' + v.want.h,
+                           src: s.boxSrc || '' };
     var tile = d.el.closest('.sgT');
     if (tile && !tile.querySelector('.sgSize')) {
       tile.style.borderColor = '#f59e0b'; tile.style.background = '#fffbeb';
       tile.insertAdjacentHTML('beforeend',
-        '<div class="sgSize" style="font-size:.66rem;font-weight:800;color:#b45309">⚠️ לא בגודל (' + reg2.badSize[d.ix].got + ' מ״מ)</div>');
+        '<div class="sgSize" style="font-size:.66rem;font-weight:800;color:#b45309">'
+        + esc(PageBox.badLabel(v, s.boxSrc)) + '</div>');
     }
   });
 }
@@ -1247,6 +1270,37 @@ async function _sgTrimPct(url, pageN){
     : null;
   var ks = Object.keys(_sgTrimCache); if (ks.length > 6) delete _sgTrimCache[ks[0]];
   _sgTrimCache[key] = out; return out;
+}
+/* ── תיבות-העמוד לפי ArtBox (דיווח-בעלים 19/08/2026) ──────────────────────
+   ⚠️ עד היום הגודל נמדד מ-‎getViewport‎ של pdf.js — כלומר CropBox. אפוגי
+   קורא **ArtBox**, ולכן הפורטל התריע "לא בגודל" על עמודים שאפוגי אישר
+   בשקט: על קובץ עם 3 מ"מ גלישה ההפרש הוא 6 מ"מ שאינם קיימים בעמוד.
+   ⚠️ ‏pdf-lib זורק כשתיבה חסרה — ולכן כל getter עטוף בנפרד. חסרה ≠ שבורה,
+   וההכרעה מי גובר יושבת ב-PageBox ולא כאן.
+   ⚠️ אותו מטמון-בייטים של תרים-בוקס: לא מושכים את הקובץ פעמיים. */
+var _sgBoxCache = {};
+async function _sgBoxes(url, pageN){
+  var key = url + '|' + pageN;
+  if (key in _sgBoxCache) return _sgBoxCache[key];
+  var out = null;
+  try {
+    var PDFLib = await _loadPdfLib();
+    if (PDFLib) {
+      var r = await fetch(url);
+      if (!r.ok) throw new Error('הקובץ החזיר ' + r.status);   // Storage מחזיר 403 כתגובה תקינה
+      var d = await PDFLib.PDFDocument.load(await r.arrayBuffer(), { ignoreEncryption: true });
+      var pg = d.getPage(Math.max(0, Math.min(pageN - 1, d.getPageCount() - 1)));
+      var g = function(fn){ try { return pg[fn](); } catch(e){ return null; } };
+      out = { media: g('getMediaBox'), crop: g('getCropBox'),
+              trim: g('getTrimBox'),  art:  g('getArtBox') };
+    }
+  } catch(e){
+    /* ⚠️ נכשל-פתוח: בלי תיבות נופלים למדידת-ה-viewport הישנה. אין חיווי
+       שגוי, ואין שתיקה — הכשל נרשם. */
+    console.warn('קריאת תיבות-העמוד נכשלה (נופלים ל-viewport)', (e && e.message) || e);
+  }
+  var ks = Object.keys(_sgBoxCache); if (ks.length > 6) delete _sgBoxCache[ks[0]];
+  _sgBoxCache[key] = out; return out;
 }
 function _csEligible(id, reg, t){
   var okKind = (String(t.target).indexOf('file_') === 0 && !reg.locked)

@@ -12,21 +12,24 @@
 <script src="page-spine.js?v=bidi1"></script>
 <!-- סימוני-עמודים (עיצוב-מחדש 13/08/2026): הלוגיקה ב-shop-issue (טהורה),
      הציור והגרירה ב-page-marks — משותפים למסך-הדפוס ולדפדוף הזה. -->
-<script src="shop-issue.js?v=1787132281"></script>
-<script src="cover-split.js?v=1787132281"></script>
-<script src="page-marks.js?v=1787132281"></script>
+<script src="shop-issue.js?v=1787140095"></script>
+<script src="cover-split.js?v=1787140095"></script>
+<script src="page-marks.js?v=1787140095"></script>
+<!-- ⚠️ page-box: הדפדוף צייר MediaBox, ולכן עמוד-עם-גלישה יצא גדול
+     משכניו. אותה תיבה-קובעת (ArtBox) של הפורטל ומסך-הדפוס. -->
+<script src="page-box.js?v=1787140095"></script>
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1787132281"></script>
-<script src="proof-fetch.js?v=1787132281"></script>
+<script src="portal-context.js?v=1787140095"></script>
+<script src="proof-fetch.js?v=1787140095"></script>
 <script src="pdf-transparency.js"></script>
 <script src="pdfjs-engine.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787132281"></script>
-<script src="auth-client.js?v=1787132281"></script>
-<script src="auth-guard.js?v=1787132281" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1787140095"></script>
+<script src="auth-client.js?v=1787140095"></script>
+<script src="auth-guard.js?v=1787140095" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -464,6 +467,27 @@ async function _trimFracsFromPdf(bytes){
       return null;
     });
   } catch(e){ return []; }
+}
+/* ── תיבות-העמוד לדפדוף (דיווח-בעלים 19/08/2026) ──────────────────────────
+   ⚠️ **התסמין:** "העמודים שהייתה עליהם התראת-גודל לא הוצגו באותו גודל של
+   העמודים התקינים". נכון — הדפדוף צייר את ה-viewport של pdf.js, כלומר
+   ‏CropBox/MediaBox, ולכן עמוד עם גלישה יצא גדול משכניו והחוברת נראתה
+   עקומה. אפוגי קורא ArtBox, וזו התיבה שמתארת את העמוד עצמו.
+   ⚠️ נקרא **מאותם בייטים** שכבר בזיכרון, לפני ש-pdf.js בולע את ה-buffer —
+   בלי הורדה נוספת. קובץ-ריצה שוקל מעל 100MB ומשיכה חוזרת אינה באה בחשבון. */
+async function _boxesFromPdf(bytes){
+  try {
+    const doc = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption:true });
+    return doc.getPages().map(pg => {
+      const g = (fn) => { try { return pg[fn](); } catch(e){ return null; } };
+      return { media: g('getMediaBox'), crop: g('getCropBox'),
+               trim: g('getTrimBox'),  art:  g('getArtBox') };
+    });
+  } catch(e){
+    /* ⚠️ לא נבלע בשקט: בלי תיבות הדפדוף חוזר להתנהגות הישנה, ורוצים לדעת. */
+    console.warn('קריאת תיבות-העמודים נכשלה — הדפדוף יצייר לפי MediaBox', (e && e.message) || e);
+    return [];
+  }
 }
 /* גזירת trimFrac לכל עמוד-תצוגה, לפי סדר-הקדימויות המאושר:
      1) TrimBox אמיתי ב-PDF                                  → 'pdf-trimbox'
@@ -976,6 +1000,7 @@ async function _loadTrimsBg(){
     if (!_fromCache) showOverlay('מרנדר עמודים…', true, 0);
     // תיבות חיתוך לפני ש-pdf.js "בולע" את ה-buffer; ואז השלמת גלישות-מאושרות לכל עמוד
     try { metas = await _trimFracsFromPdf(norm.slice(0)); } catch(e){ metas = []; }
+    try { _pageBoxes = await _boxesFromPdf(norm.slice(0)); } catch(e){ _pageBoxes = []; }
     try { metas = await _metasForDisplay(norm.slice(0), metas); } catch(e){}
     const pdf = await pdfjsLib.getDocument({ data: norm }).promise;
     _pdfDoc = pdf;                      // נשמר לרינדור איכות-שיא לפי-דרישה
@@ -1077,10 +1102,27 @@ async function renderPage(pdf, pageNo, targetH, q){
   const page = await pdf.getPage(pageNo);
   const v1 = page.getViewport({ scale:1 });
   const dpr = Math.min(2, (window.devicePixelRatio || 1));
-  const scale = _capCanvasScale(Math.min(RENDER_SCALE_CAP, ((targetH || BASE_H) * dpr) / v1.height), v1);
-  const vp = page.getViewport({ scale });
+  /* ── ציור לפי התיבה הקובעת (19/08/2026) ────────────────────────────────
+     ⚠️ הגובה שממנו נגזרת ההגדלה הוא גובה-**ArtBox** ולא גובה-המדיה — זה
+     מה שמיישר עמוד-עם-גלישה לגודל שכניו. בלי זה כל עמוד הוצג ביחס אחר,
+     וזו הייתה התלונה.
+     ⚠️ **רק על עמוד לא-מסובב.** ‏offsetX/offsetY של pdf.js פועלים במרחב
+     המסובב, וההיסטים כאן מחושבים במרחב הלא-מסובב; על ‎/Rotate 90‎ הם היו
+     חותכים במקום הלא-נכון. עמוד מסובב → ההתנהגות הקודמת, בלי ניסיון.
+     ⚠️ ובלי PageBox או בלי תיבות — גם כן ההתנהגות הקודמת. הדפדוף הוא
+     מסלול-אישור של לקוח; הוא לא ייפול בגלל מודול שלא נטען. */
+  const _rot = (((page.rotate || 0) % 360) + 360) % 360;
+  const _bx  = (window.PageBox && _rot === 0) ? _pageBoxes[pageNo - 1] : null;
+  const _eff = _bx ? PageBox.effective(_bx) : null;
+  const _useArt = !!(_eff && _eff.src !== 'media' && _eff.height > 1);
+  const _baseH = _useArt ? _eff.height : v1.height;
+  const scale = _capCanvasScale(Math.min(RENDER_SCALE_CAP, ((targetH || BASE_H) * dpr) / _baseH), v1);
+  const _rect = _useArt ? PageBox.renderRect(_bx, scale) : null;
+  const vp = _rect ? page.getViewport({ scale, offsetX: _rect.offsetX, offsetY: _rect.offsetY })
+                   : page.getViewport({ scale });
   const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.floor(vp.width)); c.height = Math.max(1, Math.floor(vp.height));
+  c.width  = _rect ? _rect.width  : Math.max(1, Math.floor(vp.width));
+  c.height = _rect ? _rect.height : Math.max(1, Math.floor(vp.height));
   const cx = c.getContext('2d');
   // רקע לבן מפורש: עמוד עם שקיפות נראה אחרת על קנבס שקוף, וב-JPEG שקיפות הופכת לשחור
   cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);
@@ -1094,6 +1136,8 @@ async function renderPage(pdf, pageNo, targetH, q){
 /* ── שלב 2: איכות-שיא לעמודים שמוצגים כרגע ──────────────────────────────
    מטמון LRU קטן בזיכרון בלבד; לא נשמר ולא מועלה לשום מקום. */
 let _pdfDoc = null, _baseDone = false;
+/* תיבות-העמוד לכל עמוד (ArtBox…), נקראות פעם אחת בטעינה */
+let _pageBoxes = [];
 const _hi = new Map(), _hiBusy = new Set();
 
 /* גובה-הרינדור הדרוש **עכשיו**: מה שבאמת מוצג × צפיפות-המסך × הזום.
