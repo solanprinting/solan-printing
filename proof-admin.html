@@ -33,24 +33,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787165378"></script>
-<script src="chat-alert.js?v=1787165378"></script>
-<script src="shop-issue.js?v=1787165378"></script>
-<script src="page-marks.js?v=1787165378"></script>
+<script src="portal-chat.js?v=1787166121"></script>
+<script src="chat-alert.js?v=1787166121"></script>
+<script src="shop-issue.js?v=1787166121"></script>
+<script src="page-marks.js?v=1787166121"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787165378"></script>
-<script src="kontres-split.js?v=1787165378"></script>
+<script src="page-box.js?v=1787166121"></script>
+<script src="kontres-split.js?v=1787166121"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787165378"></script>
-<script src="auth-client.js?v=1787165378"></script>
+<script src="firebase-auth.bundle.js?v=1787166121"></script>
+<script src="auth-client.js?v=1787166121"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787165378" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787166121" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -653,6 +653,7 @@ window.addEventListener('appinstalled', function(){
   .runExpNote.bad { color:var(--red); font-weight:700; }
   .runExpPages { max-height:70vh; overflow-y:auto; padding:12px 13px; }
   .runExpPages .pgTh img { width:100%; height:100%; object-fit:contain; background:#fff; }
+  .pgSpread { position:absolute; top:4px; inset-inline-start:4px; background:#7c3aed; color:#fff; font-size:.62rem; font-weight:800; padding:1px 7px; border-radius:7px; z-index:2; }
   .isMore { margin-top:11px; padding-top:11px; border-top:1px dashed var(--line); }
   .isMore .acts { gap:6px; }
   .isSeen { font-size:.79rem; color:#166534; font-weight:800; }
@@ -3300,16 +3301,35 @@ async function _runExpand(reg, t, pt) {
     }
     if (_runExpKey !== t.partId) return;       // המשתמש עבר לריצה אחרת בינתיים
     const baseNo = _runFirstPageNo(reg.p, t.partId);
+    /* ⚠️ דיווח-בעלים 19/08/2026: כפולה שנשארה עמוד-PDF אחד רחב קיבלה מספר
+       אחד — וכל הספירה אחריה זזה. מודדים את מידות-התמונות מהמטמון (זולות,
+       ממילא נטענות לרשת) ומזהים כפולות לפי יחס-צלעות (ShopIssue, טהור).
+       מדידה שנכשלה → עמוד-בודד, לא ניחוש. */
+    const dims = await Promise.all(pages.map(src => new Promise(res => {
+      const im = new Image();
+      const done = (ok) => res(ok ? { w: im.naturalWidth, h: im.naturalHeight } : null);
+      im.onload = () => done(true); im.onerror = () => done(false);
+      setTimeout(() => done(false), 8000);       // תמונה תקועה לא תוקעת את הפריסה
+      im.src = src;
+    })));
+    if (_runExpKey !== t.partId) return;
+    const sn = (window.ShopIssue && ShopIssue.spreadNumbering)
+      ? ShopIssue.spreadNumbering(dims, baseNo)
+      : { items: pages.map((_, n) => ({ nos: [baseNo + n], spread: false, label: 'עמוד ' + (baseNo + n) })),
+          total: pages.length, spreads: 0, from: baseNo, to: baseNo + pages.length - 1 };
     host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
-      + '<span class="runExpNote">' + pages.length + ' עמודים · עמ׳ ' + baseNo + '–' + (baseNo + pages.length - 1)
-          + ' בגיליון · לחיצה על עמוד: הגדלה · לחיצה נוספת על הריצה: דפדוף</span>'
+      + '<span class="runExpNote">' + pages.length + ' קבצים · ' + sn.total + ' עמודים · עמ׳ '
+          + sn.from + '–' + sn.to + ' בגיליון'
+          + (sn.spreads ? ' · ' + sn.spreads + ' כפולות' : '')
+          + ' · לחיצה על עמוד: הגדלה · לחיצה נוספת על הריצה: דפדוף</span>'
       + dlBtn
       + '<button class="isBtn" data-runflip="1">📖 דפדוף</button>'
       + '<button class="isBtn" data-runclose="1">✕ סגור</button></div>'
       + '<div class="isPages runExpPages">'
-      + pages.map((src, n) => '<div class="pgT" data-runpg="' + n + '" title="עמוד ' + (baseNo + n) + ' בגיליון">'
-          + '<div class="pgTh"><img src="' + src + '" alt=""></div>'
-          + '<div class="pgNm">עמוד ' + (baseNo + n) + '</div></div>').join('')
+      + pages.map((src, n) => '<div class="pgT" data-runpg="' + n + '" title="' + sn.items[n].label + ' בגיליון">'
+          + '<div class="pgTh"><img src="' + src + '" alt="">'
+          + (sn.items[n].spread ? '<span class="pgSpread">כפולה</span>' : '') + '</div>'
+          + '<div class="pgNm">' + sn.items[n].label + '</div></div>').join('')
       + '</div>';
     _runExpWire(reg, t, pt);
     host.scrollIntoView({ block: 'nearest', behavior: 'smooth' });

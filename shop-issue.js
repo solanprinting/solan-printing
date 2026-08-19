@@ -818,7 +818,40 @@
              gotRuns: out.filter(function (x) { return x.got; }).length };
   }
 
+  /* ── מספור-עמודים עם זיהוי-כפולות (דיווח-בעלים 19/08/2026) ──────────────
+     "בתצוגה של הגיליון הפרוס העמודים הכפולים מופיעים כעמוד אחד וזה מבלבל
+     את הספירה". קובץ-ריצה יכול להכיל כפולה כעמוד-PDF **אחד** רחב — שהוא
+     שני עמודי-עיתון. מספור לפי אינדקס-PDF מזייף את כל ההמשך.
+
+     הזיהוי גיאומטרי: יחס-צלעות של כל עמוד מול חציון-הריצה — עמוד רחב
+     פי-1.45 ומעלה מהחציון הוא כפולה (יחס מלא הוא פי-2; הרפיון סופג
+     גלישות ושוליים). כשרוב-הריצה כפולות אין חציון "רגיל" — ואז לא
+     מסמנים כלום, כי ניחוש שקט גרוע מספירה חסרה. dims חסר/פגום → עמוד
+     בודד. הפלט: תווית לכל עמוד-PDF + סך עמודי-העיתון האמיתי. */
+  function spreadNumbering(dims, baseNo) {
+    var base = num(baseNo) || 1;
+    var list = Array.isArray(dims) ? dims : [];
+    var ratios = list.map(function (d) {
+      return (d && num(d.w) > 0 && num(d.h) > 0) ? num(d.w) / num(d.h) : 0;
+    });
+    var valid = ratios.filter(function (r) { return r > 0; }).sort(function (a, b) { return a - b; });
+    var med = valid.length ? valid[Math.floor(valid.length / 2)] : 0;
+    var items = [], n = base, spreads = 0;
+    ratios.forEach(function (r) {
+      var isSp = med > 0 && r > med * 1.45;
+      if (isSp) {
+        items.push({ nos: [n, n + 1], spread: true, label: 'עמודים ' + n + '–' + (n + 1) });
+        n += 2; spreads++;
+      } else {
+        items.push({ nos: [n], spread: false, label: 'עמוד ' + n });
+        n += 1;
+      }
+    });
+    return { items: items, total: n - base, spreads: spreads, from: base, to: n - 1 };
+  }
+
   return {
+    spreadNumbering: spreadNumbering,
     idOf: idOf, timeOf: timeOf, isActive: isActive,
     sortIssues: sortIssues, openId: openId,
     statusOf: statusOf, printApproved: printApproved,
