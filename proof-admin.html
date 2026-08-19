@@ -33,21 +33,21 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787122808"></script>
-<script src="chat-alert.js?v=1787122808"></script>
-<script src="shop-issue.js?v=1787122808"></script>
-<script src="page-marks.js?v=1787122808"></script>
-<script src="kontres-split.js?v=1787122808"></script>
+<script src="portal-chat.js?v=1787124114"></script>
+<script src="chat-alert.js?v=1787124114"></script>
+<script src="shop-issue.js?v=1787124114"></script>
+<script src="page-marks.js?v=1787124114"></script>
+<script src="kontres-split.js?v=1787124114"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787122808"></script>
-<script src="auth-client.js?v=1787122808"></script>
+<script src="firebase-auth.bundle.js?v=1787124114"></script>
+<script src="auth-client.js?v=1787124114"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787122808" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787124114" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1361,7 +1361,28 @@ function render(rows) {
        "עמודים שהתקבלו (1)" על ריצה בת 8 שלח את הדפוס לחפש 7 עמודים שכבר ביד. */
     const nPages = tiles.reduce((n, t) => n + (t.kind === 'page' ? Math.max(1, t.pages | 0) : 0), 0);
     const marked = tiles.filter(t => t.mark && t.mark.kind === 'replace').length;
-    const pagesGrid = tiles.length
+    /* ── מפה לפי ריצות (בקשת-בעלים 19/08/2026) ──────────────────────────
+       אותה החלטה בדיוק כמו בפורטל (ShopIssue.runGrid) — כדי ששני המסכים
+       יספרו את אותו סיפור על אותו גיליון. גיליון עמוד-לקובץ נשאר ברשת
+       השטוחה. */
+    const rgrid = ShopIssue.runGrid(p);
+    window._runGridReg = rgrid.ok ? { id: p.id, p: p, grid: rgrid } : null;
+    const runsGrid = !rgrid.ok ? '' : `<div class="isGridT">ריצות: <b>${rgrid.gotRuns}</b> מתוך <b>${rgrid.runs.length}</b> · ${nPages} עמודים מתוך ${rgrid.total}${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על ריצה: פריסת עמודיה</div>
+         <div class="isPages">${rgrid.runs.map(rn => {
+           const rng = `עמ׳ ${rn.from}–${rn.to}`;
+           if (!rn.got)
+             return `<div class="pgT miss" data-runmiss="${rn.no}" style="cursor:pointer" title="לחיצה — אילו עמודים חסרים בריצה"><div class="pgTh">✚</div>
+               <div class="pgNm">${escapeHtml(rn.name)} · ${rng}</div>
+               <div class="pgSub">טרם הגיעה · ${rn.missing.length} עמ׳</div>
+               <button class="pgRemind" data-remindrun="${rn.no}" title="ממלא הודעת-תזכורת בשיחה עם הלקוח">📩 תזכורת</button></div>`;
+           const t = tiles[rn.tileIndex] || {}; const mk = t.mark;
+           return `<div class="pgT${mk?(mk.kind==='replace'?' mRep':' mOk'):''}" data-tile="${rn.tileIndex}" title="${escapeHtml(rn.name)} · ${rng}">
+             <div class="pgTh" data-thumb="${rn.tileIndex}"><span class="pgPh">📄</span>${mk?`<span class="pgMk">${mk.kind==='replace'?'🔁':'✔'}</span>`:''}</div>
+             <div class="pgNm">${escapeHtml(rn.name)} · ${rng}</div>
+             ${rn.missing.length?`<div class="pgNote" style="color:#b45309">⚠️ ${rn.missing.length} עמ׳ חסרים בריצה</div>`:(t.at?`<div class="pgSub">${fmt(t.at)}</div>`:'')}
+           </div>`; }).join('')}</div>
+         <div id="runExp" class="runExp"></div>`;
+    const pagesGrid = runsGrid || (tiles.length
       ? `<div class="isGridT">עמודים שהתקבלו (${nPages})${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על עמוד: הגדלה · סימון · הורדה</div>
          <div class="isPages">${tiles.map((t, i) => {
            if (t.kind === 'missing')
@@ -1374,7 +1395,7 @@ function render(rows) {
              ${mk&&mk.note?`<div class="pgNote">${escapeHtml(String(mk.note).slice(0,42))}</div>`:(t.at?`<div class="pgSub">${fmt(t.at)}</div>`:'')}
            </div>`; }).join('')}</div>
          <div id="runExp" class="runExp"></div>`
-      : '<div style="color:#9ca3af;font-size:.86rem;padding:6px 14px">טרם התקבלו קבצים לגיליון הזה.</div>';
+      : '<div style="color:#9ca3af;font-size:.86rem;padding:6px 14px">טרם התקבלו קבצים לגיליון הזה.</div>');
 
     /* ⚠️ "אשר קבלה ללקוח" הוא ‎shopSeenAt‎ הקיים — אותו שדה שהפורטל כבר
        מציג ללקוח כ"בית-הדפוס קיבל את הקבצים". */
@@ -2308,6 +2329,8 @@ function render(rows) {
   /* רשת-העמודים: הגדלה בלחיצה, תזכורת-עמוד-חסר, ותצוגות-מקדימות עצלות */
   document.querySelectorAll('[data-tile]').forEach(el => el.onclick = () => _tileClick(parseInt(el.dataset.tile, 10)));
   document.querySelectorAll('[data-remind]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _pgRemind(b.dataset.remind); });
+  document.querySelectorAll('[data-remindrun]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _pgRemindRun(b.dataset.remindrun); });
+  document.querySelectorAll('[data-runmiss]').forEach(el => el.onclick = () => _runMissExpand(parseInt(el.dataset.runmiss, 10)));
   _thumbPaint();
   /* "אשר קבלה ללקוח" — מסמן את הגיליון **וכל ריצותיו**, כי מבחינת הלקוח
      ההודעה היא "קיבלנו את מה ששלחת", לא "קיבלנו ריצה 2". */
@@ -2926,6 +2949,47 @@ function _thumbPump(){
 }
 
 /* ── תזכורת על עמוד חסר → ממלאת את תיבת-השיחה, לא שולחת ─────────────── */
+/* ── ריצה שטרם הגיעה (בקשת-בעלים 19/08/2026) ────────────────────────────
+   אותה שורת-פריסה של ריצה שהתקבלה (‎#runExp‎), אבל במקום תמונות — אילו
+   עמודים חסרים בה. עמוד שכבר הגיע בתוך הטווח מוצג כמו שהוא: "חסרה ריצה 3"
+   על ריצה שחלק מעמודיה כן נשלחו כקבצים בודדים היה שולח לחפש מה שביד. */
+function _runMissExpand(n){
+  const reg = window._runGridReg;
+  const rn = reg && reg.grid.runs.find(x => x.no === n);
+  const host = document.getElementById('runExp');
+  if (!rn || !host) return;
+  if (_runExpKey === 'miss:' + n) { _runExpClose(); return; }   // לחיצה שנייה סוגרת
+  _runExpKey = 'miss:' + n;
+  host.innerHTML = `<div class="runExpBar"><b>${escapeHtml(rn.name)}</b>
+      <span class="runExpNote bad">טרם הגיעה — חסרים ${rn.missing.length} מתוך ${rn.pageCount} עמודים (עמ׳ ${rn.from}–${rn.to})</span>
+      <button class="isBtn" data-runmissremind="1">📩 תזכורת ללקוח</button>
+      <button class="isBtn" data-runclose="1">✕ סגור</button></div>
+    <div class="isPages runExpPages">${rn.pages.map(pg => pg.got
+      ? `<div class="pgT mOk" data-runmisspg="${pg.tileIndex}"><div class="pgTh"><span class="pgPh">📄</span></div><div class="pgNm">עמוד ${pg.no}</div></div>`
+      : `<div class="pgT miss"><div class="pgTh">✚</div><div class="pgNm">חסר עמ׳ ${pg.no}</div>
+         <button class="pgRemind" data-remind="${pg.no}" title="ממלא הודעת-תזכורת בשיחה עם הלקוח">📩 תזכורת</button></div>`).join('')}</div>`;
+  const cl = host.querySelector('[data-runclose]');
+  if (cl) cl.onclick = _runExpClose;
+  const rm = host.querySelector('[data-runmissremind]');
+  if (rm) rm.onclick = () => _pgRemindRun(n);
+  host.querySelectorAll('[data-remind]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _pgRemind(b.dataset.remind); });
+  host.querySelectorAll('[data-runmisspg]').forEach(el => el.onclick = () => {
+    const ix = parseInt(el.dataset.runmisspg, 10);
+    if (ix >= 0) _pgLightOpen(ix);
+  });
+  host.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+/* תזכורת ברמת-הריצה: "חסרה ריצה 3" הוא מה שהלקוח יכול לפעול לפיו —
+   רשימה של שמונה מספרי-עמודים אינה. */
+function _pgRemindRun(n){
+  const reg = window._runGridReg;
+  const rn = reg && reg.grid.runs.find(x => x.no === Number(n));
+  if (!rn) { msg('הריצה לא נמצאה — רעננו'); return; }
+  const ta = document.getElementById('shChatInput');
+  const txt = 'שלום, חסרה עדיין ' + rn.name + ' (עמ׳ ' + rn.from + '–' + rn.to + ') לגיליון. אפשר לשלוח אותה?';
+  if (ta) { ta.value = txt; ta.focus(); ta.scrollIntoView({ block: 'nearest' }); }
+  else msg('פתחו את הלקוח כדי לשלוח לו הודעה');
+}
 function _pgRemind(pageNo){
   const ta = document.getElementById('shChatInput');
   const txt = 'שלום, חסר עדיין עמוד ' + pageNo + ' לגיליון. אפשר לשלוח אותו?';

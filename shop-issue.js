@@ -539,13 +539,79 @@
     return tiles;
   }
 
+  /* ── מפת-הגיליון לפי ריצות (בקשת-בעלים 19/08/2026) ──────────────────────
+     ⚠️ גיליון בן 72 עמודים שהתקבלה בו ריצה אחת פרש 64 אריחי-"חסר" — קיר
+     של משבצות זהות שאי-אפשר לקרוא, ולא אמר את הדבר היחיד שהלקוח צריך
+     לדעת: **אילו ריצות טרם שלחתי**. כאן העמודים נאספים לריצות: ריצה
+     שהתקבלה לפי אורכה האמיתי, והפערים ביניהן לריצות-שטרם-הגיעו בגודל
+     גיליון (‎sheetPages‎). העמוד עצמו לא נעלם — הוא בתוך הריצה.
+
+     ⚠️ אורך-ריצה **נקרא ולא מחושב**: לגיליון יכולות להיות ריצות באורכים
+     שונים (16 + 32). ‏sheetPages משמש רק להערכת ריצה שטרם ראינו — שם אין
+     מה לקרוא. אין sheetPages ואין ריצות → ‎ok:false‎, והמסך נשאר ברשת
+     השטוחה. לא ממציאים חלוקה. */
+  function runGrid(p) {
+    var r = p || {};
+    var tiles = pageTiles(r);
+    var sheet = sheetPagesOf(r).sheet;
+    /* איזה עמוד יושב באיזה אריח — כולל עמודים שבתוך ריצה */
+    var at = {}, last = 0;
+    tiles.forEach(function (t, i) {
+      if (t.kind !== 'page' || t.pageNo == null) return;
+      var span = Math.min(Math.max(1, num(t.pages) | 0), 400);
+      for (var j = 0; j < span; j++) { at[t.pageNo + j] = i; last = Math.max(last, t.pageNo + j); }
+    });
+    var runs = [];   // אריחי-ריצה ממשיים, לפי עמוד-הפתיחה
+    tiles.forEach(function (t, i) {
+      if (t.kind === 'page' && t.partId && num(t.pages) > 1 && t.pageNo >= 1) runs.push({ t: t, i: i });
+    });
+    var declared = Math.min(num(r.declaredPages) | 0, 200);
+    var total = Math.max(declared, last);
+    if (!runs.length || total < 1) return { ok: false, why: 'אין ריצות בגיליון הזה' };
+    if (!sheet && total > last) return { ok: false, why: 'אין גודל-גיליון — לא ידוע כמה עמודים בריצה שטרם הגיעה' };
+    var start = {};
+    runs.forEach(function (x) { start[x.t.pageNo] = x; });
+    var out = [], pos = 1, n = 0;
+    while (pos <= total && out.length < 100) {
+      n++;
+      var hit = start[pos];
+      var len;
+      if (hit) len = Math.max(1, num(hit.t.pages) | 0);
+      else {
+        /* לכל היותר גיליון אחד, ולא מעבר לפתח הריצה הממשית הבאה.
+           ⚠️ הקטיעה ב-‎nxt‎ היא הגנה בלבד ואינה נבדקת: היום כל פער נאמד
+           ב-‎runFirstPageNo‎ בדיוק בגודל-גיליון, ולכן היא לעולם אינה
+           מכריעה. היא כאן כדי שריצה שהגיעה לא תיבלע אם חישוב-הפתיחה
+           ישתנה — לא כדי לתקן מצב קיים. */
+        var nxt = 0;
+        runs.forEach(function (x) { if (x.t.pageNo > pos && (!nxt || x.t.pageNo < nxt)) nxt = x.t.pageNo; });
+        len = Math.min(sheet || (total - pos + 1), nxt ? (nxt - pos) : (total - pos + 1), total - pos + 1);
+      }
+      var to = Math.min(pos + len - 1, total);
+      var pages = [], miss = [];
+      for (var q = pos; q <= to; q++) {
+        var ti = (at[q] == null) ? -1 : at[q];
+        pages.push({ no: q, got: ti >= 0, tileIndex: ti });
+        if (ti < 0) miss.push(q);
+      }
+      out.push({ no: n, from: pos, to: to,
+                 got: !!hit, partId: hit ? hit.t.partId : '',
+                 name: hit ? (hit.t.runName || hit.t.label) : ('ריצה ' + n),
+                 tileIndex: hit ? hit.i : -1,
+                 pageCount: to - pos + 1, pages: pages, missing: miss });
+      pos = to + 1;
+    }
+    return { ok: true, sheet: sheet, total: total, runs: out,
+             gotRuns: out.filter(function (x) { return x.got; }).length };
+  }
+
   return {
     idOf: idOf, timeOf: timeOf, isActive: isActive,
     sortIssues: sortIssues, openId: openId,
     statusOf: statusOf, printApproved: printApproved,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
-    pageNoOf: pageNoOf, pageTiles: pageTiles, markOf: markOf, markPatch: markPatch,
+    pageNoOf: pageNoOf, pageTiles: pageTiles, runGrid: runGrid, markOf: markOf, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
     runNoOfName: runNoOfName, renameRunNo: renameRunNo, runRenumberPatch: runRenumberPatch,

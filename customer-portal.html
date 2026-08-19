@@ -9,23 +9,23 @@
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1787122808"></script>
-<script src="page-add.js?v=1787122808"></script>
-<script src="portal-context.js?v=1787122808"></script>
-<script src="portal-return.js?v=1787122808"></script>
-<script src="portal-chat.js?v=1787122808"></script>
+<script src="portal-download.js?v=1787124114"></script>
+<script src="page-add.js?v=1787124114"></script>
+<script src="portal-context.js?v=1787124114"></script>
+<script src="portal-return.js?v=1787124114"></script>
+<script src="portal-chat.js?v=1787124114"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1787122808"></script>
+<script src="chat-alert.js?v=1787124114"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1787122808"></script>
-<script src="cover-split.js?v=1787122808"></script>
-<script src="page-swap.js?v=1787122808"></script>
-<script src="rip-load.js?v=1787122808"></script>
-<script src="page-replace.js?v=1787122808"></script>
-<script src="page-marks.js?v=1787122808"></script>
+<script src="shop-issue.js?v=1787124114"></script>
+<script src="cover-split.js?v=1787124114"></script>
+<script src="page-swap.js?v=1787124114"></script>
+<script src="rip-load.js?v=1787124114"></script>
+<script src="page-replace.js?v=1787124114"></script>
+<script src="page-marks.js?v=1787124114"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1040,6 +1040,7 @@ function _unlock(key){ _busy[key] = false; }
    אינם מגיעים ל-firebasestorage (ראה solan-kosher-internet), ורשת של
    ריבועים שבורים גרועה ממפה נקייה. הצפייה עצמה — בדפדוף. */
 var _sgReg = {};   // proofId → הרשומה (לפעולות-הלחיצה)
+var _sgRuns = {};  // proofId → מפת-הריצות (ShopIssue.runGrid) · null = רשת שטוחה
 function _slotGridHtml(p, lockedView){
   if (!window.ShopIssue) return '';
   /* מסלול-הפרופר-המקופל (foldVersionId) אינו מפת-עמודים — יש לו דפדוף משלו */
@@ -1065,6 +1066,37 @@ function _slotGridHtml(p, lockedView){
         ? ' <button class="sgDeclare" onclick="_pgInsertFull(\'' + esc(p._id) + '\')" title="הכנסת עמוד בין עמודים או כשער חדש — השאר נדחפים קדימה">➕ הוסף עמוד במקום מסוים</button>' : '')
     + '</div>';
   if (!tiles.length) return '<div class="sgWrap">' + head + '</div>';
+  /* ── מפה לפי ריצות (בקשת-בעלים 19/08/2026) ────────────────────────────
+     גיליון-ריצות בן 72 עמודים פרש 64 משבצות-"חסר" זהות — הלקוח לא יכול
+     לקרוא מזה **איזו ריצה** הוא עוד לא שלח. כאן אריח לכל ריצה, והעמודים
+     בתוכה. גיליון עמוד-לקובץ (‎ok:false‎) ממשיך ברשת השטוחה בדיוק כמו קודם. */
+  var rg = ShopIssue.runGrid(p);
+  _sgRuns[p._id] = rg.ok ? rg : null;
+  if (rg.ok) {
+    var rHead = head.replace('</div>', '')
+      + ' · <b>' + rg.gotRuns + '</b> מתוך <b>' + rg.runs.length + '</b> ריצות</div>';
+    return '<div class="sgWrap">' + rHead + '<div class="sgGrid">'
+      + rg.runs.map(function(rn){
+          var rng = 'עמ׳ ' + rn.from + '–' + rn.to;
+          if (!rn.got) {
+            /* ריצה שטרם הגיעה — הלחיצה מפרטת את עמודיה, ומשם מעלים */
+            return '<div class="sgT miss" style="cursor:pointer" onclick="_sgRunMissing(\'' + esc(p._id) + '\',' + rn.no + ')">✚'
+              + '<div class="sgNm">' + esc(rn.name) + ' · ' + rng + '</div>'
+              + '<div class="sgHint">טרם הגיעה · ' + rn.missing.length + ' עמודים — לחצו לפירוט</div></div>';
+          }
+          var ix = rn.tileIndex;
+          var view = 'proof-viewer.html?id=' + encodeURIComponent(p._id) + '&part=' + encodeURIComponent(rn.partId) + '&ctx=portal';
+          var short = rn.missing.length;
+          return '<div class="sgT">'
+            + '<div class="sgPv" data-sgpv="' + esc(p._id) + '|' + ix + '" title="לחיצה — פריסת הריצה"></div>'
+            + '<a href="' + view + '" target="_blank" rel="noopener" class="sgLink" onclick="return _sgRunOpen(\'' + esc(p._id) + '\',' + ix + '), false">✔ '
+              + esc(rn.name) + ' · ' + rng + '</a>'
+            + (short ? '<div class="sgNote" style="color:#b45309">⚠️ ' + short + ' עמודים חסרים בריצה</div>' : '')
+            + '<button class="sgMv" onclick="_sgRunMovePrompt(\'' + esc(p._id) + '\',\'' + esc(rn.partId) + '\')" title="הריצה במקום הלא-נכון? העבירו אותה למקומה">⇄</button>'
+            + '</div>';
+        }).join('')
+      + '</div></div>';
+  }
   var cells = tiles.map(function(t, i){
     if (t.kind === 'missing')
       return '<div class="sgT miss" data-sgslot="' + t.pageNo + '" data-sgid="' + esc(p._id) + '"'
@@ -1611,6 +1643,52 @@ async function _sgRunOpen(id, i){
   if (thumbs) note.textContent = '';
 }
 window._sgRunOpen = _sgRunOpen;
+/* ── ריצה שטרם הגיעה: אילו עמודים חסרים בה (בקשת-בעלים 19/08/2026) ──────
+   ⚠️ אין כאן מסלול-העלאה של ריצה שלמה — הפורטל יודע להוסיף **עמוד**
+   לגיליון קיים (‎_quickAddToIssue‎ כותב ל-‎files/‎), ולא ריצה. לכן כל
+   משבצת כאן היא עמוד בודד, וזה נאמר במפורש במקום להציע כפתור שמבטיח
+   משהו אחר. עמוד שכבר הגיע בתוך הטווח מוצג כמו שהוא — לא כחסר. */
+function _sgRunMissing(id, n){
+  var rg = _sgRuns[id]; var p = _sgReg[id] || {};
+  var rn = rg && rg.runs.filter(function(x){ return x.no === n; })[0];
+  if (!rn){ toast('⚠️ הריצה לא נמצאה — רעננו'); return; }
+  var locked = !!(_sgTiles[id] || {}).locked;
+  var ex = document.getElementById('sgRunBox'); if (ex) ex.remove();
+  var ov = document.createElement('div'); ov.id = 'sgRunBox';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(17,24,39,.9);z-index:96;direction:rtl;padding:16px;overflow:auto';
+  ov.onclick = function(ev){ if (ev.target === ov) ov.remove(); };
+  ov.innerHTML = '<div style="max-width:1100px;margin:0 auto">'
+    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">'
+    + '<div style="color:#fff;font-weight:900;font-size:1.05rem;flex:1">🗂 ' + esc(rn.name)
+      + ' — עמ׳ ' + rn.from + '–' + rn.to + ' בגיליון · <span style="color:#fca5a5">חסרים '
+      + rn.missing.length + ' מתוך ' + rn.pageCount + '</span></div>'
+    + '<button class="btn btn-dl" id="sgRunClose">✕ סגור</button></div>'
+    + (locked ? '' : '<div style="color:#cbd5e1;font-size:.82rem;margin-bottom:10px">לחיצה על משבצת מעלה <b>עמוד בודד</b> למקומו. קובץ-ריצה שלם נשלח בהעלאה הרגילה של הגיליון.</div>')
+    + '<div id="sgRunGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:9px"></div></div>';
+  document.body.appendChild(ov);
+  document.getElementById('sgRunClose').onclick = function(){ ov.remove(); };
+  var grid = document.getElementById('sgRunGrid');
+  rn.pages.forEach(function(pg){
+    var cell = document.createElement('div');
+    if (pg.got){
+      cell.style.cssText = 'background:#fff;border:1.5px solid #a7f3d0;border-radius:10px;padding:10px 6px;text-align:center;cursor:pointer';
+      cell.innerHTML = '<div style="font-size:1.3rem">✔</div><div style="font-size:.76rem;font-weight:800;margin-top:3px">עמוד ' + pg.no + '</div>';
+      /* ⚠️ ההגדלה מקבלת את העמוד **בתוך האריח** ולא בגיליון: אריח-ריצה
+         מחזיק כמה עמודים, ובלי ההיסט תמיד ייפתח העמוד הראשון שלה. */
+      var tl = ((_sgTiles[id] || {}).tiles || [])[pg.tileIndex];
+      var within = (tl && tl.pageNo >= 1) ? (pg.no - tl.pageNo + 1) : 1;
+      cell.onclick = function(){ ov.remove(); _sgLight(id, pg.tileIndex, within); };
+    } else {
+      cell.style.cssText = 'background:#fff7ed;border:1.5px dashed #fdba74;border-radius:10px;padding:10px 6px;text-align:center'
+        + (locked ? '' : ';cursor:pointer');
+      cell.innerHTML = '<div style="font-size:1.3rem;color:#c2410c">✚</div>'
+        + '<div style="font-size:.76rem;font-weight:800;margin-top:3px">חסר עמ׳ ' + pg.no + '</div>';
+      if (!locked) cell.onclick = function(){ ov.remove(); _sgFixUpload(id, pg.no); };
+    }
+    grid.appendChild(cell);
+  });
+}
+window._sgRunMissing = _sgRunMissing;
 function _sgLight(id, i, pgOverride){
   var reg = _sgTiles[id]; var t = reg && reg.tiles[i];
   if (!t || t.kind !== 'page') return true;         // בלי נתונים — הקישור הרגיל ימשיך לדפדוף
