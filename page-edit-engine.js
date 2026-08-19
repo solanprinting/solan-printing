@@ -25,11 +25,44 @@
   'use strict';
 
   var OPS = ['bleed', 'shrink', 'center', 'moveRegion', 'crop', 'whiteFrame', 'frameAdd', 'addMarks',
-             'rotate', 'eraseSpot'];
+             'rotate', 'eraseSpot', 'fitSize'];
 
   function _num(v, d) { var n = Number(v); return isFinite(n) ? n : (d || 0); }
   function _clampPct(v) { return Math.max(0, Math.min(100, _num(v))); }
   function mmToPx(mm, dpi) { return Math.round(_num(mm) / 25.4 * _num(dpi, 300)); }
+
+  /* ── התאמה לגודל-העיתון הנדרש (19/08/2026, בקשת-בעלים) ─────────────────
+     לקוח ששולח עמוד בגודל אחר מהגיליון — עד היום היה צריך לחשב לבד
+     חיתוך/מסגרת. שלושה מצבים, ואף אחד מהם אינו קורה בשקט:
+       fit     — קנה-מידה יחסי עד שהעמוד **כולו** נכנס; מה שנשאר מסביב לבן.
+       fill    — ממלא את היעד, ומה שחורג **נחתך**. החיתוך נמדד מראש כי
+                 המלבן הנקרא מהמקור ממורכז ובגודל היעד חלקי קנה-המידה.
+       stretch — מתיחה לא-יחסית. **מעוותת אותיות** — רק בהצהרה מפורשת.
+     ⚠️ היחידה שנכנסת היא היחידה שיוצאת (px או pt) — הפונקציה גיאומטרית
+     בלבד. ‏padX/cropX הם **לכל צד**, כדי שהמסך יוכל לומר למשתמש בדיוק
+     כמה לבן נוסף או כמה תוכן ייחתך לפני שהוא מאשר. */
+  function fitGeom(curW, curH, tw, th, mode) {
+    if (!(curW > 0 && curH > 0 && tw > 0 && th > 0)) return null;
+    var m = (mode === 'fill' || mode === 'stretch') ? mode : 'fit';
+    if (m === 'stretch') {
+      return { mode: m, scaleX: tw / curW, scaleY: th / curH,
+               src: { x: 0, y: 0, w: curW, h: curH }, dst: { x: 0, y: 0, w: tw, h: th },
+               padX: 0, padY: 0, cropX: 0, cropY: 0 };
+    }
+    var sc = m === 'fill' ? Math.max(tw / curW, th / curH) : Math.min(tw / curW, th / curH);
+    if (m === 'fill') {
+      var sw = Math.min(curW, tw / sc), sh = Math.min(curH, th / sc);
+      return { mode: m, scaleX: sc, scaleY: sc,
+               src: { x: (curW - sw) / 2, y: (curH - sh) / 2, w: sw, h: sh },
+               dst: { x: 0, y: 0, w: tw, h: th },
+               padX: 0, padY: 0, cropX: (curW - sw) / 2, cropY: (curH - sh) / 2 };
+    }
+    var dw = curW * sc, dh = curH * sc;
+    return { mode: m, scaleX: sc, scaleY: sc,
+             src: { x: 0, y: 0, w: curW, h: curH },
+             dst: { x: (tw - dw) / 2, y: (th - dh) / 2, w: dw, h: dh },
+             padX: (tw - dw) / 2, padY: (th - dh) / 2, cropX: 0, cropY: 0 };
+  }
 
   /* ── ולידציית-op ─────────────────────────────────────────────────────────
      ‏fail-closed: op לא-מוכר או ערכים חסרי-פשר → null, לא "מתקנים בשקט". */
@@ -45,6 +78,14 @@
       var smp = _num(op.sampleMm, 1);
       if (!(smp > 0 && smp <= 15)) smp = 1;
       return { type: 'bleed', mm: mm, method: method, sampleMm: smp };
+    }
+    if (op.type === 'fitSize') {
+      /* גודל-יעד הוא **התרים-בוקס הנדרש** (מה שאפוגי מודד), לא המדיה-בוקס.
+         ‏20–700 מ"מ: מתחת לזה זו טעות-הקלדה, מעל זה כבר לא עמוד-עיתון. */
+      var fsw = _num(op.wMm), fsh = _num(op.hMm);
+      if (!(fsw >= 20 && fsw <= 700 && fsh >= 20 && fsh <= 700)) return null;
+      var fsm = ['fit', 'fill', 'stretch'].indexOf(op.mode) >= 0 ? op.mode : 'fit';
+      return { type: 'fitSize', wMm: Math.round(fsw * 100) / 100, hMm: Math.round(fsh * 100) / 100, mode: fsm };
     }
     if (op.type === 'crop') {
       /* שני מצבים: insetMm (חיתוך אחיד מסביב) או box באחוזי-עמוד (תרים-בוקס). */
@@ -197,6 +238,19 @@
         { op: 'fillRect', x: 0, y: 0, w: fw, h: curH },
         { op: 'fillRect', x: curW - fw, y: 0, w: fw, h: curH },
       ] };
+    }
+
+    if (o.type === 'fitSize') {
+      var ftw = mmToPx(o.wMm, dpi), fth = mmToPx(o.hMm, dpi);
+      var fg = fitGeom(curW, curH, ftw, fth, o.mode);
+      if (!fg) return null;
+      /* הקנבס נצבע לבן לפני הצעדים — ולכן ה"מותר" ב-fit לבן בלי fillRect */
+      return { outW: ftw, outH: fth, steps: [
+        { op: 'drawBase',
+          sx: Math.round(fg.src.x), sy: Math.round(fg.src.y),
+          sw: Math.max(1, Math.round(fg.src.w)), sh: Math.max(1, Math.round(fg.src.h)),
+          dx: Math.round(fg.dst.x), dy: Math.round(fg.dst.y),
+          dw: Math.max(1, Math.round(fg.dst.w)), dh: Math.max(1, Math.round(fg.dst.h)) } ] };
     }
 
     if (o.type === 'frameAdd') {
@@ -375,6 +429,13 @@
       items.push({ kind: 'whiteRect', x: curW - fw, y: 0, w: fw, h: curH });
       return { outW: curW, outH: curH, items: items };
     }
+    if (o.type === 'fitSize') {
+      var vtw = mmToPt(o.wMm), vth = mmToPt(o.hMm);
+      var vg = fitGeom(curW, curH, vtw, vth, o.mode);
+      if (!vg) return null;
+      PG(vg.src.x, vg.src.y, vg.src.w, vg.src.h, vg.dst.x, vg.dst.y, vg.dst.w, vg.dst.h);
+      return { outW: vtw, outH: vth, items: items };
+    }
     if (o.type === 'frameAdd') {
       var fa3 = mmToPt(o.mm);
       PG(0, 0, curW, curH, fa3, fa3, curW, curH);
@@ -445,6 +506,46 @@
     return { outW: curW, outH: curH, items: items };
   }
 
+  /* ── מלבן-החיתוך-הנטו אחרי שרשרת-ops (19/08/2026) ──────────────────────
+     ⚠️ אפוגי מודד **תרים-בוקס**. עמוד שהותאם ל-165×240 ואז קיבל גלישה
+     הוא 171×246 — ובלי הצהרת-תרים אפוגי ימדוד 171×246 ויפסול בדיוק את
+     מה שבאנו לתקן. לכן ההתאמה קובעת קו-חיתוך, והוא נגרר הלאה.
+     ‏null כשאין fitSize — ואז השמירה **לא נוגעת** בתיבות של הקובץ, וכל
+     ההתנהגות הקיימת נשארת בית-בבית.
+     קו-החיתוך זז רק עם גיאומטריית-העמוד: גלישה · מסגרת · חיתוך · סיבוב.
+     הקטנה/מירכוז/הזזה מזיזים תוכן — לא את מקום-הסכין. נקודות, y עליון-למטה. */
+  function fitTrimRect(ops, w0, h0) {
+    var w = w0, h = h0, t = null;
+    (ops || []).forEach(function (op) {
+      var o = normalizeOp(op);
+      if (!o) return;
+      var pl = vectorPlan(w, h, o);
+      if (!pl) return;
+      if (o.type === 'fitSize') t = { x: 0, y: 0, w: pl.outW, h: pl.outH };
+      else if (t) {
+        if (o.type === 'bleed' || o.type === 'frameAdd') {
+          var b = mmToPt(o.mm); t = { x: t.x + b, y: t.y + b, w: t.w, h: t.h };
+        } else if (o.type === 'crop') {
+          var ox = o.box ? (o.box.x / 100 * w) : mmToPt(o.insetMm);
+          var oy = o.box ? (o.box.y / 100 * h) : mmToPt(o.insetMm);
+          t = { x: t.x - ox, y: t.y - oy, w: t.w, h: t.h };
+        } else if (o.type === 'rotate') {
+          if (o.deg === 90)       t = { x: h - (t.y + t.h), y: t.x, w: t.h, h: t.w };
+          else if (o.deg === 180) t = { x: w - (t.x + t.w), y: h - (t.y + t.h), w: t.w, h: t.h };
+          else                    t = { x: t.y, y: w - (t.x + t.w), w: t.h, h: t.w };
+        }
+      }
+      w = pl.outW; h = pl.outH;
+    });
+    if (!t) return null;
+    /* קו-חיתוך שיצא מהעמוד (חיתוך אגרסיבי אחרי התאמה) — נחתך לגבולות
+       העמוד ולא מוצהר שקרית מחוצה לו */
+    var x1 = Math.max(0, t.x), y1 = Math.max(0, t.y);
+    var x2 = Math.min(w, t.x + t.w), y2 = Math.min(h, t.y + t.h);
+    if (!(x2 - x1 > 1 && y2 - y1 > 1)) return null;
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1, pageW: w, pageH: h };
+  }
+
   /* גודל-הפלט אחרי רשימת-ops (גלישה מגדילה, חיתוך מקטין) — לחיווי ולשמירה */
   function outSize(w0, h0, dpi, ops) {
     var w = w0, h = h0;
@@ -458,6 +559,8 @@
         else { var ci = mmToPx(o.insetMm, dpi); w -= 2 * ci; h -= 2 * ci; }
       }
       else if (o.type === 'rotate' && o.deg !== 180) { var t2 = w; w = h; h = t2; }
+      /* התאמה-לגודל **קובעת** את הגודל — לא מוסיפה ולא גורעת ממנו */
+      else if (o.type === 'fitSize') { w = mmToPx(o.wMm, dpi); h = mmToPx(o.hMm, dpi); }
     });
     return { w: w, h: h };
   }
@@ -465,7 +568,8 @@
   /* תיאור-לביקורת של רשימת-ops — נכנס ל-correctedNote של הגרסה */
   var LABELS = { bleed: 'גלישה', shrink: 'הקטנה-לשוליים', center: 'מירכוז', moveRegion: 'הזזת-אזור',
                  crop: 'חיתוך', whiteFrame: 'ניקוי-קצוות לבן', frameAdd: 'מסגרת-לבנה מוסיפה', addMarks: 'צלבי-חיתוך',
-                 rotate: 'סיבוב-עמוד', eraseSpot: 'מחק-נקודתי' };
+                 rotate: 'סיבוב-עמוד', eraseSpot: 'מחק-נקודתי', fitSize: 'התאמה-לגודל' };
+  var FIT_MODES = { fit: 'הכול נכנס', fill: 'ממלא וחותך', stretch: 'מתיחה (מעוותת)' };
   function describeOps(ops) {
     var parts = [];
     (ops || []).forEach(function (op) {
@@ -479,12 +583,15 @@
       else if (o.type === 'addMarks') parts.push('צלבי-חיתוך ל-' + o.wMm + '×' + o.hMm);
       else if (o.type === 'rotate') parts.push('סיבוב ' + (o.deg === 270 ? '90° נגד-השעון' : o.deg + '°'));
       else if (o.type === 'eraseSpot') parts.push('מחק-נקודתי ' + o.mm + ' מ"מ');
+      /* ⚠️ המצב נכנס לתיאור בשם — קדם-דפוס שרואה גרסה מתוקנת חייב לדעת
+         אם התוכן הוקטן, נחתך, או **נמתח** */
+      else if (o.type === 'fitSize') parts.push('התאמה ל-' + o.wMm + '×' + o.hMm + ' מ"מ (' + FIT_MODES[o.mode] + ')');
       else parts.push(LABELS[o.type]);
     });
     return parts.length ? ('תוקן בעורך-הדפוס: ' + parts.join(' · ')) : '';
   }
 
-  return { OPS: OPS, LABELS: LABELS, mmToPx: mmToPx, mmToPt: mmToPt,
-           normalizeOp: normalizeOp, planOp: planOp, vectorPlan: vectorPlan,
+  return { OPS: OPS, LABELS: LABELS, FIT_MODES: FIT_MODES, fitGeom: fitGeom, mmToPx: mmToPx, mmToPt: mmToPt,
+           normalizeOp: normalizeOp, planOp: planOp, vectorPlan: vectorPlan, fitTrimRect: fitTrimRect,
            outSize: outSize, describeOps: describeOps };
 });

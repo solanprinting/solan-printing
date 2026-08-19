@@ -12,15 +12,15 @@
 <script src="vendor/pdf-lib.min.js"></script>
 <script>try{ if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js'; }catch(e){}</script>
 <script src="lib-loader.js"></script>
-<script src="page-swap.js?v=1787158496"></script>
-<script src="page-replace.js?v=1787158496"></script>
-<script src="shop-issue.js?v=1787158496"></script>
-<script src="page-marks.js?v=1787158496"></script>
-<script src="page-edit-engine.js?v=1787158496"></script>
-<script src="pdf-objects.js?v=1787158496"></script>
-<script src="firebase-auth.bundle.js?v=1787158496"></script>
-<script src="auth-client.js?v=1787158496"></script>
-<script src="auth-guard.js?v=1787158496" data-page="page-editor.html" data-mode="enforce"></script>
+<script src="page-swap.js?v=1787159589"></script>
+<script src="page-replace.js?v=1787159589"></script>
+<script src="shop-issue.js?v=1787159589"></script>
+<script src="page-marks.js?v=1787159589"></script>
+<script src="page-edit-engine.js?v=1787159589"></script>
+<script src="pdf-objects.js?v=1787159589"></script>
+<script src="firebase-auth.bundle.js?v=1787159589"></script>
+<script src="auth-client.js?v=1787159589"></script>
+<script src="auth-guard.js?v=1787159589" data-page="page-editor.html" data-mode="enforce"></script>
 <style>
   :root { --press:#2d3561; --press-d:#222a4d; --gold:#c9a84c; --gold-light:#e8d5a3;
           --green:#16a34a; --red:#dc2626; --amber:#d97706; --line:#e5e7eb; --ink:#1f2937; }
@@ -116,6 +116,18 @@
       <label>עומק-דגימה מהקצה (מ״מ) — כשאין גלישות בקובץ</label>
       <input id="bleedSample" type="number" min="0.5" max="15" step="0.5" value="2" title="כמה מילימטרים מקצה-העמוד לשכפל/למתוח החוצה">
       <button class="btn" id="opBleed">➕ הוסף גלישה</button>
+    </div>
+
+    <div class="grp">
+      <label>📏 התאמה לגודל הנדרש (מ״מ)</label>
+      <div style="display:flex;gap:6px"><input id="fitW" type="number" min="20" max="700" step="0.5" placeholder="רוחב"><input id="fitH" type="number" min="20" max="700" step="0.5" placeholder="גובה"></div>
+      <select id="fitMode">
+        <option value="fit">הכול נכנס — לבן מסביב (מומלץ)</option>
+        <option value="fill">ממלא את הגודל — החורג נחתך</option>
+        <option value="stretch">מתיחה מדויקת — מעוותת אותיות</option>
+      </select>
+      <button class="btn" id="opFitSize" title="מביא את העמוד בדיוק לגודל-התרים-בוקס הנדרש של הגיליון">📏 התאם לגודל</button>
+      <div class="note" id="fitNote"></div>
     </div>
 
     <div class="grp">
@@ -426,6 +438,16 @@ async function loadJob(){
   } catch(e){ window._peTrimPct = null; console.warn('קריאת תיבות-החיתוך נכשלה', e); }
   busy('מרנדר את העמוד (300dpi)…');
   await _renderBase(_effBytes());
+  /* הגודל הנדרש מגיע מהעבודה (‏reqW/reqH שמקורם בכרטיס) — הלקוח לא אמור
+     לזכור מספרים, וגם "צלבי-חיתוך לגודל הנדרש" עמד ריק עד היום.
+     ⚠️ ממלא רק שדות ריקים: מי שהקליד גודל אחר — הקלדתו נשארת. */
+  const _rq = { w: parseFloat(rec.reqW), h: parseFloat(rec.reqH) };
+  if (_rq.w > 10 && _rq.h > 10) {
+    [['fitW', _rq.w], ['fitH', _rq.h], ['marksW', _rq.w], ['marksH', _rq.h]].forEach(([id, v]) => {
+      const el = $(id); if (el && !el.value) el.value = v;
+    });
+    $('fitNote').textContent = 'הגודל הנדרש לגיליון: ' + _rq.w + '×' + _rq.h + ' מ״מ';
+  } else $('fitNote').textContent = 'לעבודה הזו לא הוגדר גודל — הזינו ידנית.';
   rebuild();
   $('saveNote').textContent = 'היחידה: ' + (target === 'full' ? 'העיתון המלא (עמוד ' + pageNo + ' מתוך ' + srcPageCount + ')' : (unit.name || target));
   busy(false);
@@ -707,7 +729,8 @@ function rebuild(){
     (objN ? ('🧩 <b>' + objN + ' עריכות-אובייקטים</b> (בתוך ה-PDF, לפני שאר הפעולות)<br>') : '')
     + (ops.length
       ? ops.map((o, i) => (i + 1) + '. <b>' + (PageEditEngine.LABELS[o.type] || o.type) + '</b>'
-          + (o.mm ? ' ' + o.mm + ' מ״מ' : '')).join('<br>')
+          + (o.mm ? ' ' + o.mm + ' מ״מ' : '')
+          + (o.type === 'fitSize' ? ' ' + o.wMm + '×' + o.hMm + ' מ״מ · ' + PageEditEngine.FIT_MODES[o.mode] : '')).join('<br>')
       : (objN ? '' : 'אין עדיין פעולות.'));
 }
 function pushOp(op){
@@ -735,6 +758,40 @@ $('opCropTrim').onclick = () => {
 $('opCropIn').onclick = () => pushOp({ type: 'crop', insetMm: parseFloat($('cropMm').value) });
 $('opFrame').onclick = () => pushOp({ type: 'whiteFrame', mm: parseFloat($('frameMm').value) });
 $('opFrameAdd').onclick = () => pushOp({ type: 'frameAdd', mm: parseFloat($('frameMm').value) });
+/* ═══ התאמה לגודל הנדרש (19/08/2026, בקשת-בעלים) ══════════════════════════
+   "כלי התאמה לגודל העיתון הנדרש — לעזור ללקוחות להתאים עמודים אם הם לא
+   בגודל". ⚠️ שני המצבים שאינם "fit" **מאבדים** משהו — חיתוך או עיוות —
+   ולכן המספרים נמדדים ונאמרים לפני האישור, לא אחריו. */
+$('opFitSize').onclick = () => {
+  const w = parseFloat($('fitW').value), h = parseFloat($('fitH').value);
+  if (!(w >= 20 && h >= 20)) { toast('הזינו רוחב וגובה במ״מ (הגודל הנדרש לגיליון)'); return; }
+  const mode = $('fitMode').value;
+  const cur = window._peCur || baseCanvas;
+  const curWmm = cur.width / DPI * 25.4, curHmm = cur.height / DPI * 25.4;
+  const g = PageEditEngine.fitGeom(curWmm, curHmm, w, h, mode);
+  if (!g) { toast('⛔ לא ניתן למדוד את העמוד'); return; }
+  const r1 = (n) => Math.round(n * 10) / 10;
+  if (Math.abs(curWmm - w) < 0.3 && Math.abs(curHmm - h) < 0.3) {
+    toast('העמוד כבר בגודל הנדרש — אין מה להתאים'); return;
+  }
+  let msg = 'העמוד: ' + r1(curWmm) + '×' + r1(curHmm) + ' מ״מ  →  ' + w + '×' + h + ' מ״מ\n\n';
+  if (mode === 'stretch') {
+    msg += '⚠️ מתיחה לא-יחסית: הרוחב ' + Math.round(g.scaleX * 100) + '% והגובה '
+         + Math.round(g.scaleY * 100) + '% — האותיות ייראו מעוותות.';
+  } else if (mode === 'fill') {
+    if (g.cropX < 0.05 && g.cropY < 0.05) msg += 'העמוד ייכנס בדיוק ליעד.';
+    else msg += '⚠️ ' + (g.cropX >= 0.05 ? r1(g.cropX) + ' מ״מ ייחתכו מכל צד ברוחב. ' : '')
+              + (g.cropY >= 0.05 ? r1(g.cropY) + ' מ״מ ייחתכו מלמעלה ומלמטה. ' : '')
+              + '\nתוכן שקרוב לקצה — ייעלם.';
+  } else {
+    msg += 'התוכן כולו נשמר, בקנה-מידה ' + Math.round(g.scaleX * 100) + '%.'
+         + ((g.padX >= 0.05 || g.padY >= 0.05)
+            ? '\nלבן שיתווסף: ' + r1(g.padX) + ' מ״מ בצדדים · ' + r1(g.padY) + ' מ״מ למעלה ולמטה.'
+            : '');
+  }
+  if (!confirm(msg + '\n\nלהתאים?')) return;
+  pushOp({ type: 'fitSize', wMm: w, hMm: h, mode: mode });
+};
 $('opMarks').onclick = () => {
   const w = parseFloat($('marksW').value), h = parseFloat($('marksH').value);
   if (!(w > 10 && h > 10)) { toast('הזינו רוחב וגובה במ״מ לגודל-העמוד הנדרש'); return; }
@@ -992,10 +1049,21 @@ async function save(){
     const ptW = composed.w, ptH = composed.h;
     busy('בונה את ה-PDF החדש…');
     let outBytes;
+    /* ⚠️ אפוגי מודד תרים-בוקס. אחרי "התאמה-לגודל" קו-החיתוך ידוע — ואם
+       נוספה אחריה גלישה, העמוד גדול מהחיתוך והצהרה חסרה תחזיר בדיוק את
+       השגיאה שבאנו לתקן. בלי fitSize מוחזר null והתיבות לא נגעות. */
+    const _trim = PageEditEngine.fitTrimRect(ops,
+      composed.finalPage.getWidth(), composed.finalPage.getHeight());
+    const _declare = (pg) => {
+      if (!_trim) return;
+      pg.setTrimBox(_trim.x, ptH - _trim.y - _trim.h, _trim.w, _trim.h);   // y עליון-למטה → PDF
+    };
     if (srcPageCount <= 1) {
       const doc = await PDFLib.PDFDocument.create();
       const emb = await doc.embedPage(composed.finalPage);
-      doc.addPage([ptW, ptH]).drawPage(emb, { x: 0, y: 0 });
+      const np = doc.addPage([ptW, ptH]);
+      np.drawPage(emb, { x: 0, y: 0 });
+      _declare(np);
       outBytes = await doc.save({ useObjectStreams: false });
     } else {
       /* עיתון-מלא: העמוד המורכב מחליף את המקורי בתוך הקובץ הקיים (הערוך) */
@@ -1004,6 +1072,7 @@ async function save(){
       doc.removePage(pageNo - 1);
       const np = doc.insertPage(pageNo - 1, [ptW, ptH]);
       np.drawPage(emb, { x: 0, y: 0 });
+      _declare(np);
       outBytes = await doc.save({ useObjectStreams: false });
     }
 
