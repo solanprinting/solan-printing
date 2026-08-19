@@ -453,6 +453,52 @@
     return m ? parseInt(m[0], 10) : null;
   }
 
+  /* ── שם-קובץ → אילו עמודים (דיווח-בעלים 19/08/2026) ──────────────────────
+     ⚠️ **התקרית:** לקוח העלה עיתון בעמודים בודדים בכמה מנות, ובאחד
+     הקבצים היה כתוב "עמודים 8 9" — כפולה. ‏pageNoOf תופס את **המספר
+     הראשון** במחרוזת, ולכן הקובץ תפס משבצת אחת (8), עמוד 9 נשאר "חסר",
+     וכל מה שסביבו נראה מוזז.
+     ⚠️ ובדיקה של שמות אמיתיים חשפה עוד שניים מאותה משפחה:
+       "עיתון 2026 עמוד 8"  → 2026   (שנה כמספר-עמוד!)
+       "ידיעון 5 עמוד 6"    → 5      (מספר-הגיליון, לא העמוד)
+
+     הכללים, לפי סדר:
+       1. שער/עטיפה/cover → עמוד 1.
+       2. **שני מספרים עוקבים שביניהם רק מפריד** (8 9 · 8-9 · 8,9) →
+          כפולה. ⚠️ מילה ביניהם פוסלת — "ידיעון 5 עמוד 6" אינו כפולה.
+       3. מספר שבא **אחרי** עמוד/עמ׳/page — הוא הכוונה המפורשת.
+       4. בדיוק מספר-סביר אחד (1..400) → הוא.
+       5. אחרת: ‎sure:false‎ — **שואלים ולא מנחשים.** ניחוש שקט כאן הוא
+          עמוד שיודפס במקום הלא-נכון. */
+  var _PAGE_WORD = 'עמודים|עמודי|עמוד|עמ׳|עמ\'|עמ|pages|page|pg|p';
+  function pagesOfName(name) {
+    var s = str(name).replace(/\.[a-z0-9]{1,5}$/i, '');
+    if (!s) return null;
+    if (/שער|עטיפה|cover/i.test(s)) return { nos: [1], spread: false, sure: true };
+    /* כפולה: שני מספרים עוקבים עם מפריד בלבד ביניהם */
+    var sp = s.match(/(\d{1,3})\s*[-–—_,\/ ]\s*(\d{1,3})(?!\d)/);
+    if (sp) {
+      var a = parseInt(sp[1], 10), b = parseInt(sp[2], 10);
+      if (b === a + 1 && a >= 1 && b <= 400) return { nos: [a, b], spread: true, sure: true };
+    }
+    /* מספר שאחרי מילת-עמוד */
+    var mw = s.match(new RegExp('(?:' + _PAGE_WORD + ')\\s*[-_:.]?\\s*(\\d{1,3})(?!\\d)', 'i'));
+    if (mw) {
+      var n1 = parseInt(mw[1], 10);
+      if (n1 >= 1 && n1 <= 400) return { nos: [n1], spread: false, sure: true };
+    }
+    /* ⚠️ מספר שאחרי "גיליון"/"מהדורה" הוא **מספר-הגיליון**, לא עמוד.
+       "ידיעון 2026 גיליון 145" אינו עמוד 145. נפסל לפני הספירה. */
+    var s2 = s.replace(/(?:גיליון|גליון|מהדורה|issue|no\.?)\s*[-_:.]?\s*\d{1,4}/gi, ' ');
+    var all = (s2.match(/\d+/g) || []).map(function (x) { return parseInt(x, 10); });
+    var ok = all.filter(function (n) { return n >= 1 && n <= 400; });
+    if (ok.length === 1) return { nos: [ok[0]], spread: false, sure: true };
+    if (!ok.length) return null;
+    /* ⚠️ ריבוי-מועמדים: מחזירים את הראשון **ומסמנים שאיננו בטוחים**.
+       המסך שואל; הוא לא מציג מספר שהומצא כאילו הוא ודאי. */
+    return { nos: [ok[0]], spread: false, sure: false, candidates: ok };
+  }
+
   function marksFor(p, target) {
     var r = p || {}, all = (r.pageMarks && typeof r.pageMarks === 'object') ? r.pageMarks : {};
     var t = all[str(target) || 'full'];
@@ -549,16 +595,31 @@
          וכותב ‎slot‎ נפרד. כך המיקום בפועל ניתן להצלבה מול המספר שבשם,
          ואי-התאמה נאמרת ("שובץ לעמוד 3 אבל נקרא 'עמוד 5'") במקום להימחק
          בשקט ע"י שינוי-שם. רשומה ותיקה בלי slot — נופלת לשם, כמו קודם. */
-      var nameNo = pageNoOf(f.fileName);
+      /* ⚠️ 19/08/2026: הפירוק עבר ל-‎pagesOfName‎ — הוא מבין כפולה
+         ("עמודים 8 9"), מעדיף מספר שאחרי מילת-עמוד, ופוסל שנה ומספר-גיליון.
+         ‏pageNoOf תפס את המספר הראשון, ולכן "עיתון 2026 עמוד 8" נחת על
+         עמוד 2026 ו"עמודים 8 9" תפס משבצת אחת בלבד. */
+      var pn = pagesOfName(f.fileName);
+      var nameNo = pn ? pn.nos[0] : null;
       var sl = num(f.slot);
       var no = (sl >= 1) ? sl : nameNo;
+      /* ⚠️ **קובץ-כפולה מכסה שתי משבצות.** שיבוץ-ידני (slot) גובר תמיד —
+         הדפוס או הלקוח קבעו במפורש, וזה מנצח כל פירוק-שם.
+         הכיסוי דרך ‎seq‎ ולא דרך ‎pages‎: ‎pages‎ הוא מספר-העמודים **בקובץ**
+         (הלייטבוקס מדפדף בו), וכפולה היא עמוד-PDF אחד על שתי משבצות. */
+      var fseq = (!(sl >= 1) && pn && pn.spread) ? pn.nos.slice() : null;
       var kk = str(f._k) || ('f' + i);
       /* התווית לפי המשבצת (שער/עמוד N) ולא לפי שם-הקובץ — הרשת נקראת
          אחיד; שם-הקובץ נשמר בשדה משלו לתצוגה ולהצלבה. */
-      var lbl = (no >= 1) ? (no === 1 ? 'שער' : 'עמוד ' + no) : (str(f.fileName) || 'קובץ');
+      var lbl = fseq ? ('עמ׳ ' + fseq[0] + '–' + fseq[fseq.length - 1])
+                     : ((no >= 1) ? (no === 1 ? 'שער' : 'עמוד ' + no) : (str(f.fileName) || 'קובץ'));
       tiles.push({ kind: 'page', target: 'file_' + kk.slice(1), pageNo: no, page: 1, url: str(f.fileUrl),
                    label: lbl, fileName: str(f.fileName), at: num(r.createdAt),
                    nameNo: nameNo, slotMismatch: !!(sl >= 1 && nameNo && nameNo !== sl),
+                   seq: fseq, isSpread: !!fseq,
+                   /* ⚠️ שם שאי-אפשר להכריע ממנו — נאמר, לא מוסתר. המסך
+                      ישאל; מספר שהומצא הוא עמוד שיודפס במקום הלא-נכון. */
+                   nameUnsure: !!(pn && pn.sure === false && !(sl >= 1)),
                    partId: '', mark: markOf(r, 'file_' + kk.slice(1), 1) });
     });
     /* עמודים חסרים — רק מספרים שאין להם אריח קיים.
@@ -668,7 +729,7 @@
     statusOf: statusOf, printApproved: printApproved,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
-    pageNoOf: pageNoOf, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, markPatch: markPatch,
+    pageNoOf: pageNoOf, pagesOfName: pagesOfName, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
     runNoOfName: runNoOfName, renameRunNo: renameRunNo, runRenumberPatch: runRenumberPatch,
