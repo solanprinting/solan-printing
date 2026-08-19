@@ -114,6 +114,52 @@
     return translit(n);
   }
 
-  return { FINAL: FINAL, MAP: MAP, strip: strip, word: word,
-           hasHebrew: hasHebrew, translit: translit, cardLine: cardLine };
+  /* ── תוויות-ממשק: תרגום, לא תעתיק ─────────────────────────────────────────
+     ⚠️ **בקשת-בעלים 19/08/2026:** "כל הכפתורים במסך של הדפסים שיהיו גם
+     באנגלית וגם בעברית."
+     ⚠️ **וכאן ההפך משם-העבודה.** שם-עבודה מתועתק כי העובד שומע אותו
+     בעל-פה („Hadashot Hagalil"). תווית-ממשק צריכה להיות **מובנת**:
+     „התחל הדפסה" → ‎Start printing‎, ולא ‎Hathel Hadpasa‎ שאינו אומר כלום
+     לאיש. שני הצרכים שונים, ולכן שתי פונקציות נפרדות באותו מודול.
+     ⚠️ מילון סגור וקטן — בלי שירות-תרגום, בלי רשת. מסך-מכונה חייב לעבוד
+     גם כשהאינטרנט נופל (§2). */
+  var LABELS = {
+    /* כניסה ומכונה */
+    'כניסה': 'Sign in', 'יציאה': 'Sign out',
+    'קוד כניסה למכונה': 'Machine code', 'קוד עובד אישי': 'Worker code',
+    'קוד עובד שגוי': 'Wrong worker code', 'הכניסה נכשלה': 'Sign-in failed',
+    /* עבודה — הפעולות המרכזיות */
+    'התחל הדפסה': 'Start printing', 'עבור לזה': 'Switch to this',
+    'סיים עבודה': 'Finish job', 'בהדפסה': 'Printing now',
+    'העבודה כבר בתור.': 'Already in the queue', 'העבודה הושלמה.': 'Job completed',
+    'אין עבודות בתור': 'No jobs in queue', 'הושלמו היום': 'Completed today',
+    /* תקלות ופעולות */
+    'פרטי תקלה': 'Fault details', 'מספר תקלה': 'Fault no.',
+    'נסה שוב': 'Retry', 'הפעולה נכשלה': 'Action failed',
+    'סגור': 'Close', 'רענן': 'Refresh', 'התאם': 'Fit to screen',
+    'העתק נתיב': 'Copy path', 'הועתק': 'Copied', 'לא הועתק': 'Not copied',
+    /* מצבי-טעינה */
+    'טוען…': 'Loading…', 'טוען פרופר…': 'Loading proof…',
+    'מוריד…': 'Downloading…', 'מחדד…': 'Sharpening…',
+    'פותח את הקובץ…': 'Opening file…', 'רגע…': 'One moment…',
+    /* שונות */
+    'פרופר': 'Proof', 'גודל הקובץ': 'File size', 'מתוך': 'of',
+    'מנהל (בדיקה)': 'Manager (test)'
+  };
+
+  /* התווית הדו-לשונית. ⚠️ מפריד ‎·‎ ולא סוגריים — הוא קצר ולא שובר שורה
+     בכפתור צר. ⚠️ מונח שאינו במילון מוחזר כמו-שהוא: **בלי המצאה**.
+     טוב שכפתור יישאר עברי מאשר שיקבל אנגלית שגויה. */
+  function label(he, sep) {
+    var k = _s(he).trim();
+    var en = LABELS[k];
+    if (!en) return _s(he);
+    return _s(he) + (sep || ' · ') + en;
+  }
+  /* רק החלק האנגלי — לשורה שנייה מתחת לתווית */
+  function labelEn(he) { return LABELS[_s(he).trim()] || ''; }
+
+  return { FINAL: FINAL, MAP: MAP, LABELS: LABELS, strip: strip, word: word,
+           hasHebrew: hasHebrew, translit: translit, cardLine: cardLine,
+           label: label, labelEn: labelEn };
 });
