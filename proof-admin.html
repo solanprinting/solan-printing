@@ -27,7 +27,9 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787219499"></script>
+<script src="pdfjs-engine.js?v=1787222146"></script>
+<!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
+<script src="issue-grid.js?v=1787222146"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -37,24 +39,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787219499"></script>
-<script src="chat-alert.js?v=1787219499"></script>
-<script src="shop-issue.js?v=1787219499"></script>
-<script src="page-marks.js?v=1787219499"></script>
+<script src="portal-chat.js?v=1787222146"></script>
+<script src="chat-alert.js?v=1787222146"></script>
+<script src="shop-issue.js?v=1787222146"></script>
+<script src="page-marks.js?v=1787222146"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787219499"></script>
-<script src="kontres-split.js?v=1787219499"></script>
+<script src="page-box.js?v=1787222146"></script>
+<script src="kontres-split.js?v=1787222146"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787219499"></script>
-<script src="auth-client.js?v=1787219499"></script>
+<script src="firebase-auth.bundle.js?v=1787222146"></script>
+<script src="auth-client.js?v=1787222146"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787219499" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787222146" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1472,41 +1474,32 @@ function render(rows) {
        השטוחה. */
     const rgrid = ShopIssue.runGrid(p);
     window._runGridReg = rgrid.ok ? { id: p.id, p: p, grid: rgrid } : null;
-    const runsGrid = !rgrid.ok ? '' : `<div class="isGridT">ריצות: <b>${rgrid.gotRuns}</b> מתוך <b>${rgrid.runs.length}</b> · ${nPages} עמודים מתוך ${rgrid.total} · גיליון: <b>${rgrid.sheet}</b> עמ׳ <button class="pgRemind" data-setsheet="${escapeHtml(p.id)}" title="גודל-הגיליון קובע את כל הפריסה — לתיקון">✎</button>${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על ריצה: פריסת עמודיה</div>
-         <div class="isPages">${rgrid.runs.map(rn => {
-           const rng = escapeHtml(rn.label);
-           /* ⚠️ 20/08/2026: ריצה שכל עמודיה הגיעו כקבצים בודדים הוצגה
-              "טרם הגיעה · 0 עמ'" — הדפוס חיפש ריצה שכבר כולה ביד. */
-           if (!rn.got && rn.coveredByFiles)
-             return `<div class="pgT mOk" data-runmiss="${rn.no}" style="cursor:pointer" title="לחיצה — פריסת העמודים"><div class="pgTh"><span class="pgPh">📄</span><span class="pgMk">✔</span></div>
-               <div class="pgNm">${escapeHtml(rn.name)} · ${rng}</div>
-               <div class="pgSub" style="color:#15803d">הגיעו כל ${rn.pageCount} העמודים · בקבצים בודדים</div></div>`;
-           if (!rn.got)
-             return `<div class="pgT miss" data-runmiss="${rn.no}" style="cursor:pointer" title="לחיצה — אילו עמודים חסרים בריצה"><div class="pgTh">✚</div>
-               <div class="pgNm">${escapeHtml(rn.name)} · ${rng}</div>
-               <div class="pgSub">טרם הגיעה · ${rn.missing.length} עמ׳</div>
-               <button class="pgRemind" data-remindrun="${rn.no}" title="ממלא הודעת-תזכורת בשיחה עם הלקוח">📩 תזכורת</button></div>`;
-           const t = tiles[rn.tileIndex] || {}; const mk = t.mark;
-           return `<div class="pgT${mk?(mk.kind==='replace'?' mRep':' mOk'):''}" data-tile="${rn.tileIndex}" title="${escapeHtml(rn.name)} · ${rng}">
-             <div class="pgTh" data-thumb="${rn.tileIndex}"><span class="pgPh">📄</span>${mk?`<span class="pgMk">${mk.kind==='replace'?'🔁':'✔'}</span>`:''}</div>
-             <div class="pgNm">${escapeHtml(rn.name)} · ${rng}</div>
-             ${rn.pagesMismatch?`<div class="pgNote" style="color:#b91c1c">⚠️ הגיעו ${rn.pagesMismatch.got} עמ׳ · הקונטרס ${rn.pagesMismatch.want}</div>`:rn.missing.length?`<div class="pgNote" style="color:#b45309">⚠️ ${rn.missing.length} עמ׳ חסרים בריצה</div>`:(t.at?`<div class="pgSub">${fmt(t.at)}</div>`:'')}
-           </div>`; }).join('')}</div>
-         ${rgrid.orphans.length?`<div class="isGridT" style="color:#b91c1c">⚠️ מחוץ לפריסה: ${rgrid.orphans.map(o=>escapeHtml(o.name)).join(" · ")} — או שגודל-הגיליון שמור שגוי, או שהשם אינו מספר-הריצה</div>`:""}<div id="runExp" class="runExp"></div>`;
-    const pagesGrid = runsGrid || (tiles.length
-      ? `<div class="isGridT">עמודים שהתקבלו (${nPages})${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על עמוד: הגדלה · סימון · הורדה</div>
-         <div class="isPages">${tiles.map((t, i) => {
-           if (t.kind === 'missing')
-             return `<div class="pgT miss"><div class="pgTh">✚</div><div class="pgNm">${escapeHtml(t.label)}</div>
-               <button class="pgRemind" data-remind="${t.pageNo}" title="ממלא הודעת-תזכורת בשיחה עם הלקוח">📩 תזכורת</button></div>`;
-           const mk = t.mark;
-           return `<div class="pgT${mk?(mk.kind==='replace'?' mRep':' mOk'):''}" data-tile="${i}" title="${escapeHtml(t.label)}${mk&&mk.note?(' — '+mk.note):''}">
-             <div class="pgTh" data-thumb="${i}"><span class="pgPh">📄</span>${mk?`<span class="pgMk">${mk.kind==='replace'?'🔁':'✔'}</span>`:''}</div>
-             <div class="pgNm">${escapeHtml(t.label)}</div>
-             ${mk&&mk.note?`<div class="pgNote">${escapeHtml(String(mk.note).slice(0,42))}</div>`:(t.at?`<div class="pgSub">${fmt(t.at)}</div>`:'')}
-           </div>`; }).join('')}</div>
-         <div id="runExp" class="runExp"></div>`
-      : '<div style="color:#9ca3af;font-size:.86rem;padding:6px 14px">טרם התקבלו קבצים לגיליון הזה.</div>');
+    /* ⚠️ **המבנה מ-IssueGrid המשותף** (בקשת-בעלים 20/08/2026): הפורטל של
+       הלקוח מציג את אותה פריסה בדיוק, ורק הכפתורים שונים. עד היום היו
+       שתי פריסות שנכתבו בנפרד — כל תיקון נעשה פעם אחת ונשכח בשני. */
+    const _ig = IssueGrid.build({
+      esc: escapeHtml, fmt: fmt, tiles: tiles, grid: rgrid, totalPages: rgrid.ok ? rgrid.total : 0,
+      hint: rgrid.ok ? 'לחיצה על ריצה: פריסת עמודיה' : 'לחיצה על עמוד: הגדלה · סימון · הורדה',
+      emptyText: 'טרם התקבלו קבצים לגיליון הזה.',
+      headExtra: rgrid.ok
+        ? ` <button class="pgRemind" data-setsheet="${escapeHtml(p.id)}" title="גודל-הגיליון קובע את כל הפריסה — לתיקון">✎</button>` : '',
+      footer: '<div id="runExp" class="runExp"></div>',
+      actions: {
+        thumbAttrs: (t, i) => (t && t.url) ? ` data-thumb="${i}"` : '',
+        /* ── ריצות ── */
+        runAttrs: (rn, state) => state === 'got'
+          ? ` data-tile="${rn.tileIndex}"`
+          : ` data-runmiss="${rn.no}" style="cursor:pointer"`,
+        runExtra: (rn, state) => state === 'missing'
+          ? `<button class="pgRemind" data-remindrun="${rn.no}" title="ממלא הודעת-תזכורת בשיחה עם הלקוח">📩 תזכורת</button>` : '',
+        /* ── עמודים ── */
+        tileAttrs: (t, i, kind) => kind === 'page' ? ` data-tile="${i}"` : '',
+        tileExtra: (t, i, kind) => kind === 'missing'
+          ? `<button class="pgRemind" data-remind="${t.pageNo}" title="ממלא הודעת-תזכורת בשיחה עם הלקוח">📩 תזכורת</button>` : '',
+      },
+    });
+    const pagesGrid = _ig.html;
+
 
     /* ⚠️ "אשר קבלה ללקוח" הוא ‎shopSeenAt‎ הקיים — אותו שדה שהפורטל כבר
        מציג ללקוח כ"בית-הדפוס קיבל את הקבצים". */
