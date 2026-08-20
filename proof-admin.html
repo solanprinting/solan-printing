@@ -27,9 +27,9 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787232160"></script>
+<script src="pdfjs-engine.js?v=1787233574"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787232160"></script>
+<script src="issue-grid.js?v=1787233574"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -39,24 +39,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787232160"></script>
-<script src="chat-alert.js?v=1787232160"></script>
-<script src="shop-issue.js?v=1787232160"></script>
-<script src="page-marks.js?v=1787232160"></script>
+<script src="portal-chat.js?v=1787233574"></script>
+<script src="chat-alert.js?v=1787233574"></script>
+<script src="shop-issue.js?v=1787233574"></script>
+<script src="page-marks.js?v=1787233574"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787232160"></script>
-<script src="kontres-split.js?v=1787232160"></script>
+<script src="page-box.js?v=1787233574"></script>
+<script src="kontres-split.js?v=1787233574"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787232160"></script>
-<script src="auth-client.js?v=1787232160"></script>
+<script src="firebase-auth.bundle.js?v=1787233574"></script>
+<script src="auth-client.js?v=1787233574"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787232160" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787233574" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -498,6 +498,14 @@ window.addEventListener('appinstalled', function(){
   .tAmber { background:var(--amber); } .tRed { background:var(--red); }
   .tGreen { background:var(--green); } .tGray { background:#94a3b8; }
   .isTabLine { height:1.5px; background:var(--gold); opacity:.55; margin:0 13px; }
+  /* תיקיית גיליונות-קודמים (20/08) — הפרדה מכוונת מהלשוניות החיות */
+  .pastFold { margin:8px 13px 0; border:1.5px dashed #cbd5e1; border-radius:10px; background:#f8fafc; }
+  .pastFold > summary { cursor:pointer; padding:8px 12px; font-weight:800; font-size:.8rem; color:#64748b; list-style-position:inside; }
+  .pastFold[open] > summary { border-bottom:1px dashed #cbd5e1; }
+  .pastFold .isTabs { padding:8px 12px 10px; }
+  .pastFold .isTab { border-radius:10px; border-bottom:1.5px solid var(--line); opacity:.85; }
+  /* מתג נעילת-ריצה */
+  .pgRemind.rlOn { background:#fef3c7; border-color:#f59e0b; color:#92400e; }
   .isHd2 { display:flex; align-items:center; gap:9px; flex-wrap:wrap; padding:11px 14px 2px; }
   .isHd2 .isTtl { font-weight:900; color:var(--press); font-size:1rem; }
   /* רשת-העמודים */
@@ -1490,8 +1498,17 @@ function render(rows) {
         runAttrs: (rn, state) => state === 'got'
           ? ` data-tile="${rn.tileIndex}"`
           : ` data-runmiss="${rn.no}" style="cursor:pointer"`,
-        runExtra: (rn, state) => state === 'missing'
-          ? `<button class="pgRemind" data-remindrun="${rn.no}" title="ממלא הודעת-תזכורת בשיחה עם הלקוח">📩 תזכורת</button>` : '',
+        runExtra: (rn, state) => {
+          if (state === 'missing')
+            return `<button class="pgRemind" data-remindrun="${rn.no}" title="ממלא הודעת-תזכורת בשיחה עם הלקוח">📩 תזכורת</button>`;
+          /* ⚠️ בקשת-בעלים 20/08/2026: ריצה שהדפוס כבר עובד עליה ננעלת
+             לשינויי-לקוח — הלקוח שולח לפעמים ריצה אחת, מתחילים לעבוד,
+             ואחר-כך מגיעות שאר הריצות. הנעילה פר-ריצה, הפיכה, וגלויה
+             לשני הצדדים. חלה גם על ריצה מכוסה-בקבצים ('covered'). */
+          const lk = ShopIssue.runLocked(p, rn.no);
+          return `<button class="pgRemind${lk ? ' rlOn' : ''}" data-runlock="${escapeHtml(p.id)}|${rn.no}"
+            title="${lk ? 'הריצה נעולה לשינויים מצד הלקוח — לחיצה משחררת' : 'נעילת הריצה לשינויים מצד הלקוח (כשהיא כבר בעבודה בדפוס)'}">${lk ? '🔒 נעולה ללקוח' : '🔓 נעל ריצה'}</button>`;
+        },
         /* ── עמודים ── */
         tileAttrs: (t, i, kind) => kind === 'page' ? ` data-tile="${i}"` : '',
         tileExtra: (t, i, kind) => kind === 'missing'
@@ -1953,16 +1970,30 @@ function render(rows) {
                  (תיקון 14/08): ללקוח שכל עבודותיו הסתיימו — מוצגות שלו,
                  אחרת המסך היה ריק לגמרי. */
               const all = sel.length ? sel : done;
-              const sorted = ShopIssue.sortIssues(all);
+              /* ⚠️ בקשת-בעלים 20/08/2026 ערב: "המרחק בין גיליון לגיליון
+                 קודם הוא לחיצה אחת — ובטעות מורידים עיתון של שבוע שעבר."
+                 גיליון שהודפס ואינו החדש ביותר יורד מהלשוניות לתיקיה
+                 מקופלת. ההחלטה טהורה (ShopIssue.splitPast) ונבדקת. */
+              const _sp = ShopIssue.splitPast(all);
+              const allSorted = ShopIssue.sortIssues(all);
+              const sorted = ShopIssue.sortIssues(_sp.current);
               const _oid = ShopIssue.openId(all, _openIssue);
-              const openP = sorted.find(x => ShopIssue.idOf(x) === _oid) || sorted[0];
+              const openP = allSorted.find(x => ShopIssue.idOf(x) === _oid) || sorted[0];
               let shown = _tabsAll ? sorted : sorted.slice(0, 4);
-              if (openP && !shown.some(x => ShopIssue.idOf(x) === ShopIssue.idOf(openP))) shown = shown.concat([openP]);
+              /* גיליון-עבר פתוח נשאר בתיקיה (שנפתחת) — לא חוזר ללשוניות */
+              const _openIsPast = openP && _sp.past.some(x => ShopIssue.idOf(x) === ShopIssue.idOf(openP));
+              if (openP && !_openIsPast && !shown.some(x => ShopIssue.idOf(x) === ShopIssue.idOf(openP))) shown = shown.concat([openP]);
               const more = sorted.length > 4
                 ? `<span class="isTab tMore" id="tabsMore">${_tabsAll ? '▴ צמצם' : ('▾ כל הגיליונות (' + sorted.length + ')')}</span>` : '';
+              const pastF = _sp.past.length
+                ? `<details class="pastFold"${_sp.past.some(x => ShopIssue.idOf(x) === _oid) ? ' open' : ''}>
+                     <summary>🗂 גיליונות קודמים שהודפסו (${_sp.past.length}) — פתיחה בכוונה, לא בטעות</summary>
+                     <div class="isTabs">${_sp.past.map(x => issueTab(x, _oid)).join('')}</div>
+                   </details>` : '';
               if (openP) _pinAdd(_selCust);
               return _pinStrip()
                    + `<div class="isTabs">${shown.map(x => issueTab(x, _oid)).join('')}${more}</div><div class="isTabLine"></div>`
+                   + pastF
                    + (openP ? issueCard(openP, _oid) : '');
             })()
           : `<table><thead><tr><th>שם העבודה / ריצה</th><th>סטטוס</th><th>תאריך</th><th>פעולות</th></tr></thead>
@@ -2442,6 +2473,11 @@ function render(rows) {
   document.querySelectorAll('[data-remind]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _pgRemind(b.dataset.remind); });
   document.querySelectorAll('[data-setsheet]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _setSheetPages(b.dataset.setsheet); });
   document.querySelectorAll('[data-remindrun]').forEach(b => b.onclick = (ev) => { ev.stopPropagation(); _pgRemindRun(b.dataset.remindrun); });
+  document.querySelectorAll('[data-runlock]').forEach(b => b.onclick = (ev) => {
+    ev.stopPropagation();
+    const [rid, rno] = String(b.dataset.runlock).split('|');
+    _toggleRunLock(rid, parseInt(rno, 10), b);
+  });
   document.querySelectorAll('[data-runmiss]').forEach(el => el.onclick = () => _runMissExpand(parseInt(el.dataset.runmiss, 10)));
   _thumbPaint();
   /* "אשר קבלה ללקוח" — מסמן את הגיליון **וכל ריצותיו**, כי מבחינת הלקוח
@@ -2915,6 +2951,29 @@ async function markSeenAll(id, btn){
   } catch(e){
     if (btn){ btn.disabled = false; btn.textContent = '✅ אשר קבלה ללקוח'; }
     alert('אישור-הקבלה נכשל: ' + ((e && e.message) || e));
+  }
+}
+
+/* נעילת-ריצה לשינויי-לקוח (בקשת-בעלים 20/08/2026) — מתג דו-כיווני פר-ריצה.
+   ⚠️ מצב-מסך = מצב-שרת: המקומי זז רק אחרי שה-PATCH אושר. */
+async function _toggleRunLock(id, no, btn){
+  const p = (_allRows || []).find(x => x.id === id);
+  if (!p || !(no > 0)) return;
+  const was = ShopIssue.runLocked(p, no);
+  if (btn){ btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await fetch(await _au(`${_FBURL}/customerProofs/${id}/runLocks.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ [String(no)]: was ? null : Date.now() }) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    p.runLocks = Object.assign({}, p.runLocks);
+    if (was) delete p.runLocks[String(no)]; else p.runLocks[String(no)] = Date.now();
+    msg(was ? ('🔓 ריצה ' + no + ' נפתחה שוב לשינויי-לקוח')
+            : ('🔒 ריצה ' + no + ' ננעלה — הלקוח לא יוכל לשנות אותה'));
+    render(_allRows);
+  } catch(e){
+    if (btn){ btn.disabled = false; btn.textContent = was ? '🔒 נעולה ללקוח' : '🔓 נעל ריצה'; }
+    alert('נעילת-הריצה לא נשמרה: ' + ((e && e.message) || e));
   }
 }
 

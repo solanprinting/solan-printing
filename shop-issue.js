@@ -70,6 +70,49 @@
 
   function printApproved(p) { return num((p || {}).printApprovedAt) > 0; }
 
+  /* ── נעילת-ריצה (בקשת-בעלים 20/08/2026) ──────────────────────────────────
+     לקוח שולח ריצה, הדפוס מתחיל לעבוד עליה, ואחרי זמן מגיעות שאר הריצות —
+     הריצה שבעבודה חייבת להיות קפואה לשינויים מצד-הלקוח. המבנה: ‎runLocks‎
+     על הרשומה — מפה ממספר-ריצה לחותמת-נעילה (ערך ריק/0 = פתוחה). */
+  function lockedRunNos(p) {
+    var m = (p || {}).runLocks, out = {};
+    if (m && typeof m === 'object')
+      Object.keys(m).forEach(function (k) {
+        var n = num(k); if (n > 0 && m[k]) out[String(n)] = true;
+      });
+    return out;
+  }
+  function runLocked(p, no) { return !!lockedRunNos(p)[String(num(no))]; }
+  /* אילו **עמודים** קפואים — עמודי הריצות הנעולות לפי runGrid, ולכן נעילה
+     חלה גם כשהריצה מכוסה בקבצים בודדים, לא רק בקובץ-ריצה. */
+  function lockedPageSet(p) {
+    var out = {};
+    var locks = lockedRunNos(p);
+    if (!Object.keys(locks).length) return out;
+    var g = runGrid(p);
+    if (!g || !g.ok) return out;
+    (g.runs || []).forEach(function (rn) {
+      if (!locks[String(num(rn.no))]) return;
+      (rn.pages || []).forEach(function (pg) { out[pg.no] = true; });
+    });
+    return out;
+  }
+
+  /* ── גיליונות קודמים (בקשת-בעלים 20/08/2026) ─────────────────────────────
+     "המרחק בין גיליון לגיליון קודם הוא לחיצה אחת — ובטעות מורידים עיתון
+     של שבוע שעבר." גיליון שכבר אושר-להדפסה או הושלם, ושאינו החדש ביותר,
+     שייך לתיקיית-העבר — לא ללשוניות. גיליון ישן שעדיין **לא** הודפס נשאר
+     בלשוניות: הוא עבודה פתוחה, לא ארכיון. */
+  function splitPast(list) {
+    var rows = sortIssues(list);
+    var current = [], past = [];
+    rows.forEach(function (p, i) {
+      var printed = printApproved(p) || num(p.completedAt) > 0;
+      if (i > 0 && printed) past.push(p); else current.push(p);
+    });
+    return { current: current, past: past };
+  }
+
   /* ⚠️ "אשר קבלה ללקוח" הוא ‎shopSeenAt‎ הקיים — אותו שדה שהפורטל כבר
      מציג כ"בית-הדפוס קיבל את הקבצים". שדה חדש כאן היה יוצר שני מקורות
      לאותה אמירה, ואחד מהם היה מפגר אחרי השני. */
@@ -882,6 +925,8 @@
     idOf: idOf, timeOf: timeOf, isActive: isActive,
     sortIssues: sortIssues, openId: openId,
     statusOf: statusOf, printApproved: printApproved,
+    lockedRunNos: lockedRunNos, runLocked: runLocked, lockedPageSet: lockedPageSet,
+    splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
     pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, markPatch: markPatch,
