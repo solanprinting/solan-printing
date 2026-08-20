@@ -808,6 +808,10 @@
                   אין קובץ-ריצה. שלושה מצבים, לא שניים: קובץ-ריצה · מכוסה-
                   בקבצים · חסרה. */
                coveredByFiles: !hit && pages.length > 0 && missing.length === 0,
+               /* מקור-הכיסוי — לנוסח נכון בתצוגה: קובץ-מלא ≠ קבצים בודדים */
+               coveredVia: (!hit && pages.length > 0 && missing.length === 0)
+                 ? (pages.every(function (x) { return x.tileIndex >= 0 && tiles[x.tileIndex] && tiles[x.tileIndex].target === 'full'; }) ? 'full' : 'files')
+                 : '',
                partId: hit ? hit.t.partId : '',
                name: hit ? (hit.t.runName || ('ריצה ' + L.num)) : ('ריצה ' + L.num),
                tileIndex: hit ? hit.i : -1,

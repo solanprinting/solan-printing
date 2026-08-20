@@ -71,7 +71,7 @@
         return tileHtml({
           esc: esc, cls: 'mOk', attrs: _act(A, 'runAttrs')(rn, 'covered'),
           badge: '✔', name: rn.name + ' · ' + rng,
-          sub: 'הגיעו כל ' + rn.pageCount + ' העמודים · בקבצים בודדים', subColor: '#15803d',
+          sub: 'הגיעו כל ' + rn.pageCount + ' העמודים' + (rn.coveredVia === 'full' ? ' · בקובץ המלא' : ' · בקבצים בודדים'), subColor: '#15803d',
           title: rn.name + ' · ' + rng,
           extra: _act(A, 'runExtra')(rn, 'covered'),
         });
