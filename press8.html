@@ -29,15 +29,15 @@
      ⚠️ אין כאן שום קישור למסך אחר. מסך-כניסה שיש בו ניווט הוא מסך שאפשר
      לצאת ממנו לכל מקום.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="firebase-auth.bundle.js?v=1787228578"></script>
-<script src="auth-client.js?v=1787228578"></script>
-<script src="auth-guard.js?v=1787228578" data-page="press8.html" data-mode="enforce"></script>
+<script src="firebase-auth.bundle.js?v=1787230153"></script>
+<script src="auth-client.js?v=1787230153"></script>
+<script src="auth-guard.js?v=1787230153" data-page="press8.html" data-mode="enforce"></script>
 <!-- ⚠️ דו-לשוני במסך-המכונה (בקשת-בעלים 19/08/2026): יש עובד שאינו
      קורא עברית. שמות-עבודה בתעתיק, תוויות-ממשק בתרגום. טבלה מקומית,
      בלי רשת — מסך-מכונה חייב לעבוד גם כשהאינטרנט נופל. -->
-<script src="he-translit.js?v=1787228578"></script>
+<script src="he-translit.js?v=1787230153"></script>
 <!-- ⚠️ הגופן מתארח אצלנו — ראה ההערה הזהה ב-press4.html. -->
-<link href="heebo.css?v=1787228578" rel="stylesheet">
+<link href="heebo.css?v=1787230153" rel="stylesheet">
 <style>
   /* ⚠️ הועתק אחד-לאחד מ-press4.html: אותו רקע, אותה קופסה, אותו שדה-קוד.
      המפעילים עוברים בין שתי המכונות, ומסך-כניסה שנראה אחרת בכל אחת הוא
@@ -116,7 +116,7 @@ var HOME = 'index.html?machineView=8';
 var $ = function(id){ return document.getElementById(id); };
 var _busy = false;
 
-var _BAKED = '1787228578';
+var _BAKED = '1787230153';
 AuthClient.guardVersion(_BAKED).then(function(reloading){ if (!reloading) boot(); });
 
 /* ⚠️ הודעה אחידה לכל מסלולי-הכשל, והיא מגיעה מהשרת: קוד שגוי, מכונה
@@ -140,6 +140,21 @@ function applyAuth(user){
   if (!user) { show('pinCard'); return; }
   SolanAuth.claims(true).then(function(c){
     c = c || {};
+    /* ⚠️ תקלת-ייצור 20/08/2026 ערב: הסשן פג (תקרת 16 השעות של השרת) אבל
+       ה-claims עדיין על הטוקן — המסך העביר "הביתה", הבית דחה כל פעולה
+       ב-press_session_expired, והמפעיל נלכד בין שני מסכים. סשן שפג
+       אינו כניסה: יוצאים ומתחילים מהקוד. */
+    if (c.accountType === 'machine' && Number(c.sessionExp) > 0
+        && Date.now() >= Number(c.sessionExp)) {
+      /* ⚠️ קיוסק — אין קונסול: כשל-יציאה נאמר על המסך. הכניסה-מחדש עדיין
+         תעבוד, כי קוד-המכונה מנפיק טוקן חדש שמחליף את הישן ממילא. */
+      SolanAuth.signOut().catch(function(){
+        say('pinMsg', 'משמרת-המכונה הסתיימה (וסגירת הסשן הישן נכשלה). נא להזין שוב את קוד המכונה.');
+      });
+      show('pinCard');
+      say('pinMsg', 'משמרת-המכונה הסתיימה. נא להזין שוב את קוד המכונה.');
+      return;
+    }
     if (c.accountType !== 'machine' || c.machineId !== MACHINE_ID) {
       /* ⚠️ מי שכבר מחובר כאדם (מנהל שבודק את המסך) אינו מתבקש להזין
          קוד-מכונה — הוא פשוט ממשיך הביתה, בדיוק כמו היום. */
