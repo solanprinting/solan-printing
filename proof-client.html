@@ -12,20 +12,20 @@
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
-<script src="pdfjs-engine.js?v=1787224613"></script>
+<script src="pdfjs-engine.js?v=1787226413"></script>
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
      כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1787224613"></script>
-<script src="portal-context.js?v=1787224613"></script>
+<script src="upload-type.js?v=1787226413"></script>
+<script src="portal-context.js?v=1787226413"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi2"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1787224613"></script>
-<script src="portal-return.js?v=1787224613"></script>
+<script src="page-replace.js?v=1787226413"></script>
+<script src="portal-return.js?v=1787226413"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1175,8 +1175,11 @@ function _pcRunListHtml(total) {
    אינו יודע לשחזר את זה מ-total+fullSheet בלבד, ולכן ממשיכים בשאלה הרגילה. */
 function _pcCardReady(){
   var cs = record && record.cardSummary;
-  if (!cs || !cs.standard || !(cs.pages > 0)) return false;
-  return !!((record.reqW && record.reqH) || (cs.reqW && cs.reqH));
+  if (cs && cs.standard && cs.pages > 0 && ((record.reqW && record.reqH) || (cs.reqW && cs.reqH))) return true;
+  /* ⚠️ דיווח-בעלים 20/08/2026: "למה שואלים שוב מה גודל העיתון?" —
+     מספר-העמודים והמידות נזרעים עכשיו גם ישירות מהכרטיס (totalPages/
+     reqW/reqH), בלי cardSummary. לקוח מוגדר לא נשאל שוב. */
+  return !!(record && Number(record.totalPages) > 0 && record.reqW && record.reqH);
 }
 function _pcCardApplySummary(){
   var cs = record.cardSummary, p = {};
@@ -1189,8 +1192,8 @@ function _pcRunPicker() {
   if (!m) { m = document.createElement('div'); m.id='pc-runpick'; document.body.appendChild(m); }
   m.style.cssText = 'position:fixed;inset:0;z-index:130;background:rgba(15,23,42,.62);display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl';
   if (_pcCardReady()) {
-    _pcCardApplySummary();
-    var totalC = parseInt(record.totalPages, 10) || 0;
+    if (record.cardSummary) _pcCardApplySummary();
+    var totalC = parseInt(record.totalPages, 10) || (record.cardSummary && record.cardSummary.pages) || 0;
     m.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:540px;width:96vw;max-height:88vh;overflow:auto;padding:18px 20px;font-family:Heebo,Arial,sans-serif">' +
       '<div style="font-size:1.12rem;font-weight:900;color:#1d4ed8;margin-bottom:6px">📖 איזו ריצה אתם מעלים?</div>' +
       '<div style="font-size:.85rem;color:#555;margin-bottom:12px">מספר-העמודים וגודל-העמוד כבר ידועים מכרטיס-העבודה (' + totalC + ' עמ׳) — רק בחרו את הריצה.</div>' +
@@ -2199,9 +2202,15 @@ $('approve').onclick = async () => {
   if (!_pcUploadAllowed()) return;
   let runName = '';
   if (mode === 'run') {
-    const count = Object.keys(record.parts || {}).length;
-    runName = (prompt('שם / מספר הריצה:', `ריצה ${count + 1}`) || '').trim();
-    if (!runName) return;
+    /* ⚠️ דיווח-בעלים 20/08/2026: "לאחר שאישרתי נשאלתי שוב למספר הריצה" —
+       הריצה כבר נבחרה בתחילת-ההעלאה (_pcRunPicker). שואלים רק כשאין
+       בחירה (הלקוח דילג / מסלול ישן). */
+    if (window._pcRun && window._pcRun.num) runName = 'ריצה ' + window._pcRun.num;
+    else {
+      const count = Object.keys(record.parts || {}).length;
+      runName = (prompt('שם / מספר הריצה:', `ריצה ${count + 1}`) || '').trim();
+      if (!runName) return;
+    }
   }
   // ── בדיקת עמודים-חסרים מול הצפוי (ריצה/עיתון) — לפני האישור ──
   //    מזהה כמה חסרים ואילו מספרי-עמוד, ומאפשר להשאיר ריקים ולהשלים בהמשך.
