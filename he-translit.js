@@ -159,7 +159,58 @@
   /* רק החלק האנגלי — לשורה שנייה מתחת לתווית */
   function labelEn(he) { return LABELS[_s(he).trim()] || ''; }
 
+  /* ── שם-האפוגי מקובצי-הפרופרים (בקשת-בעלים 20/08/2026) ──────────────────
+     "לקחת את שמות העיתונים מהשמות שרשומים על הפרופרים" — הקדם-דפוס כבר
+     נתן לכל עיתון שם לטיני קבוע (עוצמה=Ozma, ידיעון נתניה=Yedion Natania),
+     והוא עדיף על תעתיק אוטומטי: זה השם שעל הקבצים ליד המכונה.
+     ⚠️ מספר-הגיליון משתנה כל שבוע ("Golos 8", "Meudkan259") — נחתך.
+     דפוסי-הייצור האמיתיים (נמדדו 20/08):
+       "Meida Hair19.8_R-1     _8color.pdf" · "Golos 8__8color.pdf" ·
+       "Meudkan259_Meudkan259    _4color.pdf" · "Minhat ahava 3 Sogim_8 color_1.pdf"
+       (ה-3 באמצע-שם נשאר; ספרות בסוף נחתכות). */
+  function apogeeBase(fileName) {
+    var s = _s(fileName).replace(/\.[A-Za-z0-9]{2,5}$/, '');   // סיומת
+    var segs = s.split('_').map(function (x) { return x.trim(); }).filter(Boolean);
+    var junk = function (x) {
+      return /^\d+$/.test(x)                                    // מונה (_1)
+          || /^\d?\s*\d*\s*colou?r$/i.test(x)                   // 4color · 8 color
+          || /^R[- ]?\d+$/i.test(x);                            // R-1
+    };
+    var base = '';
+    for (var i = 0; i < segs.length; i++) { if (!junk(segs[i])) { base = segs[i]; break; } }
+    if (!base) return '';
+    base = base
+      /* ⚠️ R חייבת להיות מילה עצמאית — "Rav Macher1199" מסתיים ב-r1199
+         ובלי הגבול נחתך ל-"Rav Mache" */
+      .replace(/(^|[\s_-])R[- ]?\d+\s*$/i, '$1')                // R-1 שנדבק לסוף
+      .replace(/\d?\s*\d*\s*colou?r\s*$/i, '')                  // color שנדבק לסוף
+      .replace(/\d+\s*[xX]\s*\d+\s*$/, '')                      // מידה 14X23
+      /* גיליון/תאריך בסוף: 259 · 19.8 — אבל אות-בודדת+ספרות ("A4", "B5")
+         היא קוד-גודל וחלק מהשם ("Grapik kav Ayeshuot A4") */
+      .replace(/\d+(?:[./]\d+)*\s*$/, function (mm, off, whole) {
+        return /(^|\s)[A-Za-z]$/.test(whole.slice(0, off)) ? mm : '';
+      })
+      .replace(/[-_.,]+\s*$/, '')
+      .replace(/\s{2,}/g, ' ').trim();
+    /* חייב להיות שם לטיני אמיתי — לא שאריות */
+    if (!/[A-Za-z]{2}/.test(base)) return '';
+    return base;
+  }
+  /* מכמה קבצים → השם השכיח (ריצות של אותו עיתון = אותו בסיס) */
+  function fromProofNames(names) {
+    var freq = {}, best = '';
+    (Array.isArray(names) ? names : []).forEach(function (n) {
+      var b = apogeeBase(n);
+      if (!b) return;
+      var k = b.toLowerCase();
+      freq[k] = (freq[k] || 0) + 1;
+      if (!best || freq[k] > freq[best.toLowerCase()]) best = b;
+    });
+    return best;
+  }
+
   return { FINAL: FINAL, MAP: MAP, LABELS: LABELS, strip: strip, word: word,
            hasHebrew: hasHebrew, translit: translit, cardLine: cardLine,
+           apogeeBase: apogeeBase, fromProofNames: fromProofNames,
            label: label, labelEn: labelEn };
 });
