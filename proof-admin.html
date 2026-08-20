@@ -24,6 +24,10 @@ window.addEventListener('appinstalled', function(){
 <!-- cdnjs נחסם אצל חלק מהמשתמשים (סינון-תוכן/פרוקסי/חוסם-פרסומות) → מראות-גיבוי + אזהרה ברורה -->
 <script src="lib-loader.js"></script>
 <script src="proof-guard.js"></script>
+<!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
+     רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
+     בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
+<script src="pdfjs-engine.js?v=1787218653"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -33,24 +37,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787214555"></script>
-<script src="chat-alert.js?v=1787214555"></script>
-<script src="shop-issue.js?v=1787214555"></script>
-<script src="page-marks.js?v=1787214555"></script>
+<script src="portal-chat.js?v=1787218653"></script>
+<script src="chat-alert.js?v=1787218653"></script>
+<script src="shop-issue.js?v=1787218653"></script>
+<script src="page-marks.js?v=1787218653"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787214555"></script>
-<script src="kontres-split.js?v=1787214555"></script>
+<script src="page-box.js?v=1787218653"></script>
+<script src="kontres-split.js?v=1787218653"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787214555"></script>
-<script src="auth-client.js?v=1787214555"></script>
+<script src="firebase-auth.bundle.js?v=1787218653"></script>
+<script src="auth-client.js?v=1787218653"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787214555" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787218653" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1543,12 +1547,12 @@ function render(rows) {
     return `<div class="isCard on${ShopIssue.printApproved(p)?' approved':''}">${head}
       <div class="isBody">
         ${ShopIssue.isDraft(p) ? `<div class="swapBan wait">📝 <b>הלקוח עדיין מסדר את הגיליון — טרם אישר לדפוס.</b>
-          הקבצים כאן זמניים; ההורדה והאישור ייפתחו כשהלקוח ידפדף ויאשר.</div>` : ''}
+          אפשר לצפות ולדפדף כבר עכשיו; ההורדה והאישור-להדפסה ייפתחו כשהלקוח יאשר.</div>` : ''}
         ${p.completedAt ? `<div class="swapBan" style="background:#f5f5ff;border:2px solid #a5b4fc;color:#3730a3">🗄️ <b>גיליון קודם — כבר הודפס/הושלם.</b>
           לא להעלות אליו קבצים ולא להוריד ממנו — הקבצים כאן שייכים לגיליון שעבר.</div>` : ''}
         ${swapBans}
         <div class="isMain">
-          ${act.canDownload?`<a class="isBtn view" href="${base}proof-viewer.html?id=${p.id}" target="_blank">👁 צפייה בדפדוף</a>`:''}
+          ${act.canView?`<a class="isBtn view" href="${base}proof-viewer.html?id=${p.id}" target="_blank">👁 צפייה בדפדוף</a>`:''}
           ${seenBlock}
           ${act.canPrintApprove?`<button class="isBtn ${ShopIssue.printApproved(p)?'done':'ok'}" data-printok="${escapeHtml(su.id)}">${ShopIssue.printApproveLabel(p)}</button>`:''}
           ${act.canRequestFix?`<button class="isBtn fix" data-needfix="${escapeHtml(su.id)}" title="נפתחת דרישה בפורטל הלקוח — הוא יעלה את העמוד המתוקן">🔁 דרוש תיקון</button>`:''}
@@ -2962,6 +2966,10 @@ const _pdfBytes = new Map();            // url → ArrayBuffer (לתרים-בו�
 async function _pdfDocFor(url){
   if (_pdfDocs.has(url)) return _pdfDocs.get(url);
   const pr = (async () => {
+    /* ⚠️ המנוע **החדש** קודם (מסכות-שקיפות); נפילה-לאחור לישן של
+       lib-loader רק אם כל המראות חסומות — מסך עם רינדור דהוי עדיף
+       על מסך בלי תצוגה. */
+    if (window.PdfEngine) { try { await PdfEngine.ensure({ win: window }); } catch(e){ console.warn('מנוע-חדש לא נטען — נופלים לישן', e); } }
     if (!window.pdfjsLib) await LibLoader.ensure('pdfjs');
     if (!window.pdfjsLib) throw new Error('pdfjs unavailable');
     /* ה-bytes נשמרים בצד — תרים-בוקס נקרא ב-pdf-lib מאותה הורדה,
@@ -3458,7 +3466,7 @@ async function _pgLightOpen(idx, pg, thumb){
              שמר משם — כרום כתב את הקובץ מחדש ו-117MB הפכו ל-236MB, בלי שם.
              ‏CORS על ה-Storage דווקא פתוח (Access-Control-Allow-Origin: *),
              ולכן הורדת-blob עובדת ומחזירה את הקובץ כפי שהוא, בשמו הנכון. -->
-        <button class="isBtn" data-pldl="${escapeHtml(t.url)}" data-plname="${escapeHtml(_plDlName(p, t))}">⬇ הורדה</button>
+        ${ShopIssue.cardActions(p).canDownload ? `<button class="isBtn" data-pldl="${escapeHtml(t.url)}" data-plname="${escapeHtml(_plDlName(p, t))}">⬇ הורדה</button>` : `<span class="isBtn" style="opacity:.55;cursor:not-allowed" title="טיוטה — ההורדה תיפתח כשהלקוח יאשר להדפסה">🔒 הורדה אחרי אישור-הלקוח</span>`}
         <button id="plDemand" class="isBtn fix" style="display:none">📢 שלח דרישת-תיקון ללקוח</button>
       </div>
     </div>`;

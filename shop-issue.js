@@ -131,7 +131,11 @@
   function cardActions(p) {
     var arrived = hasArrived(p);
     var draft = isDraft(p);
+    /* ⚠️ בקשת-בעלים 20/08/2026: צפייה ≠ הורדה. לקוח שואל שאלות על הסידור
+       עוד לפני שאישר — הדפוס חייב **לראות** את העמודים (דפדוף/הגדלה) כבר
+       בטיוטה; רק ההורדה-לקובץ נשארת נעולה עד אישור-הלקוח. */
     return { canPrintApprove: arrived && !draft, canRequestFix: arrived,
+             canView: arrived,
              canDownload: arrived && !draft, showUploadHint: !arrived,
              draft: draft };
   }
