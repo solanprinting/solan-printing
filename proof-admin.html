@@ -33,24 +33,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787205426"></script>
-<script src="chat-alert.js?v=1787205426"></script>
-<script src="shop-issue.js?v=1787205426"></script>
-<script src="page-marks.js?v=1787205426"></script>
+<script src="portal-chat.js?v=1787206952"></script>
+<script src="chat-alert.js?v=1787206952"></script>
+<script src="shop-issue.js?v=1787206952"></script>
+<script src="page-marks.js?v=1787206952"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787205426"></script>
-<script src="kontres-split.js?v=1787205426"></script>
+<script src="page-box.js?v=1787206952"></script>
+<script src="kontres-split.js?v=1787206952"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787205426"></script>
-<script src="auth-client.js?v=1787205426"></script>
+<script src="firebase-auth.bundle.js?v=1787206952"></script>
+<script src="auth-client.js?v=1787206952"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787205426" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787206952" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1471,6 +1471,12 @@ function render(rows) {
     const runsGrid = !rgrid.ok ? '' : `<div class="isGridT">ריצות: <b>${rgrid.gotRuns}</b> מתוך <b>${rgrid.runs.length}</b> · ${nPages} עמודים מתוך ${rgrid.total} · גיליון: <b>${rgrid.sheet}</b> עמ׳ <button class="pgRemind" data-setsheet="${escapeHtml(p.id)}" title="גודל-הגיליון קובע את כל הפריסה — לתיקון">✎</button>${marked?` · <b style="color:#dc2626">🔁 ${marked} לדרישת-החלפה</b>`:''} — לחיצה על ריצה: פריסת עמודיה</div>
          <div class="isPages">${rgrid.runs.map(rn => {
            const rng = escapeHtml(rn.label);
+           /* ⚠️ 20/08/2026: ריצה שכל עמודיה הגיעו כקבצים בודדים הוצגה
+              "טרם הגיעה · 0 עמ'" — הדפוס חיפש ריצה שכבר כולה ביד. */
+           if (!rn.got && rn.coveredByFiles)
+             return `<div class="pgT mOk" data-runmiss="${rn.no}" style="cursor:pointer" title="לחיצה — פריסת העמודים"><div class="pgTh"><span class="pgPh">📄</span><span class="pgMk">✔</span></div>
+               <div class="pgNm">${escapeHtml(rn.name)} · ${rng}</div>
+               <div class="pgSub" style="color:#15803d">הגיעו כל ${rn.pageCount} העמודים · בקבצים בודדים</div></div>`;
            if (!rn.got)
              return `<div class="pgT miss" data-runmiss="${rn.no}" style="cursor:pointer" title="לחיצה — אילו עמודים חסרים בריצה"><div class="pgTh">✚</div>
                <div class="pgNm">${escapeHtml(rn.name)} · ${rng}</div>
@@ -3160,14 +3166,21 @@ function _runMissExpand(n){
   if (!rn || !host) return;
   if (_runExpKey === 'miss:' + n) { _runExpClose(); return; }   // לחיצה שנייה סוגרת
   _runExpKey = 'miss:' + n;
+  /* ⚠️ 20/08/2026: הכותרת לפי המצב האמיתי — ריצה שכולה הגיעה בקבצים
+     בודדים אינה "טרם הגיעה", והעמודים מקבלים תצוגה (data-thumb, אותו
+     טוען-תמונות עצל של הרשת הראשית) במקום אייקון-קובץ ריק. */
+  const _full = rn.missing.length === 0 && rn.pages.length > 0;
   host.innerHTML = `<div class="runExpBar"><b>${escapeHtml(rn.name)}</b>
-      <span class="runExpNote bad">טרם הגיעה — חסרים ${rn.missing.length} מתוך ${rn.pageCount} עמודים (${escapeHtml(rn.label)})</span>
-      <button class="isBtn" data-runmissremind="1">📩 תזכורת ללקוח</button>
+      ${_full
+        ? `<span class="runExpNote" style="color:#15803d">הגיעו כל ${rn.pageCount} העמודים — בקבצים בודדים (${escapeHtml(rn.label)})</span>`
+        : `<span class="runExpNote bad">טרם הגיעה — חסרים ${rn.missing.length} מתוך ${rn.pageCount} עמודים (${escapeHtml(rn.label)})</span>
+      <button class="isBtn" data-runmissremind="1">📩 תזכורת ללקוח</button>`}
       <button class="isBtn" data-runclose="1">✕ סגור</button></div>
     <div class="isPages runExpPages">${rn.pages.map(pg => pg.got
-      ? `<div class="pgT mOk" data-runmisspg="${pg.tileIndex}"><div class="pgTh"><span class="pgPh">📄</span></div><div class="pgNm">עמוד ${pg.no}</div></div>`
+      ? `<div class="pgT mOk" data-runmisspg="${pg.tileIndex}"><div class="pgTh" data-thumb="${pg.tileIndex}"><span class="pgPh">📄</span></div><div class="pgNm">עמוד ${pg.no}</div></div>`
       : `<div class="pgT miss"><div class="pgTh">✚</div><div class="pgNm">חסר עמ׳ ${pg.no}</div>
          <button class="pgRemind" data-remind="${pg.no}" title="ממלא הודעת-תזכורת בשיחה עם הלקוח">📩 תזכורת</button></div>`).join('')}</div>`;
+  _thumbPaint();
   const cl = host.querySelector('[data-runclose]');
   if (cl) cl.onclick = _runExpClose;
   const rm = host.querySelector('[data-runmissremind]');
@@ -3374,7 +3387,7 @@ function _runExpWire(reg, t, pt) {
      פתחה עמוד אחר מהתמונה שנלחצה. */
   host.querySelectorAll('[data-runpg]').forEach(el => el.onclick = () => {
     if (tileIdx < 0) return;
-    _pgLightOpen(tileIdx, parseInt(el.dataset.runpg, 10));
+    _pgLightOpen(tileIdx, parseInt(el.dataset.runpg, 10), (el.querySelector('img') || {}).src || null);
   });
 }
 
@@ -3412,7 +3425,7 @@ function _pgLightEsc(ev){
   if (ev.key === 'ArrowLeft') _pgLightNav(1);
   else if (ev.key === 'ArrowRight') _pgLightNav(-1);
 }
-async function _pgLightOpen(idx, pg){
+async function _pgLightOpen(idx, pg, thumb){
   const reg = window._tileReg;
   const t = reg && reg.tiles && reg.tiles[idx];
   if (!t || t.kind !== 'page') return;
@@ -3430,7 +3443,7 @@ async function _pgLightOpen(idx, pg){
         <button class="plX" id="plPrev" title="העמוד הקודם (חץ ימינה)">הקודם ▶</button>
         <button class="plX" id="plNext" title="העמוד הבא (חץ שמאלה)">◀ הבא</button>
         <button class="plX" title="סגירה (Esc)">✕</button></div>
-      <div class="plBody"><div class="plPgWrap"><div class="plLoad">⏳ טוען עמוד…</div></div></div>
+      <div class="plBody"><div class="plPgWrap">${thumb ? (`<img src="${thumb}" alt="" style="max-width:100%;max-height:64vh;filter:blur(1px);opacity:.85"><div class="plLoad" style="padding:8px">⏳ טוען איכות מלאה…</div>`) : `<div class="plLoad">⏳ טוען עמוד…</div>`}</div></div>
       <div class="plNote" id="plNote"></div>
       <div class="plActs">
         <button id="plRep" class="isBtn fix">🔁 דרוש החלפה</button>
@@ -3527,7 +3540,7 @@ async function _pgLightOpen(idx, pg){
   paint();
   try {
     const data = await _thumbRender(t.url, pageIn, Math.min(1400, Math.round(window.innerHeight * 1.5)));
-    host.querySelector('.plLoad').remove();
+    host.querySelectorAll('.plLoad, img').forEach(el => el.remove());   // גם התצוגה-המקדימה
     const im = document.createElement('img'); im.src = data; im.alt = '';
     host.insertBefore(im, host.firstChild);
     paint();                                            // הסימון מעל התמונה, אחרי שנטענה

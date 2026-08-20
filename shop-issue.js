@@ -796,14 +796,20 @@
         var ti = (at[q] == null) ? -1 : at[q];
         return { no: q, got: ti >= 0, tileIndex: ti };
       });
+      var missing = pages.filter(function (x) { return !x.got; }).map(function (x) { return x.no; });
       return { no: L.num, label: L.label, from: L.seq[0], to: L.seq[L.seq.length - 1],
                pageCount: L.pages, got: !!hit,
+               /* ⚠️ דיווח-בעלים 20/08/2026: לקוח ששלח את כל עמודי-הריצה
+                  כקבצים בודדים ראה "טרם הגיעה · 0 עמ'" — הריצה שלמה אבל
+                  אין קובץ-ריצה. שלושה מצבים, לא שניים: קובץ-ריצה · מכוסה-
+                  בקבצים · חסרה. */
+               coveredByFiles: !hit && pages.length > 0 && missing.length === 0,
                partId: hit ? hit.t.partId : '',
                name: hit ? (hit.t.runName || ('ריצה ' + L.num)) : ('ריצה ' + L.num),
                tileIndex: hit ? hit.i : -1,
                pagesMismatch: hit ? hit.t.runPagesMismatch : null,
                pages: pages,
-               missing: pages.filter(function (x) { return !x.got; }).map(function (x) { return x.no; }) };
+               missing: missing };
     });
     /* ריצה שהועלתה ואין לה קונטרס בפריסה (מספר גבוה מדי / שם חריג) —
        אינה נעלמת מהמסך. היא נאמרת, כי היא סימן שהפריסה או השם שגויים. */
@@ -815,7 +821,7 @@
     });
     return { ok: true, sheet: sheetPagesOf(r).sheet, total: lay.reduce(function (s, L) { return s + L.pages; }, 0),
              runs: out, orphans: orphan,
-             gotRuns: out.filter(function (x) { return x.got; }).length };
+             gotRuns: out.filter(function (x) { return x.got || x.coveredByFiles; }).length };
   }
 
   /* ── מספור-עמודים עם זיהוי-כפולות (דיווח-בעלים 19/08/2026) ──────────────
