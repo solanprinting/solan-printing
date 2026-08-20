@@ -828,26 +828,39 @@
      גלישות ושוליים). כשרוב-הריצה כפולות אין חציון "רגיל" — ואז לא
      מסמנים כלום, כי ניחוש שקט גרוע מספירה חסרה. dims חסר/פגום → עמוד
      בודד. הפלט: תווית לכל עמוד-PDF + סך עמודי-העיתון האמיתי. */
+  /* baseNo: מספר-פתיחה (רצף רציף) **או מערך-seq** של קונטרס — ריצה 1 של
+     56/32 היא עמ' 1-12+45-56, ומספור רציף מ-baseNo משקר אחרי עמ' 12.
+     ‏pdfPage (מצטבר, 1-מבוסס): לאיזה עמוד בקובץ-ה-PDF מוביל כל פריט —
+     כפולה תופסת 2. ⚠️ תקרית 19/08/2026: מטמון-התמונות הוא פריט-לקובץ
+     (19) וה-PDF עמוד-לעמוד (24); לחיצה שמיפתה אינדקס-תמונה → עמוד-PDF
+     פתחה עמוד אחר לגמרי. */
   function spreadNumbering(dims, baseNo) {
-    var base = num(baseNo) || 1;
+    var seq = Array.isArray(baseNo) ? baseNo.map(num).filter(function (x) { return x >= 1; }) : null;
+    var base = seq ? (seq[0] || 1) : (num(baseNo) || 1);
     var list = Array.isArray(dims) ? dims : [];
     var ratios = list.map(function (d) {
       return (d && num(d.w) > 0 && num(d.h) > 0) ? num(d.w) / num(d.h) : 0;
     });
     var valid = ratios.filter(function (r) { return r > 0; }).sort(function (a, b) { return a - b; });
     var med = valid.length ? valid[Math.floor(valid.length / 2)] : 0;
-    var items = [], n = base, spreads = 0;
+    var items = [], cursor = 0, spreads = 0, pdf = 1;
+    var numAt = function (k) { return seq ? (seq[k] != null ? seq[k] : base + k) : base + k; };
     ratios.forEach(function (r) {
       var isSp = med > 0 && r > med * 1.45;
       if (isSp) {
-        items.push({ nos: [n, n + 1], spread: true, label: 'עמודים ' + n + '–' + (n + 1) });
-        n += 2; spreads++;
+        var a = numAt(cursor), b = numAt(cursor + 1);
+        items.push({ nos: [a, b], spread: true, pdfPage: pdf,
+                     label: 'עמודים ' + a + '–' + b });
+        cursor += 2; pdf += 2; spreads++;
       } else {
-        items.push({ nos: [n], spread: false, label: 'עמוד ' + n });
-        n += 1;
+        var n1 = numAt(cursor);
+        items.push({ nos: [n1], spread: false, pdfPage: pdf, label: 'עמוד ' + n1 });
+        cursor += 1; pdf += 1;
       }
     });
-    return { items: items, total: n - base, spreads: spreads, from: base, to: n - 1 };
+    return { items: items, total: cursor, spreads: spreads,
+             from: items.length ? items[0].nos[0] : base,
+             to: items.length ? items[items.length - 1].nos.slice(-1)[0] : base - 1 };
   }
 
   return {

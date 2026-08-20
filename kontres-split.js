@@ -134,6 +134,44 @@
     return { order: order, runs: runs };
   }
 
+  /* ── שחזור סדר-קריאה מקובצי-ריצות (תקרית 19/08/2026, מידע-העיר) ─────────
+     ⚠️ ‏splitToKontresim ו-runOrderedEntries מניחים שהמקור הוא חוברת
+     **בסדר-קריאה** (1..N). כשהמקור הוא איחוי של קובצי-ריצות — הרצף הוא
+     כבר סדר-קונטרסים, והפעלת פיצול-קונטרסים עליו היא תמורה-כפולה:
+     ‏56 עמ' על 32 שאוחו [ריצה1|ריצה2] נתנו "ריצה 1" עם עמ' 1-12 + 33-44
+     — עמודי-ריצה-2 בתוך ריצה 1, והדפוס חשף זאת על הלוחות.
+
+     הקלט: parts = [{run, count}] בסדר-האיחוי (כל סדר), עם מספר-הריצה
+     מהשם ומספר-העמודים **מהקובץ עצמו** (לא מהרשומה).
+     הפלט: order[עמוד-עיתון-1..total] = {part, idx} — מאיזה קובץ ומאיזה
+     עמוד-בתוכו לקחת. נכשל-סגור: כל אי-התאמה מחזירה {ok:false, reason}
+     בעברית — לעולם לא ניחוש. */
+  function runsToReadingOrder(totalPages, fullSheet, parts) {
+    var list = Array.isArray(parts) ? parts : [];
+    if (!(totalPages >= 2) || !(fullSheet >= 2)) return { ok: false, reason: 'חסר מספר-עמודים או גודל-גיליון' };
+    var runs = splitToKontresim(totalPages, fullSheet);
+    if (list.length !== runs.length)
+      return { ok: false, reason: 'יש ' + list.length + ' קבצים אך הפריסה מונה ' + runs.length + ' ריצות' };
+    var byRun = {};
+    for (var i = 0; i < list.length; i++) {
+      var rn = Number(list[i] && list[i].run);
+      if (!(rn >= 1 && rn <= runs.length)) return { ok: false, reason: 'קובץ בלי מספר-ריצה תקין (R-1/R-2)' };
+      if (byRun[rn] !== undefined) return { ok: false, reason: 'ריצה ' + rn + ' מופיעה פעמיים' };
+      byRun[rn] = i;
+    }
+    var order = new Array(totalPages);
+    for (var r = 0; r < runs.length; r++) {
+      var spec = runs[r], pi = byRun[spec.num];
+      var cnt = Number(list[pi].count);
+      if (cnt !== spec.pages.length)
+        return { ok: false, reason: 'ריצה ' + spec.num + ' אמורה להכיל ' + spec.pages.length
+                 + ' עמודים אך בקובץ ' + cnt };
+      for (var j = 0; j < spec.pages.length; j++) order[spec.pages[j] - 1] = { part: pi, idx: j };
+    }
+    return { ok: true, order: order, runs: runs };
+  }
+
   return { splitToKontresim: splitToKontresim, classifySpreads: classifySpreads,
-           spreadPlan: spreadPlan, runOrderedEntries: runOrderedEntries };
+           spreadPlan: spreadPlan, runOrderedEntries: runOrderedEntries,
+           runsToReadingOrder: runsToReadingOrder };
 });

@@ -33,24 +33,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787167969"></script>
-<script src="chat-alert.js?v=1787167969"></script>
-<script src="shop-issue.js?v=1787167969"></script>
-<script src="page-marks.js?v=1787167969"></script>
+<script src="portal-chat.js?v=1787205426"></script>
+<script src="chat-alert.js?v=1787205426"></script>
+<script src="shop-issue.js?v=1787205426"></script>
+<script src="page-marks.js?v=1787205426"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787167969"></script>
-<script src="kontres-split.js?v=1787167969"></script>
+<script src="page-box.js?v=1787205426"></script>
+<script src="kontres-split.js?v=1787205426"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787167969"></script>
-<script src="auth-client.js?v=1787167969"></script>
+<script src="firebase-auth.bundle.js?v=1787205426"></script>
+<script src="auth-client.js?v=1787205426"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787167969" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787205426" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -3313,9 +3313,18 @@ async function _runExpand(reg, t, pt) {
       im.src = src;
     })));
     if (_runExpKey !== t.partId) return;
+    /* רצף-הקונטרס האמיתי — ריצה 1 של 56/32 היא עמ' 1-12 + 45-56, ומספור
+       רציף היה משקר אחרי עמ' 12. נופל לרציף רק כשאין פריסה. */
+    let _seq = null;
+    try {
+      const _rn = ShopIssue.runNoOfName(t.runName || t.label);
+      const _lay = ShopIssue.layoutOf(reg.p) || [];
+      const _run = _lay.find(L => L.num === _rn);
+      if (_run && _run.seq && _run.seq.length) _seq = _run.seq;
+    } catch (e) {}
     const sn = (window.ShopIssue && ShopIssue.spreadNumbering)
-      ? ShopIssue.spreadNumbering(dims, baseNo)
-      : { items: pages.map((_, n) => ({ nos: [baseNo + n], spread: false, label: 'עמוד ' + (baseNo + n) })),
+      ? ShopIssue.spreadNumbering(dims, _seq || baseNo)
+      : { items: pages.map((_, n) => ({ nos: [baseNo + n], spread: false, pdfPage: n + 1, label: 'עמוד ' + (baseNo + n) })),
           total: pages.length, spreads: 0, from: baseNo, to: baseNo + pages.length - 1 };
     host.innerHTML = '<div class="runExpBar"><b>' + title + '</b>'
       + '<span class="runExpNote">' + pages.length + ' קבצים · ' + sn.total + ' עמודים · עמ׳ '
@@ -3326,7 +3335,7 @@ async function _runExpand(reg, t, pt) {
       + '<button class="isBtn" data-runflip="1">📖 דפדוף</button>'
       + '<button class="isBtn" data-runclose="1">✕ סגור</button></div>'
       + '<div class="isPages runExpPages">'
-      + pages.map((src, n) => '<div class="pgT" data-runpg="' + n + '" title="' + sn.items[n].label + ' בגיליון">'
+      + pages.map((src, n) => '<div class="pgT" data-runpg="' + (sn.items[n].pdfPage || (n + 1)) + '" title="' + sn.items[n].label + ' בגיליון">'
           + '<div class="pgTh"><img src="' + src + '" alt="">'
           + (sn.items[n].spread ? '<span class="pgSpread">כפולה</span>' : '') + '</div>'
           + '<div class="pgNm">' + sn.items[n].label + '</div></div>').join('')
@@ -3360,9 +3369,12 @@ function _runExpWire(reg, t, pt) {
      **בתוך הריצה**. זו בדיוק החתימה `_pgLightOpen(tileIdx, pg)`, ולכן
      החיצים בהגדלה (‎_plFlat‎ שטוח ברמת-עמוד) ממשיכים לעבור את כל הגיליון. */
   const tileIdx = reg.tiles.indexOf(t);
+  /* ⚠️ data-runpg הוא כבר עמוד-ה-PDF (1-מבוסס, מ-spreadNumbering) — לא
+     אינדקס-תמונה. תקרית 19/08: 19 תמונות מול 24 עמודי-PDF = ההגדלה
+     פתחה עמוד אחר מהתמונה שנלחצה. */
   host.querySelectorAll('[data-runpg]').forEach(el => el.onclick = () => {
     if (tileIdx < 0) return;
-    _pgLightOpen(tileIdx, parseInt(el.dataset.runpg, 10) + 1);
+    _pgLightOpen(tileIdx, parseInt(el.dataset.runpg, 10));
   });
 }
 
@@ -4065,10 +4077,34 @@ async function _runSourceBytes(t) {
   if (bufs.length === 1 && !weave) return bufs[0];
   const out = await PDFLib.PDFDocument.create();
   _pdfReadDir(out, (typeof proof!=="undefined"?proof:(typeof p!=="undefined"?p:null)));
+  /* ⚠️ תקרית 19/08/2026 (מידע-העיר 1840): איחוי קובצי-**ריצות** הוא רצף-
+     קונטרסים, לא סדר-קריאה — והצרכנים של הפונקציה (✂/📚) מפעילים עליו
+     פיצול-קונטרסים. תמורה-כפולה: "ריצה 1" שנוצרה הכילה את עמ' 33-44 של
+     ריצה 2, והשיבוש התגלה רק על הלוחות בדפוס. לכן: כשהחלקים הם ריצות —
+     האיחוי **משחזר סדר-קריאה** לפי פריסת-הקונטרסים (הלוגיקה הטהורה
+     runsToReadingOrder, נכשלת-סגור), ורק אז הצרכנים רשאים לפצל מחדש. */
+  const _mergedParts = _partsOrdered(rec).filter(p2 => p2 && p2.fileUrl);
+  const _runNos = _mergedParts.map(p2 => window.ShopIssue ? ShopIssue.runNoOfName(p2.name || '') : null);
+  if (bufs.length > 1 && _runNos.length === bufs.length && _runNos.every(n => n >= 1)) {
+    const docs = [];
+    for (const b of bufs) docs.push(await PDFLib.PDFDocument.load(b));
+    const total = Number(rec.declaredPages || rec.totalPages) || docs.reduce((s, d) => s + d.getPageCount(), 0);
+    const sheet = (window.ShopIssue && ShopIssue.sheetPagesOf) ? ShopIssue.sheetPagesOf(rec).sheet : 0;
+    const ro = KontresSplit.runsToReadingOrder(total, sheet,
+      _mergedParts.map((p2, i) => ({ run: _runNos[i], count: docs[i].getPageCount() })));
+    if (!ro.ok) throw new Error('אי אפשר לאחות את הריצות לסדר-קריאה: ' + ro.reason
+      + '. הורידו כל ריצה בנפרד (⬇ בפריסת-הריצה).');
+    for (const ent of ro.order) {
+      const [pg] = await out.copyPages(docs[ent.part], [ent.idx]);
+      out.addPage(pg);
+    }
+    if (!weave) return (await out.save()).buffer;
+  } else {
   for (const b of bufs) {
     const d = await PDFLib.PDFDocument.load(b);
     const pages = await out.copyPages(d, d.getPageIndices());
     pages.forEach(p => out.addPage(p));
+  }
   }
   if (weave) {
     const fileSlots = new Set(weave.ents.map(e => e.slot));
