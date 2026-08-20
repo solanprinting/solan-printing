@@ -107,6 +107,12 @@
          פרמטר הוא דבר שהמשתמש כותב, ושער שנפתח בהקלדה אינו שער. */
       if (['press4.html', 'press8.html'].indexOf(AC.pageOf(s.page)) >= 0)
         return { action: 'allow', reason: 'machine-pin' };
+      /* ⚠️ החלטת-בעלים 20/08/2026: מסך-דפס לעולם אינו נשלח למייל-וסיסמה —
+         רק קוד-מכונה וקוד אישי. ‏?machineView משמש כאן לבחירת **יעד-חזרה**
+         בלבד, לא כשער: מסך-הקוד פתוח לאנונימי ממילא, כך שהקלדת הפרמטר
+         אינה פותחת דבר — היא רק קובעת לאיזה משני מסכי-הקוד חוזרים. */
+      var mv = /[?&]machineView=(4|8)\b/.exec(String(s.here || s.page || ''));
+      if (mv) return { action: 'elsewhere', to: 'press' + mv[1] + '.html', reason: 'machine-login' };
       return { action: 'login', to: AC.loginUrlFor(s.here || s.page, s.origin), reason: 'anonymous' };
     }
     var claims = s.claims || {};
