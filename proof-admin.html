@@ -27,9 +27,9 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787335076"></script>
+<script src="pdfjs-engine.js?v=1787336911"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787335076"></script>
+<script src="issue-grid.js?v=1787336911"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -39,28 +39,28 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787335076"></script>
-<script src="chat-alert.js?v=1787335076"></script>
+<script src="portal-chat.js?v=1787336911"></script>
+<script src="chat-alert.js?v=1787336911"></script>
 <!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787335076"></script>
+<script src="push-client.js?v=1787336911"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
-<script src="chat-files.js?v=1787335076"></script>
-<script src="shop-issue.js?v=1787335076"></script>
-<script src="page-marks.js?v=1787335076"></script>
+<script src="chat-files.js?v=1787336911"></script>
+<script src="shop-issue.js?v=1787336911"></script>
+<script src="page-marks.js?v=1787336911"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787335076"></script>
-<script src="kontres-split.js?v=1787335076"></script>
+<script src="page-box.js?v=1787336911"></script>
+<script src="kontres-split.js?v=1787336911"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787335076"></script>
-<script src="auth-client.js?v=1787335076"></script>
+<script src="firebase-auth.bundle.js?v=1787336911"></script>
+<script src="auth-client.js?v=1787336911"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787335076" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787336911" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -4087,9 +4087,15 @@ async function _noticeLoadOpen(slug){
 async function unlockProof(id){
   const p = _allRows.find(r => r.id === id); if (!p) return;
   if (!confirm('לפתוח את הפרופר לשינויים? הנעילה תוסר והלקוח יוכל לאשר מחדש.')) return;
-  await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ apogeeApprovedAt:null, apogeeApprovedBy:null, reopenedAt:Date.now() }) });
+  try {
+    /* ⚠️ ביקורת 21/08/2026, כלל-1: r.ok — בלעדיו "נפתח לשינויים" מדווח
+       גם כשהאישור לא הוסר בפועל. */
+    const r = await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ apogeeApprovedAt:null, apogeeApprovedBy:null, reopenedAt:Date.now() }) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch(e){ alert('פתיחת-הפרופר נכשלה: ' + ((e && e.message) || e)); return; }
   try { const slug = _slug(p.customer||''); if (slug){ const nid='n'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-    await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${nid}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:'הפרופר נפתח מחדש — נא לבדוק ולאשר', type:'approve', at:Date.now(), done:false }) }); } } catch(e){}
+    await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${nid}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text:'הפרופר נפתח מחדש — נא לבדוק ולאשר', type:'approve', at:Date.now(), done:false }) }); } }
+  catch(e){ console.warn('הדרישה ללקוח לא נכתבה (הפרופר עצמו נפתח)', e); }
   msg('🔓 הפרופר נפתח לשינויים'); await loadProofs();
 }
 /* attachApogee הוסר (בקשת-בעלים 2026-07-30): העלאת פרופר לאישור עברה
@@ -4225,16 +4231,21 @@ async function openTrash() {
     const entry = sorted.find(x => x.key === b.dataset.restore); if (!entry) return;
     b.disabled = true; b.textContent = 'משחזר…';
     try {
+      /* ⚠️ ביקורת 21/08/2026, כלל-1: r.ok על הכתיבה-המשחזרת **לפני** מחיקת
+         הגיבוי. בלעדיו, שחזור שנדחה ב-403 היה מוחק את רשומת-הסל — הפריט
+         נמחק לצמיתות משני המקומות (אובדן-נתונים). */
+      let _rr;
       if (entry.type === 'part') {
-        await fetch(await _au(`${_FBURL}/customerProofs/${entry.jobId}/parts/${entry.partId}.json`), { method: 'PUT',
+        _rr = await fetch(await _au(`${_FBURL}/customerProofs/${entry.jobId}/parts/${entry.partId}.json`), { method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: entry.name, fileUrl: entry.fileUrl, filePath: entry.filePath, pagesUrl: entry.pagesUrl, pageCount: entry.pageCount, status: 'approved', approvedAt: Date.now() }) });
       } else {
         const restored = { customer: entry.customer, title: entry.title, status: entry.parts.length ? 'parts' : 'approved', mode: entry.parts.length ? 'parts' : 'full', createdAt: Date.now() };
         if (entry.fileUrl) { restored.fileUrl = entry.fileUrl; restored.filePath = entry.filePath; restored.approvedAt = Date.now(); }
         if (entry.parts.length) restored.parts = Object.fromEntries(entry.parts.map(pt => [pt.pid, { name: pt.name, fileUrl: pt.fileUrl, filePath: pt.filePath, status: 'approved', approvedAt: Date.now() }]));
-        await fetch(await _au(`${_FBURL}/customerProofs/${entry.jobId}.json`), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(restored) });
+        _rr = await fetch(await _au(`${_FBURL}/customerProofs/${entry.jobId}.json`), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(restored) });
       }
+      if (!_rr.ok) throw new Error('השחזור נכשל (' + _rr.status + ') — הפריט נשאר בסל, לא אבד');
       await fetch(await _au(`${_FBURL}/customerProofsTrash/${entry.key}.json`), { method: 'DELETE' });
       await loadProofs();
       box.remove(); openTrash();
@@ -4296,6 +4307,14 @@ async function normalizeSpreads(src) {
    של האתר, ונפל על "No PDF header". עכשיו: המקור נפתר מהרשומה —
    קובץ-מלא אם יש; אחרת הריצות ממוזגות לפי סדר-האישור; אחרת קובצי-הפורטל
    לפי מספרי-העמודים. כל קובץ נבדק שהוא באמת PDF (%PDF-) לפני שממשיכים. */
+/* שיבוץ-קובץ עקבי עם רשת-העמודים (ביקורת 21/08/2026): slot מפורש גובר,
+   אחריו pagesOfName (מבין כפולה, פוסל שנה/גיליון), ולא pageNoOf. */
+function _fileSlot(f){
+  if (Number(f && f.slot) >= 1) return Number(f.slot);
+  const pn = window.ShopIssue && ShopIssue.pagesOfName ? ShopIssue.pagesOfName(f && f.fileName) : null;
+  if (pn && pn.nos && pn.nos[0] >= 1) return pn.nos[0];
+  return (window.ShopIssue && ShopIssue.pageNoOf) ? (ShopIssue.pageNoOf(f && f.fileName) || 0) : 0;
+}
 async function _runSourceBytes(t) {
   const rec = (_allRows || []).find(r => r.id === t.jobId) || {};
   const urls = [];
@@ -4314,10 +4333,11 @@ async function _runSourceBytes(t) {
        בשקט כשהיו ריצות, כי files נקרא רק כשאין parts. מיקום-ההכנסה
        מתוקן לפי המשבצות שעדיין חסרות (pendingPages). */
     if (urls.length && rec.files) {
-      /* ⚠️ 21/08/2026 (ביקורת): ‏f.slot (שיבוץ מפורש) גובר על המספר שבשם —
-         אותה הכרעה של רשת-העמודים; בלעדיה ההורדה סתרה את מה שמוצג. */
+      /* ⚠️ 21/08/2026 (ביקורת): ‏f.slot (שיבוץ מפורש) גובר על השם, ואחריו
+         pagesOfName — המפרק שמבין כפולה/פוסל שנה — ולא pageNoOf (מספר-
+         ראשון-מנצח). אותה הכרעה של רשת-העמודים, אחרת ההורדה סותרת אותה. */
       const fe = Object.values(rec.files).filter(f => f && f.fileUrl)
-        .map(f => ({ url: f.fileUrl, slot: (Number(f.slot) >= 1 ? Number(f.slot) : ShopIssue.pageNoOf(f.fileName)) }))
+        .map(f => ({ url: f.fileUrl, slot: _fileSlot(f) }))
         .filter(f => f.slot >= 1).sort((a, b) => a.slot - b.slot);
       if (fe.length) {
         const pend = new Set();
@@ -4327,7 +4347,7 @@ async function _runSourceBytes(t) {
       }
     }
     if (!urls.length && rec.files) {
-      const _slotOf = f => (Number(f.slot) >= 1 ? Number(f.slot) : (ShopIssue.pageNoOf(f.fileName) || 9999));
+      const _slotOf = f => { const s = _fileSlot(f); return s >= 1 ? s : 9999; };
       Object.values(rec.files).filter(f => f && f.fileUrl)
         .sort((a, b) => _slotOf(a) - _slotOf(b))
         .forEach(f => urls.push(f.fileUrl));
@@ -4403,6 +4423,13 @@ async function generateRunOrderedPdf(proof, fullSheet, btn) {
   btn.disabled = true; stage('מוריד קובץ…');
   try {
     const bytes = await _runSourceBytes(proof);
+    /* ⚠️ ביקורת-אמינות 21/08/2026: מיזוג עיתון כבד ל-pdf-lib בזיכרון-
+       הדפדפן יכול להקריס את הלשונית. אזהרה מעל ~180MB, עם אפשרות-ביטול
+       והפניה להורדת-ריצה-בודדת (קלה יותר). */
+    if (bytes && bytes.byteLength > 180*1024*1024
+        && !confirm('הקובץ המאוחד גדול מאוד (' + Math.round(bytes.byteLength/1048576) + 'MB).\nהמיזוג בדפדפן עלול להיכשל או להקריס את הלשונית.\n\nעדיף להוריד כל ריצה בנפרד (⬇ בפריסת-הריצה). להמשיך בכל זאת?')){
+      _buildBanner(false); btn.textContent = old; btn.disabled = false; return;
+    }
     stage('מפצל כפולות…');
     const raw = await PDFLib.PDFDocument.load(bytes);
     const pages = raw.getPages();
@@ -4466,6 +4493,11 @@ async function generateRuns(proof, fullSheet, btn) {
     /* ⚠️ אותו פותר-מקור של "📚 לפי ריצות" — גם כאן ה-fileUrl יכול להיות
        ריק (כרטיס-גיליון של עבודת-ריצות), ואותה נפילה בדיוק. */
     const bytes = await _runSourceBytes(proof);
+    /* אזהרת-גודל (ביקורת 21/08/2026) — מיזוג כבד עלול להקריס את הלשונית. */
+    if (bytes && bytes.byteLength > 180*1024*1024
+        && !confirm('הקובץ המאוחד גדול מאוד (' + Math.round(bytes.byteLength/1048576) + 'MB).\nהמיזוג בדפדפן עלול להיכשל או להקריס את הלשונית.\n\nעדיף להוריד כל ריצה בנפרד (⬇ בפריסת-הריצה). להמשיך בכל זאת?')){
+      _buildBanner(false); btn.textContent = old; btn.disabled = false; return;
+    }
     stage('מפצל…');
     const raw = await PDFLib.PDFDocument.load(bytes);
     const norm = await normalizeSpreads(raw);   // כפולה → אותו קובץ פעמיים + "כפולה" בשם
@@ -4837,8 +4869,10 @@ async function editProof(id){
   if (!Object.keys(patch).length) { msg('לא בוצע שינוי'); return; }
   msg('שומר…');
   try {
-    await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`),
+    /* ⚠️ ביקורת 21/08/2026, כלל-1: r.ok — בלעדיו "עודכן · גודל" מדווח על 403. */
+    const r = await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`),
       { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     await loadProofs();
     msg('✓ הפרטים עודכנו' + (sz ? (' · גודל ' + sz.w + '×' + sz.h) : ''));
   } catch(e){ alert('העדכון נכשל: ' + (e.message||e)); }
@@ -4850,9 +4884,11 @@ async function closeProof(id, isClosed){
       + 'הלקוח יקבל הסבר שהגיליון נסגר, ויתבקש לבקש קישור לגיליון החדש.')) return;
   msg(isClosed ? 'פותח…' : 'סוגר…');
   try {
-    await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`),
+    /* ⚠️ ביקורת 21/08/2026, כלל-1: r.ok — בלעדיו "נסגר/נפתח" מדווח על 403. */
+    const r = await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`),
       { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ closedAt: isClosed ? null : Date.now() }) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     await loadProofs();
     msg(isClosed ? '✓ הגיליון פתוח להעלאה' : '🔒 הגיליון נסגר להעלאות');
   } catch(e){ alert('הפעולה נכשלה: ' + (e.message||e)); }
@@ -4886,10 +4922,15 @@ async function moveRun(jobId, partId, btn){
   const old = btn.textContent; btn.disabled = true; btn.textContent = 'מעביר…';
   try {
     // קודם כותבים ביעד, ורק אחרי שהצליח מוחקים במקור — כדי שריצה לא תיעלם באמצע
-    await fetch(await _au(`${_FBURL}/customerProofs/${to.id}/${plan.toPath}.json`),
+    /* ⚠️ ביקורת 21/08/2026, כלל-1: r.ok על **שני** השלבים. בלי בדיקת
+       הכתיבה-ליעד, DELETE-המקור מוחק את הריצה גם כשהיעד נדחה ב-403 —
+       הריצה נעלמת משני הגיליונות (אובדן-נתונים). */
+    const rTo = await fetch(await _au(`${_FBURL}/customerProofs/${to.id}/${plan.toPath}.json`),
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(plan.part) });
-    await fetch(await _au(`${_FBURL}/customerProofs/${jobId}/${plan.fromPath}.json`),
+    if (!rTo.ok) throw new Error('הכתיבה ליעד נכשלה (' + rTo.status + ') — הריצה נשארה במקומה');
+    const rDel = await fetch(await _au(`${_FBURL}/customerProofs/${jobId}/${plan.fromPath}.json`),
       { method: 'DELETE' });
+    if (!rDel.ok) throw new Error('הריצה הועתקה ליעד אך לא הוסרה מהמקור (' + rDel.status + ') — היא מופיעה כעת בשני הגיליונות, הסירו ידנית מהישן');
     await loadProofs();
     msg('✓ הריצה הועברה ל"' + (to.title || to.id) + '"');
   } catch(e){

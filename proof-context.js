@@ -49,11 +49,22 @@
     _clearRt();
   }
 
+  /* ⚠️ ביקורת-אמינות 21/08/2026: פסק-זמן על קריאות-הזהות — מסנן שמחזיק
+     סוקט פתוח השאיר את מסך-אישור-הפרופר תלוי לנצח על 'טוען…'. */
+  function _fetchTO(url, opts, ms) {
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var o = Object.assign({}, opts || {});
+    if (ctrl) o.signal = ctrl.signal;
+    var t = setTimeout(function () { if (ctrl) try { ctrl.abort(); } catch (e) {} }, ms || 20000);
+    return fetch(url, o).then(function (r) { clearTimeout(t); return r; },
+                             function (e) { clearTimeout(t);
+                               throw (e && e.name === 'AbortError') ? new Error('החיבור נקטע (רשת/סינון) — נסו שוב') : e; });
+  }
   async function _callFn(fn, data) {
-    var r = await fetch(FN_BASE + fn, {
+    var r = await _fetchTO(FN_BASE + fn, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data: data || {} }),
-    });
+    }, 25000);
     var j = await r.json().catch(function () { return {}; });
     if (!r.ok) {
       var e = new Error((j.error && j.error.message) || 'הקישור אינו תקין');
@@ -69,7 +80,7 @@
      בכתובת (הוא הקישור עצמו, נועד להישלח הלאה) — רענון-דף פשוט נכנס
      מחדש, ואין מה לשחזר. */
   async function _signInCustom(customToken, persistRt) {
-    var r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=' + API_KEY, {
+    var r = await _fetchTO('https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=' + API_KEY, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: customToken, returnSecureToken: true }),
     });
@@ -81,7 +92,7 @@
   }
 
   async function _refresh(rt) {
-    var r = await fetch('https://securetoken.googleapis.com/v1/token?key=' + API_KEY, {
+    var r = await _fetchTO('https://securetoken.googleapis.com/v1/token?key=' + API_KEY, {
       method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(rt),
     });

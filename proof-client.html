@@ -12,20 +12,20 @@
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
-<script src="pdfjs-engine.js?v=1787335076"></script>
+<script src="pdfjs-engine.js?v=1787336911"></script>
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
      כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1787335076"></script>
-<script src="portal-context.js?v=1787335076"></script>
+<script src="upload-type.js?v=1787336911"></script>
+<script src="portal-context.js?v=1787336911"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi2"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1787335076"></script>
-<script src="portal-return.js?v=1787335076"></script>
+<script src="page-replace.js?v=1787336911"></script>
+<script src="portal-return.js?v=1787336911"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -504,6 +504,24 @@ const RENDER_SCALE_CAP = 4;
 const RENDER_JPEG_Q = 0.94;
 
 const $ = id => document.getElementById(id);
+/* ⚠️ ביקורת 21/08/2026: הלקוח לא רואה שגיאות-pdf.js/רשת גולמיות באנגלית.
+   מתרגם למשפט קריא; מה שאינו מוכר נשאר, אבל הנפוצים מכוסים. */
+function _pcErrHe(e){
+  var m = String((e && e.message) || e || '');
+  if (/Failed to fetch|NetworkError|Load failed|ERR_NETWORK|network/i.test(m))
+    return 'החיבור נקטע (רשת או סינון) — בדקו את החיבור ונסו שוב';
+  if (/InvalidPDF|not a PDF|PDF (file )?is empty|Invalid PDF structure|corrupt/i.test(m))
+    return 'הקובץ אינו PDF תקין או שהוא פגום — בדקו והעלו שוב';
+  if (/password|encrypted/i.test(m))
+    return 'הקובץ מוגן בסיסמה — הסירו את ההגנה והעלו שוב';
+  if (/timeout|timed out|פג.?זמן/i.test(m))
+    return 'הפעולה ארכה זמן רב מדי — נסו שוב';
+  if (/quota|exceeded|storage/i.test(m))
+    return 'שגיאת-אחסון זמנית — נסו שוב בעוד רגע';
+  /* עברית או ריק — כבר קריא; אחרת הודעה כללית בלי הז'רגון */
+  if (!m || /[א-ת]/.test(m)) return m || 'שגיאה';
+  return 'אירעה שגיאה — נסו שוב';
+}
 const overlay = $('overlay');
 function showOverlay(t, on=true, pct=null){
   $('ovText').textContent = t; overlay.style.display = on ? 'flex' : 'none';
@@ -696,7 +714,7 @@ async function _psSendRequest(target){
     showOverlay('', false);
     alert('✓ הבקשה נשלחה לבית-הדפוס. תקבלו גישה לעריכה מיד לאחר האישור.');
     goHome();
-  } catch(e){ showOverlay('שליחת הבקשה נכשלה: ' + (e.message||e), true); }
+  } catch(e){ showOverlay('שליחת הבקשה נכשלה: ' + _pcErrHe(e), true); }
 }
 
 /* כניסה לעריכה: טוענים את ה-PDF שאושר כמקור-יחיד, וממשיכים בעורך הרגיל */
@@ -716,7 +734,7 @@ async function _psEnterEdit(target){
       + `<br>${esc(PageSwap.remainingLabel(_psReqOf(target), Date.now()))}`;
     renderAll(); show('status', false); show('home', false); show('editor', true);
     showOverlay('', false);
-  } catch(e){ console.error(e); showOverlay('טעינת הקובץ נכשלה: ' + (e.message||e), true); }
+  } catch(e){ console.error(e); showOverlay('טעינת הקובץ נכשלה: ' + _pcErrHe(e), true); }
 }
 
 $('chFull').onclick = () => startEditor('full');
@@ -838,7 +856,7 @@ async function _addFilesNow(fileArr) {
       docs.push({ fileId, pdf, boxes, name: file.name, bytes }); total += pdf.numPages;
     } catch (e) {
       console.error('קובץ נכשל:', file.name, e);
-      failed.push({ name: file.name, why: String((e && e.message) || e).slice(0, 120) });
+      failed.push({ name: file.name, why: _pcErrHe(e).slice(0, 120) });
     }
   }
   /* ⚠️ כשכל הקבצים נכשלו, הקוד המשיך לרוץ, ניקה את הכיסוי, ולא הציג דבר —
@@ -1513,7 +1531,7 @@ $('repInput').onchange = async e => {
     item.fileId = fileId; item.pageIndex = 0;
     item.src = r.src; item.trimFrac = r.trimFrac; item.wmm = r.wmm; item.hmm = r.hmm;
     item.displaySrc = null; item.spreadKeep = null;   // תצוגה נגזרת-מחדש
-  } catch (e) { console.error('החלפת-העמוד נכשלה', e); showOverlay('', false); alert('⚠️ החלפת-העמוד נכשלה: ' + ((e && e.message) || e)); _repUid = null; return; }
+  } catch (e) { console.error('החלפת-העמוד נכשלה', e); showOverlay('', false); alert('⚠️ החלפת-העמוד נכשלה: ' + _pcErrHe(e)); _repUid = null; return; }
   _repUid = null; renderAll(); showOverlay('', false);
 };
 
