@@ -27,9 +27,9 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787324997"></script>
+<script src="pdfjs-engine.js?v=1787327216"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787324997"></script>
+<script src="issue-grid.js?v=1787327216"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -39,24 +39,28 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787324997"></script>
-<script src="chat-alert.js?v=1787324997"></script>
-<script src="shop-issue.js?v=1787324997"></script>
-<script src="page-marks.js?v=1787324997"></script>
+<script src="portal-chat.js?v=1787327216"></script>
+<script src="chat-alert.js?v=1787327216"></script>
+<!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
+<script src="push-client.js?v=1787327216"></script>
+<!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
+<script src="chat-files.js?v=1787327216"></script>
+<script src="shop-issue.js?v=1787327216"></script>
+<script src="page-marks.js?v=1787327216"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787324997"></script>
-<script src="kontres-split.js?v=1787324997"></script>
+<script src="page-box.js?v=1787327216"></script>
+<script src="kontres-split.js?v=1787327216"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787324997"></script>
-<script src="auth-client.js?v=1787324997"></script>
+<script src="firebase-auth.bundle.js?v=1787327216"></script>
+<script src="auth-client.js?v=1787327216"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787324997" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787327216" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -437,6 +441,10 @@ window.addEventListener('appinstalled', function(){
      בדיוק מהצד של הלקוח, וזה נכון: אצל כל צד "אני" באותו מקום. */
   .shMsg.theirs { align-self:flex-start; background:#fff; border:1px solid #e5e7eb; }
   .shMsg.mine { align-self:flex-end; background:#e0e7ff; border:1px solid #c7d2fe; }
+  .chatImg { max-width:220px; max-height:220px; border-radius:9px; border:1px solid var(--line);
+             display:block; margin-top:5px; cursor:zoom-in; }
+  .chatFileA { display:inline-block; margin-top:5px; font-weight:800; font-size:.8rem;
+               color:var(--press); text-decoration:none; background:#eef2ff; border-radius:8px; padding:4px 9px; }
   .shMeta { font-size:.66rem; color:#9ca3af; margin-top:2px; }
   .shSend { padding:11px; display:flex; gap:8px; align-items:flex-end; }
   .shSend textarea { flex:1; padding:9px 11px; border:1.5px solid var(--line); border-radius:10px;
@@ -2173,8 +2181,10 @@ function render(rows) {
                        '✅ הגיליון אושר להדפסה'];
             return `<div class="shQuick">${q.map(t=>`<span class="shQ" data-quick="${escapeHtml(t)}">${escapeHtml(t.length>34?t.slice(0,32)+'…':t)}</span>`).join('')}</div>`;
           })()}<div class="shSend">
-            <textarea id="shChatInput" rows="2" placeholder="הודעה ללקוח…"></textarea>
+            <textarea id="shChatInput" rows="2" placeholder="הודעה ללקוח… (Ctrl+V מדביק צילום)"></textarea>
+            <button id="shChatAttach" title="צירוף תמונה או PDF">📎</button>
             <button id="shChatSend">שלח</button>
+            <input type="file" id="shChatFile" accept="image/png,image/jpeg,application/pdf" style="display:none">
           </div>
           <div style="padding:0 9px 9px;font-size:.72rem;color:#9ca3af">‏Enter שולח · Shift+Enter שורה חדשה</div>`:''}
         </aside>
@@ -2739,6 +2749,7 @@ function _shChatRender(){
     return '<div class="shDay">' + escapeHtml(g.label) + '</div>' + g.items.map(function(m){
       var mine = (m.side === PortalChat.SHOP);
       return '<div class="shMsg ' + (mine ? 'mine' : 'theirs') + '">' + escapeHtml(m.text)
+        + (window.ChatFiles ? ChatFiles.fileHtml(m, escapeHtml) : '')
         + '<div class="shMeta">' + (mine ? ('אנחנו' + (m.by ? (' · ' + escapeHtml(m.by)) : '')) : escapeHtml(_shChat.name || 'הלקוח'))
         + ' · ' + PortalChat.timeLabel(m.at) + '</div></div>';
     }).join('');
@@ -2764,7 +2775,8 @@ function _shChatHistHtml(){
           + sess.items.map(function(m){
               var mine = (m.side === PortalChat.SHOP);
               return '<div class="shMsg ' + (mine ? 'mine' : 'theirs') + '" style="max-width:100%">'
-                + escapeHtml(m.text) + '<div class="shMeta">' + (mine ? 'אנחנו' : escapeHtml(_shChat.name || 'הלקוח'))
+                + escapeHtml(m.text) + (window.ChatFiles ? ChatFiles.fileHtml(m, escapeHtml) : '')
+                + '<div class="shMeta">' + (mine ? 'אנחנו' : escapeHtml(_shChat.name || 'הלקוח'))
                 + ' · ' + PortalChat.timeLabel(m.at) + '</div></div>';
             }).join('')
           + '</div>';
@@ -2782,11 +2794,32 @@ async function _shChatMarkSeen(){
       { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(at) });
   } catch(e){ console.warn('סימון-צפייה בשיחה נכשל (לא חיוני)', e); }
 }
-async function _shChatSend(){
+/* קובץ/צילום בשיחה (בקשת-בעלים 21/08/2026) — 📎 או הדבקה על התיבה */
+async function _shChatSendFile(file){
+  if (!window.ChatFiles || !_shChat.slug) return;
+  var acc = ChatFiles.accepts(file);
+  if (!acc.ok){ alert('⚠️ ' + acc.why); return; }
+  if (_shChat.sending) return;
+  _shChat.sending = true;
+  var btn = document.getElementById('shChatSend'), was = btn ? btn.textContent : '';
+  if (btn){ btn.disabled = true; btn.textContent = 'מעלה…'; }
+  try {
+    var up = await ChatFiles.upload(_shChat.slug, file, function(){ return _fbAuthToken(); },
+      function(l, t2){ if (btn) btn.textContent = 'מעלה… ' + Math.round(l / t2 * 100) + '%'; });
+    await _shChatSend(up);
+  } catch(e){
+    console.error('העלאת קובץ-הצ׳אט נכשלה', e);
+    alert('⚠️ הקובץ לא נשלח: ' + ((e && e.message) || 'שגיאה'));
+  } finally {
+    _shChat.sending = false;
+    if (btn){ btn.disabled = false; btn.textContent = was || 'שלח'; }
+  }
+}
+async function _shChatSend(fileFields){
   var ta = document.getElementById('shChatInput'); if (!ta || !_shChat.slug) return;
   var v = PortalChat.validate(ta.value);
-  if (!v.ok){ alert('⚠️ ' + v.message); return; }
-  if (_shChat.sending) return;
+  if (!v.ok && !fileFields){ alert('⚠️ ' + v.message); return; }
+  if (_shChat.sending && !fileFields) return;
   _shChat.sending = true;
   var btn = document.getElementById('shChatSend'), was = btn ? btn.textContent : '';
   if (btn){ btn.disabled = true; btn.textContent = 'שולח…'; }
@@ -2794,8 +2827,8 @@ async function _shChatSend(){
   try {
     var r = await fetch(await _au(_shChatNode(_shChat.slug) + '/' + PortalChat.msgId(at) + '.json'),
       { method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(PortalChat.build({ side: PortalChat.SHOP, text: v.text,
-                                                by: 'בית-הדפוס', at: at })) });
+        body: JSON.stringify(PortalChat.build(Object.assign({ side: PortalChat.SHOP, text: v.ok ? v.text : '',
+                                                by: 'בית-הדפוס', at: at }, fileFields || {}))) });
     /* ⚠️ ‏Firebase מחזיר 401/403 כתגובת-HTTP תקינה ולא כחריגה — בלי
        הבדיקה הזו כל שליחה "מצליחה" והטקסט נמחק מהתיבה. */
     if (!r.ok) { var e2 = new Error(PortalChat.errorText(r.status)); e2._st = r.status; throw e2; }
@@ -2851,12 +2884,29 @@ function _shChatOpen(customer){
   _shChat.name = customer || '';
   _shChat.msgs = []; _shChat.seen = 0;
   if (!_shChat.slug) return;
-  var b = document.getElementById('shChatSend'); if (b) b.onclick = _shChatSend;
+  var b = document.getElementById('shChatSend'); if (b) b.onclick = function(){ _shChatSend(); };
   var cb = document.getElementById('shChatClose'); if (cb) cb.onclick = _shChatCloseConv;
   var ta = document.getElementById('shChatInput');
   if (ta) ta.onkeydown = function(e){
     if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); _shChatSend(); }
   };
+  /* 📎 + הדבקת-צילום (21/08) */
+  var ab2 = document.getElementById('shChatAttach'), af2 = document.getElementById('shChatFile');
+  if (ab2 && af2){
+    ab2.onclick = function(){ af2.click(); };
+    af2.onchange = function(){ if (af2.files && af2.files[0]) { _shChatSendFile(af2.files[0]); af2.value = ''; } };
+  }
+  if (ta) ta.addEventListener('paste', function(e){
+    var items = (e.clipboardData && e.clipboardData.items) || [];
+    for (var i2 = 0; i2 < items.length; i2++){
+      if (items[i2].kind === 'file' && /^image\//.test(items[i2].type)){
+        e.preventDefault();
+        var f2 = items[i2].getAsFile();
+        if (f2 && confirm('לשלוח את צילום-המסך שהודבק ללקוח?')) _shChatSendFile(f2);
+        return;
+      }
+    }
+  });
   _shChatLoad(true);
   _shChat.timer = setInterval(_shChatLoad, PortalChat.POLL_MS);
 }
@@ -5137,6 +5187,14 @@ $('chatWinBtn').onclick = () => {
     'width=980,height=720,menubar=no,toolbar=no,location=no,status=no');
   if (w) w.focus(); else alert('הדפדפן חסם את החלון — אשרו חלונות-קופצים לאתר');
 };
+/* הקפצות-רקע (21/08): דפדפן-צוות שכבר אישר התראות נרשם ל-Web Push בשקט —
+   הודעת-לקוח קופצת גם כשכל המסכים סגורים; הלחיצה פותחת את מרכז-השיחות. */
+try {
+  if (window.SolanPush && SolanPush.supported() && 'Notification' in window
+      && Notification.permission === 'granted')
+    SolanPush.enable(() => _fbAuthToken(), location.href.replace(/[^/]*(\?.*)?$/, '') + 'shop-chat.html')
+      .then(r => { if (!r.ok) console.warn('הרשמת-רקע להקפצות לא הושלמה:', r.why); });
+} catch(e){ console.error('הרשמת-ההקפצות נכשלה', e); }
 /* ⚠️ ‏.catch מפורש: בלעדיו כשל-טעינה הוא unhandled rejection — ה-then לא
    רץ, ואין שום עקבה ב-console מלבד אזהרה גנרית. ההודעה למשתמש כבר הוצגה
    בתוך loadProofs; כאן רק מונעים שקט. */

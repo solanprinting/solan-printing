@@ -12,13 +12,17 @@
      ⚠️ אפס לוגיקת-שיחה חדשה: הכול PortalChat/ChatAlert — אותם מודולים
      של proof-admin והפורטל. מסך חדש עם לוגיקה משלו היה נפרד מהם בשקט.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="portal-chat.js?v=__APP_VERSION__"></script>
-<script src="chat-alert.js?v=__APP_VERSION__"></script>
+<script src="portal-chat.js?v=1787327216"></script>
+<script src="chat-alert.js?v=1787327216"></script>
+<!-- הקפצות-רקע גם כשהחלון סגור (21/08) — הרשמת Web Push -->
+<script src="push-client.js?v=1787327216"></script>
+<!-- צילומי-מסך וקבצים בשיחה — מודול משותף -->
+<script src="chat-files.js?v=1787327216"></script>
 <!-- ⚠️ שומר-הכניסה לפני הסקריפט שמבקש אסימון — כמו בכל מסכי-הצוות. -->
-<script src="firebase-auth.bundle.js?v=__APP_VERSION__"></script>
-<script src="auth-client.js?v=__APP_VERSION__"></script>
+<script src="firebase-auth.bundle.js?v=1787327216"></script>
+<script src="auth-client.js?v=1787327216"></script>
 <!-- ⚠️ enforce: מסך-צוות שקורא נתונים פנימיים; אין נפילה אנונימית. -->
-<script src="auth-guard.js?v=__APP_VERSION__" data-page="shop-chat.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787327216" data-page="shop-chat.html" data-mode="enforce"></script>
 <style>
   :root { --press:#2d3561; --gold:#c9a84c; --line:#e5e7eb; --bg:#faf8f2; }
   * { box-sizing:border-box; }
@@ -63,6 +67,10 @@
   details.hist { margin:6px 14px; }
   details.hist summary { cursor:pointer; font-size:.76rem; font-weight:800; color:#6b7280; }
   .sess { border:1px solid var(--line); border-radius:9px; padding:8px; background:#fafafa; margin-top:7px; }
+  .chatImg { max-width:220px; max-height:220px; border-radius:9px; border:1px solid var(--line);
+             display:block; margin-top:5px; cursor:zoom-in; }
+  .chatFileA { display:inline-block; margin-top:5px; font-weight:800; font-size:.8rem;
+               color:var(--press); text-decoration:none; background:#eef2ff; border-radius:8px; padding:4px 9px; }
 </style>
 </head>
 <body>
@@ -82,8 +90,10 @@
     <div id="tMsgs"><div class="empty">אין שיחה פתוחה</div></div>
     <div id="hist"></div>
     <div id="composer" style="display:none">
-      <textarea id="inp" placeholder="כתבו הודעה ללקוח… (Enter לשליחה)"></textarea>
+      <textarea id="inp" placeholder="כתבו הודעה ללקוח… (Enter לשליחה · Ctrl+V מדביק צילום)"></textarea>
+      <button id="attach" class="hBtn" style="border-color:var(--line);color:var(--press)" title="צירוף תמונה או PDF">📎</button>
       <button id="send">שלח</button>
+      <input type="file" id="attFile" accept="image/png,image/jpeg,application/pdf" style="display:none">
     </div>
   </div>
   <div id="list"><div class="empty">טוען שיחות…</div></div>
@@ -179,7 +189,7 @@ function paintThread(scroll){
     box.innerHTML = PortalChat.groupByDay(msgs, Date.now()).map(g =>
       `<div class="day">${esc(g.label)}</div>` + g.items.map(m => {
         const mine = m.side === PortalChat.SHOP;
-        return `<div class="msg ${mine ? 'mine' : 'theirs'}">${esc(m.text)}
+        return `<div class="msg ${mine ? 'mine' : 'theirs'}">${esc(m.text)}${window.ChatFiles ? ChatFiles.fileHtml(m, esc) : ''}
           <div class="meta">${mine ? (m.by || 'אנחנו') : esc(nameOf(_sel))} · ${esc(PortalChat.timeLabel(m.at))}</div></div>`;
       }).join('')).join('');
   }
@@ -188,7 +198,7 @@ function paintThread(scroll){
   document.getElementById('hist').innerHTML = ses.length
     ? `<details class="hist"><summary>🗂️ היסטוריית שיחות (${ses.length})</summary>` + ses.map(s2 =>
         `<div class="sess"><div style="font-size:.7rem;color:#9ca3af;font-weight:800">✓ נסגרה ${esc(new Date(s2.at).toLocaleDateString('he-IL'))}</div>`
-        + s2.items.map(m => `<div class="msg ${m.side === PortalChat.SHOP ? 'mine' : 'theirs'}" style="max-width:100%">${esc(m.text)}<div class="meta">${esc(PortalChat.timeLabel(m.at))}</div></div>`).join('')
+        + s2.items.map(m => `<div class="msg ${m.side === PortalChat.SHOP ? 'mine' : 'theirs'}" style="max-width:100%">${esc(m.text)}${window.ChatFiles ? ChatFiles.fileHtml(m, esc) : ''}<div class="meta">${esc(PortalChat.timeLabel(m.at))}</div></div>`).join('')
         + '</div>').join('') + '</details>'
     : '';
   if (stick) box.scrollTop = box.scrollHeight;
@@ -210,11 +220,27 @@ async function markSeen(){
   } catch(e){ console.warn('סימון-צפייה נכשל (לא חיוני)', e); }
 }
 
-async function send(){
+/* קובץ/צילום בשיחה (21/08) — 📎 או הדבקה; אותו מסלול-שליחה */
+async function sendFile(file){
+  if (!window.ChatFiles || !_sel) return;
+  const acc = ChatFiles.accepts(file);
+  if (!acc.ok){ alert('⚠️ ' + acc.why); return; }
+  if (_sending) return;
+  _sending = true;
+  const btn = document.getElementById('send');
+  btn.disabled = true; btn.textContent = 'מעלה…';
+  try {
+    const up = await ChatFiles.upload(_sel, file, () => _fbAuthToken(),
+      (l, t2) => { btn.textContent = 'מעלה… ' + Math.round(l / t2 * 100) + '%'; });
+    await send(up);
+  } catch(e){ console.error('העלאת הקובץ נכשלה', e); say('הקובץ לא נשלח: ' + ((e && e.message) || 'שגיאה')); }
+  finally { _sending = false; btn.disabled = false; btn.textContent = 'שלח'; }
+}
+async function send(fileFields){
   const ta = document.getElementById('inp');
   const v = PortalChat.validate(ta.value);
-  if (!v.ok){ alert('⚠️ ' + v.message); return; }
-  if (_sending || !_sel) return;
+  if (!v.ok && !fileFields){ alert('⚠️ ' + v.message); return; }
+  if ((_sending && !fileFields) || !_sel) return;
   _sending = true;
   const btn = document.getElementById('send');
   btn.disabled = true; btn.textContent = 'שולח…';
@@ -222,7 +248,8 @@ async function send(){
   try {
     const r = await fetch(await _au(_FBURL + '/' + PortalChat.chatPath(_sel) + '/' + PortalChat.msgId(at) + '.json'),
       { method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(PortalChat.build({ side: PortalChat.SHOP, text: v.text, by: 'בית-הדפוס', at })) });
+        body: JSON.stringify(PortalChat.build(Object.assign(
+          { side: PortalChat.SHOP, text: v.ok ? v.text : '', by: 'בית-הדפוס', at }, fileFields || {}))) });
     /* ⚠️ Firebase מחזיר 401/403 כתגובה תקינה — בלי הבדיקה כל שליחה "מצליחה" */
     if (!r.ok) throw new Error(PortalChat.errorText(r.status));
     ta.value = '';
@@ -272,20 +299,50 @@ function alertScan(){
     onclick: function(){ try { window.focus(); } catch(e){} if (t.slug) open(t.slug); } });
 }
 
+/* הקפצות-רקע (21/08): הרשמת Web Push — ההודעה קופצת גם כשהחלון סגור.
+   כשל שקט-עם-עקבה; ההקפצות-בזמן-פתוח (ChatAlert) עובדות בכל מקרה. */
+async function pushEnroll(loud){
+  try {
+    if (!window.SolanPush || !SolanPush.supported() || !window._fbAuthToken) return;
+    const base = location.href.replace(/[^/]*(\?.*)?$/, '');
+    const res = await SolanPush.enable(() => _fbAuthToken(), base + 'shop-chat.html');
+    if (!res.ok){ console.warn('הרשמת-רקע לא הושלמה:', res.why); if (loud) say('הקפצות-רקע לא הופעלו: ' + res.why); }
+  } catch(e){ console.error('הרשמת-ההקפצות נכשלה', e); }
+}
+
 /* כפתור-ההרשאה מוצג רק כשעוד לא הוחלט; הבקשה חייבת מחוות-משתמש. */
 function notifSetup(){
   const b = document.getElementById('notifBtn');
   if (!('Notification' in window)) return;
   if (Notification.permission === 'default'){
     b.style.display = '';
-    b.onclick = () => Notification.requestPermission().then(() => { b.style.display = Notification.permission === 'default' ? '' : 'none'; });
+    b.onclick = () => Notification.requestPermission().then(() => {
+      b.style.display = Notification.permission === 'default' ? '' : 'none';
+      if (Notification.permission === 'granted') pushEnroll(true);
+    });
   }
+  /* הרשאה קיימת: חידוש-המנוי נעשה ב-boot, אחרי שהשומר סיפק אסימון */
 }
 
-document.getElementById('send').onclick = send;
+document.getElementById('send').onclick = () => send();
 document.getElementById('closeBtn').onclick = closeSession;
 document.getElementById('inp').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+});
+document.getElementById('attach').onclick = () => document.getElementById('attFile').click();
+document.getElementById('attFile').onchange = function(){
+  if (this.files && this.files[0]) { sendFile(this.files[0]); this.value = ''; }
+};
+document.getElementById('inp').addEventListener('paste', e => {
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  for (let i = 0; i < items.length; i++){
+    if (items[i].kind === 'file' && /^image\//.test(items[i].type)){
+      e.preventDefault();
+      const f = items[i].getAsFile();
+      if (f && confirm('לשלוח את צילום-המסך שהודבק ללקוח "' + nameOf(_sel) + '"?')) sendFile(f);
+      return;
+    }
+  }
 });
 window.addEventListener('focus', () => { if (_sel) markSeen(); });
 
@@ -293,7 +350,10 @@ window.addEventListener('focus', () => { if (_sel) markSeen(); });
    שיחות". auth-guard מפעיל את _fbAuthToken; מחכים לו בפולינג קצר. */
 (function boot(){
   notifSetup();
-  const start = () => { pull(); _timer = setInterval(pull, PortalChat.POLL_MS); };
+  const start = () => {
+    pull(); _timer = setInterval(pull, PortalChat.POLL_MS);
+    if ('Notification' in window && Notification.permission === 'granted') pushEnroll(false);
+  };
   let tries = 0;
   (function waitAuth(){
     if (window._fbAuthToken) { start(); return; }

@@ -64,7 +64,13 @@
   function build(o) {
     o = o || {};
     var side = (o.side === SHOP) ? SHOP : CUSTOMER;
-    return { side: side, text: str(o.text), by: str(o.by), at: num(o.at) };
+    var m = { side: side, text: str(o.text), by: str(o.by), at: num(o.at) };
+    /* ⚠️ קובץ מצורף (21/08/2026) — רשימת-שדות סגורה, ראה chat-files.js */
+    if (str(o.fileUrl)) {
+      m.fileUrl = str(o.fileUrl); m.fileName = str(o.fileName).slice(0, 120);
+      m.fileType = str(o.fileType); m.fileSize = num(o.fileSize);
+    }
+    return m;
   }
 
   /* ── סגירת שיחה ─────────────────────────────────────────────────────────
@@ -147,9 +153,16 @@
     Object.keys(o).forEach(function (k) {
       if (k.charAt(0) === '_') return;                     /* _seen וכל מטא עתידי */
       var m = o[k];
-      if (!m || typeof m !== 'object' || !str(m.text)) return;
-      out.push({ _id: k, side: (m.side === SHOP) ? SHOP : CUSTOMER,
-                 text: str(m.text), by: str(m.by), at: num(m.at) });
+      /* ⚠️ 21/08/2026: הודעה יכולה להיות קובץ-בלבד — טקסט ריק אינו פוסל
+         כשיש fileUrl. הודעה בלי שניהם עדיין נזרקת (רשומה שבורה). */
+      if (!m || typeof m !== 'object' || (!str(m.text) && !str(m.fileUrl))) return;
+      var row = { _id: k, side: (m.side === SHOP) ? SHOP : CUSTOMER,
+                  text: str(m.text), by: str(m.by), at: num(m.at) };
+      if (str(m.fileUrl)) {
+        row.fileUrl = str(m.fileUrl); row.fileName = str(m.fileName);
+        row.fileType = str(m.fileType); row.fileSize = num(m.fileSize);
+      }
+      out.push(row);
     });
     out.sort(function (a, b) { return a.at - b.at || (a._id < b._id ? -1 : 1); });
     return out.length > KEEP ? out.slice(out.length - KEEP) : out;
@@ -176,6 +189,7 @@
     if (!m) return '';
     var lim = num(maxLen) || 42;
     var t = str(m.text).replace(/\s+/g, ' ');
+    if (!t && str(m.fileUrl)) t = '📎 ' + (str(m.fileName) || 'קובץ');   /* קובץ-בלבד (21/08) */
     if (t.length > lim) t = t.slice(0, lim - 1) + '…';
     return (m.side === SHOP ? 'אנחנו: ' : '') + t;
   }
