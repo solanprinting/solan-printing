@@ -73,6 +73,13 @@
   function suggestions(totalPages, fullSheet){
     var total = parseInt(totalPages, 10) || 0, fs = parseInt(fullSheet, 10) || 0;
     if (total <= 0 || total % SIG !== 0) return [];
+    /* ⚠️ 21/08/2026 — **הלשונית מתה בהקלדה בשדה "עמודים".** הפונקציה רצה
+       מ-‎oninput‎ (‎krtis-avoda.html #f-pages → calcRuns → _manualSplitHtml‎),
+       והלולאות החמדניות לינאריות ב-‎total‎: הדבקת מספר ארוך נתנה 31 מיליון
+       ‎push‎ ו-OOM — נמדד גם בערימת ברירת-המחדל של הדפדפן (71 שנ׳ ואז
+       קריסה), לא רק תחת דגל-זיכרון מוקטן. אין עיתון בן 4,096 עמודים;
+       מעבר לזה זו טעות-הקלדה, ותשובה ריקה עדיפה על לשונית מתה. */
+    if (total > 4096) return [];
     var out = [], seen = {};
     var add = function (parts){
       if (!parts.length) return;
