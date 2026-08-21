@@ -423,5 +423,7 @@
            hasRealFiles: hasRealFiles, realFileCount: realFileCount, uploadKind: uploadKind,
            bizStatus: bizStatus, inboxBoard: inboxBoard,
            uploadingNow: uploadingNow, dismissedFromInbox: dismissedFromInbox,
+           /* מיוצא לבדיקות (21/08/2026) — מזין את dismissedFromInbox */
+           latestActivity: latestActivity,
            KIND_LABELS: KIND_LABELS, BIZ_LABELS: BIZ_LABELS };
 });

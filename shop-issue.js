@@ -115,7 +115,9 @@
      שייך לתיקיית-העבר — לא ללשוניות. גיליון ישן שעדיין **לא** הודפס נשאר
      בלשוניות: הוא עבודה פתוחה, לא ארכיון. */
   function splitPast(list) {
-    var rows = sortIssues(list);
+    /* ⚠️ הרצת-תרחישים 21/08/2026: ‏null בתוך המערך (קורה כשרשומה נמחקה
+       תוך-כדי רינדור) הפיל את כל מסך-הדפוס ב-TypeError. מסננים. */
+    var rows = sortIssues((list || []).filter(Boolean));
     var current = [], past = [];
     rows.forEach(function (p, i) {
       var printed = printApproved(p) || num(p.completedAt) > 0;
@@ -578,8 +580,13 @@
     var s = str(name).replace(/\.[a-z0-9]{1,5}$/i, '');
     if (!s) return null;
     if (/שער|עטיפה|cover/i.test(s)) return { nos: [1], spread: false, sure: true };
-    /* כפולה: שני מספרים עוקבים עם מפריד בלבד ביניהם */
-    var sp = s.match(/(\d{1,3})\s*[-–—_,\/ ]\s*(\d{1,3})(?!\d)/);
+    /* כפולה: שני מספרים עוקבים עם מפריד בלבד ביניהם.
+       ⚠️ הרצת-תרחישים 21/08/2026: **תאריך אינו כפולה.** "8-9-2026" ו-
+       "1-2-2026" פוענחו בביטחון ככפולה 8+9 / 1+2 — קובץ שנקרא על שם
+       התאריך היה משתבץ לשני עמודים שרירותיים. שלישייה מופרדת (a-b-c)
+       אינה כפולה ודאית: נשארת לשאלה במקום להיקבע. */
+    var trio = /(\d{1,4})\s*[-–—_.\/]\s*(\d{1,4})\s*[-–—_.\/]\s*(\d{1,4})(?!\d)/.test(s);
+    var sp = trio ? null : s.match(/(\d{1,3})\s*[-–—_,\/ ]\s*(\d{1,3})(?!\d)/);
     if (sp) {
       var a = parseInt(sp[1], 10), b = parseInt(sp[2], 10);
       if (b === a + 1 && a >= 1 && b <= 400) return { nos: [a, b], spread: true, sure: true };

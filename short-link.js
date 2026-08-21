@@ -86,7 +86,13 @@
     if (/^javascript:/i.test(u) || /^data:/i.test(u)) return '';
     if (/^https?:\/\//i.test(u)) {
       if (!origin) return '';
-      return (u.indexOf(String(origin)) === 0) ? u : '';
+      /* ⚠️ הרצת-תרחישים 21/08/2026 — **פישינג**: ‏indexOf(origin)===0 לבדו
+         מתיר ‎https://solanprinting.github.io.evil.com/x‎, כי המקור הוא
+         תחילית של המארח הזדוני. חייב גבול אחרי המקור (‎/‎ ‎?‎ ‎#‎ או סוף). */
+      var o = String(origin).replace(/\/+$/, '');
+      if (u.indexOf(o) !== 0) return '';
+      var rest = u.slice(o.length);
+      return (rest === '' || /^[\/?#]/.test(rest)) ? u : '';
     }
     if (u.charAt(0) === '/' || u.indexOf('..') >= 0) return '';   // לא יוצאים מהתיקייה
     return u;

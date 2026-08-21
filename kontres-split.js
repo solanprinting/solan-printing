@@ -29,11 +29,22 @@
      ⚠️ הועתק ללא-שינוי מ-proof-admin (splitToKontresim). המקרה המיוחד
      32/20|24 → [שארית,16] הוא החלטת-ייצור קיימת; אין "לשפר" אותה כאן. */
   function splitToKontresim(totalPages, fullSheet) {
+    /* ⚠️ הרצת-תרחישים 21/08/2026 — **לולאה אינסופית**: ‏fullSheet שלילי או
+       אפס גרם ל-‎while (inner > 0) { inner -= fullSheet }‎ לרוץ לנצח והקפיא
+       את הלשונית. וגיליון לא-שלם (35/32, 16/1) ייצר מספרי-עמוד שבורים
+       (2.5, 3.5) כי ‎half = lp/2‎. שני המקרים נכשלים-סגור: מערך ריק,
+       שהקוראים כבר מטפלים בו ("אין פריסת-ריצות"). */
+    var _t = Number(totalPages), _s = Number(fullSheet);
+    if (!isFinite(_t) || !isFinite(_s) || _t <= 0 || _s <= 0
+        || _t !== Math.floor(_t) || _s !== Math.floor(_s) || _s % 2 !== 0) return [];
+    totalPages = _t; fullSheet = _s;
     var layers = [];
     if (fullSheet === 32 && (totalPages === 20 || totalPages === 24)) layers.push(totalPages - 16, 16);
     else {
       var rem = totalPages % fullSheet;
-      if (rem !== 0) layers.push(rem);
+      /* שארית אי-זוגית → חצי-קונטרס שבור. מעגלים כלפי-מעלה לזוגי:
+         עדיף עמוד-ריק אחד מאשר מספרי-עמוד עשרוניים. */
+      if (rem !== 0) layers.push(rem % 2 ? rem + 1 : rem);
       var inner = totalPages - rem;
       while (inner > 0) { layers.push(fullSheet); inner -= fullSheet; }
     }
