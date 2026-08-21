@@ -27,9 +27,9 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787333350"></script>
+<script src="pdfjs-engine.js?v=1787335076"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787333350"></script>
+<script src="issue-grid.js?v=1787335076"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -39,28 +39,28 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787333350"></script>
-<script src="chat-alert.js?v=1787333350"></script>
+<script src="portal-chat.js?v=1787335076"></script>
+<script src="chat-alert.js?v=1787335076"></script>
 <!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787333350"></script>
+<script src="push-client.js?v=1787335076"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
-<script src="chat-files.js?v=1787333350"></script>
-<script src="shop-issue.js?v=1787333350"></script>
-<script src="page-marks.js?v=1787333350"></script>
+<script src="chat-files.js?v=1787335076"></script>
+<script src="shop-issue.js?v=1787335076"></script>
+<script src="page-marks.js?v=1787335076"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787333350"></script>
-<script src="kontres-split.js?v=1787333350"></script>
+<script src="page-box.js?v=1787335076"></script>
+<script src="kontres-split.js?v=1787335076"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787333350"></script>
-<script src="auth-client.js?v=1787333350"></script>
+<script src="firebase-auth.bundle.js?v=1787335076"></script>
+<script src="auth-client.js?v=1787335076"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787333350" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787335076" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2120,9 +2120,21 @@ function render(rows) {
        (ריצה מחדש בכל הקלדה גונבת פוקוס). */
     const list = _inDay(day);
     const _vis = (c, urgent) => urgent || list.indexOf(c) >= 0;
+    /* ⚠️ ביקורת-UX 21/08/2026: "מעלה קבצים כעת" הוא אות **חולף** שנסגר
+       מעצמו — הפרדתו מ"דורשים טיפול" מונעת ניפוח של הרשימה באותות
+       שאינם דורשים פעולה. עובר לפס-משלו רק אם ההעלאה היא הסיבה היחידה. */
+    const _isUploadOnly = (r) => {
+      const e = r.extra || {}, s = r.sum || {};
+      return e.uploadingNow && !e.customerDone && !e.swapPending
+        && !(s.newFiles > 0) && !e.unreadChat && !(s.pendingPages && s.pendingPages.length);
+    };
+    const _uploading = _tri.urgent.filter(_isUploadOnly);
+    const _needAttn  = _tri.urgent.filter(r => !_isUploadOnly(r));
     const listHtml =
-        (_tri.urgent.length ? `<div class="pvSec">⚡ דורשים טיפול (${_tri.urgent.length})</div>` : '')
-      + _tri.urgent.map(r => _card(r, true, false)).join('')
+        (_uploading.length ? `<div class="pvSec" style="color:#0369a1">🔼 מעלים כעת (${_uploading.length})</div>` : '')
+      + _uploading.map(r => _card(r, true, false)).join('')
+      + (_needAttn.length ? `<div class="pvSec">⚡ דורשים טיפול (${_needAttn.length})</div>` : '')
+      + _needAttn.map(r => _card(r, true, false)).join('')
       + `<div class="pvSec">✓ מטופלים / ממתינים</div>`
       + _tri.quiet.map(r => _card(r, false, !_vis(r.name, false))).join('')
       + (list.length || _tri.urgent.length ? '' : '<div class="pvEmpty" style="padding:18px;color:#9ca3af;font-size:.86rem">אין לקוחות ליום זה</div>');

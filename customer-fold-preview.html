@@ -17,7 +17,7 @@
 <!-- ⚠️ 20/08/2026, דיווח-לקוח (מבט חצור עמ' 15): המסך רינדר ב-pdf.js
      הישן, שמצייר מסכות-שקיפות דהויות — רקע-העמוד נעלם ללקוח בעוד
      שבקובץ הוא תקין. מודול-המנוע מביא 5.4.149 (vendor/ כמראה אחרונה). -->
-<script src="pdfjs-engine.js?v=1787333350"></script>
+<script src="pdfjs-engine.js?v=1787335076"></script>
 <script src="imposition-decoder.js"></script>
 <script src="imposition-decoder-exec.js"></script>
 <script src="imposition-tpl-parser.js"></script>
@@ -30,9 +30,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787333350"></script>
-<script src="auth-client.js?v=1787333350"></script>
-<script src="auth-guard.js?v=1787333350" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1787335076"></script>
+<script src="auth-client.js?v=1787335076"></script>
+<script src="auth-guard.js?v=1787335076" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -729,6 +729,10 @@ async function mountFlipbook(host, bytes){
     curPages=urls; const view=await _composeView(urls); if(my!==navSeq) return;
     sp.innerHTML='<img src="'+view+'">';
     $('_pi').textContent=_pageLabel(g, n); $('_prev').disabled=gi<=0; $('_next').disabled=gi>=groups.length-1;
+    /* ⚠️ ביקורת-UX 21/08/2026: מעקב-כיסוי **רך** — הכי-רחוק שהלקוח דפדף.
+       משמש רק לחיווי ("צפיתם ב-X מתוך N"); אינו חוסם אישור. */
+    try{ window._cCovSeen=Math.max(window._cCovSeen||0, gi+1); window._cCovTotal=groups.length;
+      if(typeof _cUpdateCoverage==='function') _cUpdateCoverage(); }catch(e){}
   }
   $('_prev').onclick=()=>{ if(gi>0){gi--;draw();} if(window._zoomReset)window._zoomReset(); }; $('_next').onclick=()=>{ if(gi<groups.length-1){gi++;draw();} if(window._zoomReset)window._zoomReset(); };
   $('_full').onclick=()=>{ _toggleFullscreen($('_fbwrap')); };
@@ -1644,13 +1648,24 @@ async function _cLoadBook(versionId, expectedHash, hasStoragePath){
   // ⚠️ תיקון-חירום (06/08/2026): מזהה-תקלה בטוח לתצוגה-למשתמש — לא חושף
   // נתיב/token/hash מלא, רק versionId (כבר ידוע ללקוח מהכתובת) + חותמת-זמן.
   const _incidentId=(versionId||'?').slice(-8)+'-'+Date.now().toString(36);
-  function _loadFailMsg(extra){ return '<div class="bad" style="white-space:pre-line;margin-top:8px">טעינת החוברת נכשלה. נסו לרענן את הדף.'
-    +(extra?(' '+extra):'')+'\nמזהה-תקלה: '+_incidentId+'</div>'; }
+  /* ⚠️ ביקורת-UX 21/08/2026: על חיבור תנודתי כשל-חד-פעמי לא מצריך רענון
+     ידני — כפתור "נסה שוב" קורא שוב ל-_cLoadBook עם אותם ארגומנטים.
+     ‏window._cRetryBook נקבע בכל טעינה, כדי שהכפתור תמיד יטען את הנוכחי. */
+  window._cRetryBook=function(){
+    var m=$('cMeta'); if(m){ var b=m.querySelector('.cRetryBtn'); if(b) b.disabled=true; }
+    _cLoadBook(versionId, expectedHash, hasStoragePath);
+  };
+  function _loadFailMsg(extra){ return '<div class="bad" style="white-space:pre-line;margin-top:8px">טעינת החוברת נכשלה.'
+    +(extra?(' '+extra):'')
+    +'<div style="margin-top:9px"><button class="cRetryBtn" onclick="_cRetryBook()" style="background:#1a1a4e;color:#fff;border:0;border-radius:8px;padding:8px 18px;font-family:inherit;font-weight:800;cursor:pointer">🔄 נסה שוב</button></div>'
+    +'<div style="font-size:.78rem;opacity:.7;margin-top:6px">אם זה חוזר — רעננו את הדף. מזהה-תקלה: '+_incidentId+'</div></div>'; }
   /* ⚠️ תיקון-UX (06/08/2026): כרטיס-הדפדוף מוצג **מיד** אחרי פרטי-הרשומה,
      עם חיווי-שלבים, במקום אזור-ריק שנראה תקוע. אין כאן שינוי בהורדה,
      באבטחה, ב-hash או באישור — רק מה שהמשתמש רואה בזמן ההמתנה.
      החיווי נעלם **רק** כשהעמוד הראשון כבר מוצג (אחרי mountFlipbook). */
   $('cBook').style.display='';
+  /* ניקוי הודעת-כשל קודמת (נסה-שוב) — אחרת היא נשארת מתחת לחדשה */
+  (function(){ var m=$('cMeta'); if(m) m.querySelectorAll('.bad').forEach(function(x){ x.remove(); }); })();
   function _stage(html){ const el=$('cLoad'); if(el) el.innerHTML=html; }
   $('cFlip').innerHTML='<div id="cLoad" style="text-align:center;color:#94a3b8;padding:26px"></div>';
   const _bigMsg='<div style="font-size:.82rem;opacity:.8;margin-top:6px">הקובץ גדול והטעינה עשויה להימשך עד שתי דקות. אין לסגור את החלון.</div>';
@@ -1839,11 +1854,28 @@ function renderApprove(rec, hashOk){
   if(st==='correction-requested'){ box.innerHTML=_cCorrectionBox(rec); return; }
   box.innerHTML='<h3>אישור</h3>'
    + '<div style="font-size:.9rem;margin-bottom:8px">אני מאשר שסדר העמודים, התוכן והגרסה המוצגת בקישור זה מאושרים להדפסה.</div>'
-   + '<input type="text" id="cName" placeholder="שמך" style="width:170px"> <textarea id="cComment" placeholder="הערה (לבקשת תיקון)" style="width:100%;max-width:420px;height:54px;margin-top:6px;display:block"></textarea>'
+   + '<input type="text" id="cName" placeholder="שמך (חובה)" required style="width:170px"> <textarea id="cComment" placeholder="הערה (לבקשת תיקון)" style="width:100%;max-width:420px;height:54px;margin-top:6px;display:block"></textarea>'
+   + '<div id="cCoverageHint" class="muted" style="margin-top:6px;font-size:.82rem"></div>'
    + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button id="cApproveBtn" class="primary"'+(hashOk?'':' disabled title="החוברת אינה תואמת לגרסה"')+'>✓ מאשר להדפסה</button>'
    + '<button id="cCorrectBtn">✎ מבקש תיקון</button></div><div id="cResult" class="muted" style="margin-top:8px"></div>';
+  /* חיווי-כיסוי רך: כמה עמודים/כפולות הלקוח כבר דפדף. עדכון חי מ-draw(). */
+  window._cUpdateCoverage=function(){
+    var el=$('cCoverageHint'); if(!el) return;
+    var seen=window._cCovSeen||0, tot=window._cCovTotal||0;
+    if(!tot){ el.textContent=''; return; }
+    if(seen>=tot){ el.innerHTML='<span class="ok">✓ צפיתם בכל '+tot+' התצוגות</span>'; }
+    else{ el.innerHTML='👁 צפיתם ב-'+seen+' מתוך '+tot+' תצוגות — כדאי לדפדף עד הסוף לפני האישור.'; }
+  };
+  _cUpdateCoverage();
   async function submit(action){
     const nm=$('cName').value||null, cm=$('cComment').value||null;
+    /* ⚠️ ביקורת-UX 21/08/2026: שם-מאשר חובה — בלעדיו approvedBy=null ואין
+       תיעוד מי אישר את הגיליון להדפסה (אחריות משפטית/תפעולית). */
+    if(!(nm && nm.trim())){
+      $('cResult').innerHTML='<span class="bad">רשמו את שמכם לפני '+(action==='approve'?'האישור':'בקשת-התיקון')+'.</span>';
+      var _cn=$('cName'); if(_cn){ _cn.focus(); }
+      return;
+    }
     /* ⚠️ ביקורת-UX 21/08/2026: בקשת-תיקון בלי הערה משאירה את הדפוס בלי
        לדעת מה לתקן — עוצרים וממקדים את התיבה במקום לשלוח ריק. */
     if(action==='request-correction' && !(cm && cm.trim())){
@@ -1852,8 +1884,13 @@ function renderApprove(rec, hashOk){
       return;
     }
     /* ⚠️ ביקורת-UX 21/08/2026: אישור-להדפסה הוא בלתי-הפיך — חלון-אישור
-       סופי, כמו במסלול-ההעלאה של פרופר-הלקוח. */
-    if(action==='approve' && !confirm('אישור סופי להדפסה של "'+(rec.jobName||'החוברת')+'".\n\nלאחר האישור הגיליון יעבור להדפסה ולא ניתן לבטל. לאשר?')) return;
+       סופי, כמו במסלול-ההעלאה של פרופר-הלקוח. אם הלקוח לא דפדף עד הסוף —
+       תזכורת בתוך אותו חלון (הודעה בלבד, **אינה חוסמת** — בקשת-בעלים). */
+    if(action==='approve'){
+      var _seen=window._cCovSeen||0, _tot=window._cCovTotal||0;
+      var _cov=(_tot && _seen<_tot) ? ('\n\n👁 שימו לב: צפיתם ב-'+_seen+' מתוך '+_tot+' תצוגות בלבד.') : '';
+      if(!confirm('אישור סופי להדפסה של "'+(rec.jobName||'החוברת')+'".'+_cov+'\n\nלאחר האישור הגיליון יעבור להדפסה ולא ניתן לבטל. לאשר?')) return;
+    }
     // ⚠️ הגנה מפני קריאה-כפולה (לחיצה כפולה/מהירה בטרם ה-await הראשון מסתיים) —
     //    בלי זה submit() יכול לרוץ פעמיים במקביל על אותה גרסה. המסך-הסופי
     //    (renderApprove: st==='approved'/'correction-requested') חוסם קריאה
