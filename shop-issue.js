@@ -61,10 +61,21 @@
     if (num(r.completedAt)) return { key: 'done', label: '🏁 הושלם', cls: 'b-done' };
     if (num(r.printApprovedAt)) return { key: 'print', label: '✅ אושר להדפסה', cls: 'b-approved' };
     if (num(r.closedAt)) return { key: 'closed', label: '🔒 סגור להעלאה', cls: 'b-wait' };
-    if (num(r.apogeeApprovedAt) || r.foldApprovalStatus === 'approved')
+    /* ⚠️ 21/08/2026 (ביקורת אחרי דיווח-בעלים): ‏customerApprovedAt הוא
+       האישור של מסלול-הפורטל החדש — בלעדיו עיתון שהלקוח אישר הוצג לדפוס
+       כ"📥 התקבל" בלבד, והדפוס לא ידע שהוא מוכן להורדה. */
+    if (num(r.apogeeApprovedAt) || r.foldApprovalStatus === 'approved' || num(r.customerApprovedAt))
       return { key: 'customer-ok', label: '✓ הלקוח אישר', cls: 'b-approved' };
-    if (r.status === 'approved' || r.status === 'parts' || num(r.approvedAt) || r.parts)
+    /* ⚠️ 21/08/2026 (צילום-צוות "הכל ריק"): רשומת-פורטל בסטטוס awaiting-shop
+       עם קבצים הוצגה "⏳ ממתין לקבצים" — והצוות המשיך הלאה. מה שהגיע =
+       התקבל; "ממתין" נשאר רק כשבאמת אין כלום. */
+    if (r.status === 'approved' || r.status === 'parts' || num(r.approvedAt) || r.parts
+        || hasArrived(r))
       return { key: 'received', label: '📥 התקבל', cls: 'b-new' };
+    /* ⚠️ R2 בביקורת: הלקוח לחץ "שלח" (awaiting-shop) ואפס קבצים הגיעו —
+       זה מצב-כשל שדורש טיפול, לא "ממתין" רגיל שנבלע ברשימה. */
+    if (r.status === 'awaiting-shop')
+      return { key: 'sent-empty', label: '⚠️ הלקוח שלח — לא הגיעו קבצים', cls: 'b-wait' };
     return { key: 'waiting', label: '⏳ ממתין לקבצים', cls: 'b-wait' };
   }
 
@@ -167,7 +178,10 @@
      אחרת עבודות שכבר בייצור היו ננעלות בבת-אחת. */
   function isDraft(p) {
     var r = p || {};
-    if (r.customerApprovedAt || r.approvedAt || r.apogeeUrl) return false;
+    /* ⚠️ 21/08/2026 (ביקורת): ‏status==='approved' הוא אישור-לקוח לכל דבר
+       (statusOf כבר מקבל אותו) — בלעדיו רשומה מאושרת בלי customerApprovedAt
+       נשארה "טיוטה" נעולה-להורדה לנצח. שני המיפויים — מקור-החלטה אחד. */
+    if (r.customerApprovedAt || r.approvedAt || r.apogeeUrl || str(r.status) === 'approved') return false;
     if (r.parts && Object.keys(r.parts).length) return false;
     return str(r.source) === 'portal' && !!(r.files && Object.keys(r.files).length);
   }
@@ -858,7 +872,17 @@
                partId: hit ? hit.t.partId : '',
                name: hit ? (hit.t.runName || ('ריצה ' + L.num)) : ('ריצה ' + L.num),
                tileIndex: hit ? hit.i : -1,
-               pagesMismatch: hit ? hit.t.runPagesMismatch : null,
+               /* ⚠️ דיווח-מהשטח 21/08/2026 ("הריצה הקצרה אצלנו ריצה 1,
+                  אצלכם ריצה 5"): כשאורך-הריצה שהגיעה מתאים לקונטרס **אחד
+                  אחר** בדיוק — אומרים למי היא כנראה שייכת, במקום להשאיר
+                  לצוות לנחש. שני מועמדים ומעלה = אין ניחוש. */
+               pagesMismatch: (function () {
+                 var mm = hit ? hit.t.runPagesMismatch : null;
+                 if (!mm) return null;
+                 var cands = lay.filter(function (L2) { return L2.pages === mm.got && L2.num !== L.num; });
+                 return (cands.length === 1) ? { got: mm.got, want: mm.want, likely: cands[0].num }
+                                             : mm;
+               })(),
                pages: pages,
                missing: missing };
     });

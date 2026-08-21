@@ -89,7 +89,8 @@
       var mk = t.mark;
       var note = '', noteColor = '';
       if (rn.pagesMismatch) {
-        note = '⚠️ הגיעו ' + rn.pagesMismatch.got + ' עמ׳ · הקונטרס ' + rn.pagesMismatch.want;
+        note = '⚠️ הגיעו ' + rn.pagesMismatch.got + ' עמ׳ · הקונטרס ' + rn.pagesMismatch.want
+             + (rn.pagesMismatch.likely ? ' — כנראה זו ריצה ' + rn.pagesMismatch.likely + ' (⇄ להעברה)' : '');
         noteColor = '#b91c1c';
       } else if (rn.missing.length) {
         note = '⚠️ ' + rn.missing.length + ' עמ׳ חסרים בריצה';
@@ -167,7 +168,10 @@
     }, 0);
     var marked = tiles.filter(function (t) { return t.mark && t.mark.kind === 'replace'; }).length;
     if (!tiles.length) {
-      return { mode: 'empty', html: '<div class="isEmpty">' + esc(ctx.emptyText || 'טרם התקבלו קבצים לגיליון הזה.') + '</div>' };
+      /* ⚠️ 21/08/2026 (ביקורת): ‏headExtra נשמט במצב-ריק — וכפתור "📐 כמה
+         עמודים בגיליון?" נעלם בדיוק כשהגיליון ריק והלקוח הכי צריך אותו. */
+      return { mode: 'empty', html: '<div class="isEmpty">' + esc(ctx.emptyText || 'טרם התקבלו קבצים לגיליון הזה.')
+        + _s(ctx.headExtra) + '</div>' };
     }
     var head = headHtml({
       esc: esc, hint: ctx.hint, extra: ctx.headExtra,

@@ -12,24 +12,24 @@
 <script src="page-spine.js?v=bidi2"></script>
 <!-- סימוני-עמודים (עיצוב-מחדש 13/08/2026): הלוגיקה ב-shop-issue (טהורה),
      הציור והגרירה ב-page-marks — משותפים למסך-הדפוס ולדפדוף הזה. -->
-<script src="shop-issue.js?v=1787234592"></script>
-<script src="cover-split.js?v=1787234592"></script>
-<script src="page-marks.js?v=1787234592"></script>
+<script src="shop-issue.js?v=1787323367"></script>
+<script src="cover-split.js?v=1787323367"></script>
+<script src="page-marks.js?v=1787323367"></script>
 <!-- ⚠️ page-box: הדפדוף צייר MediaBox, ולכן עמוד-עם-גלישה יצא גדול
      משכניו. אותה תיבה-קובעת (TrimBox) של הפורטל ומסך-הדפוס. -->
-<script src="page-box.js?v=1787234592"></script>
+<script src="page-box.js?v=1787323367"></script>
 <!-- ⚠️ זהות-הלקוח. הפורטל נכנס דרך PortalContext (REST + refresh-token
      ב-localStorage), ו-SolanGuard הוא שומר-הצוות. בלי המודול הזה
      הזהות של הלקוח לא הגיעה לצופה כלל וכל לקוח נדחה. -->
-<script src="portal-context.js?v=1787234592"></script>
-<script src="proof-fetch.js?v=1787234592"></script>
+<script src="portal-context.js?v=1787323367"></script>
+<script src="proof-fetch.js?v=1787323367"></script>
 <script src="pdf-transparency.js"></script>
-<script src="pdfjs-engine.js?v=1787234592"></script>
+<script src="pdfjs-engine.js?v=1787323367"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787234592"></script>
-<script src="auth-client.js?v=1787234592"></script>
-<script src="auth-guard.js?v=1787234592" data-page="proof-viewer.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1787323367"></script>
+<script src="auth-client.js?v=1787323367"></script>
+<script src="auth-guard.js?v=1787323367" data-page="proof-viewer.html" data-mode="observe"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -667,15 +667,27 @@ function _pgLabel(i){
 async function _filesMergedBytes(rec){
   var ents = Object.keys(rec.files).map(function(k){ return rec.files[k] || {}; })
     .filter(function(f){ return f.fileUrl; });
-  var pno = function(nm){ return (window.ShopIssue && ShopIssue.pageNoOf) ? ShopIssue.pageNoOf(nm) : null; };
-  ents.sort(function(a,b){ return (pno(a.fileName)||9999) - (pno(b.fileName)||9999); });
+  /* ⚠️ 21/08/2026 (ביקורת): השיבוץ לפי pagesOfName — המפרק שמבין כפולה,
+     פוסל שנה ומספר-גיליון — ולא pageNoOf שתופס את המספר הראשון בשם
+     ("עיתון 2026" היה מייצר אלפי משבצות-חסרות). ‏slot מפורש גובר, כמו
+     ברשת-הגיליון. */
+  var pno = function(f){
+    var nm = f && f.fileName;
+    if (f && Number(f.slot) >= 1) return Number(f.slot);
+    if (window.ShopIssue && ShopIssue.pagesOfName) {
+      var pn = ShopIssue.pagesOfName(nm);
+      return (pn && pn.nos && pn.nos[0] >= 1) ? pn.nos[0] : null;
+    }
+    return (window.ShopIssue && ShopIssue.pageNoOf) ? ShopIssue.pageNoOf(nm) : null;
+  };
+  ents.sort(function(a,b){ return (pno(a)||9999) - (pno(b)||9999); });
   var docs = [];
   for (var i=0;i<ents.length;i++){
     showOverlay('מוריד עמודים… ' + (i+1) + '/' + ents.length, true, Math.round(i/ents.length*90));
     var r = await fetch(ents[i].fileUrl);
     if (!r.ok) throw new Error('הורדת "' + (ents[i].fileName||'קובץ') + '" נכשלה (' + r.status + ')');
     var b = await r.arrayBuffer();
-    docs.push({ slot: pno(ents[i].fileName), doc: await PDFLib.PDFDocument.load(b, { ignoreEncryption: true }) });
+    docs.push({ slot: pno(ents[i]), doc: await PDFLib.PDFDocument.load(b, { ignoreEncryption: true }) });
   }
   showOverlay('מרכיב את הגיליון…', true, 92);
   /* גודל-העמוד למציין: העמוד הראשון שקיים (fallback ‏A4) */

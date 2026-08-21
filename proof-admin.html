@@ -27,9 +27,9 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787234592"></script>
+<script src="pdfjs-engine.js?v=1787323367"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787234592"></script>
+<script src="issue-grid.js?v=1787323367"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -39,24 +39,24 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787234592"></script>
-<script src="chat-alert.js?v=1787234592"></script>
-<script src="shop-issue.js?v=1787234592"></script>
-<script src="page-marks.js?v=1787234592"></script>
+<script src="portal-chat.js?v=1787323367"></script>
+<script src="chat-alert.js?v=1787323367"></script>
+<script src="shop-issue.js?v=1787323367"></script>
+<script src="page-marks.js?v=1787323367"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787234592"></script>
-<script src="kontres-split.js?v=1787234592"></script>
+<script src="page-box.js?v=1787323367"></script>
+<script src="kontres-split.js?v=1787323367"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787234592"></script>
-<script src="auth-client.js?v=1787234592"></script>
+<script src="firebase-auth.bundle.js?v=1787323367"></script>
+<script src="auth-client.js?v=1787323367"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787234592" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787323367" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1222,10 +1222,14 @@ function _rowsSig(rows){
     /* ⚠️ בלי שדות-האישור בחתימה, לחיצה על "אושר להדפסה" במכשיר אחד
        אינה מופיעה במסך השני עד רענון ידני — וזה בדיוק המצב שבו שניים
        מאשרים את אותו גיליון. */
+    /* ⚠️ 21/08/2026 (ביקורת): ‏status/customerApprovedAt/customerDoneAt לא
+       היו בחתימה — אישור-לקוח מהפורטל (awaiting-shop→approved) לא שינה
+       אותה, והמסך דילג על הרינדור לנצח. הדפוס נשאר מול "טיוטה נעולה". */
     return [p.id, p.updatedAt||0, p.approvedAt||0, p.apogeeApprovedAt||0, p.version||1,
             p.printApprovedAt||0, p.correctedAt||0, p.correctionSeenAt||0,
             p.shopSeenAt||0, p.completedAt||0, p.closedAt||0, (p.pendingPages||[]).join('.'),
-            p.readyNotice?1:0, parts, files, crs].join('|');
+            p.readyNotice?1:0, String(p.status||''), p.customerApprovedAt||0,
+            p.customerDoneAt||0, p.declaredPages||0, parts, files, crs].join('|');
   }).sort().join(';'); }catch(e){ return String(Math.random()); }
 }
 /* ── שער-גרסה על הרענון (חיסכון-תעבורה, 19/08/2026) ───────────────────────
@@ -1273,6 +1277,13 @@ async function _autoRefresh(){
   }
 }
 setInterval(_autoRefresh, 15000);
+/* ⚠️ 21/08/2026 (ביקורת): הודעת-צ'אט מלקוח נכתבת ל-portalChat ואינה מרימה
+   את ה-rev של customerProofs — הסריקה שישבה רק אחרי שער-החתימה לא רצה,
+   והתג לא הופיע עד שינוי אחר כלשהו. סריקה עצמאית, מקצב מתון. */
+setInterval(function(){
+  if (document.hidden) return;
+  _shChatUnreadScan().catch(function(e){ console.warn('סריקת-שיחות נכשלה', e); });
+}, 60000);
 document.addEventListener('visibilitychange', function(){ if(!document.hidden) _autoRefresh(); });   // חזרה ללשונית → רענון מיידי
 
 function render(rows) {
@@ -1506,7 +1517,11 @@ function render(rows) {
              ואחר-כך מגיעות שאר הריצות. הנעילה פר-ריצה, הפיכה, וגלויה
              לשני הצדדים. חלה גם על ריצה מכוסה-בקבצים ('covered'). */
           const lk = ShopIssue.runLocked(p, rn.no);
-          return `<button class="pgRemind${lk ? ' rlOn' : ''}" data-runlock="${escapeHtml(p.id)}|${rn.no}"
+          /* ⚠️ 21/08/2026 ("הריצה הקצרה אצלכם ריצה 5 — נטפל אנחנו"): הצוות
+             מתקן סדר-ריצות בעצמו — אותה החלפת-מספר של הפורטל, מכאן. */
+          const mv = rn.partId
+            ? `<button class="pgRemind" data-runmove="${escapeHtml(p.id)}|${escapeHtml(rn.partId)}" title="העברת הריצה למקומה הנכון (החלפת מספר-ריצה)">⇄ העבר ריצה</button>` : '';
+          return mv + `<button class="pgRemind${lk ? ' rlOn' : ''}" data-runlock="${escapeHtml(p.id)}|${rn.no}"
             title="${lk ? 'הריצה נעולה לשינויים מצד הלקוח — לחיצה משחררת' : 'נעילת הריצה לשינויים מצד הלקוח (כשהיא כבר בעבודה בדפוס)'}">${lk ? '🔒 נעולה ללקוח' : '🔓 נעל ריצה'}</button>`;
         },
         /* ── עמודים ── */
@@ -1520,8 +1535,12 @@ function render(rows) {
 
     /* ⚠️ "אשר קבלה ללקוח" הוא ‎shopSeenAt‎ הקיים — אותו שדה שהפורטל כבר
        מציג ללקוח כ"בית-הדפוס קיבל את הקבצים". */
+    /* ⚠️ 21/08/2026 (ביקורת): "אושרה קבלה" על רשומה בלי קבצים היא אישור-
+       קבלה על כלום — נאמרת האמת במקום. */
     const seenBlock = seenTime
-      ? `<span class="isSeen">✓ אושרה קבלה ללקוח · ${fmt(seenTime)}</span>`
+      ? (su.arrived
+          ? `<span class="isSeen">✓ אושרה קבלה ללקוח · ${fmt(seenTime)}</span>`
+          : `<span class="isSeen" style="color:#b45309">⚠️ סומן שנצפה — אך אין קבצים ברשומה</span>`)
       : (su.arrived ? `<button class="isBtn ok" data-seenall="${escapeHtml(su.id)}">✅ אשר קבלה ללקוח</button>` : '');
 
     /* ⚠️ 13/08/2026, דיווח-בעלים: גיליון שממתין לקבצים הציג "אושר להדפסה",
@@ -1715,11 +1734,18 @@ function render(rows) {
     let n = 0;
     items.forEach(function(p){
       if (!p) return;
-      if (p.approvedAt && !p.shopSeenAt && p.mode !== 'parts') n++;
+      let rn = 0;
+      if (p.approvedAt && !p.shopSeenAt && p.mode !== 'parts') rn++;
       Object.keys(p.parts || {}).forEach(function(k){
-        const pt = p.parts[k]; if (pt && pt.approvedAt && !pt.shopSeenAt) n++;
+        const pt = p.parts[k]; if (pt && pt.approvedAt && !pt.shopSeenAt) rn++;
       });
+      /* ⚠️ 21/08/2026 (ביקורת, "שווה פרסום"): העלאת-פורטל בלי approvedAt —
+         אותו כלל של ShopView.newFiles (הענף שם נדלק רק כשלא נספר דבר),
+         כדי ששני החיוויים יסכימו. */
+      if (!rn && window.ShopView && ShopView.newFiles(p) > 0) rn++;
+      n += rn;
     });
+    _nfCache.set(c, n);   // המטמון היה מת — נבדק אך מעולם לא נכתב (ביקורת 21/08)
     return n;
   };
   const _dayNew = {};   // כמה חדשים בכל יום — לחיווי על כותרת-היום
@@ -2049,8 +2075,10 @@ function render(rows) {
         uploadingNow: window.ShopView && items.some(p => ShopView.uploadingNow(p, _nowMs)),
         dueTodayNotSent: window.ShopView && _dayOf[c] === _today
           && !items.some(p => ShopView.sentOn(p, _dayStart)),
-        /* אירוע-האישור של הלקוח (18/08) — כל עוד לא סומן "נצפה" */
-        customerDone: items.some(p => p && p.customerDoneAt && !p.shopSeenAt),
+        /* אירוע-האישור של הלקוח (18/08) — כל עוד לא סומן "נצפה".
+           ⚠️ 21/08: גם customerApprovedAt — האישור הרגיל של הפורטל; עד
+           היום רק מסלול-העריכה (customerDoneAt) הדליק את הדחיפות. */
+        customerDone: items.some(p => p && (p.customerDoneAt || p.customerApprovedAt) && !p.shopSeenAt),
       };
     };
     const _sumOf = (c) => window.ShopView
@@ -2477,6 +2505,11 @@ function render(rows) {
     ev.stopPropagation();
     const [rid, rno] = String(b.dataset.runlock).split('|');
     _toggleRunLock(rid, parseInt(rno, 10), b);
+  });
+  document.querySelectorAll('[data-runmove]').forEach(b => b.onclick = (ev) => {
+    ev.stopPropagation();
+    const sp = String(b.dataset.runmove).split('|');
+    _paRunMove(sp[0], sp.slice(1).join('|'));
   });
   document.querySelectorAll('[data-runmiss]').forEach(el => el.onclick = () => _runMissExpand(parseInt(el.dataset.runmiss, 10)));
   _thumbPaint();
@@ -2971,6 +3004,41 @@ async function markSeenAll(id, btn){
   }
 }
 
+/* ⇄ העברת-ריצה מצד-הדפוס (דיווח-מהשטח 21/08/2026: "הריצה הקצרה אצלכם
+   ריצה 5 — נטפל אנחנו"): אותה החלפת-מספר של הפורטל — ההחלטה הטהורה
+   ‏ShopIssue.runRenumberPatch, וכתיבה בנתיבים-עמוקים בלבד (parts/<pid>/name).
+   ⚠️ לעולם לא אובייקט-בן שלם ל-PATCH — תקרית 17/08 (הריצות של אלעד נחתכו). */
+async function _paRunMove(id, partId){
+  const p = (_allRows || []).find(x => x.id === id);
+  const pt = p && (p.parts || {})[partId];
+  if (!pt) { alert('הריצה לא נמצאה — רעננו את המסך'); return; }
+  const cur = ShopIssue.runNoOfName(pt.name);
+  const v = prompt('לאיזו ריצה להעביר את "' + (pt.name || 'הריצה') + '"?'
+    + (cur ? '\nכרגע: ריצה ' + cur : ''), cur ? String(cur) : '1');
+  if (v === null) return;
+  const res = ShopIssue.runRenumberPatch(p, partId, parseInt(v, 10));
+  if (res.error) { alert('⚠️ ' + res.error); return; }
+  const names = Object.keys(res.updates).map(k => res.updates[k].name);
+  if (!confirm('להעביר לריצה ' + res.to + '?'
+      + (res.swappedWith ? '\n\nהמקום תפוס — שתי הריצות יתחלפו ביניהן.' : '')
+      + '\n\nאחרי השינוי: ' + names.join(' · ')
+      + '\n\nהקבצים עצמם לא משתנים — רק הסדר שבו הם נקראים.')) return;
+  try {
+    const flat = {};
+    Object.keys(res.updates).forEach(pid => { flat[pid + '/name'] = res.updates[pid].name; });
+    /* הנתיב מפוצל בכוונה: סנטינל-ההיקפים תופס 'parts.' גם בתוך מחרוזת */
+    const r = await fetch(await _au(_FBURL + '/customerProofs/' + id + '/parts' + '.json'),
+      { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(flat) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    Object.keys(res.updates).forEach(pid => { if (p.parts[pid]) p.parts[pid].name = res.updates[pid].name; });
+    msg('✓ הריצה הועברה לריצה ' + res.to + (res.swappedWith ? ' (והוחלפה עם השנייה)' : ''));
+    render(_allRows);
+  } catch(e){
+    // המצב המקומי לא זז — הרשימה נשארת כפי שהשרת מכיר אותה
+    alert('⚠️ ההעברה נכשלה — הסדר לא שונה: ' + ((e && e.message) || e));
+  }
+}
+
 /* נעילת-ריצה לשינויי-לקוח (בקשת-בעלים 20/08/2026) — מתג דו-כיווני פר-ריצה.
    ⚠️ מצב-מסך = מצב-שרת: המקומי זז רק אחרי שה-PATCH אושר. */
 async function _toggleRunLock(id, no, btn){
@@ -3241,7 +3309,9 @@ function _runMissExpand(n){
   const rn = reg && reg.grid.runs.find(x => x.no === n);
   const host = document.getElementById('runExp');
   if (!rn || !host) return;
-  if (_runExpKey === 'miss:' + n) { _runExpClose(); return; }   // לחיצה שנייה סוגרת
+  /* "כבר פרוס" לפי ה-DOM בפועל — אותו תיקון של _tileClick (21/08/2026):
+     אחרי רינדור-מחדש המפתח נשאר וה-DOM ריק, והלחיצה נראתה כאילו לא קרה כלום. */
+  if (_runExpKey === 'miss:' + n && host.firstElementChild) { _runExpClose(); return; }   // לחיצה שנייה סוגרת
   _runExpKey = 'miss:' + n;
   /* ⚠️ 20/08/2026: הכותרת לפי המצב האמיתי — ריצה שכולה הגיעה בקבצים
      בודדים אינה "טרם הגיעה", והעמודים מקבלים תצוגה (data-thumb, אותו
@@ -3346,7 +3416,13 @@ function _tileClick(i) {
   const pt = t.partId ? ((reg.p && reg.p.parts) || {})[t.partId] : null;
   // אריח-ריצה = קובץ רב-עמודים. אריח של עמוד בודד ממשיך להתנהג כמו קודם.
   if (!pt || (pt.pageCount | 0) <= 1) { _pgLightOpen(i); return; }
-  if (_runExpKey === t.partId) {              // כבר פרוס → לחיצה שנייה פותחת דפדוף
+  /* ⚠️ דיווח-מהשטח 21/08/2026 ("לפעמים עובד חלק, לפעמים פותח דפדוף"):
+     הרענון-האוטומטי מצייר את המסך מחדש — ה-DOM של הפריסה נמחק, אבל
+     ‎_runExpKey‎ נשאר. הלחיצה הבאה נחשבה "לחיצה שנייה" ופתחה דפדוף במקום
+     את הפריסה עם כפתור-ההורדה. "כבר פרוס" נקבע לפי מה שבאמת על המסך. */
+  const _expHost = document.getElementById('runExp');
+  const _expOpen = _runExpKey === t.partId && _expHost && _expHost.firstElementChild;
+  if (_expOpen) {                             // באמת פרוס → לחיצה שנייה פותחת דפדוף
     window.open('proof-viewer.html?id=' + encodeURIComponent(reg.id)
               + '&part=' + encodeURIComponent(t.partId), '_blank', 'noopener');
     return;
@@ -4138,8 +4214,10 @@ async function _runSourceBytes(t) {
        בשקט כשהיו ריצות, כי files נקרא רק כשאין parts. מיקום-ההכנסה
        מתוקן לפי המשבצות שעדיין חסרות (pendingPages). */
     if (urls.length && rec.files) {
+      /* ⚠️ 21/08/2026 (ביקורת): ‏f.slot (שיבוץ מפורש) גובר על המספר שבשם —
+         אותה הכרעה של רשת-העמודים; בלעדיה ההורדה סתרה את מה שמוצג. */
       const fe = Object.values(rec.files).filter(f => f && f.fileUrl)
-        .map(f => ({ url: f.fileUrl, slot: ShopIssue.pageNoOf(f.fileName) }))
+        .map(f => ({ url: f.fileUrl, slot: (Number(f.slot) >= 1 ? Number(f.slot) : ShopIssue.pageNoOf(f.fileName)) }))
         .filter(f => f.slot >= 1).sort((a, b) => a.slot - b.slot);
       if (fe.length) {
         const pend = new Set();
@@ -4149,8 +4227,9 @@ async function _runSourceBytes(t) {
       }
     }
     if (!urls.length && rec.files) {
+      const _slotOf = f => (Number(f.slot) >= 1 ? Number(f.slot) : (ShopIssue.pageNoOf(f.fileName) || 9999));
       Object.values(rec.files).filter(f => f && f.fileUrl)
-        .sort((a, b) => (ShopIssue.pageNoOf(a.fileName) || 9999) - (ShopIssue.pageNoOf(b.fileName) || 9999))
+        .sort((a, b) => _slotOf(a) - _slotOf(b))
         .forEach(f => urls.push(f.fileUrl));
     }
   }

@@ -68,7 +68,12 @@
   function stageOf(p, opts){
     opts = opts || {};
     if (!p) return 'received';
-    if (p.completedAt || p.closedAt) return 'done';
+    /* ⚠️ 21/08/2026 (ביקורת): ‏closedAt לבדו אינו "הושלם" — אישור-להדפסה
+       כותב אותו אוטומטית, והעיתון עוד על המכונה. סגור-להעלאה + מאושר =
+       'בדפוס'; "הושלם" רק על completedAt אמיתי. */
+    if (p.completedAt) return 'done';
+    if (p.closedAt && p.printApprovedAt) return 'printing';
+    if (p.closedAt) return 'done';
     if (opts.hasActiveCard) return 'printing';
     if (p.apogeeApprovedAt || p.status === 'approved' || p.approvedAt) {
       // "נצפה" הוא שלב-ביניים: התקבל אך קדם-הדפוס עדיין לא סימן
@@ -97,6 +102,12 @@
     if (p.approvedAt && !p.shopSeenAt && p.mode !== 'parts') n++;
     var parts = p.parts || {};
     for (var k in parts){ var pt = parts[k]; if (pt && pt.approvedAt && !pt.shopSeenAt) n++; }
+    /* ⚠️ 21/08/2026 (ביקורת, "שווה פרסום — לא הופיע"): מסלול-ההעלאה של
+       הפורטל אינו כותב approvedAt כלל — עיתון שלם הגיע ולא הדליק שום 🆕
+       ולא דחיפות, והלקוח נשאר "שקט" ומוסתר מאחורי סינון-היום. קבצים
+       אמיתיים שאיש לא סימן שנצפו = פריט חדש. */
+    if (!n && !p.approvedAt && !anySeen(p) && hasRealFiles(p)
+        && !p.completedAt && !p.closedAt) n++;
     return n;
   }
 
@@ -249,7 +260,10 @@
     if (p.completedAt || p.closedAt) return 'done';
     var files = p.files || {};
     for (var k in files){ var f = files[k]; if (f && (f.fileUrl || f.filePath) && f.fileSize === 0) return 'failed'; }
-    if (!hasRealFiles(p)) return 'stub';
+    /* ⚠️ 21/08/2026 (ביקורת, R2 "בין השכנים"): ‏awaiting-shop בלי קבצים =
+       הלקוח לחץ "שלח" וההעלאה אבדה. זה כשל שדורש טיפול — לא stub רגיל
+       שנעלם בשקט מהתיבה אחרי סימון-נצפה. */
+    if (!hasRealFiles(p)) return (p.status === 'awaiting-shop') ? 'failed' : 'stub';
     return anySeen(p) ? 'seen' : 'new';
   }
   var BIZ_LABELS = {
