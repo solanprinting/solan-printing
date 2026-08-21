@@ -27,9 +27,9 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787340931"></script>
+<script src="pdfjs-engine.js?v=1787344946"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787340931"></script>
+<script src="issue-grid.js?v=1787344946"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -39,28 +39,28 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787340931"></script>
-<script src="chat-alert.js?v=1787340931"></script>
+<script src="portal-chat.js?v=1787344946"></script>
+<script src="chat-alert.js?v=1787344946"></script>
 <!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787340931"></script>
+<script src="push-client.js?v=1787344946"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
-<script src="chat-files.js?v=1787340931"></script>
-<script src="shop-issue.js?v=1787340931"></script>
-<script src="page-marks.js?v=1787340931"></script>
+<script src="chat-files.js?v=1787344946"></script>
+<script src="shop-issue.js?v=1787344946"></script>
+<script src="page-marks.js?v=1787344946"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787340931"></script>
-<script src="kontres-split.js?v=1787340931"></script>
+<script src="page-box.js?v=1787344946"></script>
+<script src="kontres-split.js?v=1787344946"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787340931"></script>
-<script src="auth-client.js?v=1787340931"></script>
+<script src="firebase-auth.bundle.js?v=1787344946"></script>
+<script src="auth-client.js?v=1787344946"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787340931" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787344946" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2954,9 +2954,24 @@ document.addEventListener('visibilitychange', function(){
    הייתה מכפילה את התעבורה במספר הלקוחות. */
 async function _shChatUnreadScan(){
   if (document.hidden) return;
+  /* ⚠️ 21/08/2026 (כלל-1): הקריאה לא בדקה ‎r.ok‎ ולא ‎PortalChat.denied‎.
+     ‏Firebase מחזיר 403 כתגובת-HTTP תקינה עם גוף ‎{"error":"Permission
+     denied"}‎ — הגוף עבר כמפת-שיחות, **כל התגים ‎💬 N‎ התאפסו בשקט**,
+     ו-‎_shChatAlert‎ קיבל אותו זבל. "לא הצלחנו לקרוא" אינו "אין הודעות":
+     משאירים את התגים הקודמים ומשאירים עקבה. */
   var all = null;
-  try { all = await (await fetch(await _au(`${_FBURL}/portalChat.json`))).json(); }
-  catch(e){ return; }                       /* אין תג — אבל גם אין רעש */
+  try {
+    const r = await fetch(await _au(`${_FBURL}/portalChat.json`));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    all = await r.json();
+    if (PortalChat.denied && PortalChat.denied(all)) throw new Error('הרשאה נדחתה');
+  } catch(e){
+    if (!_shChatUnreadScan._lastErr || Date.now() - _shChatUnreadScan._lastErr > 60000) {
+      _shChatUnreadScan._lastErr = Date.now();
+      console.error('סריקת-שיחות נכשלה — התגים נשארים כפי שהיו', e);
+    }
+    return;
+  }
   var next = {};
   Object.keys(all || {}).forEach(function(slug){
     var node = all[slug] || {};
@@ -3585,6 +3600,9 @@ async function _runExpand(reg, t, pt) {
       + '<span class="runExpNote">' + pages.length + ' קבצים · ' + sn.total + ' עמודים · עמ׳ '
           + sn.from + '–' + sn.to + ' בגיליון'
           + (sn.spreads ? ' · ' + sn.spreads + ' כפולות' : '')
+          /* ⚠️ פאזינג 21/08/2026: המספור נגמר לפני עמודי-הקובץ — סימן
+             שגודל-הגיליון שמור שגוי. עד היום הוצגו מספרים מומצאים בשקט. */
+          + (sn.invented ? '<b style="color:#b91c1c"> · ⚠️ המספור אינו ודאי — בדקו את גודל-הגיליון (✎)</b>' : '')
           + ' · לחיצה על עמוד: הגדלה · לחיצה נוספת על הריצה: דפדוף</span>'
       + dlBtn
       + '<button class="isBtn" data-runflip="1">📖 דפדוף</button>'
@@ -3833,8 +3851,21 @@ function needFix(id){
 async function portalLink(customer){
   const slug = _slug(customer); if (!slug){ alert('שם לקוח חסר'); return; }
   msg('מכין קישור פורטל…');
+  /* ⚠️ 21/08/2026: הקריאה בלעה כשל ב-catch ריק והשאירה rec=null — ואז
+     הענף שמתחת **מנפיק טוקן חדש ודורס** את רשומת-הפורטל. כלומר תקלת-רשת
+     או 403 חד-פעמיים היו הורגים את כל הקישורים שכבר נשלחו ללקוח.
+     "לא הצלחנו לקרוא" אינו "אין רשומה" — נכשל-סגור. */
   let rec = null;
-  try { rec = await (await fetch(await _au(`${_FBURL}/customerPortals/${slug}.json`))).json(); } catch(e){}
+  try {
+    const r = await fetch(await _au(`${_FBURL}/customerPortals/${slug}.json`));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    rec = await r.json();
+  } catch(e){
+    console.error('portalLink: קריאת customerPortals נכשלה', e);
+    alert('לא הצלחנו לקרוא את רשומת-הפורטל של ' + customer + ' (' + (e && e.message || e) + ').\n' +
+          'לא הונפק קישור חדש — כדי לא לבטל את הקישור הקיים של הלקוח. נסו שוב.');
+    msg('✗ קריאת הפורטל נכשלה'); return;
+  }
   if (!rec || !rec.token){
     rec = { name: customer, token: 'k'+Date.now().toString(36)+Math.random().toString(36).slice(2,10), createdAt: Date.now() };
     await fetch(await _au(`${_FBURL}/customerPortals/${slug}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(rec) });
@@ -3925,6 +3956,12 @@ async function _pbCreate(){
     const r = picked[i];
     go.textContent = `פותח… ${i+1}/${picked.length}`;
     const rec = PortalBatch.portalRecord(r.name, Date.now(), Math.random().toString(36).slice(2,10));
+    /* ⚠️ מגן-שורש: ‎slug‎ ריק הופך את הכתובת ל-‎customerPortals.json‎, ו-PUT
+       לשם **מוחק את כל 44 הפורטלים** ומחליף אותם ברשומה אחת. ‏plan אמנם
+       מסנן שם-ריק היום, אבל מחיקה-כוללת רחוקה מדי-מעט משינוי-קוד תמים. */
+    if (!r.slug || !/^[A-Za-z0-9֐-׿_-]+$/.test(r.slug)){
+      failed.push((r.name || '(ללא שם)') + ' — שם שאינו ניתן להמרה לכתובת'); continue;
+    }
     try {
       const res = await fetch(await _au(`${_FBURL}/customerPortals/${r.slug}.json`), { method:'PUT',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify(rec) });
@@ -4315,6 +4352,25 @@ function _fileSlot(f){
   if (pn && pn.nos && pn.nos[0] >= 1) return pn.nos[0];
   return (window.ShopIssue && ShopIssue.pageNoOf) ? (ShopIssue.pageNoOf(f && f.fileName) || 0) : 0;
 }
+/* ⚠️ **שער-החוברת-השלמה (21/08/2026).** ‏✂ ו-📚 מפצלים את המקור לקונטרסים,
+   ופיצול נכון מחייב שהמקור יהיה **העיתון כולו בסדר-קריאה**. כשהמקור היה
+   ריצה בודדת (32 עמ' מתוך 48), הפיצול חישב את הפריסה מ-‎getPageCount()‎
+   והתייחס אליה כאל עיתון-שלם בן 32 — כך נוצר קובץ בשם "ריצה 1 (עמ 1-32)"
+   שהכיל בפועל את עמ' 9-40. הפלט נראה תקין לגמרי; השיבוש התגלה על הלוחות.
+   שער שנכשל-סגור: אם הספירה אינה תואמת את ההצהרה — לא מנחשים, אומרים. */
+function _assertWholeBooklet(rec, total, what) {
+  const declared = Number((rec || {}).declaredPages || (rec || {}).totalPages) || 0;
+  if (!declared || !total) return;
+  if (total === declared) return;
+  /* סטייה של עד עמוד אחד = השלמה לזוגי, לא מקור חלקי. */
+  if (Math.abs(total - declared) <= 1) return;
+  throw new Error(
+    (what || 'הפיצול') + ' דורש את העיתון **כולו** בסדר-קריאה, והמקור שהתקבל מכיל '
+    + total + ' עמודים בעוד הגיליון הוצהר כ-' + declared + '.\n\n'
+    + 'כנראה נבחרה ריצה בודדת ולא הגיליון כולו. הורידו את הריצה עצמה (⬇ בפריסת-הריצה), '
+    + 'או בחרו את הגיליון המלא.');
+}
+
 async function _runSourceBytes(t) {
   const rec = (_allRows || []).find(r => r.id === t.jobId) || {};
   const urls = [];
@@ -4389,6 +4445,17 @@ async function _runSourceBytes(t) {
     }
     if (!weave) return (await out.save()).buffer;
   } else {
+  /* ⚠️ 21/08/2026 — **הנפילה-לשרשור-גולמי היא בדיוק תקרית 19/08 שוב.**
+     כשאחד השמות לא נקרא כמספר-ריצה (‎runNoOfName‎ → null), התנאי למעלה
+     נכשל, הקבצים שורשרו כפי-שהם, והצרכנים (✂/📚) פיצלו אותם מחדש —
+     תמורה-כפולה שהעמידה 40 מתוך 48 עמודים על הקונטרס הלא-נכון. שרשור
+     גולמי מותר רק כשאלה **אינם** קובצי-ריצות; כשהם כן — נכשלים-סגור. */
+  if (bufs.length > 1 && _runNos.some(n => n >= 1)) {
+    const _bad = _mergedParts.filter((p2, i) => !(_runNos[i] >= 1)).map(p2 => p2.name || '(ללא שם)');
+    throw new Error('חלק מהקבצים הם ריצות וחלק לא-מזוהים, ולכן אי אפשר לשחזר סדר-קריאה בבטחה.\n\n'
+      + 'לא זוהה מספר-ריצה עבור: ' + _bad.join(' · ') + '\n\n'
+      + 'תקנו את שמות-הקבצים (למשל "ריצה 2"), או הורידו כל ריצה בנפרד (⬇ בפריסת-הריצה).');
+  }
   for (const b of bufs) {
     const d = await PDFLib.PDFDocument.load(b);
     const pages = await out.copyPages(d, d.getPageIndices());
@@ -4438,6 +4505,7 @@ async function generateRunOrderedPdf(proof, fullSheet, btn) {
     const unit = (proof.partId && rec.parts && rec.parts[proof.partId]) || rec;
     const readingDirection = unit.readingDirection || rec.readingDirection || 'rtl';
     const plan = KontresSplit.spreadPlan(sizes, { mode: 'split', readingDirection });
+    _assertWholeBooklet(rec, plan.entries.length, 'סידור לפי ריצות (📚)');
     const ro = KontresSplit.runOrderedEntries(plan.entries, fullSheet);
 
     const out = await PDFLib.PDFDocument.create();
@@ -4503,6 +4571,7 @@ async function generateRuns(proof, fullSheet, btn) {
     const norm = await normalizeSpreads(raw);   // כפולה → אותו קובץ פעמיים + "כפולה" בשם
     const src = norm.doc;
     const total = src.getPageCount();
+    _assertWholeBooklet((_allRows || []).find(r => r.id === proof.jobId) || {}, total, 'פיצול לריצות (✂)');
     const runs = splitToKontresim(total, fullSheet);
 
     // ── כל ריצה = קובץ-PDF אחד (לגרירה ישירה לאפוגי), לא עמודים בודדים בתיקייה ──

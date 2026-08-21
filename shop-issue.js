@@ -25,6 +25,21 @@
   var num = function (v) { var n = Number(v); return isFinite(n) ? n : 0; };
   var str = function (v) { return String(v == null ? '' : v).trim(); };
 
+  /* ⚠️ 21/08/2026: ‎(r.pendingPages || []).forEach‎ זרק TypeError והפיל את
+     רינדור כרטיס-הגיליון **כולו** — ‏pageTiles הוא הבסיס גם ל-runGrid וגם
+     ל-IssueGrid.build. זו אינה תיאוריה: ‏RTDB מחזיר מערך-עם-חורים כאובייקט
+     (‎{0:5,2:7}‎), ומסלולי-כתיבה ישנים שמרו מחרוזת "5,6". כל צורה מתקבלת,
+     והתוצאה תמיד מערך של שלמים חיוביים. */
+  function pendListOf(v) {
+    var out = [];
+    var push = function (x) { var n = Math.floor(num(x)); if (n >= 1 && out.indexOf(n) < 0) out.push(n); };
+    if (Array.isArray(v)) v.forEach(push);
+    else if (v && typeof v === 'object') Object.keys(v).forEach(function (k) { push(v[k]); });
+    else if (typeof v === 'string' && v) v.split(/[^0-9]+/).forEach(push);
+    else if (typeof v === 'number') push(v);
+    return out;
+  }
+
   function idOf(p) { return str((p || {}).id || (p || {})._id); }
   function timeOf(p) {
     var r = p || {};
@@ -230,12 +245,14 @@
   function summaryOf(p) {
     var r = p || {}, u = unitsOf(r);
     var pages = u.length ? u.reduce(function (s, x) { return s + x.pages; }, 0) : num(r.pageCount);
-    var pend = [];
-    (r.pendingPages || []).forEach(function (x) { if (pend.indexOf(x) < 0) pend.push(x); });
-    var parts = (r.parts && typeof r.parts === 'object') ? r.parts : {};
-    Object.keys(parts).forEach(function (k) {
-      ((parts[k] || {}).pendingPages || []).forEach(function (x) { if (pend.indexOf(x) < 0) pend.push(x); });
-    });
+    /* ⚠️ 21/08/2026 — **"נשארו עמודים להשלמה" על עמודים שכבר הגיעו.**
+       ‏pendingPages היא הצהרה ישנה שאיש אינו מנקה כשהעמודים נוחתים; היא
+       נקראה כאן כמו-שהיא, בעוד ‎pageTiles‎ כבר מסנן מולה את מה שהגיע
+       (‎!have[no]‎). התוצאה: הכרטיס המכווץ, מסך-הדפוס (shop-view) והודעת-
+       הפורטל (portal-return) הכריזו על 16 עמודים חסרים בגיליון שכל חמש
+       ריצותיו הגיעו. **מקור-אמת אחד**: מה ש-pageTiles מסמן כחסר. */
+    var pend = pageTiles(r).filter(function (t) { return t.kind === 'missing'; })
+                           .map(function (t) { return t.pageNo; });
     return {
       id: idOf(r), title: str(r.title) || 'עיתון', issue: str(r.issue),
       at: timeOf(r), units: u.length, pages: pages,
@@ -396,8 +413,12 @@
      מגודל-העמוד) · 'unknown' (צריך לשאול). sheet=0 רק ב-unknown. */
   function sheetPagesOf(p) {
     var r = p || {};
-    var saved = num(r.sheetPages) || 0;
-    if (saved >= 2) return { sheet: saved, src: 'saved' };
+    /* ⚠️ פאזינג 21/08/2026: גודל-גיליון עשרוני/אי-זוגי ("33.7", 7) ייצר
+       פריסה עם עמודים שבורים (2.7, 42.7) שהוצגו על האריחים. גודל-גיליון
+       הוא **מספר-עמודים על גיליון-דפוס** — שלם וזוגי בהגדרה. ערך פגום
+       נחשב "לא-ידוע", ואז נופלים לגזירה-מהמידות כמו קודם. */
+    var saved = Math.floor(num(r.sheetPages) || 0);
+    if (saved >= 2 && saved % 2 === 0 && saved <= 400) return { sheet: saved, src: 'saved' };
     var d = sheetPagesFromMM(r.reqW, r.reqH);
     return d ? { sheet: d, src: 'size' } : { sheet: 0, src: 'unknown' };
   }
@@ -489,8 +510,11 @@
     for (var i = 0; i < list.length; i++) {
       var no = list[i]._no;
       if (no != null && no > prev + 1 && sheet) base += (no - prev - 1) * sheet;
-      if (list[i].pid === partId) return base + 1;
-      base += num(list[i].pageCount) | 0;
+      /* ⚠️ פאזינג 21/08/2026: ‏pageCount פגום (שלילי/עשרוני/מחרוזת) הפך
+         את ההיסט למספר שלילי או שבור, ואז המפה הציגה "עמוד -31". אותו
+         נרמול של pageTiles: שלם, לא-שלילי, עד 400. */
+      if (list[i].pid === partId) return Math.max(1, base + 1);
+      base += Math.max(0, Math.min(400, Math.floor(num(list[i].pageCount)) || 0));
       if (no != null) prev = no;
     }
     return 1;   // לא נמצאה — לא ממציאים היסט
@@ -555,7 +579,12 @@
     if (!s) return null;
     if (/שער|עטיפה|cover/i.test(s)) return 1;
     var m = s.match(/\d+/);
-    return m ? parseInt(m[0], 10) : null;
+    if (!m) return null;
+    /* ⚠️ פאזינג 21/08/2026: "עמוד 0" ו-"33.7" החזירו 0 / 33 והוצגו כמספר-
+       עמוד על האריח (ואף כ-0, שאינו עמוד קיים). מספר-עמוד הוא שלם חיובי;
+       מה שאינו כזה — "לא ידוע", והמסך שואל במקום להציג מספר שקרי. */
+    var n = parseInt(m[0], 10);
+    return (Number.isInteger(n) && n >= 1) ? n : null;
   }
 
   /* ── שם-קובץ → אילו עמודים (דיווח-בעלים 19/08/2026) ──────────────────────
@@ -715,10 +744,21 @@
     var fullUrl = str(r.fileUrl);
     var pc = num(r.pageCount);
     if (fullUrl && pc > 1) {
+      /* ⚠️ 21/08/2026 — **מספור עיתון-מלא מתעלם מכפולות.** האריחים ממוספרים
+         לפי אינדקס-ה-PDF, ולכן קובץ שיש בו כפולה אחת (עמ' 24+25 על גיליון
+         אחד) מציג "עמוד 24" לכפולה ומשם והלאה כל אריח מציג את העמוד הבא —
+         עשרות אריחים שגויים, ו-‎runGrid‎ מדווח "חסר עמ׳ 48" על עמוד שקיים.
+         ⚠️ **הכפולות אינן ברשומה** — הן נמדדות רק בזמן ההורדה מתוך גודל
+         העמוד, ולכן השכבה הטהורה אינה יכולה לדעת **אילו** עמודים כפולים.
+         מה שכן ידוע: אם הלקוח הצהיר יותר עמודים ממה שיש בקובץ, ההפרש הוא
+         כפולות — והמספור **אינו ודאי**. אומרים זאת במקום להציג מספר שקרי.
+         ההורדה (✂/📚) מפצלת כפולות נכון ואינה מושפעת. */
+      var _dec = num(r.declaredPages);
+      var _uncertain = _dec > pc;
       for (var i = 1; i <= Math.min(pc, 400); i++) {
         tiles.push({ kind: 'page', target: 'full', pageNo: i, page: i, url: fullUrl,
                      label: i === 1 ? 'שער' : 'עמוד ' + i, at: num(r.approvedAt) || num(r.createdAt),
-                     partId: '', mark: markOf(r, 'full', i) });
+                     partId: '', invented: _uncertain, mark: markOf(r, 'full', i) });
       }
     } else if (fullUrl) {
       tiles.push({ kind: 'page', target: 'full', pageNo: 1, page: 1, url: fullUrl,
@@ -741,7 +781,11 @@
          69–72. לכן מקור-האמת הוא ‎runLayout‎ (אותה פריסה של מסך-ההעלאה),
          והעמודים נשמרים ב-‎seq‎. אין פריסה (חסר גודל-גיליון או הצהרה) —
          נופלים להתנהגות הקודמת ולא ממציאים קונטרסים. */
-      var span = num(t.pageCount) | 0;
+      /* ⚠️ פאזינג 21/08/2026: ‏pageCount פגום (שלילי / עשרוני / "48 " /
+         "שלושים") זלג לתוך המספור וייצר במפה עמודים כמו ‎-31‎, ‎2.7‎, ‎3670‎ —
+         מספרים שקדם-הדפוס רואה על האריח. מנרמלים כאן, בשער-הכניסה:
+         שלם, לפחות 0, ולא מעל 400 (תקרת-הפריסה הקיימת). */
+      var span = Math.max(0, Math.min(400, Math.floor(num(t.pageCount)) || 0));
       var nm = str(t.name) || 'ריצה';
       var lr = null;
       if (span > 1 && lay.length) {
@@ -757,7 +801,7 @@
                       הגיליון שמור שגוי, או שהקובץ אינו הריצה שנאמר עליה.
                       נאמר במפורש — הרשת לא תסתיר את זה בחישוב. */
                    runPagesMismatch: (lr && lr.pages !== span) ? { got: span, want: lr.pages } : null,
-                   partId: k, pages: num(t.pageCount) || 0, mark: markOf(r, k, 1) });
+                   partId: k, pages: span, mark: markOf(r, k, 1) });
     });
     fileEntries(r).forEach(function (f, i) {
       /* ⚠️ 16/08/2026, בקשת-בעלים: שיבוץ-מחדש שומר את **שם-הקובץ המקורי**
@@ -770,7 +814,11 @@
          עמוד 2026 ו"עמודים 8 9" תפס משבצת אחת בלבד. */
       var pn = pagesOfName(f.fileName);
       var nameNo = pn ? pn.nos[0] : null;
-      var sl = num(f.slot);
+      /* ⚠️ פאזינג 21/08/2026: ‎slot‎ שבור (33.7 / 0 / שלילי) עקף את
+         בדיקת-השם ונחת כמספר-עמוד על האריח. משבצת היא שלם חיובי בלבד;
+         ערך שאינו כזה נופל חזרה לפירוק-השם. */
+      var slRaw = num(f.slot);
+      var sl = (Number.isInteger(slRaw) && slRaw >= 1) ? slRaw : 0;
       var no = (sl >= 1) ? sl : nameNo;
       /* ⚠️ **קובץ-כפולה מכסה שתי משבצות.** שיבוץ-ידני (slot) גובר תמיד —
          הדפוס או הלקוח קבעו במפורש, וזה מנצח כל פירוק-שם.
@@ -803,9 +851,9 @@
       for (var j = 0; j < span; j++) have[t.pageNo + j] = true;
     });
     var pend = [];
-    (r.pendingPages || []).forEach(function (x) { if (pend.indexOf(x) < 0) pend.push(x); });
+    pendListOf(r.pendingPages).forEach(function (x) { if (pend.indexOf(x) < 0) pend.push(x); });
     Object.keys(parts).forEach(function (k) {
-      ((parts[k] || {}).pendingPages || []).forEach(function (x) { if (pend.indexOf(x) < 0) pend.push(x); });
+      pendListOf((parts[k] || {}).pendingPages).forEach(function (x) { if (pend.indexOf(x) < 0) pend.push(x); });
     });
     /* ⚠️ הצהרת-ספירה (14/08/2026, סידור-עמודים בפורטל): הלקוח מצהיר
        "הגיליון הזה N עמודים" (declaredPages) — וכל משבצת 1..N שאין לה
@@ -943,27 +991,55 @@
     var seq = Array.isArray(baseNo) ? baseNo.map(num).filter(function (x) { return x >= 1; }) : null;
     var base = seq ? (seq[0] || 1) : (num(baseNo) || 1);
     var list = Array.isArray(dims) ? dims : [];
-    var ratios = list.map(function (d) {
-      return (d && num(d.w) > 0 && num(d.h) > 0) ? num(d.w) / num(d.h) : 0;
-    });
-    var valid = ratios.filter(function (r) { return r > 0; }).sort(function (a, b) { return a - b; });
-    var med = valid.length ? valid[Math.floor(valid.length / 2)] : 0;
+    /* ⚠️ פאזינג 21/08/2026 — **מפה מול הורדה**: הזיהוי כאן היה לפי
+       יחס-צלעות (‎w/h > חציון×1.45‎), אבל למודעת-רוחב מסובבת (297×210)
+       ולכפולה אמיתית (420×297) יש **אותו יחס** ≈1.41 — היחס אינו יכול
+       להבחין ביניהן. התוצאה: עיתון עם מודעה מסובבת אחת הוצג במפה עם
+       עמוד-רפאים נוסף וכל המספור אחריו זז ב-1, בעוד ההורדה
+       (‎KontresSplit.classifySpreads‎) מספרת נכון — מפה שחולקת על הקובץ.
+       מעכשיו אותו קריטריון של ההורדה: **רוחב מוחלט** מול הרוחב-השכיח
+       (‎>×1.6‎), עם גובה דומה. */
+    var widths = list.map(function (d) { return (d && num(d.w) > 0) ? num(d.w) : 0; })
+                     .filter(function (w) { return w > 0; }).sort(function (a, b) { return a - b; });
+    var medW = widths.length ? widths[Math.floor(widths.length / 2)] : 0;
+    var heights = list.map(function (d) { return (d && num(d.h) > 0) ? num(d.h) : 0; })
+                      .filter(function (h) { return h > 0; }).sort(function (a, b) { return a - b; });
+    var medH = heights.length ? heights[Math.floor(heights.length / 2)] : 0;
     var items = [], cursor = 0, spreads = 0, pdf = 1;
-    var numAt = function (k) { return seq ? (seq[k] != null ? seq[k] : base + k) : base + k; };
-    ratios.forEach(function (r) {
-      var isSp = med > 0 && r > med * 1.45;
+    /* ⚠️ פאזינג 21/08/2026: כשה-‎seq‎ (עמודי-הקונטרס) קצר ממספר עמודי-ה-PDF
+       — סימן שגודל-הגיליון שמור שגוי — הקוד **המציא** רצף ‎base+k‎ והציג
+       מספרים שאינם התוכן (עמ' 9..16 במקום 5-8+41-44). עכשיו: המספר עדיין
+       מוצג (המסך צריך משהו), אבל הפריט מסומן ‎invented‎ כדי שהמסך יוכל
+       לומר "המספור אינו ודאי — בדקו את גודל-הגיליון" במקום לשקר בשקט. */
+    var invented = false;
+    var numAt = function (k) {
+      if (seq && seq[k] == null) invented = true;
+      return seq ? (seq[k] != null ? seq[k] : base + k) : base + k;
+    };
+    list.forEach(function (d) {
+      var w = (d && num(d.w) > 0) ? num(d.w) : 0, h = (d && num(d.h) > 0) ? num(d.h) : 0;
+      /* כפולה = רוחב כפול-בערך מהשכיח **וגם** גובה דומה לשכיח (עד 12%).
+         מודעת-לנדסקייפ רחבה פחות מ-×1.6 ונמוכה מהשכיח — נדחית נכון. */
+      var isSp = medW > 0 && w > medW * 1.6
+                 && (!medH || Math.abs(h - medH) <= medH * 0.12);
       if (isSp) {
+        var _iv0 = invented;
         var a = numAt(cursor), b = numAt(cursor + 1);
         items.push({ nos: [a, b], spread: true, pdfPage: pdf,
-                     label: 'עמודים ' + a + '–' + b });
+                     label: 'עמודים ' + a + '–' + b, invented: invented && !_iv0 || invented });
         cursor += 2; pdf += 2; spreads++;
       } else {
+        var _iv1 = invented;
         var n1 = numAt(cursor);
-        items.push({ nos: [n1], spread: false, pdfPage: pdf, label: 'עמוד ' + n1 });
+        items.push({ nos: [n1], spread: false, pdfPage: pdf, label: 'עמוד ' + n1,
+                     invented: invented && !_iv1 || invented });
         cursor += 1; pdf += 1;
       }
     });
     return { items: items, total: cursor, spreads: spreads,
+             /* ⚠️ המספור אינו ודאי — ה-seq נגמר לפני עמודי-ה-PDF (גודל-
+                גיליון שמור שגוי). המסך יכול להזהיר במקום להציג מספר שקרי. */
+             invented: invented,
              from: items.length ? items[0].nos[0] : base,
              to: items.length ? items[items.length - 1].nos.slice(-1)[0] : base - 1 };
   }

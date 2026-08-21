@@ -27,7 +27,14 @@
   'use strict';
 
   function _s(v) { return v == null ? '' : String(v); }
-  function _noEsc(s) { return _s(s); }
+  /* ⚠️ 21/08/2026: ברירת-המחדל הייתה **זהות** — צרכן ששוכח להעביר ‎esc‎
+     מזריק שם-קובץ שהלקוח כתב היישר ל-HTML, ובשקט מוחלט (הפלט נראה תקין).
+     המודול מיוצא לשני מסכים; ברירת-מחדל בטוחה, לא נוחה. שני הצרכנים
+     הנוכחיים כן מעבירים ‎esc‎ משלהם, ולכן זו הקשחה ולא תיקון-פרצה-חיה. */
+  function _noEsc(s) {
+    return _s(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
 
   /* ברירות-מחדל: אם צד לא סיפק פעולה — לא מוצג כלום. לעולם לא נופלים
      לכפתור של הצד השני. */
@@ -77,10 +84,19 @@
         });
       }
       if (!rn.got) {
+        /* ⚠️ 21/08/2026 — הכיתוב היה "טרם הגיעה · N עמ׳" כש-N הוא מספר
+           העמודים **החסרים**. בריצה שממנה לא הגיע דבר N שווה במקרה לגודל
+           הריצה, וכך הצוות קרא את המספר כגודל — ואז ריצה שהגיעו ממנה 27
+           מתוך 32 עמודים בקבצים בודדים נראתה זהה לחלוטין לריצה ריקה
+           ("טרם הגיעה · 5 עמ׳"). אומרים כמה חסרים מתוך כמה. */
+        var _span = Number(rn.pageCount) || (rn.pages && rn.pages.length) || rn.missing.length;
+        var _sub = (rn.missing.length && rn.missing.length < _span)
+          ? ('חלקית · חסרים ' + rn.missing.length + ' מתוך ' + _span + ' עמ׳')
+          : ('טרם הגיעה · ' + _span + ' עמ׳');
         return tileHtml({
           esc: esc, cls: 'miss', miss: true, attrs: _act(A, 'runAttrs')(rn, 'missing'),
           name: rn.name + ' · ' + rng,
-          sub: 'טרם הגיעה · ' + rn.missing.length + ' עמ׳',
+          sub: _sub,
           title: rn.name + ' · ' + rng,
           extra: _act(A, 'runExtra')(rn, 'missing'),
         });
@@ -151,6 +167,11 @@
     bits.push('<b>' + o.gotPages + '</b> עמודים' + (o.totalPages ? ' מתוך <b>' + o.totalPages + '</b>' : ''));
     if (o.sheet) bits.push('גיליון: <b>' + o.sheet + '</b> עמ׳');
     if (o.marked) bits.push('<b style="color:#dc2626">🔁 ' + o.marked + ' לדרישת-החלפה</b>');
+    /* ⚠️ הקובץ מכיל פחות עמודי-PDF ממה שהוצהר — ההפרש הוא כפולות, ולכן
+       המספרים על האריחים אינם בהכרח מספרי-העמוד האמיתיים. ההורדה מפצלת
+       נכון; מה שלא-ודאי הוא **המפה**, ואומרים זאת במקום להשתיק. */
+    if (o.uncertain) bits.push('<b style="color:#b91c1c">⚠️ יש כפולות בקובץ — '
+      + 'מספרי-העמודים במפה אינם ודאיים (ההורדה מפצלת נכון)</b>');
     return '<div class="isGridT">' + bits.join(' · ')
       + (o.hint ? ' — ' + esc(o.hint) : '')
       + _s(o.extra) + '</div>';
@@ -163,9 +184,28 @@
     var tiles = ctx.tiles || [];
     var grid = ctx.grid;
     var esc = ctx.esc || _noEsc;
-    var gotPages = tiles.reduce(function (n, t) {
-      return n + (t.kind === 'page' ? Math.max(1, Number(t.pages) | 0) : 0);
-    }, 0);
+    /* ⚠️ 21/08/2026 — **"48 עמודים מתוך 48" כשהגיעו 16.** הספירה סכמה את
+       ‎pages‎ של כל אריח בלי לקזז חפיפה, ולכן לקוח שהעלה את אותה ריצה
+       שלוש פעמים (16+16+16) קיבל "הגיליון מלא" בזמן ש-32 אריחי-חסר
+       מצוירים מתחת, על אותו מסך. גם "64 מתוך 48" הופיע — מספר בלתי-אפשרי.
+       סופרים **משבצות ייחודיות שכוסו**, לא סכום-אורכים. */
+    var _cov = {};
+    tiles.forEach(function (t, ti) {
+      if (t.kind !== 'page') return;
+      /* ⚠️ **ריצה היא קונטרס, לא טווח רציף** — ריצה 1 של 48/32 היא
+         1-8+41-48. לכן הכיסוי נלקח מ-‎seq‎ כשהוא קיים, ורק בהיעדרו
+         נפרש טווח מ-‎pageNo‎. פרישה נאיבית סימנה 1..16 וגם שיקרה במניין. */
+      if (Array.isArray(t.seq) && t.seq.length) {
+        t.seq.forEach(function (q) { var n2 = Number(q); if (isFinite(n2) && n2 >= 1) _cov[n2] = 1; });
+        return;
+      }
+      var no = Number(t.pageNo);
+      var span = Math.max(1, Math.min(400, Number(t.pages) | 0));
+      /* אריח בלי מספר-משבצת (רשת שטוחה) נספר לפי עצמו — אין מה לקזז מולו. */
+      if (!isFinite(no) || no < 1) { _cov['t' + ti] = 1; return; }
+      for (var c = 0; c < span; c++) _cov[no + c] = 1;
+    });
+    var gotPages = Object.keys(_cov).length;
     var marked = tiles.filter(function (t) { return t.mark && t.mark.kind === 'replace'; }).length;
     if (!tiles.length) {
       /* ⚠️ 21/08/2026 (ביקורת): ‏headExtra נשמט במצב-ריק — וכפתור "📐 כמה
@@ -176,15 +216,33 @@
     var head = headHtml({
       esc: esc, hint: ctx.hint, extra: ctx.headExtra,
       gotPages: gotPages, totalPages: ctx.totalPages, marked: marked,
+      uncertain: tiles.some(function (t) { return t.invented; }),
       runs: grid && grid.ok ? grid.runs.length : 0,
       gotRuns: grid && grid.ok ? grid.gotRuns : 0,
       sheet: grid && grid.ok ? grid.sheet : 0,
     });
     var body = (grid && grid.ok) ? runsHtml(grid, ctx) : flatHtml(tiles, ctx);
-    var orph = (grid && grid.ok && grid.orphans && grid.orphans.length)
-      ? '<div class="isGridT" style="color:#b91c1c">⚠️ מחוץ לפריסה: '
-        + grid.orphans.map(function (o) { return esc(o.name); }).join(' · ')
-        + ' — או שגודל-הגיליון שמור שגוי, או שהשם אינו מספר-הריצה</div>' : '';
+    /* ⚠️ 21/08/2026: ‏runGrid כבר מסמן ‎dupOf‎ על ריצה שהועלתה פעמיים —
+       ו-build התעלם ממנו והדפיס את נוסח-ברירת-המחדל ("גודל-הגיליון שמור
+       שגוי / השם אינו מספר-הריצה"). שני ההסברים שקריים כשהשם והגיליון
+       דווקא נכונים, והם שולחים את הצוות לתקן דבר תקין. */
+    var _orphs = (grid && grid.ok && grid.orphans) ? grid.orphans : [];
+    var _dups = _orphs.filter(function (o) { return o.dupOf; });
+    var _unk  = _orphs.filter(function (o) { return !o.dupOf; });
+    var orph = '';
+    if (_dups.length) {
+      var _dupNos = [];
+      _dups.forEach(function (o) { if (_dupNos.indexOf(o.dupOf) < 0) _dupNos.push(o.dupOf); });
+      orph += '<div class="isGridT" style="color:#b91c1c">⚠️ הועלה יותר מפעם אחת: ריצה '
+        + _dupNos.map(function (n2) { return esc(n2); }).join(' · ריצה ')
+        + ' (' + _dups.length + ' עותקים עודפים) — רק העותק ששובץ נספר. '
+        + 'מחקו את המיותר, או ⇄ העבירו למספר-הריצה הנכון</div>';
+    }
+    if (_unk.length) {
+      orph += '<div class="isGridT" style="color:#b91c1c">⚠️ מחוץ לפריסה: '
+        + _unk.map(function (o) { return esc(o.name); }).join(' · ')
+        + ' — או שגודל-הגיליון שמור שגוי, או שהשם אינו מספר-הריצה</div>';
+    }
     return { mode: (grid && grid.ok) ? 'runs' : 'flat',
              html: head + '<div class="isPages">' + body + '</div>' + orph + _s(ctx.footer) };
   }

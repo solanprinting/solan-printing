@@ -57,10 +57,17 @@
 
   /* הודעות **מהצד השני** שחדשות מהסימון. ⚠️ הודעות שאני שלחתי אינן
      התראה אצלי — אחרת כל שליחה הייתה מקפיצה לי הודעה על עצמי. */
+  /* ⚠️ 21/08/2026: הסינון היה ‎&& str(m.text)‎, ולכן **הודעת-קובץ בלי טקסט
+     לא הפיקה שום התראה** — לא צליל, לא הקפצה, לא טוסט — בזמן ש-list,
+     ‎preview ו-unread כן ראו אותה (התג הראה 1). שני מסלולי-השליחה מתירים
+     קובץ-בלי-טקסט במפורש, ולכן לקוח שהעלה עמוד-מתוקן לשיחה לא הגיע לאיש
+     בבית-הדפוס. הודעה היא הודעה — טקסט **או** קובץ. */
+  function hasBody(m) { return !!(str(m.text) || str(m.fileUrl)); }
+
   function pending(msgs, mySide, mark) {
     var other = otherSide(mySide), m0 = num(mark);
     return (msgs || []).filter(function (m) {
-      return m && m.side === other && num(m.at) > m0 && str(m.text);
+      return m && m.side === other && num(m.at) > m0 && hasBody(m);
     });
   }
 
@@ -75,14 +82,21 @@
     var mk = marks || {};
     var p = typeof parse === 'function' ? parse : function (n) { return (n && n.msgs) || []; };
     var alerts = [], baseline = [], nextMarks = {}, total = 0;
+    /* ⚠️ 21/08/2026 — **ההודעה הפותחת של כל שיחה חדשה נבלעה.** צומת
+       ‎portalChat/<slug>‎ נוצר רק כשנכתבת ההודעה הראשונה, ולכן slug עם
+       הודעה אחת נראה בדיוק כמו "slug חדש לדפדפן" ונכנס ל-baseline בשקט.
+       ההבחנה הנכונה היא **סריקה-ראשונה-אי-פעם** מול שיחה-חדשה: אם כבר
+       יש סימונים, ‏slug שלא היה קודם הוא שיחה שנפתחה עכשיו — ומתריעים.
+       ‏kiosk שמוחק localStorage חוזר ל"סריקה ראשונה", וזה מכוון. */
+    var firstScanEver = Object.keys(mk).length === 0;
     Object.keys(all).forEach(function (slug) {
       if (!slug || slug.charAt(0) === '_') return;
       var msgs = p(all[slug]) || [];
       var hi = highWater(msgs);
       nextMarks[slug] = hi;
       var known = Object.prototype.hasOwnProperty.call(mk, slug);
-      if (!known) { if (hi) baseline.push({ slug: slug, at: hi }); return; }
-      var items = pending(msgs, SHOP, mk[slug]);
+      if (!known && firstScanEver) { if (hi) baseline.push({ slug: slug, at: hi }); return; }
+      var items = pending(msgs, SHOP, known ? mk[slug] : 0);
       if (!items.length) return;
       total += items.length;
       alerts.push({ slug: slug, count: items.length, last: items[items.length - 1], at: hi });

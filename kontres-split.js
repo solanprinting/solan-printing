@@ -48,7 +48,15 @@
       var inner = totalPages - rem;
       while (inner > 0) { layers.push(fullSheet); inner -= fullSheet; }
     }
-    var front = 1, back = totalPages;
+    /* ⚠️ 21/08/2026 — **עמוד כפול וחסר בסך אי-זוגי.** השכבות מעוגלות
+       כלפי-מעלה לזוגי (47 → 16+32 = 48 משבצות), אבל ההליכה-לאחור התחילה
+       מ-‎totalPages‎ = 47 — סטייה של אחד שגרמה ל-47/32 לתת "1-8+40-47"
+       ו-"9-40": עמ׳ 40 על שני הקונטרסים, ומשבצת 48 לא קיימת. הגבול
+       האחורי הוא **מספר-המשבצות הפיזי**, לא מספר-העמודים שהגיעו; המשבצת
+       העודפת נושרת אצל הצרכנים (‎sp > total‎) והופכת לעמוד-ריק, כרצוי.
+       ‏594 מקרים היו שבורים בטווח 2..400 עבור גיליונות 8/16/32. */
+    var slots = layers.reduce(function (a, b) { return a + b; }, 0);
+    var front = 1, back = Math.max(totalPages, slots);
     var range = function (a, b) { var o = []; for (var k = a; k <= b; k++) o.push(k); return o; };
     return layers.map(function (lp, i) {
       var isLast = i === layers.length - 1, half = lp / 2;

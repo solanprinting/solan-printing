@@ -179,19 +179,35 @@
     var base = '';
     for (var i = 0; i < segs.length; i++) { if (!junk(segs[i])) { base = segs[i]; break; } }
     if (!base) return '';
-    base = base
+    /* ⚠️ 21/08/2026 — **הזנב נקלף בשכבות, לא במעבר אחד.** על
+       "Yedion Natania R-11 8 color" תבנית-ה-color לא הייתה מעוגנת לגבול
+       ובלעה ספרה מתוך מספר-הריצה ("1 8 color"), ואז מחיקת-R — שרצה
+       **לפניה** ובמעבר יחיד — כבר לא יכלה לירות. נשאר "Yedion Natania R".
+       שני התיקונים: עוגן-גבול לפני ספרות-ה-color, וקילוף חוזר עד-יציבות
+       כדי שסדר-הסיומות לא יקבע את התוצאה. */
+    /* ⚠️ **סיומת אחת בכל סבב.** בשרשור-מעבר-אחד כלל-הגיליון/תאריך אכל את
+       "11" מתוך "R-11" באותו מעבר שבו ה-color הוסר, ולכן מחיקת-R כבר לא
+       ראתה מספר-ריצה. הקילוף בסדר-עדיפות, סיומת אחת בכל פעם, עד יציבות. */
+    var stripOnce = function (x) {
+      var y;
+      y = x.replace(/(^|[\s_-])\d{0,2}\s*colou?r\s*$/i, '$1').trim();   // 8color · 4 colour
+      if (y !== x) return y;
       /* ⚠️ R חייבת להיות מילה עצמאית — "Rav Macher1199" מסתיים ב-r1199
          ובלי הגבול נחתך ל-"Rav Mache" */
-      .replace(/(^|[\s_-])R[- ]?\d+\s*$/i, '$1')                // R-1 שנדבק לסוף
-      .replace(/\d?\s*\d*\s*colou?r\s*$/i, '')                  // color שנדבק לסוף
-      .replace(/\d+\s*[xX]\s*\d+\s*$/, '')                      // מידה 14X23
+      y = x.replace(/(^|[\s_-])R[- ]?\d+\s*$/i, '$1').trim();           // R-1 שנדבק לסוף
+      if (y !== x) return y;
+      y = x.replace(/\d+\s*[xX]\s*\d+\s*$/, '').trim();                 // מידה 14X23
+      if (y !== x) return y;
       /* גיליון/תאריך בסוף: 259 · 19.8 — אבל אות-בודדת+ספרות ("A4", "B5")
          היא קוד-גודל וחלק מהשם ("Grapik kav Ayeshuot A4") */
-      .replace(/\d+(?:[./]\d+)*\s*$/, function (mm, off, whole) {
+      y = x.replace(/\d+(?:[./]\d+)*\s*$/, function (mm, off, whole) {
         return /(^|\s)[A-Za-z]$/.test(whole.slice(0, off)) ? mm : '';
-      })
-      .replace(/[-_.,]+\s*$/, '')
-      .replace(/\s{2,}/g, ' ').trim();
+      }).trim();
+      if (y !== x) return y;
+      y = x.replace(/[-_.,]+\s*$/, '').replace(/\s{2,}/g, ' ').trim();
+      return y;
+    };
+    for (var g = 0; g < 8; g++) { var nx = stripOnce(base); if (nx === base) break; base = nx; }
     /* חייב להיות שם לטיני אמיתי — לא שאריות */
     if (!/[A-Za-z]{2}/.test(base)) return '';
     return base;

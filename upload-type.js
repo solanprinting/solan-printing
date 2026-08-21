@@ -85,11 +85,14 @@
   var MAX_IMAGE_BYTES =  25 * MB;
   var MAX_JSON_BYTES  =  25 * MB;
 
+  /* ⚠️ 21/08/2026: הפונקציה החזירה 0 לסוג לא-מוכר, ו-checkSize תרגם
+     ‎!max‎ ל"אין תקרה" — כלומר **דווקא הסוג הלא-מוכר היה בלתי-מוגבל**.
+     ברירת-המחדל היא התקרה המחמירה, לא היעדר-תקרה. */
   function maxBytesFor(contentType) {
     if (contentType === PDF) return MAX_PDF_BYTES;
     if (contentType === JSON_) return MAX_JSON_BYTES;
     if (contentType === JPEG || contentType === PNG) return MAX_IMAGE_BYTES;
-    return 0;
+    return MAX_IMAGE_BYTES;
   }
 
   function fmtMB(b) {
@@ -101,8 +104,15 @@
      ולא "נסו שוב", שהוא עצה שלא יכולה לעבוד. */
   function checkSize(bytes, contentType, name) {
     var max = maxBytesFor(contentType);
-    var n = Number(bytes) || 0;
-    if (!max || n <= max) return { ok: true };
+    var n = Number(bytes);
+    /* ⚠️ גודל שאינו מספר סופי אינו "0" — הוא "לא ידוע", והשומר לא יכול
+       להעיד עליו. עדיף לומר זאת מאשר להחזיר ok על קובץ שלא נמדד. */
+    if (!isFinite(n) || n < 0) {
+      return { ok: false, code: 'unknown_size',
+               message: 'לא הצלחנו לקרוא את גודל הקובץ' + (name ? ' (' + name + ')' : '') +
+                        '. נסו לבחור אותו שוב.' };
+    }
+    if (n <= max) return { ok: true };
     return { ok: false, code: 'too_large', size: n, max: max,
              message: 'הקובץ גדול מדי' + (name ? ' (' + name + ')' : '') + ' — ' + fmtMB(n) +
                       '. הגודל המרבי לשליחה הוא ' + fmtMB(max) + '.' };
