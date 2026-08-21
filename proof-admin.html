@@ -27,9 +27,9 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787329952"></script>
+<script src="pdfjs-engine.js?v=1787332747"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787329952"></script>
+<script src="issue-grid.js?v=1787332747"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -39,28 +39,28 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787329952"></script>
-<script src="chat-alert.js?v=1787329952"></script>
+<script src="portal-chat.js?v=1787332747"></script>
+<script src="chat-alert.js?v=1787332747"></script>
 <!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787329952"></script>
+<script src="push-client.js?v=1787332747"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
-<script src="chat-files.js?v=1787329952"></script>
-<script src="shop-issue.js?v=1787329952"></script>
-<script src="page-marks.js?v=1787329952"></script>
+<script src="chat-files.js?v=1787332747"></script>
+<script src="shop-issue.js?v=1787332747"></script>
+<script src="page-marks.js?v=1787332747"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787329952"></script>
-<script src="kontres-split.js?v=1787329952"></script>
+<script src="page-box.js?v=1787332747"></script>
+<script src="kontres-split.js?v=1787332747"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787329952"></script>
-<script src="auth-client.js?v=1787329952"></script>
+<script src="firebase-auth.bundle.js?v=1787332747"></script>
+<script src="auth-client.js?v=1787332747"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787329952" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787332747" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1262,7 +1262,12 @@ async function _autoRefresh(){
     const _rr = await fetch(await _au(`${_FBURL}/_rev/customerProofs.json`)).catch(() => null);
     const _rev = (_rr && _rr.ok) ? await _rr.json() : null;
     if (!_forced && _rev != null && _arRev != null && _rev === _arRev) return;   // לא זז — לא מושכים
-    const data = await (await fetch(await _au(`${_FBURL}/customerProofs.json`))).json() || {};
+    /* ⚠️ ביקורת 21/08/2026, כלל-1: r.ok — Firebase מחזיר 401/403 כגוף-JSON
+       תקין (‎{"error":...}‎). בלי הבדיקה גוף-השגיאה היה נאמץ כ-data ו-render
+       היה מוחק את הרשימה מהמסך. רענון-רקע שנכשל משאיר את הנתונים הקודמים. */
+    const _dr = await fetch(await _au(`${_FBURL}/customerProofs.json`));
+    if (!_dr.ok) throw new Error('רענון-רקע: HTTP ' + _dr.status);
+    const data = (await _dr.json()) || {};
     /* ⚠️ החותמת נאמצת **אחרי** שהנתון הגיע. אימוץ לפני-כן היה גורם לסבב
        שנכשל באמצע לקבוע "מסונכרן", והמסך היה נתקע על נתונים ישנים. */
     _arRev = _rev;
@@ -2412,8 +2417,11 @@ function render(rows) {
     const on = b.dataset.on === '1';
     b.disabled = true; b.textContent = on ? 'מחזיר…' : 'מסמן…';
     try{
-      await fetch(await _au(`${_FBURL}/customerProofs/${b.dataset.donejob}.json`), { method:'PATCH',
+      /* ⚠️ ביקורת 21/08/2026, כלל-1: r.ok — בלעדיו "הושלם" נכתב לכאורה
+         על 403, ודיאלוג "לעדכן שמוכן" נפתח על סימון שלא נשמר. */
+      const rc = await fetch(await _au(`${_FBURL}/customerProofs/${b.dataset.donejob}.json`), { method:'PATCH',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify({ completedAt: on ? null : Date.now() }) });
+      if(!rc.ok) throw new Error('HTTP ' + rc.status);
       if(!on) _doneOpen = true;      // אחרי סימון — פותח את הקטגוריה כדי שיראו לאן זה עבר
       const _job = (_allRows||[]).find(r => String(r.id) === String(b.dataset.donejob));
       await loadProofs();
@@ -2676,8 +2684,11 @@ async function renameCustomer(oldName){
   try{
     let done = 0;
     for (const p of rows){
-      await fetch(await _au(`${_FBURL}/customerProofs/${p.id}.json`), { method:'PATCH',
+      /* ⚠️ ביקורת 21/08/2026, כלל-1: r.ok בכל צעד — כשל-הרשאה באמצע
+         הלולאה השאיר חלק מהעבודות בשם הישן וחלק בחדש, בלי שהדפוס ידע. */
+      const rr = await fetch(await _au(`${_FBURL}/customerProofs/${p.id}.json`), { method:'PATCH',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify({ customer: next }) });
+      if (!rr.ok) throw new Error('עצר אחרי ' + done + '/' + rows.length + ' (HTTP ' + rr.status + ') — חלק מהעבודות בשם הישן');
       done++; msg(`מעדכן… ${done}/${rows.length}`);
     }
     _selCust = next;                 // הבחירה עוברת לשם החדש
@@ -4012,8 +4023,13 @@ function sendNotice(customer, opts){
     const tp = tv.split('|');
     const body = { text:t, type:type, at:Date.now(), done:false };
     if (tp[0]) { body.proofId = tp[0]; if (tp[1]) body.partId = tp[1]; }
-    await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    msg('✓ הדרישה נשלחה ללקוח');
+    /* ⚠️ ביקורת 21/08/2026, כלל-1: בלי r.ok — על 403 הדרישה לא נכתבה
+       אך הדפוס קיבל "✓ נשלחה", והלקוח לא ידע שמחכים לו. */
+    try {
+      const rn = await fetch(await _au(`${_FBURL}/customerNotices/${slug}/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (!rn.ok) throw new Error('HTTP ' + rn.status);
+      msg('✓ הדרישה נשלחה ללקוח');
+    } catch(e){ console.error('שליחת הדרישה נכשלה', e); alert('⚠️ הדרישה לא נשלחה (' + ((e && e.message) || e) + ') — נסו שוב'); }
   };
   _noticeLoadOpen(slug);   // מציג דרישות פתוחות + כפתור "בוצע"
 }
@@ -4096,8 +4112,12 @@ function xhrPost(url, bytes){
 //    (מוסרת מהרשימה החיה), אבל הקובץ ב-Storage *נשאר* עד ניקוי אוטומטי אחרי 30 יום או
 //    מחיקה ידנית מפורשת מתוך הסל. זה מונע אובדן קובץ-לקוח בלתי-הפיך מלחיצה בטעות. ──
 async function _trashPut(key, entry) {
-  await fetch(await _au(`${_FBURL}/customerProofsTrash/${key}.json`), { method: 'PUT',
+  /* ⚠️ ביקורת 21/08/2026, כלל-1: בלי r.ok כאן, כתיבת-הגיבוי "מצליחה" על
+     403/400, וה-DELETE שאחריו מוחק את הרשומה **בלי עותק-שחזור**. הכשל
+     חייב לעצור את המחיקה — מוטב רשומה שלא נמחקה מרשומה שאבדה. */
+  const r = await fetch(await _au(`${_FBURL}/customerProofsTrash/${key}.json`), { method: 'PUT',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) });
+  if (!r.ok) throw new Error('גיבוי-הסל נכשל (' + r.status + ') — המחיקה בוטלה כדי לא לאבד את הרשומה');
 }
 // מחיקת ריצה בודדת — לסל-מיחזור (הקובץ נשאר ב-Storage)
 async function deletePart(jobId, pid, filePath) {
@@ -4107,8 +4127,9 @@ async function deletePart(jobId, pid, filePath) {
   msg('מעביר לסל מיחזור…');
   try {
     const entry = ProofTrash.buildPartTrashEntry(jobId, Object.assign({ pid, filePath }, part || {}), job || {}, Date.now());
-    await _trashPut(jobId + '_' + pid, entry);
-    await fetch(await _au(`${_FBURL}/customerProofs/${jobId}/parts/${pid}.json`), { method: 'DELETE' });
+    await _trashPut(jobId + '_' + pid, entry);   // זורק אם הגיבוי נכשל
+    const rd = await fetch(await _au(`${_FBURL}/customerProofs/${jobId}/parts/${pid}.json`), { method: 'DELETE' });
+    if (!rd.ok) throw new Error('ההסרה נכשלה (' + rd.status + ') — הגיבוי נשמר בסל; הריצה עדיין ברשימה');
     await loadProofs();
     msg('🗑 הועבר לסל-המיחזור — ניתן לשחזר מתוך "🗑 סל מיחזור"');
   } catch (e) { console.error(e); msg('✗ שגיאה בהעברה לסל: ' + e.message); }
@@ -4122,8 +4143,9 @@ async function deleteProof(p) {
   msg('מעביר לסל מיחזור…');
   try {
     const entry = ProofTrash.buildJobTrashEntry(p, Date.now());
-    await _trashPut(p.id, entry);
-    await fetch(await _au(`${_FBURL}/customerProofs/${p.id}.json`), { method: 'DELETE' });
+    await _trashPut(p.id, entry);   // זורק אם הגיבוי נכשל — ה-DELETE לא ירוץ
+    const rd = await fetch(await _au(`${_FBURL}/customerProofs/${p.id}.json`), { method: 'DELETE' });
+    if (!rd.ok) throw new Error('ההסרה נכשלה (' + rd.status + ') — הגיבוי נשמר בסל; העבודה עדיין ברשימה');
     await loadProofs();
     msg('🗑 הועבר לסל-המיחזור — ניתן לשחזר מתוך "🗑 סל מיחזור"');
   } catch (e) { console.error(e); msg('✗ שגיאה בהעברה לסל: ' + e.message); }
@@ -4407,9 +4429,14 @@ async function generateRunOrderedPdf(proof, fullSheet, btn) {
     try {
       if (proof.jobId) {
         const p2 = proof.partId ? `customerProofs/${proof.jobId}/parts/${proof.partId}` : `customerProofs/${proof.jobId}`;
-        _au(`${_FBURL}/${p2}.json`).then(u => fetch(u, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ runsDownloadedAt: Date.now() }) }));
+        /* ⚠️ ביקורת 21/08/2026: חותמת-מידע לא-חוסמת — כשל אינו מפיל את
+           ההורדה (הקובץ כבר ביד), אבל דחיית-ההבטחה נלכדת ונרשמת. */
+        _au(`${_FBURL}/${p2}.json`)
+          .then(u => fetch(u, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ runsDownloadedAt: Date.now() }) }))
+          .then(r => { if (!r.ok) console.warn('סימון runsDownloadedAt נדחה', r.status); })
+          .catch(e => console.warn('סימון runsDownloadedAt נכשל (לא חוסם)', e));
       }
-    } catch(e){}
+    } catch(e){ console.warn('סימון runsDownloadedAt נכשל (לא חוסם)', e); }
     btn.textContent = '✓ הורד';
     setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 2500);
   } catch (e) {
@@ -4466,9 +4493,14 @@ async function generateRuns(proof, fullSheet, btn) {
     try {
       if (proof.jobId) {
         const p2 = proof.partId ? `customerProofs/${proof.jobId}/parts/${proof.partId}` : `customerProofs/${proof.jobId}`;
-        _au(`${_FBURL}/${p2}.json`).then(u => fetch(u, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ runsDownloadedAt: Date.now() }) }));
+        /* ⚠️ ביקורת 21/08/2026: חותמת-מידע לא-חוסמת — כשל אינו מפיל את
+           ההורדה (הקובץ כבר ביד), אבל דחיית-ההבטחה נלכדת ונרשמת. */
+        _au(`${_FBURL}/${p2}.json`)
+          .then(u => fetch(u, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ runsDownloadedAt: Date.now() }) }))
+          .then(r => { if (!r.ok) console.warn('סימון runsDownloadedAt נדחה', r.status); })
+          .catch(e => console.warn('סימון runsDownloadedAt נכשל (לא חוסם)', e));
       }
-    } catch(e){}
+    } catch(e){ console.warn('סימון runsDownloadedAt נכשל (לא חוסם)', e); }
     btn.textContent = '✓ הורד';
     setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 2500);
   } catch (e) {
@@ -4501,10 +4533,13 @@ async function _psDecide(key, approve, btn){
                        : PageSwap.reject(req, { at: Date.now(), by: who, note: note });
   btn.disabled = true; btn.textContent = '…';
   try {
-    await fetch(await _au(`${_FBURL}/${PageSwap.requestPath(jobId, target)}.json`),
+    /* ⚠️ ביקורת 21/08/2026, כלל-1: r.ok — אישור/דחייה שנדחו ב-403 חייבים
+       להיאמר, אחרת חלון-העריכה של 48ש' לא נפתח/נסגר בפועל והדפוס בטוח שכן. */
+    const r = await fetch(await _au(`${_FBURL}/${PageSwap.requestPath(jobId, target)}.json`),
       { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(next) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     await loadProofs();
-  } catch(e){ alert('העדכון נכשל: ' + (e.message||e)); btn.disabled = false; }
+  } catch(e){ alert('העדכון נכשל: ' + (e.message||e)); btn.disabled = false; btn.textContent = approve ? '✔ אשר' : '✖ דחה'; }
 }
 
 /* ── עדכון הלקוח שהעבודה מוכנה (בקשת-משתמש 2026-07-30) ─────────────────────
@@ -4514,8 +4549,10 @@ async function _psDecide(key, approve, btn){
 function _waNorm(ph){ var d=String(ph||'').replace(/\D/g,''); if(!d) return ''; if(d.indexOf('972')===0) return d; if(d[0]==='0') return '972'+d.slice(1); return d; }
 async function _readyPatch(id, method){
   var who = 'בית הדפוס';
-  await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'},
+  /* ⚠️ ביקורת 21/08/2026, כלל-1: r.ok — בלעדיו "מוכן" נכתב לכאורה על 403. */
+  var r = await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ readyNotice: { at: Date.now(), by: who, method: method||'portal' } }) });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
 }
 function _readyMsg(p){
   var nm = (p && (p.title || p.customer)) || 'העבודה';
@@ -4540,7 +4577,8 @@ function _askNotifyReady(p){
   document.body.appendChild(ov);
   var close=function(){ ov.remove(); };
   ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
-  var done=function(method){ _readyPatch(p.id, method).then(loadProofs).catch(function(){}); };
+  /* ⚠️ ביקורת 21/08/2026: כשל-כתיבה נאמר, לא נבלע ב-catch ריק. */
+  var done=function(method){ _readyPatch(p.id, method).then(loadProofs).catch(function(e){ console.error('סימון-מוכן נכשל', e); msg('⚠️ העדכון "מוכן" לא נשמר — נסו שוב'); }); };
   document.getElementById('nrPortal').onclick=function(){ done('portal'); close(); msg('✓ הלקוח יראה בפורטל שהעבודה מוכנה'); };
   document.getElementById('nrWa').onclick=function(){
     done('whatsapp');

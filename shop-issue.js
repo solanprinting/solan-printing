@@ -512,6 +512,12 @@
     Object.keys(parts).forEach(function (k) {
       if (k !== partId && runNoOfName(parts[k].name) === n) swappedWith = k;
     });
+    /* ⚠️ ביקורת 21/08/2026: ריצה חסרת-מספר (cur=null) שמועברת למשבצת
+       תפוסה — אי-אפשר להחליף הדדית (אין לאן להזיז את התופס), והתוצאה
+       הישנה הייתה **שתי ריצות עם אותו מספר** (בדיוק מה שהפונקציה נכתבה
+       למנוע), עם הבטחת-"החלפה" שקרית. במקרה הזה — סירוב מפורש. */
+    if (swappedWith && cur == null)
+      return { error: 'המקום ' + n + ' תפוס, ולריצה הזו אין מספר מזוהה להחליף איתו — פנו/העבירו קודם את הריצה שיושבת ב-' + n };
     updates[partId] = { name: renameRunNo(parts[partId].name, n) };
     // ההחלפה הדדית: מי שישב ב-n מקבל את המקום שהתפנה
     if (swappedWith && cur != null) updates[swappedWith] = { name: renameRunNo(parts[swappedWith].name, cur) };
@@ -845,11 +851,15 @@
     });
     /* ריצה שהועלתה מוצמדת לקונטרס **לפי מספר-הריצה שבשמה** — לא לפי
        עמוד-פתיחה. זה מה שהלקוח כתב על הקובץ, וזה מה שהדפוס קורא. */
-    var byNo = {};
+    var byNo = {}, dupRuns = {};
     tiles.forEach(function (t, i) {
       if (t.kind !== 'page' || !t.partId || num(t.pages) <= 1) return;
       var n = runNoOfName(t.runName || t.label);
-      if (n && !byNo[n]) byNo[n] = { t: t, i: i };
+      if (!n) return;
+      /* ⚠️ ביקורת 21/08/2026: שתי ריצות עם אותו מספר — השנייה נשמטה
+         בשקט (לא ב-byNo ולא ב-orphan). עכשיו היא נאספת כ"כפולה" ונאמרת. */
+      if (!byNo[n]) byNo[n] = { t: t, i: i };
+      else (dupRuns[n] = dupRuns[n] || []).push({ name: t.runName || t.label, tileIndex: i, partId: t.partId });
     });
     var out = lay.map(function (L) {
       var hit = byNo[L.num] || null;
@@ -893,6 +903,13 @@
       if (t.kind !== 'page' || !t.partId || num(t.pages) <= 1) return;
       var n = runNoOfName(t.runName || t.label);
       if (!n || n > lay.length) orphan.push({ name: t.runName || t.label, tileIndex: i, partId: t.partId });
+    });
+    /* ריצות-כפולות (אותו מספר) — נאספות כיתומות עם ציון-הכפילות, כדי
+       שהשנייה לא תיעלם. הראשונה נשארת ב-byNo ומוצגת כרגיל. */
+    Object.keys(dupRuns).forEach(function (n) {
+      dupRuns[n].forEach(function (d) {
+        orphan.push({ name: d.name, tileIndex: d.tileIndex, partId: d.partId, dupOf: num(n) });
+      });
     });
     return { ok: true, sheet: sheetPagesOf(r).sheet, total: lay.reduce(function (s, L) { return s + L.pages; }, 0),
              runs: out, orphans: orphan,

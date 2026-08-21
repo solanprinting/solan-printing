@@ -12,20 +12,20 @@
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
-<script src="pdfjs-engine.js?v=1787329952"></script>
+<script src="pdfjs-engine.js?v=1787332747"></script>
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
      כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1787329952"></script>
-<script src="portal-context.js?v=1787329952"></script>
+<script src="upload-type.js?v=1787332747"></script>
+<script src="portal-context.js?v=1787332747"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi2"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1787329952"></script>
-<script src="portal-return.js?v=1787329952"></script>
+<script src="page-replace.js?v=1787332747"></script>
+<script src="portal-return.js?v=1787332747"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -561,8 +561,13 @@ let vIndex = 0;
 (async function init() {
   if (!proofId) return fail('לא נמצא מזהה בכתובת.');
   try {
-    record = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
-    if (!record) return fail('הקישור לא תקין או שהוסר.');
+    /* ⚠️ ביקורת 21/08/2026, כלל "ריק אינו נכשל": r.ok — Firebase מחזיר
+       401/403 כגוף-JSON תקין (‎{"error":...}‎). בלי הבדיקה גוף-השגיאה
+       נשמר כ-record, והלקוח ראה מסך-העלאה במקום "לא הצלחנו לטעון". */
+    var _initR = await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`));
+    if (!_initR.ok) return fail('לא הצלחנו לטעון את הגיליון (' + _initR.status + '). בדקו את החיבור ונסו שוב.');
+    record = await _initR.json();
+    if (!record || typeof record !== 'object' || record.error) return fail('הקישור לא תקין או שהוסר.');
     $('sub').textContent = [record.customer, record.title].filter(Boolean).join(' · ') || 'סולן הדפסות';
     /* ⚠️ מסלול-התיקון נקרא מהכתובת לפני goHome: במסלול הזה אסור
        להציג את מסך-הבית ("עיתון מלא / ריצה בודדת") — וודאי לא את
@@ -1494,13 +1499,21 @@ $('repInput').onchange = async e => {
     const bytes = await _fileBytes(file);   // נפילה-לאחור ל-FileReader (אייפון ישן)
     const fileId = 'f' + (nextFid++);
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
-    sources.set(fileId, { bytes });
+    sources.set(fileId, { bytes, name: file.name || 'replace.pdf' });
     const item = pages.find(p => p.uid === _repUid);
+    if (!item) throw new Error('העמוד להחלפה לא נמצא — רעננו');
     /* לתיעוד מול בית-הדפוס: אילו עמודים הוחלפו. ⚠️ גם במסלול-התיקון:
        בלי זה תיאור-השינויים היה מדווח "ללא שינוי" אחרי החלפה אמיתית. */
     if (_psEditing || _arEditing) _psReplaced[item.uid] = 1;
-    item.fileId = fileId; item.pageIndex = 0; item.src = await renderToImg(pdf, 1);
-  } catch (e) { console.error(e); }
+    /* ⚠️ ביקורת 21/08/2026: ‏renderToImg לא היה מוגדר בשום מקום — לחיצה
+       על "החלף עמוד" זרקה ReferenceError וה-src נשאר ריק. העוזר האמיתי
+       הוא renderPage, שגם מחזיר trimFrac/גודל-נטו (נדרש לבדיקת-הגודל). */
+    const boxes = await fileBoxes(bytes).catch(() => null);
+    const r = await renderPage(pdf, 1, boxes ? boxes[0] : null);
+    item.fileId = fileId; item.pageIndex = 0;
+    item.src = r.src; item.trimFrac = r.trimFrac; item.wmm = r.wmm; item.hmm = r.hmm;
+    item.displaySrc = null; item.spreadKeep = null;   // תצוגה נגזרת-מחדש
+  } catch (e) { console.error('החלפת-העמוד נכשלה', e); showOverlay('', false); alert('⚠️ החלפת-העמוד נכשלה: ' + ((e && e.message) || e)); _repUid = null; return; }
   _repUid = null; renderAll(); showOverlay('', false);
 };
 
@@ -2089,8 +2102,11 @@ async function _arApprove(){
   /* ⚠️ הלשונית יכולה להיות פתוחה מאתמול, ובינתיים הגיליון נסגר או הודפס.
      בודקים מול הרשומה **החיה** ולא מול מה שנטען בטעינת הדף. */
   try {
-    var fresh = await (await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`))).json();
-    if (fresh) record = fresh;
+    /* ⚠️ ביקורת 21/08/2026: r.ok — בלעדיו גוף-שגיאת-403 היה דורס את
+       record המאומת באובייקט-שגיאה וחוסם אישור תקין. כשל → נסמכים על
+       מה שכבר נטען (ההעלאה עצמה תיכשל בקול אם באמת אין הרשאה). */
+    var _fr = await fetch(await _au(`${_FBURL}/customerProofs/${proofId}.json`));
+    if (_fr.ok){ var fresh = await _fr.json(); if (fresh && typeof fresh === 'object' && !fresh.error) record = fresh; }
   } catch(e){ /* אין רשת — נסתמך על מה שיש, ההעלאה עצמה תיכשל בקול */ }
   var v = PageReplace.canReplace(record, target);
   if (!v.ok){ alert('🔒 ' + v.message); goHome(); return; }
