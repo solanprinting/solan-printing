@@ -17,7 +17,7 @@
 <!-- ⚠️ 20/08/2026, דיווח-לקוח (מבט חצור עמ' 15): המסך רינדר ב-pdf.js
      הישן, שמצייר מסכות-שקיפות דהויות — רקע-העמוד נעלם ללקוח בעוד
      שבקובץ הוא תקין. מודול-המנוע מביא 5.4.149 (vendor/ כמראה אחרונה). -->
-<script src="pdfjs-engine.js?v=1787332747"></script>
+<script src="pdfjs-engine.js?v=1787333350"></script>
 <script src="imposition-decoder.js"></script>
 <script src="imposition-decoder-exec.js"></script>
 <script src="imposition-tpl-parser.js"></script>
@@ -30,9 +30,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787332747"></script>
-<script src="auth-client.js?v=1787332747"></script>
-<script src="auth-guard.js?v=1787332747" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1787333350"></script>
+<script src="auth-client.js?v=1787333350"></script>
+<script src="auth-guard.js?v=1787333350" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -1843,13 +1843,25 @@ function renderApprove(rec, hashOk){
    + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button id="cApproveBtn" class="primary"'+(hashOk?'':' disabled title="החוברת אינה תואמת לגרסה"')+'>✓ מאשר להדפסה</button>'
    + '<button id="cCorrectBtn">✎ מבקש תיקון</button></div><div id="cResult" class="muted" style="margin-top:8px"></div>';
   async function submit(action){
+    const nm=$('cName').value||null, cm=$('cComment').value||null;
+    /* ⚠️ ביקורת-UX 21/08/2026: בקשת-תיקון בלי הערה משאירה את הדפוס בלי
+       לדעת מה לתקן — עוצרים וממקדים את התיבה במקום לשלוח ריק. */
+    if(action==='request-correction' && !(cm && cm.trim())){
+      $('cResult').innerHTML='<span class="bad">כתבו מה צריך לתקן, כדי שבית-הדפוס ידע.</span>';
+      var _cc=$('cComment'); if(_cc){ _cc.focus(); }
+      return;
+    }
+    /* ⚠️ ביקורת-UX 21/08/2026: אישור-להדפסה הוא בלתי-הפיך — חלון-אישור
+       סופי, כמו במסלול-ההעלאה של פרופר-הלקוח. */
+    if(action==='approve' && !confirm('אישור סופי להדפסה של "'+(rec.jobName||'החוברת')+'".\n\nלאחר האישור הגיליון יעבור להדפסה ולא ניתן לבטל. לאשר?')) return;
     // ⚠️ הגנה מפני קריאה-כפולה (לחיצה כפולה/מהירה בטרם ה-await הראשון מסתיים) —
     //    בלי זה submit() יכול לרוץ פעמיים במקביל על אותה גרסה. המסך-הסופי
     //    (renderApprove: st==='approved'/'correction-requested') חוסם קריאה
     //    חוזרת אחרי טעינה-מחדש, אבל לא בתוך אותה טעינת-דף לפני ההחלפה.
     if(submit._busy) return; submit._busy=true;
     const btnA=$('cApproveBtn'), btnC=$('cCorrectBtn'); if(btnA)btnA.disabled=true; if(btnC)btnC.disabled=true;
-    const nm=$('cName').value||null, cm=$('cComment').value||null;
+    /* חיווי "שולח…" — בחיבור איטי הכפתורים המאפירים לבד נראים תקועים. */
+    $('cResult').innerHTML='<span class="muted">⏳ '+(action==='approve'?'שולח אישור…':'שולח בקשת-תיקון…')+'</span>';
     /* ⚠️ 07/08/2026 — הקריאה הזו הייתה **מחוץ** ל-try, אחרי ששני הכפתורים
        כבר נוטרלו ו-submit._busy הודלק. ‏_cAuth דוחה במפורש כשהאסימון פג —
        ועורך שמדפדף 32 עמודים לפני שהוא מאשר מגיע לזה. הדחייה עקפה את שני

@@ -389,15 +389,26 @@
   /* סדר מלא של הרשימה: דחופים (לפי אחרון-פעילות יורד) ואז שקטים (א"ב).
      ⚠️ מקבל [{name, sum, extra}] ומחזיר {urgent:[...], quiet:[...]} עם
      ה-why מוכן — כדי שהמסך לא יפעיל את הכלל פעמיים ויסתור את עצמו. */
+  /* דרגת-דחיפות בתוך ה"דורשים טיפול" (ביקורת-UX 21/08/2026): הסיבה
+     קובעת לפני הזמן. לקוח שסיים-ואישר או שביקש-החלפה — הכדור אצל הדפוס
+     והוא ראשון; קבצים-חדשים/הודעה אחריו; השאר לפי זמן. */
+  function urgencyRank(extra) {
+    var e = extra || {};
+    if (e.customerDone) return 0;
+    if (e.swapPending) return 1;
+    return 2;
+  }
   function triageOrder(items) {
     var urgent = [], quiet = [];
     (items || []).forEach(function (it) {
       if (!it || !it.name) return;
       var t = custTriage(it.sum, it.extra);
-      var row = { name: it.name, why: t.why, at: t.at, sum: it.sum || {}, extra: it.extra || {} };
+      var row = { name: it.name, why: t.why, at: t.at, sum: it.sum || {}, extra: it.extra || {},
+                  rank: urgencyRank(it.extra) };
       (t.urgent ? urgent : quiet).push(row);
     });
-    urgent.sort(function (a, b) { return _i(b.at) - _i(a.at); });
+    /* דרגה תחילה, ובתוך אותה דרגה — האחרון-פעילות ראשון. */
+    urgent.sort(function (a, b) { return (a.rank - b.rank) || (_i(b.at) - _i(a.at)); });
     quiet.sort(function (a, b) { return _s(a.name).localeCompare(_s(b.name), 'he'); });
     return { urgent: urgent, quiet: quiet };
   }
