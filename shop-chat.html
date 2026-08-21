@@ -12,17 +12,17 @@
      ⚠️ אפס לוגיקת-שיחה חדשה: הכול PortalChat/ChatAlert — אותם מודולים
      של proof-admin והפורטל. מסך חדש עם לוגיקה משלו היה נפרד מהם בשקט.
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="portal-chat.js?v=1787327216"></script>
-<script src="chat-alert.js?v=1787327216"></script>
+<script src="portal-chat.js?v=1787329952"></script>
+<script src="chat-alert.js?v=1787329952"></script>
 <!-- הקפצות-רקע גם כשהחלון סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787327216"></script>
+<script src="push-client.js?v=1787329952"></script>
 <!-- צילומי-מסך וקבצים בשיחה — מודול משותף -->
-<script src="chat-files.js?v=1787327216"></script>
+<script src="chat-files.js?v=1787329952"></script>
 <!-- ⚠️ שומר-הכניסה לפני הסקריפט שמבקש אסימון — כמו בכל מסכי-הצוות. -->
-<script src="firebase-auth.bundle.js?v=1787327216"></script>
-<script src="auth-client.js?v=1787327216"></script>
+<script src="firebase-auth.bundle.js?v=1787329952"></script>
+<script src="auth-client.js?v=1787329952"></script>
 <!-- ⚠️ enforce: מסך-צוות שקורא נתונים פנימיים; אין נפילה אנונימית. -->
-<script src="auth-guard.js?v=1787327216" data-page="shop-chat.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787329952" data-page="shop-chat.html" data-mode="enforce"></script>
 <style>
   :root { --press:#2d3561; --gold:#c9a84c; --line:#e5e7eb; --bg:#faf8f2; }
   * { box-sizing:border-box; }
@@ -124,7 +124,11 @@ function say(err){
 /* ── משיכה ─────────────────────────────────────────────────────────────
    ⚠️ שלושה מצבים, לא שניים: יש · ריק · לא-הצלחנו-לטעון. דחיית-הרשאה של
    RTDB היא גוף-JSON תקין — PortalChat.denied מזהה אותה. */
-async function pull(){
+let _lastSig = '';
+async function pull(force){
+  /* ⚠️ ביקורת 21/08/2026 (תעבורה): חלון-רקע/ממוזער אינו מושך — הפולינג
+     ההתחלתי מסומן force. חוסך את המשיכה של כל portalChat כשאיש לא צופה. */
+  if (document.hidden && !force) return;
   let r, body = null;
   try {
     r = await fetch(await _au(_FBURL + '/portalChat.json'));
@@ -133,10 +137,15 @@ async function pull(){
   if (!r.ok || PortalChat.denied(body)){ say(PortalChat.errorText(r.status, body)); return; }
   say('');
   _all = body || {};
+  alertScan();   // ההקפצה תמיד רצה — היא ה"חדש" שבשבילו החלון פתוח
+  document.getElementById('stat').textContent = '✓ ' + new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'});
+  /* ⚠️ רינדור **רק כשמשהו השתנה** — אחרת innerHTML נבנה כל 7ש', ה-details
+     של ההיסטוריה נטרק, וסימון-טקסט להעתקה נמחק תוך-כדי קריאה. */
+  const sig = JSON.stringify(rowsOf().map(x => [x.slug, x.lastAt, x.unread]));
+  if (sig === _lastSig) return;
+  _lastSig = sig;
   paintList();
   if (_sel) paintThread(false);
-  alertScan();
-  document.getElementById('stat').textContent = '✓ ' + new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'});
 }
 
 function rowsOf(){
@@ -190,7 +199,7 @@ function paintThread(scroll){
       `<div class="day">${esc(g.label)}</div>` + g.items.map(m => {
         const mine = m.side === PortalChat.SHOP;
         return `<div class="msg ${mine ? 'mine' : 'theirs'}">${esc(m.text)}${window.ChatFiles ? ChatFiles.fileHtml(m, esc) : ''}
-          <div class="meta">${mine ? (m.by || 'אנחנו') : esc(nameOf(_sel))} · ${esc(PortalChat.timeLabel(m.at))}</div></div>`;
+          <div class="meta">${mine ? esc(m.by || 'אנחנו') : esc(nameOf(_sel))} · ${esc(PortalChat.timeLabel(m.at))}</div></div>`;
       }).join('')).join('');
   }
   /* היסטוריית-שיחות שנסגרו — מקופלת, כמו במסך-הדפוס */
@@ -213,9 +222,13 @@ async function markSeen(){
   const seen = Number((node._seen && node._seen.shop) || 0);
   if (last.at <= seen) return;
   try {
-    await fetch(await _au(_FBURL + '/' + PortalChat.seenPath(_sel, PortalChat.SHOP) + '.json'),
+    /* ⚠️ ביקורת 21/08/2026: ‏r.ok נבדק — 403 כתגובה תקינה סימן "נצפה"
+       מקומית, המשיכה הבאה החזירה את התג, ונוצרה לולאת-הבהוב כל 7ש'. */
+    const rr = await fetch(await _au(_FBURL + '/' + PortalChat.seenPath(_sel, PortalChat.SHOP) + '.json'),
       { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(last.at) });
+    if (!rr.ok) throw new Error('HTTP ' + rr.status);
     if (node._seen) node._seen.shop = last.at; else node._seen = { shop: last.at };
+    _lastSig = '';   // המונה השתנה — לתת ל-pull הבא לצייר
     paintList();
   } catch(e){ console.warn('סימון-צפייה נכשל (לא חיוני)', e); }
 }
@@ -253,7 +266,7 @@ async function send(fileFields){
     /* ⚠️ Firebase מחזיר 401/403 כתגובה תקינה — בלי הבדיקה כל שליחה "מצליחה" */
     if (!r.ok) throw new Error(PortalChat.errorText(r.status));
     ta.value = '';
-    await pull();
+    await pull(true);
   } catch(e){
     /* הטקסט נשאר בתיבה — הלקוח של הצד שלנו לא מאבד את מה שכתב */
     say((e && e.message) || 'השליחה נכשלה');
@@ -270,7 +283,7 @@ async function closeSession(){
       { method:'PUT', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(PortalChat.closeMark({ at, by: 'בית-הדפוס' })) });
     if (!r.ok) throw new Error(PortalChat.errorText(r.status));
-    await pull();
+    await pull(true);
   } catch(e){ say((e && e.message) || 'סגירת-השיחה נכשלה'); }
 }
 
@@ -351,7 +364,9 @@ window.addEventListener('focus', () => { if (_sel) markSeen(); });
 (function boot(){
   notifSetup();
   const start = () => {
-    pull(); _timer = setInterval(pull, PortalChat.POLL_MS);
+    pull(true); _timer = setInterval(pull, PortalChat.POLL_MS);
+    /* חזרה ללשונית → משיכה מיידית (הפולינג מדלג ברקע) */
+    document.addEventListener('visibilitychange', function(){ if (!document.hidden) pull(true); });
     if ('Notification' in window && Notification.permission === 'granted') pushEnroll(false);
   };
   let tries = 0;

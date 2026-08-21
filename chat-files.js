@@ -56,12 +56,24 @@
     return b < 1024 * 1024 ? (Math.round(b / 1024) + ' KB') : ((b / (1024 * 1024)).toFixed(1) + ' MB');
   }
 
+  /* ⚠️ אבטחה (21/08/2026): ה-fileUrl מגיע מהצד-השני דרך RTDB ומרונדר
+     גם למסכי-הצוות. ‏esc מקודד ‎&<>"‎ אך **אינו** חוסם סכימת ‎javascript:‎ —
+     לחיצה על קישור כזה הייתה מריצה קוד בהקשר-הצוות. חוקי-RTDB כבר
+     מחייבים https של ה-Storage שלנו; זו הגנת-עומק שנייה, גם על הודעות
+     ישנות. כתובת שאינה שלנו — הקובץ פשוט אינו מוצג כקישור. */
+  function safeUrl(u) {
+    var s = str(u);
+    return /^https:\/\/firebasestorage\.googleapis\.com\//.test(s) ? s : '';
+  }
+
   /* רינדור הקובץ בתוך בועת-ההודעה — esc של המסך הקורא, כמו IssueGrid.
      תמונה: תמונונת שנפתחת בלשונית; אחר: שורת-📎. */
   function fileHtml(m, esc) {
     var e = esc || str;
     if (!m || !str(m.fileUrl)) return '';
-    var url = e(m.fileUrl);
+    var raw = safeUrl(m.fileUrl);
+    if (!raw) return '<span class="chatFileBad" style="color:#b91c1c;font-size:.76rem">📎 קובץ בכתובת לא-מוכרת — לא מוצג</span>';
+    var url = e(raw);
     if (/^image\//.test(str(m.fileType)))
       return '<a href="' + url + '" target="_blank" rel="noopener" class="chatImgA">'
         + '<img class="chatImg" src="' + url + '" alt="' + e(m.fileName || 'תמונה') + '" loading="lazy"></a>';
@@ -79,6 +91,10 @@
         var xhr = new XMLHttpRequest();
         xhr.open('POST', 'https://firebasestorage.googleapis.com/v0/b/' + BUCKET + '/o?name=' + encodeURIComponent(path));
         xhr.setRequestHeader('Content-Type', str(file.type) || 'application/octet-stream');
+        /* ⚠️ פסק-זמן (ביקורת 21/08/2026): ברשת מסוננת חיבור שנתקע השאיר
+           את הצ'אט על "מעלה…" לנצח. XHR.timeout יורה ontimeout. */
+        xhr.timeout = 90000;
+        xhr.ontimeout = function () { reject(new Error('פג-זמן בהעלאת הקובץ — בדקו את החיבור')); };
         try { if (t) xhr.setRequestHeader('Authorization', 'Firebase ' + t); } catch (e) {}
         xhr.upload.onprogress = function (ev) { if (ev.lengthComputable && onProgress) onProgress(ev.loaded, ev.total); };
         xhr.onload = function () {
@@ -98,5 +114,5 @@
 
   return { BUCKET: BUCKET, MAX_IMG: MAX_IMG, MAX_PDF: MAX_PDF,
            accepts: accepts, safeName: safeName, chatPath: chatPath,
-           msgFields: msgFields, sizeLabel: sizeLabel, fileHtml: fileHtml, upload: upload };
+           msgFields: msgFields, sizeLabel: sizeLabel, safeUrl: safeUrl, fileHtml: fileHtml, upload: upload };
 });

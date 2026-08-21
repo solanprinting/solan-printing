@@ -27,9 +27,9 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787327216"></script>
+<script src="pdfjs-engine.js?v=1787329952"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787327216"></script>
+<script src="issue-grid.js?v=1787329952"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -39,28 +39,28 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787327216"></script>
-<script src="chat-alert.js?v=1787327216"></script>
+<script src="portal-chat.js?v=1787329952"></script>
+<script src="chat-alert.js?v=1787329952"></script>
 <!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787327216"></script>
+<script src="push-client.js?v=1787329952"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
-<script src="chat-files.js?v=1787327216"></script>
-<script src="shop-issue.js?v=1787327216"></script>
-<script src="page-marks.js?v=1787327216"></script>
+<script src="chat-files.js?v=1787329952"></script>
+<script src="shop-issue.js?v=1787329952"></script>
+<script src="page-marks.js?v=1787329952"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787327216"></script>
-<script src="kontres-split.js?v=1787327216"></script>
+<script src="page-box.js?v=1787329952"></script>
+<script src="kontres-split.js?v=1787329952"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787327216"></script>
-<script src="auth-client.js?v=1787327216"></script>
+<script src="firebase-auth.bundle.js?v=1787329952"></script>
+<script src="auth-client.js?v=1787329952"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787327216" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787329952" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2704,9 +2704,14 @@ function _shChatNode(slug){ return `${_FBURL}/${PortalChat.chatPath(slug)}`; }
 async function _shChatLoad(force){
   if (!_shChat.slug) return;
   if (document.hidden && !force) return;
+  /* ⚠️ ביקורת 21/08/2026 — מרוץ: מעבר-לקוח בזמן המשיכה התלויה רינדר את
+     שיחת לקוח-א' תחת הכותרת של ב', וכתב את חותמת-הצפייה של א' על ב'.
+     לוכדים את ה-slug שנשלח ומוותרים אם הפעיל התחלף. */
+  var reqSlug = _shChat.slug;
   var obj = null, st = 0;
-  try { var r = await fetch(await _au(_shChatNode(_shChat.slug) + '.json')); st = r.status; obj = await r.json(); }
-  catch(e){ console.warn('טעינת השיחה נכשלה', e); _shChatFail(0, null); return; }
+  try { var r = await fetch(await _au(_shChatNode(reqSlug) + '.json')); st = r.status; obj = await r.json(); }
+  catch(e){ console.warn('טעינת השיחה נכשלה', e); if (_shChat.slug === reqSlug) _shChatFail(0, null); return; }
+  if (_shChat.slug !== reqSlug) return;   // הצוות עבר ללקוח אחר — התשובה הזו כבר לא רלוונטית
   /* ⚠️ **דחיית-הרשאה מגיעה כגוף-JSON תקין** ‎{"error":"Permission denied"}‎,
      ולכן בלי הבדיקה הזו היא נראית בדיוק כמו שיחה ריקה — וזו הייתה
      התקלה שדווחה: הודעות לא הגיעו, ובשני הצדדים המסך שתק. */
@@ -2788,10 +2793,14 @@ async function _shChatMarkSeen(){
   var last = PortalChat.lastMessage(_shChat.msgs);
   if (!last || Number(last.at) <= _shChat.seen) return;
   var at = Number(last.at);
-  _shChat.seen = at; _shUnread[_shChat.slug] = 0;
+  var slugAt = _shChat.slug;
   try {
-    await fetch(await _au(`${_FBURL}/${PortalChat.seenPath(_shChat.slug, PortalChat.SHOP)}.json`),
+    /* ⚠️ ביקורת 21/08/2026: מצב-מסך אחרי אישור-שרת בלבד — סימון מקומי
+       לפני r.ok על 403 מחק את התג, והמשיכה הבאה החזירה אותו (הבהוב). */
+    var r = await fetch(await _au(`${_FBURL}/${PortalChat.seenPath(slugAt, PortalChat.SHOP)}.json`),
       { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(at) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (_shChat.slug === slugAt){ _shChat.seen = at; _shUnread[slugAt] = 0; }
   } catch(e){ console.warn('סימון-צפייה בשיחה נכשל (לא חיוני)', e); }
 }
 /* קובץ/צילום בשיחה (בקשת-בעלים 21/08/2026) — 📎 או הדבקה על התיבה */

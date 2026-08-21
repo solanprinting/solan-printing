@@ -20,40 +20,40 @@ window.addEventListener('appinstalled', function(){
 </script>
 <script src="lib-loader.js"></script>
 <!-- הקפצות-רקע גם כשהחלון סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787327216"></script>
+<script src="push-client.js?v=1787329952"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף לשלושת המסכים -->
-<script src="chat-files.js?v=1787327216"></script>
+<script src="chat-files.js?v=1787329952"></script>
 <!-- מנוע-הדפדוף העדכני (מסכות-שקיפות) — ראה customer-fold-preview -->
-<script src="pdfjs-engine.js?v=1787327216"></script>
+<script src="pdfjs-engine.js?v=1787329952"></script>
 <!-- פריסת-הגיליון — **אותו מבנה בדיוק** כמו מסך-הדפוס (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787327216"></script>
+<script src="issue-grid.js?v=1787329952"></script>
 <!-- אותו כלל "גיליון סגור" שבצד הדפוס — עבודה שהושלמה/נסגרה נעולה לשינויים -->
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: מחליפה קישור-ותיק ב-Custom Token ומספקת slug/customer/authToken.
      כל יתר לוגיקת-הפורטל נשארת בקובץ הזה ללא שינוי. -->
-<script src="portal-download.js?v=1787327216"></script>
-<script src="page-add.js?v=1787327216"></script>
-<script src="portal-context.js?v=1787327216"></script>
-<script src="portal-return.js?v=1787327216"></script>
-<script src="portal-chat.js?v=1787327216"></script>
+<script src="portal-download.js?v=1787329952"></script>
+<script src="page-add.js?v=1787329952"></script>
+<script src="portal-context.js?v=1787329952"></script>
+<script src="portal-return.js?v=1787329952"></script>
+<script src="portal-chat.js?v=1787329952"></script>
 <!-- ⚠️ מוגש מה-origin שלנו (§2): מסך-לקוח על אינטרנט מסונן לא ייפול על מקור חיצוני. -->
-<script src="chat-alert.js?v=1787327216"></script>
+<script src="chat-alert.js?v=1787329952"></script>
 <!-- ⚠️ סידור-עמודים בפורטל (14/08/2026): אותה שכבת-אריחים טהורה של מסך-
      הדפוס (shop-issue) + ציור-סימוני-העמודים (page-marks) — כדי שהלקוח
      יראה בדיוק את אותה מפת-גיליון ואותם סימונים שהדפוס רואה. שניהם
      מוגשים מה-origin שלנו (§2). -->
-<script src="shop-issue.js?v=1787327216"></script>
-<script src="cover-split.js?v=1787327216"></script>
-<script src="page-swap.js?v=1787327216"></script>
-<script src="rip-load.js?v=1787327216"></script>
-<script src="page-replace.js?v=1787327216"></script>
-<script src="page-marks.js?v=1787327216"></script>
+<script src="shop-issue.js?v=1787329952"></script>
+<script src="cover-split.js?v=1787329952"></script>
+<script src="page-swap.js?v=1787329952"></script>
+<script src="rip-load.js?v=1787329952"></script>
+<script src="page-replace.js?v=1787329952"></script>
+<script src="page-marks.js?v=1787329952"></script>
 <!-- ⚠️ page-box: איזו תיבה היא "העמוד". עד 19/08 הפורטל מדד CropBox,
      הדפדוף MediaBox ואפוגי TrimBox — שלוש מסקנות סותרות לאותו עמוד. -->
-<script src="page-box.js?v=1787327216"></script>
+<script src="page-box.js?v=1787329952"></script>
 <!-- ⚠️ קו-שערה ומרחב-צבע: אפוגי תיקן 88 קווים ל-0.25pt ובפורטל היה שקט.
      קו-שערה עלול למחוק אותיות מהגיליון — לכן הוא אזהרה, ו-RGB רק מידע. -->
-<script src="preflight-ink.js?v=1787327216"></script>
+<script src="preflight-ink.js?v=1787329952"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -647,6 +647,18 @@ let KEY  = params.get('k') || '';
 let SLUG = _slug(CUST);
 let _portalRec = null;
 
+/* ⚠️ 21/08/2026 (ביקורת): קישור-הכניסה המלא לשחזור-זהות (cust+k).
+   ‏PortalContext מסיר את ה-k מהכתובת אחרי הכניסה, ולכן מניפסט-ההתקנה
+   ויעד-הפוש **חייבים** להיבנות מכאן — ‏location.href כבר נקי מ-k,
+   ואפליקציה/הקפצה שנפתחות בלעדיו נוחתות על מסך-הנעילה. */
+function _entryUrl(){
+  var u = new URL(location.href);
+  u.searchParams.delete('view');
+  if (CUST) u.searchParams.set('cust', CUST);
+  if (KEY)  u.searchParams.set('k', KEY);
+  return u.toString();
+}
+
 (async function init(){
   showOv('טוען את הפורטל…', true);
   /* ⚠️ שכבת-הזהות **לפני הכול**: מחליפה קישור-ותיק ב-Custom Token או
@@ -684,10 +696,9 @@ let _portalRec = null;
   try {
     if (KEY) {
       var _mBase = location.href.replace(/[^/]*(\?.*)?$/, '');
-      var _mStart = new URL(location.href); _mStart.searchParams.delete('view');
       var _man = {
         name: 'הפורטל של ' + CUST + ' — סולן הדפסות', short_name: CUST,
-        id: 'solan-portal-' + SLUG, start_url: _mStart.toString(), scope: _mBase,
+        id: 'solan-portal-' + SLUG, start_url: _entryUrl(), scope: _mBase,
         display: 'standalone', dir: 'rtl', lang: 'he',
         background_color: '#faf8f2', theme_color: '#2d3561',
         icons: [
@@ -2862,8 +2873,9 @@ function _chatAlertClear(){
 async function _pushEnroll(loud){
   try {
     if (!window.SolanPush || !SolanPush.supported() || !window.PortalContext) return;
-    var u = new URL(location.href); u.searchParams.delete('view');
-    var res = await SolanPush.enable(function(){ return PortalContext.authToken(); }, u.toString());
+    /* היעד = קישור-הכניסה המלא (cust+k), אחרת לחיצה על ההקפצה נוחתת
+       על מסך-הנעילה — ביקורת 21/08/2026. */
+    var res = await SolanPush.enable(function(){ return PortalContext.authToken(); }, _entryUrl());
     if (!res.ok){
       console.warn('הרשמת-רקע להקפצות לא הושלמה:', res.why);
       if (loud) toast('⚠️ הקפצות-רקע לא הופעלו: ' + res.why);
@@ -3042,7 +3054,10 @@ async function _chatSend(fileFields){
   }
 }
 function _chatStart(){
-  var b = $('chat-send'); if (b) b.onclick = _chatSend;
+  /* ⚠️ 21/08/2026 (ביקורת): ‏onclick=_chatSend העביר את אירוע-העכבר
+     כפרמטר fileFields — הודעה ריקה עקפה את שומר-הריקנות ואת שומר-הכפילות.
+     עוטפים כדי ש-_chatSend ייקרא בלי ארגומנטים. */
+  var b = $('chat-send'); if (b) b.onclick = function(){ _chatSend(); };
   var ta = $('chat-input');
   /* ⚠️ ‏Enter שולח · Shift+Enter שורה-חדשה — הצפייה המקובלת בכל שיחה. */
   if (ta) ta.onkeydown = function(e){
@@ -3098,10 +3113,9 @@ function _chatStart(){
     cn.onclick = function(){
       Notification.requestPermission().then(function(){
         cn.style.display = (Notification.permission === 'default') ? '' : 'none';
-        if (Notification.permission === 'granted'){
-          toast('🔔 הקפצות פועלות — הודעה מבית-הדפוס תקפוץ על המסך');
-          _pushEnroll(true);
-        }
+        /* ⚠️ ביקורת 21/08/2026: אין "הקפצות פועלות" לפני שההרשמה לשרת
+           אושרה (כלל-1). ‏_pushEnroll(true) הוא שמדווח — הצלחה או כשל. */
+        if (Notification.permission === 'granted') _pushEnroll(true);
       });
     };
   }

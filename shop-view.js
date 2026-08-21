@@ -293,11 +293,27 @@
     return { at: at, name: String(p.uploading.name || ''), pages: _i(p.uploading.pages) || 0 };
   }
 
+  /* הפעילות האחרונה על הגיליון — יצירה, אישור, ואישור-ריצה.
+     ⚠️ 21/08/2026 (ביקורת): נדרש כדי שסילוק-מהתיבה יהיה **זמני** ולא
+     לנצח — פעילות חדשה שאחרי הסילוק מחזירה את הפריט. */
+  function latestActivity(p){
+    if (!p) return 0;
+    var t = Math.max(_i(p.createdAt), _i(p.approvedAt), _i(p.customerApprovedAt), _i(p.customerDoneAt));
+    var parts = p.parts || {};
+    for (var k in parts){ var pt = parts[k]; if (pt) t = Math.max(t, _i(pt.approvedAt), _i(pt.correctedAt)); }
+    return t;
+  }
   /* האם הצוות כבר "סילק" את הפריט מהתיבה.
      ⚠️ 21/08/2026 (אישור-בעלים): ‏inboxDismissedAt נפרד מ-shopSeenAt —
      סילוק מהתיבה אינו "קיבלנו את הקבצים" שהלקוח רואה בפורטל. ‏anySeen
-     נשאר נספר: מה שסומן-נצפה ממילא ירד מהתיבה, כמו עד היום. */
-  function dismissedFromInbox(p){ return anySeen(p) || !!(p && p.inboxDismissedAt); }
+     נשאר נספר: מה שסומן-נצפה ממילא ירד מהתיבה, כמו עד היום.
+     ⚠️ הסילוק **תקף רק לפעילות שקדמה לו** — העלאה/כשל שאחריו מחזירים. */
+  function dismissedFromInbox(p){
+    if (!p) return false;
+    if (anySeen(p)) return true;
+    var d = _i(p.inboxDismissedAt);
+    return d > 0 && latestActivity(p) <= d;
+  }
 
   function inboxBoard(customers, now){
     var inbox = [], waiting = [], inwork = [];
@@ -312,8 +328,10 @@
            חוזר להופיע — זו פעילות חדשה, לא "מה שכבר טיפלנו בו". */
         if (st === 'stub' && dismissedFromInbox(p) && !up) return;
         /* ⚠️ 21/08/2026: סילוק מפורש (inboxDismissedAt) — בלי לכתוב ללקוח
-           "קיבלנו". חדש שהוסר עובר ל"ממתין לטיפול"; כשל/לא-הושלם יורד. */
-        if (!up && p.inboxDismissedAt) {
+           "קיבלנו". חדש שהוסר עובר ל"ממתין לטיפול"; כשל/לא-הושלם יורד.
+           ⚠️ רק אם הסילוק עדיין תקף (אין פעילות חדשה אחריו) — אחרת
+           העלאה חוזרת אחרי סילוק הייתה נעלמת לנצח. */
+        if (!up && dismissedFromInbox(p) && !anySeen(p)) {
           if (st === 'stub' || st === 'failed') return;
           if (st === 'new') st = 'seen';
         }

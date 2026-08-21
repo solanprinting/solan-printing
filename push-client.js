@@ -27,6 +27,18 @@
     return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
   }
 
+  /* ⚠️ פסק-זמן על טעינה חיצונית (ביקורת 21/08/2026): ברשת מסוננת
+     (הלקוחות!) ‏subscribe מול FCM או fetch מול cloudfunctions.net יכולים
+     ליפול בשקט וההבטחה נשארת תלויה לנצח. עוטפים כל שלב חיצוני. */
+  function withTimeout(promise, ms, label) {
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      var tid = setTimeout(function () { if (!done) { done = true; reject(new Error('פסק-זמן: ' + label)); } }, ms);
+      Promise.resolve(promise).then(function (v) { if (!done) { done = true; clearTimeout(tid); resolve(v); } },
+                                    function (e) { if (!done) { done = true; clearTimeout(tid); reject(e); } });
+    });
+  }
+
   /* getToken: async ‏ID-Token של הצד הקורא (לקוח: PortalContext.authToken;
      צוות: _fbAuthToken). ‏url: מה ייפתח בלחיצה על ההקפצה. */
   async function enable(getToken, url) {
@@ -37,20 +49,21 @@
     catch (e) { console.error('רישום עובד-ההקפצות נכשל', e); return { ok: false, why: 'רישום עובד-ההקפצות נכשל' }; }
     var sub;
     try {
-      sub = await reg.pushManager.subscribe({ userVisibleOnly: true,
-        applicationServerKey: b64ToBytes(PUBLIC_KEY) });
+      sub = await withTimeout(reg.pushManager.subscribe({ userVisibleOnly: true,
+        applicationServerKey: b64ToBytes(PUBLIC_KEY) }), 12000, 'מנוי-FCM');
     } catch (e) {
       console.error('יצירת מנוי-הדחיפה נכשלה', e);
-      return { ok: false, why: 'הדפדפן סירב למנוי-דחיפה' };
+      return { ok: false, why: 'הדפדפן/הרשת סירבו למנוי-דחיפה' };
     }
     var t = null;
     try { t = await getToken(); } catch (e) { console.error('אסימון-זהות להרשמה לא הושג', e); }
     if (!t) return { ok: false, why: 'אין זהות מאומתת — נסו לרענן' };
     var r;
     try {
-      r = await fetch(FN, { method: 'POST',
+      r = await withTimeout(fetch(FN, { method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t },
-        body: JSON.stringify({ data: { sub: sub.toJSON(), url: String(url || location.href) } }) });
+        body: JSON.stringify({ data: { sub: sub.toJSON(), url: String(url || location.href) } }) }),
+        12000, 'שרת-ההרשמה');
     } catch (e) { return { ok: false, why: 'אין חיבור לשרת-ההרשמה' }; }
     /* ⚠️ ‏r.ok נבדק — 401/403 הם תגובה תקינה, לא חריגה */
     if (!r.ok) {
