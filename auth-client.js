@@ -144,7 +144,9 @@
   var PREPRESS_HOME  = STAFF_HOME;
   /* ⚠️ ‏page-editor נוסף 14/08/2026 — עורך-העמודים הוא בדיוק עבודת קדם-דפוס
      (גלישות/מירכוז/הזזת-מודעה). הרשימה-התאומה ב-prepress-role-tests. */
-  var PREPRESS_PAGES = [STAFF_HOME, 'proof-admin.html', 'customer-fold-preview.html', 'imposition-tool.html', 'press4.html', 'page-editor.html'];
+  /* ‏shop-chat.html — מרכז-השיחות (21/08/2026): נפתח כחלון-צף מ-proof-admin,
+     אותו קהל בדיוק. ל-admin/worker הוא פתוח דרך ברירת-המחדל של staff. */
+  var PREPRESS_PAGES = [STAFF_HOME, 'proof-admin.html', 'customer-fold-preview.html', 'imposition-tool.html', 'press4.html', 'page-editor.html', 'shop-chat.html'];
 
   /* סוג החשבון לפי ה-claims. ⚠️ חשבון שנוצר בלי הזמנה — 'pending':
      לא נכשל בשקט ולא מגיע לשום מסך. */

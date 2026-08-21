@@ -293,9 +293,11 @@
     return { at: at, name: String(p.uploading.name || ''), pages: _i(p.uploading.pages) || 0 };
   }
 
-  /* האם הצוות כבר "סילק" את הפריט מהתיבה. משתמשים ב-shopSeenAt הקיים
-     (אותו שדה של "👁 נצפה") — בלי להוסיף schema. */
-  function dismissedFromInbox(p){ return anySeen(p); }
+  /* האם הצוות כבר "סילק" את הפריט מהתיבה.
+     ⚠️ 21/08/2026 (אישור-בעלים): ‏inboxDismissedAt נפרד מ-shopSeenAt —
+     סילוק מהתיבה אינו "קיבלנו את הקבצים" שהלקוח רואה בפורטל. ‏anySeen
+     נשאר נספר: מה שסומן-נצפה ממילא ירד מהתיבה, כמו עד היום. */
+  function dismissedFromInbox(p){ return anySeen(p) || !!(p && p.inboxDismissedAt); }
 
   function inboxBoard(customers, now){
     var inbox = [], waiting = [], inwork = [];
@@ -309,6 +311,12 @@
         /* פריט שהצוות סילק מהתיבה יורד ממנה. ⚠️ אם הלקוח מעלה **כרגע**, הוא
            חוזר להופיע — זו פעילות חדשה, לא "מה שכבר טיפלנו בו". */
         if (st === 'stub' && dismissedFromInbox(p) && !up) return;
+        /* ⚠️ 21/08/2026: סילוק מפורש (inboxDismissedAt) — בלי לכתוב ללקוח
+           "קיבלנו". חדש שהוסר עובר ל"ממתין לטיפול"; כשל/לא-הושלם יורד. */
+        if (!up && p.inboxDismissedAt) {
+          if (st === 'stub' || st === 'failed') return;
+          if (st === 'new') st = 'seen';
+        }
         if (c.hasActiveCard && st !== 'stub' && st !== 'failed') st = 'inwork';
         var item = { customer: c.name, p: p, kind: uploadKind(p), status: st,
                      at: _i(p.createdAt) || _i(p.approvedAt) || 0, files: realFileCount(p),

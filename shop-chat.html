@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>💬 מרכז-שיחות | סולן הדפסות</title>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     shop-chat.html — מרכז-השיחות של הדפוס (בקשת-בעלים 21/08/2026):
+     "חלונית נפרדת שבה אפשר לנהל שיחות עם לקוחות שונים באותה החלונית".
+     נפתח כחלון-צף מ-proof-admin (💬 מרכז-שיחות) וחי לבד: רשימת-שיחות
+     מימין, השיחה הפתוחה משמאל, והקפצות-מערכת על הודעות נכנסות.
+     ⚠️ אפס לוגיקת-שיחה חדשה: הכול PortalChat/ChatAlert — אותם מודולים
+     של proof-admin והפורטל. מסך חדש עם לוגיקה משלו היה נפרד מהם בשקט.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script src="portal-chat.js?v=__APP_VERSION__"></script>
+<script src="chat-alert.js?v=__APP_VERSION__"></script>
+<!-- ⚠️ שומר-הכניסה לפני הסקריפט שמבקש אסימון — כמו בכל מסכי-הצוות. -->
+<script src="firebase-auth.bundle.js?v=__APP_VERSION__"></script>
+<script src="auth-client.js?v=__APP_VERSION__"></script>
+<!-- ⚠️ enforce: מסך-צוות שקורא נתונים פנימיים; אין נפילה אנונימית. -->
+<script src="auth-guard.js?v=__APP_VERSION__" data-page="shop-chat.html" data-mode="enforce"></script>
+<style>
+  :root { --press:#2d3561; --gold:#c9a84c; --line:#e5e7eb; --bg:#faf8f2; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Heebo','Segoe UI',Arial,sans-serif; background:var(--bg); color:#1f2937;
+         height:100vh; display:flex; flex-direction:column; }
+  header { background:var(--press); color:#fff; padding:9px 14px; display:flex; gap:10px; align-items:center; flex:none; }
+  header h1 { font-size:1rem; margin:0; font-weight:900; }
+  header .sp { flex:1; }
+  .hBtn { border:1px solid rgba(255,255,255,.35); background:transparent; color:#fff; border-radius:8px;
+          padding:4px 10px; font-family:inherit; font-size:.8rem; font-weight:700; cursor:pointer; }
+  .hBtn:hover { background:rgba(255,255,255,.12); }
+  main { flex:1; display:flex; min-height:0; }
+  /* רשימת-השיחות — מימין (RTL) */
+  #list { width:270px; flex:none; border-inline-start:1px solid var(--line); background:#fff; overflow-y:auto; }
+  .cItem { padding:10px 12px; border-bottom:1px solid #f1f3f7; cursor:pointer; }
+  .cItem:hover { background:#faf8f2; }
+  .cItem.on { background:#fdf6e3; border-inline-end:3px solid var(--gold); }
+  .cName { font-weight:800; font-size:.9rem; display:flex; align-items:center; gap:6px; }
+  .cPrev { font-size:.76rem; color:#6b7280; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cTime { font-size:.68rem; color:#9ca3af; }
+  .cBadge { background:#dc2626; color:#fff; border-radius:999px; font-size:.68rem; font-weight:900;
+            padding:1px 7px; margin-inline-start:auto; }
+  /* השיחה */
+  #thread { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #tHead { padding:9px 14px; border-bottom:1px solid var(--line); background:#fff; display:flex;
+           align-items:center; gap:9px; font-weight:900; flex:none; }
+  #tMsgs { flex:1; overflow-y:auto; padding:12px 14px; display:flex; flex-direction:column; gap:7px; }
+  .day { align-self:center; font-size:.7rem; color:#9ca3af; background:#eef0f5; border-radius:999px; padding:2px 11px; }
+  .msg { max-width:72%; padding:7px 11px; border-radius:12px; font-size:.88rem; white-space:pre-wrap; word-break:break-word; }
+  .msg.mine { align-self:flex-start; background:#e0e7ff; border-end-start-radius:3px; }
+  .msg.theirs { align-self:flex-end; background:#fff; border:1px solid var(--line); border-end-end-radius:3px; }
+  .meta { font-size:.66rem; color:#9ca3af; margin-top:3px; }
+  #composer { flex:none; display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--line); background:#fff; }
+  #inp { flex:1; resize:none; border:1.5px solid var(--line); border-radius:10px; padding:8px 11px;
+         font-family:inherit; font-size:.9rem; min-height:42px; max-height:120px; }
+  #send { border:0; background:var(--press); color:#fff; border-radius:10px; padding:0 18px;
+          font-family:inherit; font-weight:800; cursor:pointer; }
+  #send:disabled { opacity:.5; }
+  .empty { color:#9ca3af; text-align:center; margin-top:40px; font-size:.9rem; }
+  #err { display:none; background:#fef2f2; color:#b91c1c; border-bottom:1.5px solid #fca5a5;
+         padding:7px 14px; font-size:.82rem; font-weight:700; }
+  details.hist { margin:6px 14px; }
+  details.hist summary { cursor:pointer; font-size:.76rem; font-weight:800; color:#6b7280; }
+  .sess { border:1px solid var(--line); border-radius:9px; padding:8px; background:#fafafa; margin-top:7px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>💬 מרכז-שיחות עם לקוחות</h1>
+  <span class="sp"></span>
+  <button class="hBtn" id="notifBtn" style="display:none">🔔 הפעל הקפצות</button>
+  <span id="stat" style="font-size:.74rem;opacity:.8"></span>
+</header>
+<div id="err"></div>
+<main>
+  <div id="thread">
+    <div id="tHead"><span id="tName">בחרו שיחה מהרשימה ←</span>
+      <span class="sp" style="flex:1"></span>
+      <button class="hBtn" id="closeBtn" style="display:none;border-color:#cbd5e1;color:#475569;background:#f8fafc" title="סוגר את השיחה הפעילה לארכיון — ההודעות נשמרות בהיסטוריה">✓ סגור שיחה</button>
+    </div>
+    <div id="tMsgs"><div class="empty">אין שיחה פתוחה</div></div>
+    <div id="hist"></div>
+    <div id="composer" style="display:none">
+      <textarea id="inp" placeholder="כתבו הודעה ללקוח… (Enter לשליחה)"></textarea>
+      <button id="send">שלח</button>
+    </div>
+  </div>
+  <div id="list"><div class="empty">טוען שיחות…</div></div>
+</main>
+<script>
+'use strict';
+const _FBURL = 'https://solan-printing-default-rtdb.europe-west1.firebasedatabase.app';
+async function _au(url){
+  const t = window._fbAuthToken ? await _fbAuthToken() : null;
+  return t ? url + (url.indexOf('?') >= 0 ? '&' : '?') + 'auth=' + t : url;
+}
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* המפתח ב-portalChat הוא ה-slug; שם-תצוגה = ה-slug בלי קווים-תחתונים.
+   ⚠️ אין משיכת-לקוחות נוספת רק בשביל שם יפה — זה מסך-צף שנפתח הרבה. */
+const nameOf = slug => String(slug || '').replace(/_/g, ' ');
+
+let _all = null;          /* צילום portalChat המלא */
+let _sel = '';            /* ה-slug הפתוח */
+let _sending = false;
+let _timer = null;
+
+function say(err){
+  const e = document.getElementById('err');
+  if (!err){ e.style.display = 'none'; return; }
+  e.textContent = '⚠️ ' + err; e.style.display = '';
+}
+
+/* ── משיכה ─────────────────────────────────────────────────────────────
+   ⚠️ שלושה מצבים, לא שניים: יש · ריק · לא-הצלחנו-לטעון. דחיית-הרשאה של
+   RTDB היא גוף-JSON תקין — PortalChat.denied מזהה אותה. */
+async function pull(){
+  let r, body = null;
+  try {
+    r = await fetch(await _au(_FBURL + '/portalChat.json'));
+    body = await r.json();
+  } catch(e){ say(PortalChat.errorText(0)); return; }
+  if (!r.ok || PortalChat.denied(body)){ say(PortalChat.errorText(r.status, body)); return; }
+  say('');
+  _all = body || {};
+  paintList();
+  if (_sel) paintThread(false);
+  alertScan();
+  document.getElementById('stat').textContent = '✓ ' + new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'});
+}
+
+function rowsOf(){
+  const out = [];
+  Object.keys(_all || {}).forEach(slug => {
+    const node = _all[slug] || {};
+    const msgs = PortalChat.list(node);
+    if (!msgs.length) return;
+    const seen = Number((node._seen && node._seen.shop) || 0);
+    out.push({ slug, msgs, node,
+      unread: PortalChat.unread(msgs, PortalChat.SHOP, seen),
+      lastAt: PortalChat.lastMessage(msgs).at,
+      preview: PortalChat.preview(msgs, 34) });
+  });
+  out.sort((a, b) => b.lastAt - a.lastAt);
+  return out;
+}
+
+function paintList(){
+  const rows = rowsOf();
+  const el = document.getElementById('list');
+  if (!rows.length){ el.innerHTML = '<div class="empty">אין עדיין שיחות עם לקוחות</div>'; return; }
+  el.innerHTML = rows.map(rw =>
+    `<div class="cItem${rw.slug === _sel ? ' on' : ''}" data-slug="${esc(rw.slug)}">
+      <div class="cName">${esc(nameOf(rw.slug))}${rw.unread ? `<span class="cBadge">${rw.unread}</span>` : ''}</div>
+      <div class="cPrev">${esc(rw.preview)}</div>
+      <div class="cTime">${esc(PortalChat.dayLabel(rw.lastAt, Date.now()))} · ${esc(PortalChat.timeLabel(rw.lastAt))}</div>
+    </div>`).join('');
+  el.querySelectorAll('[data-slug]').forEach(d => d.onclick = () => open(d.dataset.slug));
+}
+
+function open(slug){
+  _sel = slug;
+  document.getElementById('tName').textContent = '💬 ' + nameOf(slug);
+  document.getElementById('composer').style.display = '';
+  document.getElementById('closeBtn').style.display = '';
+  paintList();
+  paintThread(true);
+  markSeen();
+}
+
+function paintThread(scroll){
+  const node = (_all || {})[_sel] || {};
+  const msgs = PortalChat.activeOf(PortalChat.list(node), PortalChat.lastCloseAt(node));
+  const box = document.getElementById('tMsgs');
+  const stick = scroll || (box.scrollTop + box.clientHeight >= box.scrollHeight - 60);
+  if (!msgs.length){
+    box.innerHTML = '<div class="empty">שיחה חדשה — כתבו את ההודעה הראשונה 👇</div>';
+  } else {
+    box.innerHTML = PortalChat.groupByDay(msgs, Date.now()).map(g =>
+      `<div class="day">${esc(g.label)}</div>` + g.items.map(m => {
+        const mine = m.side === PortalChat.SHOP;
+        return `<div class="msg ${mine ? 'mine' : 'theirs'}">${esc(m.text)}
+          <div class="meta">${mine ? (m.by || 'אנחנו') : esc(nameOf(_sel))} · ${esc(PortalChat.timeLabel(m.at))}</div></div>`;
+      }).join('')).join('');
+  }
+  /* היסטוריית-שיחות שנסגרו — מקופלת, כמו במסך-הדפוס */
+  const ses = PortalChat.sessionsOf(PortalChat.list(node), node);
+  document.getElementById('hist').innerHTML = ses.length
+    ? `<details class="hist"><summary>🗂️ היסטוריית שיחות (${ses.length})</summary>` + ses.map(s2 =>
+        `<div class="sess"><div style="font-size:.7rem;color:#9ca3af;font-weight:800">✓ נסגרה ${esc(new Date(s2.at).toLocaleDateString('he-IL'))}</div>`
+        + s2.items.map(m => `<div class="msg ${m.side === PortalChat.SHOP ? 'mine' : 'theirs'}" style="max-width:100%">${esc(m.text)}<div class="meta">${esc(PortalChat.timeLabel(m.at))}</div></div>`).join('')
+        + '</div>').join('') + '</details>'
+    : '';
+  if (stick) box.scrollTop = box.scrollHeight;
+  if (document.hasFocus()) markSeen();
+}
+
+/* חותמת-הצפייה של הצד שלנו בלבד — כמו ב-proof-admin. */
+async function markSeen(){
+  const node = (_all || {})[_sel]; if (!node) return;
+  const last = PortalChat.lastMessage(PortalChat.list(node));
+  if (!last) return;
+  const seen = Number((node._seen && node._seen.shop) || 0);
+  if (last.at <= seen) return;
+  try {
+    await fetch(await _au(_FBURL + '/' + PortalChat.seenPath(_sel, PortalChat.SHOP) + '.json'),
+      { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(last.at) });
+    if (node._seen) node._seen.shop = last.at; else node._seen = { shop: last.at };
+    paintList();
+  } catch(e){ console.warn('סימון-צפייה נכשל (לא חיוני)', e); }
+}
+
+async function send(){
+  const ta = document.getElementById('inp');
+  const v = PortalChat.validate(ta.value);
+  if (!v.ok){ alert('⚠️ ' + v.message); return; }
+  if (_sending || !_sel) return;
+  _sending = true;
+  const btn = document.getElementById('send');
+  btn.disabled = true; btn.textContent = 'שולח…';
+  const at = Date.now();
+  try {
+    const r = await fetch(await _au(_FBURL + '/' + PortalChat.chatPath(_sel) + '/' + PortalChat.msgId(at) + '.json'),
+      { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(PortalChat.build({ side: PortalChat.SHOP, text: v.text, by: 'בית-הדפוס', at })) });
+    /* ⚠️ Firebase מחזיר 401/403 כתגובה תקינה — בלי הבדיקה כל שליחה "מצליחה" */
+    if (!r.ok) throw new Error(PortalChat.errorText(r.status));
+    ta.value = '';
+    await pull();
+  } catch(e){
+    /* הטקסט נשאר בתיבה — הלקוח של הצד שלנו לא מאבד את מה שכתב */
+    say((e && e.message) || 'השליחה נכשלה');
+  } finally { _sending = false; btn.disabled = false; btn.textContent = 'שלח'; }
+}
+
+/* סגירת-שיחה לארכיון — רק הדפוס סוגר (PortalChat.closePath). */
+async function closeSession(){
+  if (!_sel) return;
+  if (!confirm('לסגור את השיחה עם "' + nameOf(_sel) + '"?\nההודעות נשמרות בהיסטוריה; שיחה חדשה תתחיל נקייה.')) return;
+  const at = Date.now();
+  try {
+    const r = await fetch(await _au(_FBURL + '/' + PortalChat.closePath(_sel) + '/' + PortalChat.closeId(at) + '.json'),
+      { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(PortalChat.closeMark({ at, by: 'בית-הדפוס' })) });
+    if (!r.ok) throw new Error(PortalChat.errorText(r.status));
+    await pull();
+  } catch(e){ say((e && e.message) || 'סגירת-השיחה נכשלה'); }
+}
+
+/* ── הקפצות-מערכת על הודעות נכנסות — אותו ChatAlert של מסך-הדפוס ─────────
+   ⚠️ מפתח-סימון נפרד ('chatwin'): חלון-השיחות וה-proof-admin הם שני
+   דפדפנים מבחינת ההתראה, וסימון באחד לא משתיק את השני בכוונה. */
+let _marks = null;
+function loadMarks(){
+  if (_marks) return _marks;
+  try { _marks = JSON.parse(localStorage.getItem(ChatAlert.markKey(ChatAlert.SHOP, 'chatwin')) || '{}') || {}; }
+  catch(e){ _marks = {}; }
+  return _marks;
+}
+function saveMarks(m){ _marks = m; try { localStorage.setItem(ChatAlert.markKey(ChatAlert.SHOP, 'chatwin'), JSON.stringify(m)); } catch(e){} }
+function alertScan(){
+  if (!window.ChatAlert) return;
+  const scan = ChatAlert.scanShop(_all, loadMarks(), PortalChat.list);
+  if (!scan.alerts.length){ if (scan.baseline.length) saveMarks(scan.nextMarks); return; }
+  saveMarks(scan.nextMarks);
+  /* השיחה הפתוחה כשהחלון בפוקוס — הלקוח מולי, אין צורך בהקפצה */
+  const t = ChatAlert.shopAlertText(scan);
+  if (!t) return;
+  if (document.hasFocus() && t.slug === _sel) return;
+  ChatAlert.beep();
+  ChatAlert.notify({ title: t.title, body: t.body, tag: 'solan-chatwin-' + (t.slug || 'multi'),
+    onclick: function(){ try { window.focus(); } catch(e){} if (t.slug) open(t.slug); } });
+}
+
+/* כפתור-ההרשאה מוצג רק כשעוד לא הוחלט; הבקשה חייבת מחוות-משתמש. */
+function notifSetup(){
+  const b = document.getElementById('notifBtn');
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default'){
+    b.style.display = '';
+    b.onclick = () => Notification.requestPermission().then(() => { b.style.display = Notification.permission === 'default' ? '' : 'none'; });
+  }
+}
+
+document.getElementById('send').onclick = send;
+document.getElementById('closeBtn').onclick = closeSession;
+document.getElementById('inp').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+});
+window.addEventListener('focus', () => { if (_sel) markSeen(); });
+
+/* ⚠️ ההפעלה מחכה לשומר: בלי אסימון כל משיכה נדחית, וזה נראה כמו "אין
+   שיחות". auth-guard מפעיל את _fbAuthToken; מחכים לו בפולינג קצר. */
+(function boot(){
+  notifSetup();
+  const start = () => { pull(); _timer = setInterval(pull, PortalChat.POLL_MS); };
+  let tries = 0;
+  (function waitAuth(){
+    if (window._fbAuthToken) { start(); return; }
+    if (++tries > 100) { say('שומר-הכניסה לא נטען — רעננו את החלון'); return; }
+    setTimeout(waitAuth, 100);
+  })();
+})();
+</script>
+</body>
+</html>
