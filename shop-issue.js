@@ -584,7 +584,17 @@
        עמוד על האריח (ואף כ-0, שאינו עמוד קיים). מספר-עמוד הוא שלם חיובי;
        מה שאינו כזה — "לא ידוע", והמסך שואל במקום להציג מספר שקרי. */
     var n = parseInt(m[0], 10);
-    return (Number.isInteger(n) && n >= 1) ? n : null;
+    if (!(Number.isInteger(n) && n >= 1)) return null;
+    /* ⚠️ 21/08/2026 — **אותו שם-קובץ נקרא אחרת בשני צמתים.** ‏pageNoOf
+       החזיר 409 ל-"shavepirsum 409" ו-2026 ל-"עיתון 2026 ריצה 1", בעוד
+       ‎pagesOfName‎ — המפרק הראשי — פוסל את שניהם. ‏pageNoOf היא
+       **הנפילה-האחרונה** של ‎_fileSlot‎, ונפילה-אחרונה שמתירנית יותר
+       מהראשי היא בדיוק איך ש"עיתון 2026" נחת על עמוד-רפאים 2026.
+       הגבול זהה לזה של ‎pagesOfName‎: עד 400. ⚠️ זה גם מכסה שנה — כל
+       שנה (19xx/20xx) גדולה מ-400 — ולכן אין כאן כלל-שנה נפרד; כלל כזה
+       היה קוד-מת שמבטיח הגנה שאינו נותן (נתפס ב-bite-proof). */
+    if (n > 400) return null;
+    return n;
   }
 
   /* ── שם-קובץ → אילו עמודים (דיווח-בעלים 19/08/2026) ──────────────────────
@@ -706,6 +716,20 @@
     var m = marksFor(p, target)[String(n)];
     return (m && typeof m === 'object' && MARK_KINDS.indexOf(m.kind) >= 0) ? m : null;
   }
+  /* ⚠️ 21/08/2026 — **סימון על עמוד 7 בתוך ריצה נכתב ולא נראה.**
+     ‏proof-admin כותב ‎markPatch(target, pageIn)‎ — מספר-העמוד **בתוך**
+     הריצה (1..32) — אבל אריח-הריצה קרא ‎markOf(r, k, 1)‎ בלבד. מתוך 32
+     עמודים רק לעמוד 1 היה סימון שנראה, ו"דרוש החלפה" שהדפוס סימן נעלם
+     מהרשת ומהספירה. אריח-ריצה מייצג את כל עמודיה — אז הוא מציג את כולם. */
+  function marksIn(p, target) {
+    var all = marksFor(p, target), out = [];
+    Object.keys(all).forEach(function (k) {
+      var m = all[k];
+      if (m && typeof m === 'object' && MARK_KINDS.indexOf(m.kind) >= 0)
+        out.push({ page: parseInt(k, 10) || 0, kind: m.kind, note: str(m.note), at: num(m.at), spot: m.spot || null });
+    });
+    return out.sort(function (a, b) { return a.page - b.page; });
+  }
 
   /* ה-patch שכותב/מנקה סימון. ⚠️ kind=null מוחק (null ב-PATCH = מחיקה ב-RTDB).
      ‏spot מנורמל-וממוסגר ל-0..100 — ערך מחוץ-לטווח הוא באג-קורא, לא נתון. */
@@ -801,7 +825,10 @@
                       הגיליון שמור שגוי, או שהקובץ אינו הריצה שנאמר עליה.
                       נאמר במפורש — הרשת לא תסתיר את זה בחישוב. */
                    runPagesMismatch: (lr && lr.pages !== span) ? { got: span, want: lr.pages } : null,
-                   partId: k, pages: span, mark: markOf(r, k, 1) });
+                   /* ⚠️ ‎mark‎ = הסימון הראשון בריצה (תאימות לקוראים קיימים);
+                      ‎marks‎ = כולם, כי הדפוס מסמן עמוד **בתוך** הריצה. */
+                   partId: k, pages: span,
+                   marks: marksIn(r, k), mark: (marksIn(r, k)[0] || null) });
     });
     fileEntries(r).forEach(function (f, i) {
       /* ⚠️ 16/08/2026, בקשת-בעלים: שיבוץ-מחדש שומר את **שם-הקובץ המקורי**
@@ -843,6 +870,24 @@
        ⚠️ אריח-ריצה מכסה את **עמודי-הקונטרס שלו** (‎seq‎), ולא טווח רציף:
        ריצה 1 מכסה 1–4 ו-69–72, ולא 1–8. אין פריסה → נופלים לטווח רציף
        (התנהגות קודמת), עם תקרה 400 כמו במסלול עיתון-מלא. */
+    /* ⚠️ 21/08/2026 — **שתי תביעות על אותה משבצת, והמפה שתקה.** כפולה
+       "עמודים 4-5" יחד עם "עמוד 5" נתנו רשת שנראית מלאה (8 אריחים, אפס
+       חסרים), בזמן שההורדה מייצרת 9 עמודים והדפוס מקבל עמוד עודף בלי
+       לדעת מאיפה. אין הכרעה נכונה — רק הדפוס יודע איזו גרסה נכונה — אז
+       מסמנים את האריחים המתנגשים ומציפים למסך במקום להסתיר בחישוב. */
+    var _claim = {};
+    tiles.forEach(function (t, ti) {
+      var nos = (t.seq && t.seq.length) ? t.seq : (t.pageNo >= 1 ? [t.pageNo] : []);
+      nos.forEach(function (q) { (_claim[q] = _claim[q] || []).push(ti); });
+    });
+    Object.keys(_claim).forEach(function (q) {
+      if (_claim[q].length < 2) return;
+      _claim[q].forEach(function (ti) {
+        var t = tiles[ti];
+        t.slotClash = (t.slotClash || []).concat([num(q)]);
+      });
+    });
+
     var have = {};
     tiles.forEach(function (t) {
       if (t.seq && t.seq.length) { t.seq.forEach(function (q) { have[q] = true; }); return; }
@@ -1053,7 +1098,7 @@
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
-    pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, markPatch: markPatch,
+    pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, marksIn: marksIn, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
     runNoOfName: runNoOfName, renameRunNo: renameRunNo, runRenumberPatch: runRenumberPatch,

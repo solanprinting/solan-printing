@@ -172,6 +172,10 @@
        נכון; מה שלא-ודאי הוא **המפה**, ואומרים זאת במקום להשתיק. */
     if (o.uncertain) bits.push('<b style="color:#b91c1c">⚠️ יש כפולות בקובץ — '
       + 'מספרי-העמודים במפה אינם ודאיים (ההורדה מפצלת נכון)</b>');
+    /* ⚠️ שני קבצים על אותה משבצת. הרשת נראית מלאה, אבל ההורדה תיתן עמוד
+       עודף — ורק הדפוס יודע איזו גרסה נכונה. אין הכרעה אוטומטית. */
+    if (o.clashes && o.clashes.length) bits.push('<b style="color:#b91c1c">⚠️ שני קבצים על עמ׳ '
+      + o.clashes.join(' · ') + ' — בחרו איזה מהם נכון (ההורדה תיתן עמוד עודף)</b>');
     return '<div class="isGridT">' + bits.join(' · ')
       + (o.hint ? ' — ' + esc(o.hint) : '')
       + _s(o.extra) + '</div>';
@@ -217,6 +221,13 @@
       esc: esc, hint: ctx.hint, extra: ctx.headExtra,
       gotPages: gotPages, totalPages: ctx.totalPages, marked: marked,
       uncertain: tiles.some(function (t) { return t.invented; }),
+      clashes: (function () {
+        var seen = {}, out2 = [];
+        tiles.forEach(function (t) {
+          (t.slotClash || []).forEach(function (q) { if (!seen[q]) { seen[q] = 1; out2.push(q); } });
+        });
+        return out2.sort(function (a, b) { return a - b; });
+      })(),
       runs: grid && grid.ok ? grid.runs.length : 0,
       gotRuns: grid && grid.ok ? grid.gotRuns : 0,
       sheet: grid && grid.ok ? grid.sheet : 0,

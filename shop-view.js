@@ -335,7 +335,13 @@
           if (st === 'stub' || st === 'failed') return;
           if (st === 'new') st = 'seen';
         }
-        if (c.hasActiveCard && st !== 'stub' && st !== 'failed') st = 'inwork';
+        /* ⚠️ 21/08/2026 — **העלאה חדשה נעלמה כי ללקוח יש כרטיס פתוח.**
+           הסיווג-מחדש ל-'inwork' חל גם על ‎new‎, כלומר על קובץ שאיש עוד
+           לא פתח: הפריט ירד מהתיבה, ה-KPI "חדשות — טרם נפתחו" הראה 0,
+           והכותרת אמרה "בטיפול" — בזמן שסרגל-הצד באותו רגע הציג 🆕1.
+           כרטיס פתוח אומר "אנחנו עובדים על הלקוח", לא "ראינו את הקובץ
+           הזה". ‏new נשאר new עד שמישהו באמת פותח אותו. */
+        if (c.hasActiveCard && st !== 'stub' && st !== 'failed' && st !== 'new') st = 'inwork';
         var item = { customer: c.name, p: p, kind: uploadKind(p), status: st,
                      at: _i(p.createdAt) || _i(p.approvedAt) || 0, files: realFileCount(p),
                      uploading: up };

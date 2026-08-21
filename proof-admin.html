@@ -27,9 +27,9 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787345558"></script>
+<script src="pdfjs-engine.js?v=1787346501"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787345558"></script>
+<script src="issue-grid.js?v=1787346501"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -39,28 +39,28 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787345558"></script>
-<script src="chat-alert.js?v=1787345558"></script>
+<script src="portal-chat.js?v=1787346501"></script>
+<script src="chat-alert.js?v=1787346501"></script>
 <!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787345558"></script>
+<script src="push-client.js?v=1787346501"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
-<script src="chat-files.js?v=1787345558"></script>
-<script src="shop-issue.js?v=1787345558"></script>
-<script src="page-marks.js?v=1787345558"></script>
+<script src="chat-files.js?v=1787346501"></script>
+<script src="shop-issue.js?v=1787346501"></script>
+<script src="page-marks.js?v=1787346501"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787345558"></script>
-<script src="kontres-split.js?v=1787345558"></script>
+<script src="page-box.js?v=1787346501"></script>
+<script src="kontres-split.js?v=1787346501"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787345558"></script>
-<script src="auth-client.js?v=1787345558"></script>
+<script src="firebase-auth.bundle.js?v=1787346501"></script>
+<script src="auth-client.js?v=1787346501"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787345558" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787346501" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1120,22 +1120,42 @@ async function _ccEdit(name){
   }
 }
 
+/* ⚠️ 21/08/2026 — **ההקשר-השבועי נעלם בשקט על 403.** כל שישה המקורות
+   בדקו ‎r.ok‎ ונפלו ל-‎null‎ — נכון שהמסך לא ימות בגלל מקור אחד — אבל בלי
+   שורה אחת ב-console ובלי סימן על המסך: "מי חייב היום" ו"מי חסר" התרוקנו,
+   והצוות קרא זאת כ"אין עבודות". "לא הצלחנו לטעון" אינו "אין". נכשל-רך
+   **ומדווח**: המסך ממשיך, ומי שמסתכל יודע שחסר לו מידע. */
+let _wcFailed = [];
 async function _loadWeeklyContext(){
+  _wcFailed = [];
   try {
+    const _g = async (label, path) => {
+      try {
+        const r = await fetch(await _au(`${_FBURL}/${path}`));
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+      } catch(e){
+        _wcFailed.push(label);
+        console.error('הקשר-שבועי: טעינת ' + label + ' נכשלה', e);
+        return null;
+      }
+    };
     const [np, cds, ov, po, cu, ct] = await Promise.all([
-      fetch(await _au(`${_FBURL}/newspapers.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
-      fetch(await _au(`${_FBURL}/cards.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
-      fetch(await _au(`${_FBURL}/customerDayOverride.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
-      fetch(await _au(`${_FBURL}/customerPortals.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
+      _g('עיתונים', 'newspapers.json'),
+      _g('כרטיסים', 'cards.json'),
+      _g('שינויי-יום', 'customerDayOverride.json'),
+      _g('פורטלים', 'customerPortals.json'),
       /* כרטיס-לקוח (18/08): פרטי-הקשר כבר קיימים ב-customers — נטענים כאן
          ולא במסך נפרד. ⚠️ כשל-טעינה משאיר null, והכרטיס אומר שלא נטען. */
-      fetch(await _au(`${_FBURL}/customers.json`)).then(r=>r.ok?r.json():null).catch(()=>null),
+      _g('לקוחות', 'customers.json'),
       /* ⚠️ עקיפות-קשר ידניות (בקשת-בעלים 19/08/2026: "נוסיף ידנית את
          המייל והוואטסאפ"). **צומת נפרד בכוונה:** ‏customers נדחף כמערך
          שלם מ-krtis-avoda (solan-persist ‎_paths‎), ולכן עריכה נקודתית שם
          הייתה נדרסת בסבב-הסנכרון הבא — תקרית "ניכויי-המלאי שנדרסו". */
-      fetch(await _au(`${_FBURL}/customerContacts.json`)).then(r=>r.ok?r.json():null).catch(()=>null)
+      _g('פרטי-קשר', 'customerContacts.json')
     ]);
+    if (_wcFailed.length) msg('⚠️ חלק מהמידע לא נטען (' + _wcFailed.join(' · ')
+      + ') — "מי חייב היום" עלול להיות חסר. רעננו את הדף.');
     /* ⚠️ באג שדווח 31/07/2026: נפתחו פורטלים ל-35 לקוחות, ואף אחד מהם לא הופיע
        במסך. הסיבה: רשימת-הלקוחות נבנתה **רק** מ-customerProofs, כלומר לקוח
        "קיים" רק אחרי שהעלה קובץ ראשון. פורטל שנפתח ולא נראה בשום מקום הוא
@@ -4392,9 +4412,35 @@ async function _runSourceBytes(t) {
       /* ⚠️ 21/08/2026 (ביקורת): ‏f.slot (שיבוץ מפורש) גובר על השם, ואחריו
          pagesOfName — המפרק שמבין כפולה/פוסל שנה — ולא pageNoOf (מספר-
          ראשון-מנצח). אותה הכרעה של רשת-העמודים, אחרת ההורדה סותרת אותה. */
-      const fe = Object.values(rec.files).filter(f => f && f.fileUrl)
-        .map(f => ({ url: f.fileUrl, slot: _fileSlot(f) }))
+      /* ⚠️ 21/08/2026 — **עמוד מוחלף נשזר בנוסף לישן, לא במקומו.** השזירה
+         נכתבה (15/08) עבור עמוד-בודד שנחת ב**משבצת חסרה**, אבל היא לקחה
+         כל קובץ עם משבצת — כולל משבצת שריצה שהגיעה כבר מספקת. התרחיש:
+         הדפוס מסמן 🔁 דרוש-החלפה על עמ׳ 13, הלקוח מעלה גרסה חדשה, והקובץ
+         שנבנה מכיל את עמ׳ 13 **פעמיים** וכל עמ׳ 14 והלאה זז במקום אחד —
+         בזמן שהמפה ירוקה לגמרי (‏gotRuns=2/2, ‏missing=[], ‏orphans=[]).
+         ⚠️ **לא משתיקים ולא מנחשים.** ההחלפה-במקום היא זרימה נפרדת
+         (‎[[solan-page-replace-inplace]]‎: הגרסה החדשה מחליפה את הקודמת
+         **במבנה**). קובץ שנוחת על משבצת מכוסה הוא מצב לא-עקבי שרק הדפוס
+         יכול להכריע — אז אומרים בדיוק מה נמצא ומה לעשות. */
+      let _covered = new Set();
+      try {
+        const _g = window.ShopIssue ? ShopIssue.runGrid(rec) : null;
+        if (_g && _g.ok) (_g.runs || []).forEach(r2 => {
+          if (r2.got) (r2.pages || []).forEach(pp => _covered.add(Number(pp.no)));
+        });
+      } catch(e){ console.error('חישוב-כיסוי לשזירה נכשל — לא שוזרים', e); throw e; }
+      const _all = Object.values(rec.files).filter(f => f && f.fileUrl)
+        .map(f => ({ url: f.fileUrl, slot: _fileSlot(f), name: f.fileName || '' }))
         .filter(f => f.slot >= 1).sort((a, b) => a.slot - b.slot);
+      const _clash = _all.filter(f => _covered.has(f.slot));
+      if (_clash.length) {
+        throw new Error('העמודים הבאים כבר קיימים בתוך ריצה שהגיעה, ולכן שזירתם תיצור עמוד כפול '
+          + 'ותזיז את כל העמודים שאחריו:\n\n'
+          + _clash.map(f => '• עמ׳ ' + f.slot + (f.name ? ' — ' + f.name : '')).join('\n')
+          + '\n\nאם זו החלפת-עמוד: השתמשו ב"החלף עמוד" בתוך הריצה, כדי שהגרסה החדשה '
+          + 'תבוא **במקום** הקודמת ולא בנוסף לה.');
+      }
+      const fe = _all;
       if (fe.length) {
         const pend = new Set();
         (rec.pendingPages || []).forEach(x => pend.add(Number(x)));
