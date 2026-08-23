@@ -27,11 +27,11 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787484749"></script>
+<script src="pdfjs-engine.js?v=1787487009"></script>
 <!-- ⚠️ 23/08: שומר-תקיעה בהעלאה. בלעדיו המסך קפא על ~98% לנצח. -->
-<script src="upload-stall.js?v=1787484749"></script>
+<script src="upload-stall.js?v=1787487009"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787484749"></script>
+<script src="issue-grid.js?v=1787487009"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -41,28 +41,28 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787484749"></script>
-<script src="chat-alert.js?v=1787484749"></script>
+<script src="portal-chat.js?v=1787487009"></script>
+<script src="chat-alert.js?v=1787487009"></script>
 <!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787484749"></script>
+<script src="push-client.js?v=1787487009"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
-<script src="chat-files.js?v=1787484749"></script>
-<script src="shop-issue.js?v=1787484749"></script>
-<script src="page-marks.js?v=1787484749"></script>
+<script src="chat-files.js?v=1787487009"></script>
+<script src="shop-issue.js?v=1787487009"></script>
+<script src="page-marks.js?v=1787487009"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787484749"></script>
-<script src="kontres-split.js?v=1787484749"></script>
+<script src="page-box.js?v=1787487009"></script>
+<script src="kontres-split.js?v=1787487009"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787484749"></script>
-<script src="auth-client.js?v=1787484749"></script>
+<script src="firebase-auth.bundle.js?v=1787487009"></script>
+<script src="auth-client.js?v=1787487009"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787484749" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787487009" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1561,7 +1561,15 @@ function render(rows) {
              מתקן סדר-ריצות בעצמו — אותה החלפת-מספר של הפורטל, מכאן. */
           const mv = rn.partId
             ? `<button class="pgRemind" data-runmove="${escapeHtml(p.id)}|${escapeHtml(rn.partId)}" title="העברת הריצה למקומה הנכון (החלפת מספר-ריצה)">⇄ העבר ריצה</button>` : '';
-          return mv + `<button class="pgRemind${lk ? ' rlOn' : ''}" data-runlock="${escapeHtml(p.id)}|${rn.no}"
+          /* ⚠️ בקשת-בעלים 23/08/2026: "שהדפוס גם יוכל לעדכן את הלקוח
+             שהריצה שהלקוח שלח היא תקינה ומאושרת להדפסה". הכיוון ההפוך
+             של אישור-הלקוח: כאן הדפוס אומר "בדקנו — תקין".
+             ⚠️ הלקוח רואה את זה בפורטל, ולכן הכפתור **דו-כיווני**. */
+          const sa = rn.partId ? ShopIssue.runShopApproved(p, rn.partId) : false;
+          const ok = rn.partId
+            ? `<button class="pgRemind${sa ? ' rlOn' : ''}" data-runok="${escapeHtml(p.id)}|${escapeHtml(rn.partId)}"
+                title="${sa ? 'הלקוח רואה שהריצה אושרה להדפסה — לחיצה מבטלת' : 'לעדכן את הלקוח שהריצה תקינה ומאושרת להדפסה'}">${sa ? '✅ אושרה ללקוח' : '✔ אשר ללקוח'}</button>` : '';
+          return mv + ok + `<button class="pgRemind${lk ? ' rlOn' : ''}" data-runlock="${escapeHtml(p.id)}|${rn.no}"
             title="${lk ? 'הריצה נעולה לשינויים מצד הלקוח — לחיצה משחררת' : 'נעילת הריצה לשינויים מצד הלקוח (כשהיא כבר בעבודה בדפוס)'}">${lk ? '🔒 נעולה ללקוח' : '🔓 נעל ריצה'}</button>`;
         },
         /* ── עמודים ── */
@@ -2568,6 +2576,11 @@ function render(rows) {
     const [rid, rno] = String(b.dataset.runlock).split('|');
     _toggleRunLock(rid, parseInt(rno, 10), b);
   });
+  document.querySelectorAll('[data-runok]').forEach(b => b.onclick = (ev) => {
+    ev.stopPropagation();
+    const sp = String(b.dataset.runok).split('|');
+    _toggleRunShopApproved(sp[0], sp.slice(1).join('|'), b);
+  });
   document.querySelectorAll('[data-runmove]').forEach(b => b.onclick = (ev) => {
     ev.stopPropagation();
     const sp = String(b.dataset.runmove).split('|');
@@ -3188,6 +3201,38 @@ async function _toggleRunLock(id, no, btn){
   } catch(e){
     if (btn){ btn.disabled = false; btn.textContent = was ? '🔒 נעולה ללקוח' : '🔓 נעל ריצה'; }
     alert('נעילת-הריצה לא נשמרה: ' + ((e && e.message) || e));
+  }
+}
+
+/* ── "אשר ללקוח" פר-ריצה (בקשת-בעלים 23/08/2026) ────────────────────────
+   "שהדפוס גם יוכל לעדכן את הלקוח שהריצה שהלקוח שלח היא תקינה ומאושרת
+   להדפסה." הכיוון ההפוך של אישור-הלקוח, ובאותה רמת-פירוט — ריצה.
+   ⚠️ הלקוח רואה את זה, ולכן דו-כיווני; ואישור נועל **רק את הריצה הזו**,
+   כדי שהלקוח ימשיך להעלות את שאר העיתון. זו כל הנקודה. */
+async function _toggleRunShopApproved(id, partId, btn){
+  const p = (_allRows || []).find(x => x.id === id); if (!p) return;
+  const part = (p.parts || {})[partId];
+  if (!part){ alert('הריצה לא נמצאה — רעננו את הדף'); return; }
+  const rn = String(part.name || 'הריצה');
+  const was = ShopIssue.runShopApproved(p, partId);
+  if (was && !confirm('לבטל את אישור-ההדפסה של ' + rn + '?\nהלקוח יראה שהיא חזרה להמתנה.')) return;
+  const patch = ShopIssue.runShopApprovePatch(p, partId, { at: Date.now(), by: 'בית-הדפוס' });
+  if (!patch){ alert('לא ניתן לעדכן את הריצה הזו'); return; }
+  if (!was && patch['runLocks/' + ShopIssue.runNoOfName(part.name)] !== undefined
+      && !confirm('לאשר את ' + rn + ' להדפסה?\nהיא תיסגר לשינויים מצד הלקוח; שאר הריצות נשארות פתוחות.')) return;
+  const old = btn ? btn.textContent : '';
+  if (btn){ btn.disabled = true; btn.textContent = '…'; }
+  try {
+    /* ⚠️ כלל-1: מצב-המסך זז רק אחרי שהשרת אישר. */
+    const r = await fetch(await _au(`${_FBURL}/customerProofs/${id}.json`),
+      { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(patch) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    msg(was ? ('↩ אישור-ההדפסה של ' + rn + ' בוטל') : ('✅ ' + rn + ' אושרה — הלקוח רואה זאת בפורטל'));
+    await _autoRefresh();
+  } catch(e){
+    if (btn){ btn.disabled = false; btn.textContent = old; }
+    console.error('אישור-ריצה ללקוח נכשל', e);
+    alert('העדכון נכשל: ' + ((e && e.message) || e));
   }
 }
 

@@ -149,19 +149,81 @@
     var runs = ids.map(function (id) {
       var q = parts[id] || {};
       var own = runApprovedAt(r, id);
+      /* ⚠️ שני אישורים נפרדים לאותה ריצה, ובכוונה: הלקוח אומר "סיימתי",
+         הדפוס אומר "בדקנו — תקין". ריצה יכולה להיות במצב אחד ולא בשני. */
+      var shopAt = runShopApprovedAt(r, id);
       return { partId: id, name: str(q.name) || id, no: runNoOfName(q.name),
                /* אישור-עבודה מכסה ריצה שאין לה אישור משלה. */
                approved: !!(own || jobAt), at: own || jobAt,
                by: str(q.custApprovedBy) || (own ? '' : str(r.apogeeApprovedBy) || str(r.customerApprovedBy)),
-               viaJob: !own && !!jobAt };
+               viaJob: !own && !!jobAt,
+               shopApproved: shopAt > 0, shopAt: shopAt,
+               shopBy: str(q.shopApprovedBy) || (num(q.shopApprovedAt) ? '' : str(r.printApprovedBy)),
+               shopViaJob: !num(q.shopApprovedAt) && !!num(r.printApprovedAt) };
     });
     var approved = runs.filter(function (x) { return x.approved; }).length;
+    var shopApproved = runs.filter(function (x) { return x.shopApproved; }).length;
     return { runs: runs, total: runs.length, approved: approved,
+             shopApproved: shopApproved,
+             shopAll: runs.length > 0 && shopApproved === runs.length,
              /* ⚠️ עבודה בלי ריצות כלל אינה "מאושרת במלואה" — אין מה לאשר. */
              all: runs.length > 0 && approved === runs.length,
              partial: approved > 0 && approved < runs.length,
              none: runs.length > 0 && approved === 0 };
   }
+  /* ── אישור-הדפוס לריצה (בקשת-בעלים 23/08/2026) ──────────────────────────
+     "שהדפוס גם יוכל לעדכן את הלקוח שהריצה שהלקוח שלח היא תקינה ומאושרת
+     להדפסה." זה הכיוון ההפוך של ‎custApprovedAt‎: שם הלקוח אומר "סיימתי",
+     כאן הדפוס אומר "בדקנו — תקין, נכנס לדפוס".
+     ⚠️ **שני שדות נפרדים ולא אחד.** ריצה יכולה להיות מאושרת ע"י הלקוח
+     ולא ע"י הדפוס (טרם נבדקה), או להפך (הדפוס אישר עוד לפני שהלקוח
+     סימן שסיים). מיזוגם היה מוחק את ההבחנה שבגללה הפיצ'ר נדרש.
+     ⚠️ ‎printApprovedAt‎ ברמת-העבודה גובר ומכסה את כל הריצות, בדיוק כמו
+     שאישור-עבודה מכסה את אישורי-הלקוח.
+     ⚠️ **הפיך** — כמו ‎printApprovePatch‎: הלקוח רואה את זה, ואישור בטעות
+     חייב להיות בר-ביטול. */
+  function runShopApprovedAt(p, partId) {
+    var r = p || {};
+    var parts = (r.parts && typeof r.parts === 'object') ? r.parts : {};
+    var own = num((parts[partId] || {}).shopApprovedAt);
+    return own > 0 ? own : (num(r.printApprovedAt) || 0);
+  }
+  function runShopApproved(p, partId) { return runShopApprovedAt(p, partId) > 0; }
+  /* ⚠️ הנעילה נוסעת עם האישור. גיליון שאושר להדפסה נסגר להעלאה (17/08)
+     כי לקוח שממשיך לשנות **אחרי** שהלוחות יצאו הוא עיתון שגוי. אותו
+     היגיון פר-ריצה — אבל נועלים **רק את הריצה הזו**, כדי שהלקוח ימשיך
+     להעלות את שאר העיתון. זו כל הנקודה של אישור-פר-ריצה.
+     ⚠️ הנעילה מוסרת בביטול רק אם היא נולדה מהאישור (‎runLockBy‎), אחרת
+     ביטול היה פותח בשקט ריצה שהדפוס נעל בכוונה. */
+  function runShopApprovePatch(p, partId, opts) {
+    var o = opts || {}, r = p || {};
+    var pid = str(partId);
+    if (!pid) return null;
+    var parts = (r.parts && typeof r.parts === 'object') ? r.parts : {};
+    var part = parts[pid];
+    if (!part) return null;
+    var no = runNoOfName(part.name);
+    var out = {};
+    if (num((parts[pid] || {}).shopApprovedAt) > 0) {           // ביטול
+      out['parts/' + pid + '/shopApprovedAt'] = null;
+      out['parts/' + pid + '/shopApprovedBy'] = null;
+      if (no >= 1 && str((parts[pid] || {}).runLockBy) === 'shop-approval') {
+        out['runLocks/' + no] = null;
+        out['parts/' + pid + '/runLockBy'] = null;
+      }
+      return out;
+    }
+    var at = num(o.at) || 0;
+    if (!(at > 0)) return null;
+    out['parts/' + pid + '/shopApprovedAt'] = at;
+    out['parts/' + pid + '/shopApprovedBy'] = str(o.by) || 'בית-הדפוס';
+    if (no >= 1 && !runLocked(r, no)) {
+      out['runLocks/' + no] = at;
+      out['parts/' + pid + '/runLockBy'] = 'shop-approval';
+    }
+    return out;
+  }
+
   /* ה-patch שכותב אישור-ריצה. ⚠️ אידמפוטנטי: אותם שדות, אותו מפתח. */
   function runApprovePatch(partId, name, at) {
     var pid = str(partId);
@@ -1163,6 +1225,8 @@
     lockedRunNos: lockedRunNos, runLocked: runLocked, lockedPageSet: lockedPageSet,
     runApprovedAt: runApprovedAt, jobApprovedAt: jobApprovedAt,
     approvalSummary: approvalSummary, runApprovePatch: runApprovePatch,
+    runShopApprovedAt: runShopApprovedAt, runShopApproved: runShopApproved,
+    runShopApprovePatch: runShopApprovePatch,
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,

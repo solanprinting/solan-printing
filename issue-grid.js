@@ -172,9 +172,14 @@
        עוד לא אישר. ‏all → ירוק; חלקית → כתום עם המספרים. */
     if (o.approval && o.approval.total > 1) {
       var _a = o.approval;
-      if (_a.all) bits.push('<b style="color:#166534">✓ כל ' + _a.total + ' הריצות מאושרות להדפסה</b>');
-      else if (_a.approved > 0) bits.push('<b style="color:#b45309">⚠️ מאושרות להדפסה: '
+      if (_a.all) bits.push('<b style="color:#166534">✓ כל ' + _a.total + ' הריצות אושרו ע״י הלקוח</b>');
+      else if (_a.approved > 0) bits.push('<b style="color:#b45309">⚠️ הלקוח אישר: '
         + _a.approved + ' מתוך ' + _a.total + ' — השאר טרם אושרו</b>');
+      /* ⚠️ שני מניינים נפרדים, ובכוונה: "הלקוח סיים" ו"הדפוס בדק ואישר"
+         הם שני שערים שונים, וריצה יכולה לעבור אחד ולא את השני. */
+      if (_a.shopAll) bits.push('<b style="color:#166534">✅ כל הריצות אושרו להדפסה בדפוס</b>');
+      else if (_a.shopApproved > 0) bits.push('<b style="color:#166534">✅ אושרו בדפוס: '
+        + _a.shopApproved + ' מתוך ' + _a.total + '</b>');
     }
     /* ⚠️ הקובץ מכיל פחות עמודי-PDF ממה שהוצהר — ההפרש הוא כפולות, ולכן
        המספרים על האריחים אינם בהכרח מספרי-העמוד האמיתיים. ההורדה מפצלת
