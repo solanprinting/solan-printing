@@ -17,7 +17,10 @@
 <!-- ⚠️ 20/08/2026, דיווח-לקוח (מבט חצור עמ' 15): המסך רינדר ב-pdf.js
      הישן, שמצייר מסכות-שקיפות דהויות — רקע-העמוד נעלם ללקוח בעוד
      שבקובץ הוא תקין. מודול-המנוע מביא 5.4.149 (vendor/ כמראה אחרונה). -->
-<script src="pdfjs-engine.js?v=1787467318"></script>
+<script src="pdfjs-engine.js?v=1787470451"></script>
+<!-- ⚠️ 23/08: מקור-האמת לתקרות-הגודל, מסונכרן עם חוקי-האחסון. המסך הזה
+     העלה 97MB ורק בסוף קיבל 403 — בלי שום בדיקה מוקדמת. -->
+<script src="upload-type.js?v=1787470451"></script>
 <script src="imposition-decoder.js"></script>
 <script src="imposition-decoder-exec.js"></script>
 <script src="imposition-tpl-parser.js"></script>
@@ -30,9 +33,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787467318"></script>
-<script src="auth-client.js?v=1787467318"></script>
-<script src="auth-guard.js?v=1787467318" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1787470451"></script>
+<script src="auth-client.js?v=1787470451"></script>
+<script src="auth-guard.js?v=1787470451" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -187,12 +190,63 @@ function _libsBlockedMsg(r){ return (r&&r.message) || (window.LibLoader?LibLoade
 function _auth(){
   if(!window.SolanGuard) return Promise.reject(new Error('auth-guard.js לא נטען — אין מקור לאסימון'));
   return window.SolanGuard.token(false); }
-function _uploadPdf(path,bytes,onPct){ return _auth().then(tok=> new Promise((res,rej)=>{ const x=new XMLHttpRequest();
+/* ⚠️⚠️ תקלת-ייצור 23/08/2026 — **"Storage 403" אחרי שהקובץ כבר עלה.**
+   המסך רץ ב-‎data-mode="observe"‎, ובמצב הזה ‎SolanGuard.token()‎ נופל
+   ל**אסימון אנונימי** כשאין משתמש מחובר (‎tokenPolicy‎: לא-אכיפה + אין
+   משתמש → ‎anonymous‎), ו-‎tokenOkFor‎ מחזיר true בלי לבדוק דבר. הנפילה
+   הזו שקטה לחלוטין — אבל חוקי-האחסון של ‎customerFoldVersions‎ דורשים
+   ‎isTheAdmin()‎ (‏password + email_verified + role=admin). התוצאה: 97MB
+   נשלחים במלואם, ורק בסוף מגיע 403. הבעלים ראה "Storage 403" על המסך
+   אחרי שההעלאה הגיעה ל-98%.
+   ⚠️ **בודקים לפני שמשדרים.** זהות שאינה יכולה לכתוב נאמרת מראש; אין
+   טעם לשרוף 97MB ודקות-המתנה כדי לגלות מה שידוע בשנייה הראשונה. */
+function _claimsOf(idToken){
+  try{
+    const part=String(idToken||'').split('.')[1]; if(!part) return {};
+    const json=decodeURIComponent(escape(atob(part.replace(/-/g,'+').replace(/_/g,'/'))));
+    return JSON.parse(json)||{};
+  }catch(e){ return {}; }
+}
+/* ⚠️ **התקרה ממקור-אמת אחד** — ‎UploadType.MAX_PDF_BYTES‎, שמסונכרן עם
+   חוקי-האחסון ע"י ‎upload-type-tests‎. מספר קשיח כאן היה בדיוק הדפוס
+   שהוליד את הסטייה 200/300 (ראה ההערה ב-storage.rules.b4-portal).
+   נפילה-לאחור רק אם המודול לא נטען. */
+var _MAX_FOLD_BYTES = (window.UploadType && UploadType.MAX_PDF_BYTES) || 300 * 1024 * 1024;
+var _MAX_FOLD_MB = Math.round(_MAX_FOLD_BYTES / 1048576);
+function _assertFoldSize(bytes){
+  var n = (bytes && (bytes.byteLength != null ? bytes.byteLength : bytes.length)) || 0;
+  if (n >= _MAX_FOLD_BYTES){
+    var e = new Error('החוברת שנוצרה שוקלת ' + Math.round(n/1048576) + 'MB, והמותר הוא '
+      + _MAX_FOLD_MB + 'MB. שמרו את ה-PDF באיכות נמוכה יותר, או שלחו את הגיליון בכמה חלקים. '
+      + 'הקובץ לא נשלח.');
+    e.tooLarge = true; throw e;
+  }
+  return bytes;
+}
+function _assertCanWriteFold(tok){
+  const c=_claimsOf(tok);
+  const prov=((c.firebase||{}).sign_in_provider)||null;
+  if(prov==='anonymous' || !prov || c.accountType!=='staff'){
+    const e=new Error('כדי ליצור קישור ללקוח צריך להיות מחובר עם חשבון בית-הדפוס. '
+      + 'התחברו (מייל וסיסמה) ונסו שוב — הקובץ לא נשלח.');
+    e.noIdentity=true; throw e;
+  }
+  return tok;
+}
+function _uploadPdf(path,bytes,onPct){ return Promise.resolve().then(()=>_assertFoldSize(bytes))
+  .then(()=>_auth()).then(_assertCanWriteFold).then(tok=> new Promise((res,rej)=>{ const x=new XMLHttpRequest();
   x.open('POST','https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o?name='+encodeURIComponent(path));
   x.setRequestHeader('Content-Type','application/pdf'); if(tok) x.setRequestHeader('Authorization','Firebase '+tok);
   x.upload.onprogress=e=>{ if(e.lengthComputable&&onPct) onPct(Math.round(e.loaded/e.total*100)); };
   x.onload=()=>{ if(x.status>=200&&x.status<300){ const j=JSON.parse(x.responseText); const t=(j.downloadTokens||'').split(',')[0]||'';
-    res({url:'https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o/'+encodeURIComponent(path)+'?alt=media&token='+t, path:path}); } else rej(new Error('Storage '+x.status)); };
+    res({url:'https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o/'+encodeURIComponent(path)+'?alt=media&token='+t, path:path}); }
+    /* ⚠️ 23/08/2026: "Storage 403" גולמי אינו אומר לאיש מה לעשות — וזה
+       בדיוק מה שהוצג על המסך. כל קוד מקבל נוסח שמכוון לפעולה. */
+    else if(x.status===403) rej(new Error('אין הרשאה להעלות (403). התחברו עם חשבון בית-הדפוס ונסו שוב; '
+      + 'אם אתם כבר מחוברים — ייתכן שהקובץ גדול מהמותר (' + _MAX_FOLD_MB + 'MB).'));
+    else if(x.status===401) rej(new Error('הכניסה פגה (401). התחברו מחדש ונסו שוב.'));
+    else if(x.status===413) rej(new Error('הקובץ גדול מדי לשרת (413).'));
+    else rej(new Error('ההעלאה נכשלה (שגיאה '+x.status+') — נסו שוב, ואם חוזר פנו לתמיכה.')); };
   x.onerror=()=>rej(new Error('שגיאת רשת')); x.send(bytes); })); }
 function _dbPut(path,obj){ return _auth().then(tok=>fetch(_FBURL+'/'+path+'.json?auth='+tok,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)}).then(r=>r.ok?r.json():Promise.reject(new Error('db '+r.status)))); }
 function _dbPatch(path,obj){ return _auth().then(tok=>fetch(_FBURL+'/'+path+'.json?auth='+tok,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)}).then(r=>r.ok?r.json():Promise.reject(new Error('db '+r.status)))); }
@@ -1562,7 +1616,10 @@ function workerScreen(){
       /* ⚠️ אחרי חיווט-הכפתורים, כדי שכשל יוכל להחזיר אותם למצב שאפשר לנסות שוב. */
       if (_custHasPortal) _cfpToPortal(true);
       setStep(4);
-    }catch(err){ $('linkStatus').innerHTML='<span class="bad">'+(err.message||err)+'</span>'; $('linkBtn').disabled=false; }
+    /* ⚠️ 23/08/2026: הודעת-השגיאה נכנסה ל-innerHTML גולמית. הנוסחים שלנו
+       נקיים, אבל שגיאה שמקורה בקובץ/רשת יכולה לשאת תווי-HTML — ומחרוזת
+       זרה שנכנסת כ-HTML היא תמיד באג, גם כשהיא לא מנוצלת. */
+    }catch(err){ $('linkStatus').innerHTML='<span class="bad">'+_esc(err.message||String(err))+'</span>'; $('linkBtn').disabled=false; }
   };
 }
 
