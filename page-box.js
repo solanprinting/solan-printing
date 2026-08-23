@@ -98,6 +98,23 @@
   }
   function isBad(v) { return !!(v && v.kind === 'bad'); }
 
+  /* ⚠️⚠️ **דיווח-בעלים 23/08/2026: "ההודעה הזו לא נכונה — אנחנו מתייחסים
+     בגודל לטרים-בוקס".** על המסך הופיע ‏⚠️ לא בגודל (177×252 · נדרש
+     165×240) · **לפי CropBox**. ההפרש 12 מ"מ בשני הצירים הוא בדיוק
+     6 מ"מ גלישה מכל צד — כלומר העמוד תקין לגמרי, וה-CropBox פשוט כולל
+     את הגלישה. ‏TrimBox היה נותן 165×240 בדיוק.
+     ⚠️ **מדידה שאינה מ-TrimBox אינה בת-השוואה לגודל-נדרש.** ‏page-box
+     נכתב ב-19/08 בדיוק בגלל התקלה הזו, אבל הוא רק **בחר** את התיבה
+     הטובה ביותר; הצרכנים המשיכו להתריע גם כשמה שנבחר היה CropBox או
+     MediaBox — כלומר הכללת-התיקון נעצרה באמצע. ‏"אין TrimBox" הוא
+     ממצא לגיטימי בפני עצמו, ו-‎_preflightCheck‎ כבר אומר אותו; מה שאסור
+     הוא להציג הפרש-מידות שאינו קיים בעמוד. */
+  function comparable(srcLabel) {
+    return String(srcLabel || '') === LABEL.trim;
+  }
+  /* ההכרעה המלאה לצרכן: מתריעים רק כשגם חורג **וגם** נמדד מהתיבה הנכונה. */
+  function shouldWarn(v, srcLabel) { return isBad(v) && comparable(srcLabel); }
+
   /* טקסט-החיווי — אותו ניסוח בפורטל ובמסך-הדפוס. ⚠️ מציין **מאיזו תיבה**
      נמדד: "לא בגודל" בלי לומר לפי מה נמדד שולח לחפש במקום הלא-נכון. */
   function badLabel(v, srcLabel) {
@@ -131,5 +148,6 @@
            valid: valid, within: within, effective: effective,
            mm: mm, effectiveMM: effectiveMM,
            verdict: verdict, isBad: isBad, badLabel: badLabel,
+           comparable: comparable, shouldWarn: shouldWarn,
            renderRect: renderRect };
 });
