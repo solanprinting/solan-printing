@@ -167,6 +167,15 @@
     bits.push('<b>' + o.gotPages + '</b> עמודים' + (o.totalPages ? ' מתוך <b>' + o.totalPages + '</b>' : ''));
     if (o.sheet) bits.push('גיליון: <b>' + o.sheet + '</b> עמ׳');
     if (o.marked) bits.push('<b style="color:#dc2626">🔁 ' + o.marked + ' לדרישת-החלפה</b>');
+    /* ⚠️ אישור פר-ריצה (23/08/2026): הדפוס חייב לראות **מה מותר להדפיס
+       עכשיו**. "חלקית — 2 מתוך 4" ולא "מאושר", כדי שלא תודפס ריצה שהלקוח
+       עוד לא אישר. ‏all → ירוק; חלקית → כתום עם המספרים. */
+    if (o.approval && o.approval.total > 1) {
+      var _a = o.approval;
+      if (_a.all) bits.push('<b style="color:#166534">✓ כל ' + _a.total + ' הריצות מאושרות להדפסה</b>');
+      else if (_a.approved > 0) bits.push('<b style="color:#b45309">⚠️ מאושרות להדפסה: '
+        + _a.approved + ' מתוך ' + _a.total + ' — השאר טרם אושרו</b>');
+    }
     /* ⚠️ הקובץ מכיל פחות עמודי-PDF ממה שהוצהר — ההפרש הוא כפולות, ולכן
        המספרים על האריחים אינם בהכרח מספרי-העמוד האמיתיים. ההורדה מפצלת
        נכון; מה שלא-ודאי הוא **המפה**, ואומרים זאת במקום להשתיק. */
@@ -221,6 +230,7 @@
       esc: esc, hint: ctx.hint, extra: ctx.headExtra,
       gotPages: gotPages, totalPages: ctx.totalPages, marked: marked,
       uncertain: tiles.some(function (t) { return t.invented; }),
+      approval: ctx.approval || null,
       clashes: (function () {
         var seen = {}, out2 = [];
         tiles.forEach(function (t) {

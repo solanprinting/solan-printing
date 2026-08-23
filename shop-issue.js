@@ -109,6 +109,72 @@
     return out;
   }
   function runLocked(p, no) { return !!lockedRunNos(p)[String(num(no))]; }
+
+  /* ── אישור-לקוח פר-ריצה (בקשת-בעלים 23/08/2026) ─────────────────────────
+     "אם יש כמה ריצות לאותה עבודה — שתהיה אפשרות לאשר ריצות שמאושרות
+     להדפסה, ולא רק את כל העיתון." הלקוח שולח ריצה, ומסמן אותה כמוכנה;
+     הדפוס מתחיל עליה בלי לחכות לשאר העיתון.
+
+     ⚠️⚠️ **שדה חדש, לא שימוש-חוזר.** על ריצה כבר קיים ‎approvedAt‎ —
+     ומשמעותו **"נשלחה"**, לא "מאושרת להדפסה". שימוש-חוזר בו היה הופך כל
+     ריצה שהועלתה אי-פעם למאושרת-להדפסה למפרע, כלומר עיתון שיוצא בלי
+     שהלקוח אישר אותו. השדה הוא ‎custApprovedAt‎ + ‎custApprovedBy‎.
+     ⚠️ אישור ברמת-העבודה (‎apogeeApprovedAt‎ / ‎customerApprovedAt‎) גובר
+     ומכסה את כל הריצות — לקוח שאישר את העיתון כולו לא נדרש לאשר שוב
+     ריצה-ריצה. ההפך אינו נכון: אישור-ריצות אינו מסמן את העבודה כמאושרת
+     עד שכולן אושרו. */
+  function runApprovedAt(p, partId) {
+    var parts = ((p || {}).parts && typeof p.parts === 'object') ? p.parts : {};
+    var q = parts[partId] || {};
+    var at = num(q.custApprovedAt);
+    return at > 0 ? at : 0;
+  }
+  function jobApprovedAt(p) {
+    var r = p || {};
+    return num(r.apogeeApprovedAt) || num(r.customerApprovedAt) ||
+           (r.foldApprovalStatus === 'approved' ? (num(r.foldApprovedAt) || 1) : 0);
+  }
+  /* מצב-האישור של כל ריצה + סיכום. ‎runs‎ לפי אותו סדר של ‎_partsOrdered‎
+     בצרכנים (מיון לפי מספר-ריצה), כדי שהמסך והלוגיקה יאמרו אותו דבר. */
+  function approvalSummary(p) {
+    var r = p || {};
+    var parts = (r.parts && typeof r.parts === 'object') ? r.parts : {};
+    var ids = Object.keys(parts).filter(function (k) { return parts[k] && str(parts[k].fileUrl); });
+    ids.sort(function (a, b) {
+      var na = runNoOfName((parts[a] || {}).name), nb = runNoOfName((parts[b] || {}).name);
+      if (na >= 1 && nb >= 1 && na !== nb) return na - nb;
+      return String(a).localeCompare(String(b));
+    });
+    var jobAt = jobApprovedAt(r);
+    var runs = ids.map(function (id) {
+      var q = parts[id] || {};
+      var own = runApprovedAt(r, id);
+      return { partId: id, name: str(q.name) || id, no: runNoOfName(q.name),
+               /* אישור-עבודה מכסה ריצה שאין לה אישור משלה. */
+               approved: !!(own || jobAt), at: own || jobAt,
+               by: str(q.custApprovedBy) || (own ? '' : str(r.apogeeApprovedBy) || str(r.customerApprovedBy)),
+               viaJob: !own && !!jobAt };
+    });
+    var approved = runs.filter(function (x) { return x.approved; }).length;
+    return { runs: runs, total: runs.length, approved: approved,
+             /* ⚠️ עבודה בלי ריצות כלל אינה "מאושרת במלואה" — אין מה לאשר. */
+             all: runs.length > 0 && approved === runs.length,
+             partial: approved > 0 && approved < runs.length,
+             none: runs.length > 0 && approved === 0 };
+  }
+  /* ה-patch שכותב אישור-ריצה. ⚠️ אידמפוטנטי: אותם שדות, אותו מפתח. */
+  function runApprovePatch(partId, name, at) {
+    var pid = str(partId);
+    if (!pid) return null;
+    var t = num(at) || 0;
+    if (!(t > 0)) return null;
+    var who = str(name);
+    if (!who) return null;              // ⚠️ אישור בלי שם-מאשר אינו אישור
+    var o = {};
+    o['parts/' + pid + '/custApprovedAt'] = t;
+    o['parts/' + pid + '/custApprovedBy'] = who;
+    return o;
+  }
   /* אילו **עמודים** קפואים — עמודי הריצות הנעולות לפי runGrid, ולכן נעילה
      חלה גם כשהריצה מכוסה בקבצים בודדים, לא רק בקובץ-ריצה. */
   function lockedPageSet(p) {
@@ -1095,6 +1161,8 @@
     sortIssues: sortIssues, openId: openId,
     statusOf: statusOf, printApproved: printApproved,
     lockedRunNos: lockedRunNos, runLocked: runLocked, lockedPageSet: lockedPageSet,
+    runApprovedAt: runApprovedAt, jobApprovedAt: jobApprovedAt,
+    approvalSummary: approvalSummary, runApprovePatch: runApprovePatch,
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
     unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
