@@ -27,9 +27,11 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787470451"></script>
+<script src="pdfjs-engine.js?v=1787471643"></script>
+<!-- ⚠️ 23/08: שומר-תקיעה בהעלאה. בלעדיו המסך קפא על ~98% לנצח. -->
+<script src="upload-stall.js?v=1787471643"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787470451"></script>
+<script src="issue-grid.js?v=1787471643"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -39,28 +41,28 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787470451"></script>
-<script src="chat-alert.js?v=1787470451"></script>
+<script src="portal-chat.js?v=1787471643"></script>
+<script src="chat-alert.js?v=1787471643"></script>
 <!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787470451"></script>
+<script src="push-client.js?v=1787471643"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
-<script src="chat-files.js?v=1787470451"></script>
-<script src="shop-issue.js?v=1787470451"></script>
-<script src="page-marks.js?v=1787470451"></script>
+<script src="chat-files.js?v=1787471643"></script>
+<script src="shop-issue.js?v=1787471643"></script>
+<script src="page-marks.js?v=1787471643"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787470451"></script>
-<script src="kontres-split.js?v=1787470451"></script>
+<script src="page-box.js?v=1787471643"></script>
+<script src="kontres-split.js?v=1787471643"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787470451"></script>
-<script src="auth-client.js?v=1787470451"></script>
+<script src="firebase-auth.bundle.js?v=1787471643"></script>
+<script src="auth-client.js?v=1787471643"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787470451" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787471643" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -4175,10 +4177,16 @@ function xhrPost(url, bytes){
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest(); xhr.open('POST', url); xhr.timeout = 0;
     xhr.setRequestHeader('Content-Type', 'application/pdf');
+    /* ⚠️ 23/08/2026: בלי שומר, תקיעת-רשת השאירה את ההבטחה תלויה **לנצח**
+       והמסך קפא על ‎~98%‎ בלי הודעה ובלי יציאה. ‏upload-stall.js — מימוש
+       אחד לכל המסכים; נכשל-פתוח אם המודול לא נטען. */
+    const _st = (window.UploadStall && window.UploadStall.arm)
+      ? window.UploadStall.arm(xhr, bytes, (er) => reject(er))
+      : { clear: () => {} };
     const finishSend = (t) => { try { if (t) xhr.setRequestHeader('Authorization', 'Firebase ' + t); } catch(e){} (window._appCheckToken?window._appCheckToken():Promise.resolve(null)).then(function(act){ try{ if(act) xhr.setRequestHeader('X-Firebase-AppCheck', act); }catch(e){} xhr.send(bytes); }, function(){ xhr.send(bytes); }); };
-    xhr.onload = () => { if (xhr.status>=200 && xhr.status<300){ try{ resolve(JSON.parse(xhr.responseText)); }catch(e){ const er=new Error('bad'); er.code=xhr.status; reject(er); } return; } const er=new Error('Storage '+xhr.status); er.code=xhr.status; reject(er); };
-    xhr.onerror = () => { const e=new Error('שגיאת רשת'); e.code=0; reject(e); };
-    xhr.ontimeout = () => { const e=new Error('פג זמן'); e.code=408; reject(e); };
+    xhr.onload = () => { _st.clear(); if (xhr.status>=200 && xhr.status<300){ try{ resolve(JSON.parse(xhr.responseText)); }catch(e){ const er=new Error('bad'); er.code=xhr.status; reject(er); } return; } const er=new Error('Storage '+xhr.status); er.code=xhr.status; reject(er); };
+    xhr.onerror = () => { _st.clear(); const e=new Error('שגיאת רשת'); e.code=0; reject(e); };
+    xhr.ontimeout = () => { _st.clear(); const e=new Error('פג זמן'); e.code=408; reject(e); };
     _fbAuthToken().then(finishSend, () => finishSend(null));
   });
 }

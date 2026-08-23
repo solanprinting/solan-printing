@@ -12,20 +12,22 @@
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
-<script src="pdfjs-engine.js?v=1787470451"></script>
+<script src="pdfjs-engine.js?v=1787471643"></script>
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
      כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1787470451"></script>
-<script src="portal-context.js?v=1787470451"></script>
+<script src="upload-type.js?v=1787471643"></script>
+<!-- ⚠️ 23/08: שומר-תקיעה בהעלאה. בלעדיו המסך קפא על ~98% לנצח. -->
+<script src="upload-stall.js?v=1787471643"></script>
+<script src="portal-context.js?v=1787471643"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi2"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1787470451"></script>
-<script src="portal-return.js?v=1787470451"></script>
+<script src="page-replace.js?v=1787471643"></script>
+<script src="portal-return.js?v=1787471643"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2424,6 +2426,14 @@ function xhrPost(url, bytes, onProgress) {
     xhr.timeout = 0; // ללא timeout — קבצים גדולים
     xhr.setRequestHeader('Content-Type', 'application/pdf');
     xhr.upload.onprogress = e => e.lengthComputable && onProgress && onProgress(Math.round(e.loaded / e.total * 100));
+    /* ⚠️ 23/08/2026: בלי שומר, תקיעת-רשת השאירה את ההבטחה תלויה **לנצח** —
+       כיסוי-המסך קפא על ‎~98%‎, בלי הודעה, בלי ביטול, ו-‎beforeunload‎ חסם
+       גם סגירת-לשונית. זהו מסלול-אישור-הפרופר של הלקוח, על רשת מסוננת —
+       בדיוק האוכלוסייה שהשומר נועד לה. ‏upload-stall.js: מימוש אחד לכל
+       המסכים, נכשל-פתוח אם המודול לא נטען. */
+    const _st = (window.UploadStall && window.UploadStall.arm)
+      ? window.UploadStall.arm(xhr, bytes, (er) => reject(er))
+      : { clear: () => {} };
     // אסימון הזדהות (כשחוקי ה-Storage ייסגרו)
     const _finishSend = (t) => {
       try { if (t) xhr.setRequestHeader('Authorization', 'Firebase ' + t); } catch(e){}
@@ -2431,12 +2441,13 @@ function xhrPost(url, bytes, onProgress) {
       (window._appCheckToken ? window._appCheckToken() : Promise.resolve(null)).then(function(act){ try { if (act) xhr.setRequestHeader('X-Firebase-AppCheck', act); } catch(e){} xhr.send(bytes); }, function(){ xhr.send(bytes); });
     };
     xhr.onload = () => {
+      _st.clear();
       if (xhr.status >= 200 && xhr.status < 300) { try { resolve(JSON.parse(xhr.responseText)); } catch(e){ const er=new Error('תגובה לא תקינה'); er.code=xhr.status; reject(er);} return; }
       // ⚠️ המחרוזת פנימית (ל-console/צוות בלבד) — לעולם לא מוצגת ללקוח (ראה _uplFail).
       const er = new Error('storage-upload-failed'); er.code = xhr.status; reject(er);
     };
-    xhr.onerror   = () => { const e = new Error('שגיאת רשת'); e.code = 0; reject(e); };
-    xhr.ontimeout = () => { const e = new Error('פג זמן ההעלאה'); e.code = 408; reject(e); };
+    xhr.onerror   = () => { _st.clear(); const e = new Error('שגיאת רשת'); e.code = 0; reject(e); };
+    xhr.ontimeout = () => { _st.clear(); const e = new Error('פג זמן ההעלאה'); e.code = 408; reject(e); };
     // ⚠️ במסלול-פורטל אין לשלוח אנונימי: _uploadToken זורק אם הזהות לא שוחזרה
     _uploadToken().then(_finishSend, function(err){
       if (err && err.portalUnresolved) { const e = new Error('portal-identity-unresolved'); e.code = 0; e.portalUnresolved = true; reject(e); return; }

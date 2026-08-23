@@ -17,10 +17,10 @@
 <!-- ⚠️ 20/08/2026, דיווח-לקוח (מבט חצור עמ' 15): המסך רינדר ב-pdf.js
      הישן, שמצייר מסכות-שקיפות דהויות — רקע-העמוד נעלם ללקוח בעוד
      שבקובץ הוא תקין. מודול-המנוע מביא 5.4.149 (vendor/ כמראה אחרונה). -->
-<script src="pdfjs-engine.js?v=1787470451"></script>
+<script src="pdfjs-engine.js?v=1787471643"></script>
 <!-- ⚠️ 23/08: מקור-האמת לתקרות-הגודל, מסונכרן עם חוקי-האחסון. המסך הזה
      העלה 97MB ורק בסוף קיבל 403 — בלי שום בדיקה מוקדמת. -->
-<script src="upload-type.js?v=1787470451"></script>
+<script src="upload-type.js?v=1787471643"></script>
 <script src="imposition-decoder.js"></script>
 <script src="imposition-decoder-exec.js"></script>
 <script src="imposition-tpl-parser.js"></script>
@@ -33,9 +33,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787470451"></script>
-<script src="auth-client.js?v=1787470451"></script>
-<script src="auth-guard.js?v=1787470451" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1787471643"></script>
+<script src="auth-client.js?v=1787471643"></script>
+<script src="auth-guard.js?v=1787471643" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -223,6 +223,24 @@ function _assertFoldSize(bytes){
   }
   return bytes;
 }
+/* ⚠️⚠️ 23/08/2026, המשך-האבחון: **קדם-דפוס היה מחובר והפרופר עדיין נדחה.**
+   ‏`customerFoldVersions` דורש בחוקים `isTheAdmin()` — כלומר ‎role=='admin'‎
+   **וגם** ‎staffId=='admin'‎. עובד קדם-דפוס מחובר כהלכה (password, מאומת,
+   accountType=staff) נושא ‎role=='prepress'‎, ולכן נדחה ב-403 בדיוק כמו
+   אנונימי. זו הפעם הרביעית שפתיחת-תפקיד מתגלה כשרשרת ולא כאירוע יחיד
+   (‏[[solan-prepress-full-access]]).
+   ⚠️ **השער כאן משקף את מה שהשרת באמת אוכף** — לא יותר ולא פחות. שער
+   מתירני יותר מהשרת גרוע משאין שער: הוא מעביר את המשתמש דרך 97MB כדי
+   שהשרת ידחה אותו בסוף, ומודיע לו הודעה שאינה נכונה למצבו. */
+/* ⚠️⚠️ **השער חוסם רק מה שידוע בוודאות שייכשל.** היה כאן רגע גם שער-
+   תפקיד שמתיר ‎admin‎ בלבד, לפי ‎isTheAdmin()‎ שבקובץ-החוקים שבריפו —
+   והוא הוסר: יש ראיה שקובץ-החוקים בריפו **אינו** מה שאוכף בייצור
+   (אובייקט 288MB עבר בעוד הקובץ אומר 200MB), וקדם-דפוס מעלה פרופרים
+   כחלק מתפקידו. שער-לקוח שמחמיר מהשרת על סמך ניחוש חוסם עובדים
+   שהשרת דווקא מתיר — נזק גדול יותר מהבעיה שהוא פותר.
+   ⚠️ זהות אנונימית, לעומת זאת, **לעולם** לא תוכל לכתוב לשום נתיב-צוות;
+   זו אינה השערה על החוקים אלא תכונה של כולם. אותה בלבד חוסמים מראש,
+   ומה שמעבר לזה מתורגם מתשובת-השרת (403 → נוסח שמכוון לפעולה). */
 function _assertCanWriteFold(tok){
   const c=_claimsOf(tok);
   const prov=((c.firebase||{}).sign_in_provider)||null;
@@ -231,8 +249,11 @@ function _assertCanWriteFold(tok){
       + 'התחברו (מייל וסיסמה) ונסו שוב — הקובץ לא נשלח.');
     e.noIdentity=true; throw e;
   }
+  /* התפקיד נשמר לצורך נוסח-השגיאה אם השרת בכל זאת ידחה. */
+  _lastRole = c.role || '';
   return tok;
 }
+var _lastRole = '';
 function _uploadPdf(path,bytes,onPct){ return Promise.resolve().then(()=>_assertFoldSize(bytes))
   .then(()=>_auth()).then(_assertCanWriteFold).then(tok=> new Promise((res,rej)=>{ const x=new XMLHttpRequest();
   x.open('POST','https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o?name='+encodeURIComponent(path));
@@ -242,8 +263,14 @@ function _uploadPdf(path,bytes,onPct){ return Promise.resolve().then(()=>_assert
     res({url:'https://firebasestorage.googleapis.com/v0/b/solan-printing.firebasestorage.app/o/'+encodeURIComponent(path)+'?alt=media&token='+t, path:path}); }
     /* ⚠️ 23/08/2026: "Storage 403" גולמי אינו אומר לאיש מה לעשות — וזה
        בדיוק מה שהוצג על המסך. כל קוד מקבל נוסח שמכוון לפעולה. */
-    else if(x.status===403) rej(new Error('אין הרשאה להעלות (403). התחברו עם חשבון בית-הדפוס ונסו שוב; '
-      + 'אם אתם כבר מחוברים — ייתכן שהקובץ גדול מהמותר (' + _MAX_FOLD_MB + 'MB).'));
+    /* ⚠️ 23/08: הנוסח מבחין בין "לא מחובר" לבין "מחובר אבל התפקיד חסום" —
+       קדם-דפוס מעלה פרופרים כחלק מתפקידו, ו"התחברו ונסו שוב" הוא עצה
+       שלא יכולה לעבוד עבורו. התפקיד מופיע בהודעה כדי שהדיווח לדפוס
+       יהיה חד-משמעי ולא יצריך סבב-אבחון נוסף. */
+    else if(x.status===403) rej(new Error('השרת דחה את ההעלאה (403)'
+      + (_lastRole ? ' עבור תפקיד "'+_lastRole+'"' : '')
+      + '. אם אתם מחוברים כראוי — ההרשאה לתפקיד הזה חסומה בשרת; מסרו את '
+      + 'ההודעה הזו לבית-הדפוס. הקובץ לא נשמר.'));
     else if(x.status===401) rej(new Error('הכניסה פגה (401). התחברו מחדש ונסו שוב.'));
     else if(x.status===413) rej(new Error('הקובץ גדול מדי לשרת (413).'));
     else rej(new Error('ההעלאה נכשלה (שגיאה '+x.status+') — נסו שוב, ואם חוזר פנו לתמיכה.')); };
