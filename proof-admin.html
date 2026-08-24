@@ -27,11 +27,11 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1787572237"></script>
+<script src="pdfjs-engine.js?v=1787574093"></script>
 <!-- ⚠️ 23/08: שומר-תקיעה בהעלאה. בלעדיו המסך קפא על ~98% לנצח. -->
-<script src="upload-stall.js?v=1787572237"></script>
+<script src="upload-stall.js?v=1787574093"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1787572237"></script>
+<script src="issue-grid.js?v=1787574093"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -41,28 +41,32 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1787572237"></script>
-<script src="chat-alert.js?v=1787572237"></script>
+<script src="portal-chat.js?v=1787574093"></script>
+<script src="chat-alert.js?v=1787574093"></script>
 <!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1787572237"></script>
+<script src="push-client.js?v=1787574093"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
-<script src="chat-files.js?v=1787572237"></script>
-<script src="shop-issue.js?v=1787572237"></script>
-<script src="page-marks.js?v=1787572237"></script>
+<script src="chat-files.js?v=1787574093"></script>
+<script src="shop-issue.js?v=1787574093"></script>
+<script src="page-marks.js?v=1787574093"></script>
+<!-- ⚠️ 24/08: מספור-עמודים אמיתי (/PageLabels) גם בהורדת-הריצה של **הדפוס**.
+     התיקון מ-23/08 נכנס רק ל-customer-portal, והדפוס — זה שמזין את אפוגי —
+     נשאר עם 1..32. ראה downloadFile. -->
+<script src="page-labels.js?v=1787574093"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1787572237"></script>
-<script src="kontres-split.js?v=1787572237"></script>
+<script src="page-box.js?v=1787574093"></script>
+<script src="kontres-split.js?v=1787574093"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1787572237"></script>
-<script src="auth-client.js?v=1787572237"></script>
+<script src="firebase-auth.bundle.js?v=1787574093"></script>
+<script src="auth-client.js?v=1787574093"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1787572237" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1787574093" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2630,7 +2634,9 @@ function render(rows) {
     if (p.fileUrl || p.apogeeUrl) return [{ url: p.fileUrl || p.apogeeUrl, name: jobName(p) }];
     // ריצות — לפי מספר-הריצה, כמו בכל שאר המסך (ראה _partsOrdered)
     const parts = _partsOrdered(p).filter(pt => pt.fileUrl);
-    return parts.map(pt => ({ url: pt.fileUrl, name: runFileName(p, pt.name) }));
+    /* ⚠️ גם ההורדה-המרוכזת של כל הריצות נושאת מספור — לא רק ההורדה
+       הבודדת מהפריסה. מסלול שני שיורד בלי תוויות מחזיר בדיוק את התקלה. */
+    return parts.map(pt => ({ url: pt.fileUrl, name: runFileName(p, pt.name), seq: _runSeqFor(p, pt.name) }));
   };
   document.querySelectorAll('[data-dl]').forEach(b => b.onclick = async () => {
     const t = _genReg[b.dataset.dl];
@@ -2666,7 +2672,7 @@ function render(rows) {
         + items.map(x => '· ' + x.name).join('\n')
         + '\n\nלהורדת ריצה בודדת — לחצו עליה ברשת-העמודים ואז "⬇ הורד".\n\nלהוריד את כולן?')) return;
     for (let i = 0; i < items.length; i++) {
-      await downloadFile(items[i].url, String(items[i].name || 'עיתון').replace(/[\\/:*?"<>|]/g,'_') + '.pdf', b);
+      await downloadFile(items[i].url, String(items[i].name || 'עיתון').replace(/[\\/:*?"<>|]/g,'_') + '.pdf', b, items[i].seq);
     }
   });
 }
@@ -2683,7 +2689,7 @@ let _doneOpen = false;    // האם קטגוריית "עיתונים שהושל�
    ‏`r.ok` לא נבדק, וה-HTML של המסך נשמר בשם ‎.pdf‎.
    שלושה שערים עכשיו — כתובת, סטטוס-HTTP, וחתימת-הקובץ. כשל אומר את עצמו
    ואינו מוריד כלום; "הורדתי ולא עבד" גרוע מ"לא הורדתי ואמרו לי למה". */
-async function downloadFile(url, name, btn) {
+async function downloadFile(url, name, btn, seq) {
   const old = btn ? btn.textContent : '';
   const fail = (m) => { console.error('הורדה נכשלה:', m, url); try { alert('⛔ ההורדה נכשלה — ' + m); } catch(e){} };
   if (!url || !String(url).trim()) { fail('לא נמצאה כתובת לקובץ. ייתכן שהקובץ יושב על ריצה ולא על העבודה.'); return; }
@@ -2691,13 +2697,40 @@ async function downloadFile(url, name, btn) {
   try {
     const r = await fetch(url);
     if (!r.ok) throw new Error('השרת החזיר ' + r.status + (r.status === 403 ? ' — אין הרשאה או שהטוקן פג' : ''));
-    const blob = await r.blob();
+    let blob = await r.blob();
     /* ⚠️ 200 אינו ערובה שזה PDF — דף-שגיאה או ה-HTML של המסך חוזרים גם הם
        בקוד 200. בודקים את חתימת-הקובץ עצמה. */
     const head = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
     const sig = String.fromCharCode.apply(null, head);
     if (/\.pdf$/i.test(name) && sig.indexOf('%PDF') !== 0)
       throw new Error('מה שהתקבל אינו PDF (' + Math.round(blob.size / 1024) + 'KB). הקובץ לא נשמר.');
+    /* ⚠️⚠️ **מספור-העמודים בקובץ שיורד לדפוס** (דיווח-בעלים 24/08/2026:
+       "מספרי-העמודים עדיין נשארים בסדר רץ לכל ריצה" — צילום Run List של
+       אפוגי, ריצה 3 של אלעד 279, מוצגת 1..32 במקום 33..64).
+       ⚠️ **התיקון מ-23/08 היה נכון — ובמסך הלא-נכון.** הוא נכנס ל-
+       ‎customer-portal‎ בלבד, בעוד שמי שמזין את אפוגי הוא **הדפוס**,
+       שמוריד מכאן. אותו לקח של 06/08 (הגופן הועבר לאירוח-עצמי רק עבור
+       ‎press4.html‎): ההכללה היא החלק החשוב, לא התיקון הנקודתי.
+       ⚠️ נכשל-רך בכל שלב: קובץ-הדפוס חשוב מהתווית — כל כשל מוריד את
+       הקובץ המקורי, עם עקבה ב-console. ⚠️ ותקרת-גודל, כמו בפורטל:
+       כתיבה-מחדש של מאות-MB ב-pdf-lib מפילה את הלשונית (תקרית 17/08). */
+    if (seq && seq.length && window.PageLabels && PageLabels.needed(seq)) {
+      if (blob.size > 180 * 1024 * 1024) {
+        console.warn('מספור-עמודים דולג — הקובץ גדול מדי (' + Math.round(blob.size / 1048576) + 'MB)');
+      } else {
+        if (btn) btn.textContent = 'ממספר עמודים…';
+        try {
+          const L = await _loadPdfLibA();
+          if (!L) throw new Error('pdf-lib לא נטען');
+          const doc = await L.PDFDocument.load(new Uint8Array(await blob.arrayBuffer()));
+          if (PageLabels.apply(doc, L, seq)) {
+            /* ⚠️ ‎useObjectStreams:false‎ — התוויות נכתבות כלשונן, כמו כל
+               שאר הפלטים לדפוס בפרויקט. */
+            blob = new Blob([await doc.save({ useObjectStreams: false })], { type: 'application/pdf' });
+          }
+        } catch(e){ console.error('כתיבת מספור-העמודים נכשלה — יורד הקובץ המקורי', e); }
+      }
+    }
     downloadBlob(blob, name);
   } catch (e) {
     /* ⚠️ 17/08/2026 — ל-bucket של Storage **אין CORS** לאתר שלנו (נמדד: אין
@@ -3744,8 +3777,12 @@ function _runExpWire(reg, t, pt) {
   if (cl) cl.onclick = _runExpClose;
   /* הורדת **הריצה הזו בלבד**, בשמה (R-N) — דרך downloadFile, על כל שעריו. */
   const dl = host.querySelector('[data-rundl]');
+  /* ⚠️ הרצף נגזר כאן ולא מועבר מ-‎_runExpand‎: הכפתור קיים גם במסלול
+     שאין בו ‎pagesUrl‎ (בלי פריסה), ושם לא חושב שום רצף. גזירה במקום
+     אחד = שני המסלולים מקבלים מספור, ולא רק זה שיש לו תצוגה. */
   if (dl && pt && pt.fileUrl) dl.onclick = () => downloadFile(pt.fileUrl,
-    String(runFileName(reg.p, t.runName || t.label)).replace(/[\/:*?"<>|]/g, '_') + '.pdf', dl);
+    String(runFileName(reg.p, t.runName || t.label)).replace(/[\/:*?"<>|]/g, '_') + '.pdf', dl,
+    _runSeqFor(reg.p, t.runName || t.label));
   /* לחיצה על עמוד בפריסה → אותו חלון-הגדלה של הרשת הראשית, עם מספר-העמוד
      **בתוך הריצה**. זו בדיוק החתימה `_pgLightOpen(tileIdx, pg)`, ולכן
      החיצים בהגדלה (‎_plFlat‎ שטוח ברמת-עמוד) ממשיכים לעבור את כל הגיליון. */
@@ -4884,6 +4921,21 @@ function _pdfReadDir(out, rec){
        .setReadingDirection(dir === "ltr" ? RD.L2R : RD.R2L);
   } catch(e){ console.warn("קביעת כיוון-הדפדוף בקובץ נכשלה (הקובץ תקין)", (e&&e.message)||e); }
 }
+/* ── רצף מספרי-העמוד של ריצה, לפי פריסת-הקונטרסים ────────────────────────
+   מקור-אמת אחד לשם-הקובץ, לתוויות שבתוכו ולפריסה על המסך — אותו
+   ‎ShopIssue.layoutOf‎ שהמסך כבר מציג לפיו.
+   ⚠️ **נכשל-סגור**: בלי פריסה ודאית מוחזר null, והקובץ יורד בלי תוויות
+   כמו קודם. מספור **שגוי** בקובץ-דפוס גרוע ממספור חסר — הוא עמוד
+   שיודפס במקום הלא-נכון. אין כאן ניחוש-רציף. */
+function _runSeqFor(p, partName) {
+  try {
+    if (!window.ShopIssue || !ShopIssue.layoutOf || !ShopIssue.runNoOfName) return null;
+    const n = ShopIssue.runNoOfName(partName);
+    if (!(n >= 1)) return null;
+    const run = (ShopIssue.layoutOf(p) || []).find(L => L.num === n);
+    return (run && run.seq && run.seq.length) ? run.seq : null;
+  } catch (e) { console.warn('רצף-הריצה לא נגזר — הקובץ ירד בלי תוויות', e); return null; }
+}
 function runFileName(p, partName) {
   p = p || {};
   const cust = String(p.customer || '').trim();
@@ -4891,7 +4943,16 @@ function runFileName(p, partName) {
   const m = String(partName || '').match(/(\d+)/);
   const run = m ? ('R-' + m[1]) : String(partName || '').trim();
   const head = cust || String(p.title || '').trim() || 'עיתון';
-  return [head, run, issue ? ('גיליון ' + issue) : ''].filter(Boolean).join(' ');
+  /* ⚠️ **הטווח בשם** (אותה בקשה של 23/08, שגם היא נכנסה רק לפורטל):
+     בתיקיית-ההורדות של הדפוס יושבות כמה ריצות של אותו גיליון, ו-"R-3"
+     לבדו אינו אומר אילו עמודים בפנים. ‏spanLabel הוא אותו ניסוח שהמסך
+     מציג בפריסה — שם, מסך ותוויות אומרים דבר אחד. */
+  let span = '';
+  try {
+    const seq = _runSeqFor(p, partName);
+    if (seq && window.PageLabels) span = PageLabels.spanLabel(seq);
+  } catch (e) {}
+  return [head, run, span ? ('עמ ' + span) : '', issue ? ('גיליון ' + issue) : ''].filter(Boolean).join(' ');
 }
 /* שם-הקובץ בהורדה מחלון-ההגדלה. אריח-ריצה → שם-הריצה (R-N); עמוד בודד
    מתוך העיתון המלא → שם-העבודה + מספר-העמוד, כדי שבתיקיית-ההורדות יהיה
