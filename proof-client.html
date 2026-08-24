@@ -12,22 +12,22 @@
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
-<script src="pdfjs-engine.js?v=1787488403"></script>
+<script src="pdfjs-engine.js?v=1787570297"></script>
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
      כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1787488403"></script>
+<script src="upload-type.js?v=1787570297"></script>
 <!-- ⚠️ 23/08: שומר-תקיעה בהעלאה. בלעדיו המסך קפא על ~98% לנצח. -->
-<script src="upload-stall.js?v=1787488403"></script>
-<script src="portal-context.js?v=1787488403"></script>
+<script src="upload-stall.js?v=1787570297"></script>
+<script src="portal-context.js?v=1787570297"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi2"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1787488403"></script>
-<script src="portal-return.js?v=1787488403"></script>
+<script src="page-replace.js?v=1787570297"></script>
+<script src="portal-return.js?v=1787570297"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1878,18 +1878,42 @@ function _pcMissingCheck(){
     };
   });
 }
-/* הרכבת ה-PDF מרשימת העמודים — מקור-אמת יחיד לאישור הראשון ולעריכת-גרסה */
+/* הרכבת ה-PDF מרשימת העמודים — מקור-אמת יחיד לאישור הראשון ולעריכת-גרסה
+
+   ⚠️ **תקרית "השבועון אלעד" 279, ‏24/08/2026 — עמוד שיצא לבן בשקט.**
+   הלקוח ראה את עמוד 52 בעורך, שלח, ובקובץ שהגיע לדפוס עמוד 52 היה **ריק
+   לגמרי** — בלי זרם-תוכן ובלי משאבים. קדם-דפוס תפס אותו בעין וסימן "חסר".
+   השורש: השורה למטה איחדה שלושה מצבים שונים לתוצאה אחת —
+     ‏(1) ‎p.blank‎        — הלקוח ריקן/הצהיר-חסר. **כוונה.**
+     ‏(2) ‎!p.fileId‎       — לעמוד אין מקור כלל.  **כשל.**
+     ‏(3) ‎!sources.get()‎  — המקור אבד מהמפה.     **כשל.**
+   ‏(2) ו-(3) הפכו לעמוד לבן בלי הודעה, בלי console, ובלי סימן ברשומה.
+   ובמקביל ‎uploadPagesCache‎ שמר את **התצוגה שעל המסך** — ולכן הפריסה
+   בפורטל הראתה עמוד מלא-תוכן בזמן שהקובץ החזיק דף לבן. זה גם ההסבר ל
+   "בדפדוף פעם רואים ופעם לא": הדפדוף מציג קודם את המטמון ואז מרנדר אמת.
+   מכאן: ההרכבה **מדווחת** מה ריקנה ולמה, והמתקשר חייב להכריע. */
 async function _pcComposePdf(){
   const out = await PDFLib.PDFDocument.create();
   const cache = new Map();
+  const blanks = [];        /* {i, deliberate, label} — לפי אינדקס ב-pages */
+  const _lbl = (function(){ try { return pageLabels(); } catch(e){ return []; } })();
   // גודל-ייחוס לעמודים ריקים — מהעמוד הראשון שיש לו מקור (אחרת A4)
   let _refW = 595.28, _refH = 841.89;
   for (const p of pages) {
     if (p.blank || !p.fileId || !sources.get(p.fileId)) continue;
     try { const l0 = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); const g0 = l0.getPage(p.pageIndex || 0); _refW = p.isSpread ? g0.getWidth()/2 : g0.getWidth(); _refH = g0.getHeight(); break; } catch(e){}
   }
-  for (const p of pages) {
-    if (p.blank || !p.fileId || !sources.get(p.fileId)) { out.addPage([_refW, _refH]); continue; }   // עמוד ריק (לבן)
+  for (let _i = 0; _i < pages.length; _i++) {
+    const p = pages[_i];
+    if (p.blank || !p.fileId || !sources.get(p.fileId)) {
+      /* ⚠️ ההבחנה היא **כל** התיקון: ריקון-בכוונה הוא מוצר, מקור-שאבד
+         הוא תקלה. שניהם מייצרים את אותו דף לבן, ולכן רק הדיווח מפריד. */
+      const deliberate = !!p.blank;
+      blanks.push({ i: _i, deliberate: deliberate, label: _lbl[_i] || String(_i + 1) });
+      if (!deliberate) console.error('הרכבת-PDF: עמוד בלי מקור — יצא ריק',
+        { index: _i, label: _lbl[_i], fileId: p.fileId || null, inSources: !!(p.fileId && sources.get(p.fileId)) });
+      out.addPage([_refW, _refH]); continue;   // עמוד ריק (לבן)
+    }
     let lib = cache.get(p.fileId);
     if (!lib) { lib = await PDFLib.PDFDocument.load(sources.get(p.fileId).bytes); cache.set(p.fileId, lib); }
     if (p.isSpread) {
@@ -1924,8 +1948,55 @@ async function _pcComposePdf(){
       const [cp] = await out.copyPages(lib, [p.pageIndex]); out.addPage(cp);
     }
   }
-  return await out.save();
+  return { bytes: await out.save(), blanks: blanks };
 }
+/* ── השער: עמוד שאיבד את מקורו לא יוצא בשקט ────────────────────────────────
+   ⚠️ **עוצר את השליחה כברירת-מחדל.** דף לבן בעיתון הוא בדיוק "עיתון שלא
+   יוצא", והלקוח היחיד שיודע מה אמור להיות שם הוא זה שמול המסך. ⚠️ אבל
+   לא חוסם מוחלט: מי שמודע ובכל זאת רוצה לשלוח — יכול, וההכרעה **הופכת
+   את העמודים לריקים אמיתיים** (‎blank=true‎) כך שהמטמון, הפריסה, הדפדוף
+   והרשומה יגידו כולם את אותו דבר. אין מצב שבו המסך מבטיח תוכן שאין בקובץ.
+   מחזיר: ‏true = אפשר להמשיך · ‏false = הלקוח בחר לחזור לעריכה. */
+async function _pcConfirmLostPages(blanks){
+  const lost = (blanks || []).filter(function(b){ return !b.deliberate; });
+  if (!lost.length) return true;
+  const nums = lost.map(function(b){ return b.label; });
+  showOverlay('', false);
+  const ok = confirm(
+    '⛔ ' + (lost.length === 1 ? 'עמוד אחד לא נכנס לקובץ' : lost.length + ' עמודים לא נכנסו לקובץ') + ':\n\n'
+    + 'עמ׳ ' + nums.join(', ') + '\n\n'
+    + 'העמודים מוצגים כאן, אבל המקור שלהם אבד — בקובץ שיישלח לדפוס הם יהיו '
+    + 'לבנים לגמרי, וכך גם יודפסו.\n\n'
+    + 'מומלץ: "ביטול", ואז להעלות מחדש את העמודים האלה.\n\n'
+    + 'לשלוח בכל זאת עם ' + (lost.length === 1 ? 'עמוד לבן' : 'עמודים לבנים') + '?');
+  if (!ok) return false;
+  /* ⚠️ ההכרעה נרשמת על העמודים עצמם ולא נשארת בזיכרון: מכאן והלאה אלה
+     עמודים-ריקים מוצהרים, והתצוגה-המהירה תשמור עבורם דף לבן. */
+  lost.forEach(function(b){
+    const p = pages[b.i]; if (!p) return;
+    p.blank = true; p.fileId = null; p.pageIndex = 0;
+    p.isSpread = false; p.spreadKeep = null; p.trimFrac = null;
+    p.src = _BLANK_IMG; p.displaySrc = null;
+  });
+  try { renderAll(); } catch(e){ console.error('רענון-התצוגה אחרי סימון עמודים-ריקים נכשל', e); }
+  return true;
+}
+/* מרכיב, ואם משהו אבד — שואל. מחזיר בייטים, או null אם הלקוח חזר לעריכה.
+   ⚠️ מרכיב **מחדש** אחרי ההכרעה, כדי שהקובץ ישקף את מה שאושר ולא את מה
+   שהורכב לפניה. */
+async function _pcComposeChecked(){
+  let r = await _pcComposePdf();
+  if (!(await _pcConfirmLostPages(r.blanks))) return null;
+  if (r.blanks.some(function(b){ return !b.deliberate; })) {
+    showOverlay('מרכיב קובץ…', true);
+    r = await _pcComposePdf();
+  }
+  _pcBlankIdx = r.blanks.map(function(b){ return b.i; });
+  return r.bytes;
+}
+/* ⚠️ אילו משבצות ריקות בקובץ שהורכב זה עתה — נצרך ע"י uploadPagesCache כדי
+   שהתצוגה-המהירה לא תבטיח תוכן שאינו בקובץ. מאופס בכל הרכבה. */
+var _pcBlankIdx = [];
 /* ⚠️ בסשן-פורטל מאומת, תיקיית-האחסון היא ה-slug מה-claims (PortalContext.slug)
    — לעולם לא מ-URL ולעולם לא נגזרת-מחדש משם-הלקוח. זה מונע פיצול-תיקייה
    כש-_pcFolder (רגקס שומר-רישיות) וה-slug האמיתי (תמיד lowercase) נבדלים —
@@ -1966,7 +2037,8 @@ async function _psApproveEdited(){
   _uploading = true; await acquireWakeLock();
   try {
     showOverlay('מרכיב קובץ…', true);
-    const pdfBytes = await _pcComposePdf();
+    const pdfBytes = await _pcComposeChecked();
+    if (pdfBytes === null) { showOverlay('', false); return; }   // הלקוח חזר לעריכה
     const folder = _pcFolder();
     const version = PageSwap.nextVersion(record);
     const basePath = (target === 'full')
@@ -2160,7 +2232,8 @@ async function _arApprove(){
   _uploading = true; await acquireWakeLock();
   try {
     showOverlay('מרכיב קובץ…', true);
-    var pdfBytes = await _pcComposePdf();
+    var pdfBytes = await _pcComposeChecked();
+    if (pdfBytes === null) { showOverlay('', false); return; }   // הלקוח חזר לעריכה
     var folder = _pcFolder();
     var basePath = (target === 'full')
       ? `customerProofs/${folder}/${proofId}/full.pdf`
@@ -2277,7 +2350,8 @@ $('approve').onclick = async () => {
     .catch(function(e){ console.error('אות "מעלה עכשיו" נכשל', e); });
   try {
     showOverlay('מרכיב קובץ…', true);
-    const pdfBytes = await _pcComposePdf();
+    const pdfBytes = await _pcComposeChecked();
+    if (pdfBytes === null) { showOverlay('', false); return; }   // הלקוח חזר לעריכה
     const folder = _pcFolder();
 
     const _upStart = Date.now();
@@ -2404,13 +2478,22 @@ function _thumbFor(src){
 }
 /* מטמון-עמודים = *תצוגה-מקדימה בלבד*, לא מקור-אמת.
    הצופה (proof-viewer) תמיד מרנדר מחדש מה-PDF ומחליף אותו, ולכן כאן שומרים
-   תמונות קטנות: גם זול בתעבורה/אחסון, וגם ברור שזו לא התצוגה שמאשרים לפיה. */
+   תמונות קטנות: גם זול בתעבורה/אחסון, וגם ברור שזו לא התצוגה שמאשרים לפיה.
+
+   ⚠️ **"תצוגה-מקדימה בלבד" נכון רק כל עוד מישהו באמת מרנדר אמת — ולא כולם
+   עושים זאת.** פריסת-הריצה בפורטל (‎_sgRunOpen‎) ובמסך-הדפוס מציגה את
+   המטמון **כמו שהוא** ולעולם לא משווה אותו לקובץ. בתקרית 24/08/2026 זה
+   הראה עמוד 52 מלא-תוכן בזמן שהקובץ החזיק דף לבן — כלומר המסך הבטיח מה
+   שהקובץ לא קיים. מכאן: משבצת שההרכבה ריקנה — המטמון מראה עבורה דף ריק.
+   התצוגה יכולה להיות פחות-חדה מהקובץ; אסור לה לסתור אותו. */
 async function uploadPagesCache(path) {
   try {
     showOverlay('שומר תצוגה מהירה…', true, 0);
     const thumbs = [];
+    const blank = {};
+    (_pcBlankIdx || []).forEach(function(i){ blank[i] = 1; });
     for (let i = 0; i < pages.length; i++) {
-      thumbs.push(await _thumbFor(pages[i].displaySrc || pages[i].src));
+      thumbs.push(await _thumbFor(blank[i] ? _BLANK_IMG : (pages[i].displaySrc || pages[i].src)));
       showOverlay('שומר תצוגה מהירה…', true, Math.round((i+1)/pages.length*100));
     }
     const json = JSON.stringify(thumbs);

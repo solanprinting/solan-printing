@@ -53,6 +53,23 @@
   }
   function backFromUrl(search) { return safeBack(param(search, 'back')); }
 
+  /* ── היעד שהפורטל שולח על עצמו ─────────────────────────────────────────
+     ⚠️ **כאן מתה התכונה, ובשקט.** הפורטל שלח ‎back=location.href‎ — כתובת
+     **מוחלטת** — ו-‎safeBack‎ דוחה כל כתובת מוחלטת (וצריך לדחות: זו בדיוק
+     פרצת-ההפניה שנסגרה ב-11/08/2026). התוצאה: ‎back‎ הגיע ריק, כפתור
+     "חזרה לפורטל" לא הוצג **אף פעם**, והחזרה-האוטומטית אחרי שליחה לא רצה
+     אצל אף לקוח מאז — בדיוק התלונה "המערכת לא מחזירה אותנו לפורטל".
+     ⚠️ הבנייה יושבת **כאן ולא בדף** כדי שהיצרן והשער יהיו באותו קובץ:
+     כל עוד הם נפרדים, אפשר שוב לייצר ערך שהשער דוחה בלי שאיש ישים לב.
+     ‏‎search‎ נשמר — בלעדיו הלקוח חוזר לפורטל בלי מפתח-הכניסה, כלומר
+     למסך-מנעול ([[solan-portal-gate-copied-url]]). */
+  function selfBack(loc) {
+    var l = loc || {};
+    var name = str(l.pathname).split('/').pop();
+    if (!name) name = 'customer-portal.html';    /* נתיב-תיקייה (index) */
+    return safeBack(name + str(l.search));
+  }
+
   /* ‎job=‎ הוא מה שאומר לפורטל **איזו** עבודה להבליט. */
   function returnUrl(back, proofId) {
     var b = safeBack(back);
@@ -121,7 +138,7 @@
 
   return {
     AUTO_MS: AUTO_MS,
-    safeBack: safeBack, backFromUrl: backFromUrl, returnUrl: returnUrl,
+    safeBack: safeBack, backFromUrl: backFromUrl, selfBack: selfBack, returnUrl: returnUrl,
     highlightId: highlightId, countdownLabel: countdownLabel,
     jobSummary: jobSummary, shopSeen: shopSeen, nextStep: nextStep
   };
