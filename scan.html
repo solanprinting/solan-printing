@@ -20,6 +20,17 @@
   .btn.alt{background:rgba(255,255,255,.14);color:#fff;font-weight:700}
   .err{color:#fca5a5;font-weight:700;margin-top:10px;line-height:1.6}
   .wait{font-size:.92rem;line-height:1.8;color:rgba(255,255,255,.85)}
+  /* ── העמודים שקדם-הדפוס סימן. מיועד לטלפון ביד, ברצפת-הייצור: תמונה
+     גדולה ככל האפשר, מספר-עמוד קריא, וגלילה אנכית אחת. */
+  .scRun{margin:0 0 18px}
+  .scRunHead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
+    border-bottom:1px solid rgba(255,255,255,.18);padding-bottom:6px;margin-bottom:10px}
+  .scRunHead b{font-size:1.02rem}
+  .scSpan{font-size:.8rem;color:rgba(255,255,255,.7)}
+  .scPages{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+  .scPg{margin:0;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+  .scPg img{display:block;width:100%;height:auto}
+  .scPg figcaption{font-size:.74rem;font-weight:800;color:#1f2937;text-align:center;padding:4px 2px 6px}
   /* שדה-הקוד היחיד במסך. הערכים זהים ל-.btn.alt כדי שלא תיווצר שפה שנייה. */
   .fld{display:block;width:100%;box-sizing:border-box;margin-top:10px;padding:13px;border:none;
        border-radius:10px;background:rgba(255,255,255,.14);color:#fff;font-family:'Heebo',sans-serif;
@@ -39,8 +50,8 @@
      משותף שסיסמתו עוברת בין עובדים. במקום זה: רישום חד-פעמי בקוד
      קצר-חיים, Custom Token, וה-SDK מנהל את הסשן והרענון.
      ⚠️ אפס גישה ל-RTDB. כל קריאה וכתיבה עוברות ב-Functions. -->
-<script src="firebase-auth.bundle.js?v=1788254745"></script>
-<script src="auth-client.js?v=1788254745"></script>
+<script src="firebase-auth.bundle.js?v=1788259527"></script>
+<script src="auth-client.js?v=1788259527"></script>
 <script>
 // דף סריקת QR מכרטיס עבודה מודפס: ?c=<מזהה כרטיס> [&r=<ריצה>]
 // סדר עדיפויות:
@@ -651,13 +662,100 @@ function start(){
   });
 }
 
+/* ═══ 📱 העמודים שקדם-הדפוס סימן — בלי רישום ובלי התחברות ═══════════════════
+   בקשת-בעלים 01/09/2026: "כל אחד יכול לסרוק ולראות את העמודים שקדם-הדפוס
+   הוסיף לכרטיס ב-QR", "כדי שהעובדים ידעו איך החוברת מתחילה ונגמרת" —
+   לעיתונים שאין עליהם מספרי-עמודים.
+
+   ⚠️ **זה מה שהחזיר את הקורא לחיים.** מ-02/08/2026 המסך דרש רישום-מכשיר,
+   ובייצור לא נרשם אף טלפון — כלומר כל מי שסרק קיבל "הטלפון הזה עדיין לא
+   רשום", והתכונה הייתה מתה לגמרי. עכשיו יש מסלול שאינו דורש דבר.
+   ⚠️ אסימון-אנונימי ב-REST ולא דרך ה-SDK: החבילה כאן אינה כוללת
+   ‏signInAnonymously, ואין סיבה לטעון עוד ספרייה בשביל קריאה אחת.
+   ⚠️ הקריאה היא לצומת **אחד** לפי מזהה שכבר בידך (זה שמודפס על הכרטיס).
+   החוקים אינם מתירים מניית-הכול — בדיוק כמו s.html. */
+var _ANON_RT_KEY = 'solanFbAnonRT';
+function _anonToken(){
+  var rt = null;
+  try { rt = localStorage.getItem(_ANON_RT_KEY); } catch(e){}
+  var viaRefresh = rt ? fetch('https://securetoken.googleapis.com/v1/token?key=' + _FB_APIKEY, {
+      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'grant_type=refresh_token&refresh_token=' + encodeURIComponent(rt) })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){ return (j && j.id_token) ? j.id_token : null; })
+    .catch(function(){ return null; }) : Promise.resolve(null);
+  return viaRefresh.then(function(tok){
+    if (tok) return tok;
+    return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + _FB_APIKEY, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ returnSecureToken: true }) })
+      .then(function(r){
+        /* ⚠️ ‏r.ok נבדק: כניסה-אנונימית מכובה מחזירה 400 כתגובה תקינה,
+           ובלי הבדיקה המסך היה מציג "אין עמודים" במקום לומר מה קרה. */
+        if (!r.ok) throw new Error('anon_signup_' + r.status);
+        return r.json();
+      })
+      .then(function(j){
+        try { if (j && j.refreshToken) localStorage.setItem(_ANON_RT_KEY, j.refreshToken); } catch(e){}
+        return (j && j.idToken) || null;
+      });
+  });
+}
+function _scanPagesHtml(runs){
+  var keys = Object.keys(runs).sort(function(a,b){
+    return (Number((runs[a]||{}).at)||0) - (Number((runs[b]||{}).at)||0); });
+  return keys.map(function(k){
+    var r = runs[k] || {}, pgs = Array.isArray(r.pages) ? r.pages : [];
+    if (!pgs.length) return '';
+    return '<div class="scRun"><div class="scRunHead"><b>' + _esc(r.name || 'ריצה') + '</b>'
+      + (r.span ? '<span class="scSpan">עמ׳ ' + _esc(r.span) + ' בגיליון</span>' : '') + '</div>'
+      + '<div class="scPages">' + pgs.map(function(p){
+          return '<figure class="scPg"><img src="' + _esc(String(p.img || '')) + '" alt="">'
+               + '<figcaption>' + _esc(String(p.label || '')) + '</figcaption></figure>'; }).join('')
+      + '</div></div>';
+  }).join('');
+}
+function _esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+  return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]; }); }
+
+function showScanPages(){
+  sub.textContent = 'עמודי העבודה';
+  body.innerHTML = '<div class="wait">טוען…</div>';
+  return _anonToken().then(function(tok){
+    if (!tok) throw new Error('no_token');
+    return fetch(_FBURL + '/scanCards/' + encodeURIComponent(cid) + '.json?auth=' + encodeURIComponent(tok));
+  }).then(function(r){
+    /* ⚠️ ‏403 חוזר כתגובת-HTTP תקינה — "ריק" ו"לא-הצלחנו-לקרוא" חייבים
+       להיראות שונה, אחרת העובד יחשוב שקדם-הדפוס לא סימן כלום. */
+    if (!r.ok) throw new Error('db_' + r.status);
+    return r.json();
+  }).then(function(j){
+    var runs = (j && j.runs && typeof j.runs === 'object') ? j.runs : null;
+    var html = runs ? _scanPagesHtml(runs) : '';
+    if (!html) {
+      body.innerHTML = '<div class="wait">קדם-הדפוס עדיין לא סימן עמודים לעבודה הזו.<br>'
+        + '<span style="font-size:.86rem;color:#6b7280">אפשר לבקש ממנו לסמן — במסך-הדפוס, בפריסת-הריצה, "📱 סימון לסריקה".</span></div>';
+      return false;
+    }
+    body.innerHTML = html;
+    return true;
+  }).catch(function(e){
+    console.error('טעינת עמודי-הסריקה נכשלה', e);
+    body.innerHTML = '<div class="err">לא הצלחנו לטעון את העמודים — בדקו חיבור לאינטרנט ונסו שוב.</div>';
+    return false;
+  });
+}
+
 if (!cid) { sub.textContent = ''; body.innerHTML = '<div class="err">חסר מזהה כרטיס בקישור.</div>'; }
 else {
   /* ⚠️ persistence מקומי: הרישום חייב לשרוד סגירת דפדפן וכיבוי מכשיר,
      אחרת העובד היה מקליד קוד כל בוקר. */
   SolanAuth.init(FB_CONFIG_SCAN, 'local');
   SolanAuth.onAuthStateChanged(function(user){
-    if (user) start(); else showEnroll('');
+    /* ⚠️ **מכשיר רשום ממשיך למסך המלא** (שלבי-גימור, פרופר) — לא נלקחת
+       ממנו יכולת. מי שאינו רשום — וזה כל עובד — מקבל את העמודים שקדם-
+       הדפוס סימן, במקום מסך-רישום שאין לו קוד אליו. */
+    if (user) start(); else showScanPages();
   });
 }
 </script>
