@@ -50,8 +50,8 @@
      משותף שסיסמתו עוברת בין עובדים. במקום זה: רישום חד-פעמי בקוד
      קצר-חיים, Custom Token, וה-SDK מנהל את הסשן והרענון.
      ⚠️ אפס גישה ל-RTDB. כל קריאה וכתיבה עוברות ב-Functions. -->
-<script src="firebase-auth.bundle.js?v=1788266571"></script>
-<script src="auth-client.js?v=1788266571"></script>
+<script src="firebase-auth.bundle.js?v=1788268299"></script>
+<script src="auth-client.js?v=1788268299"></script>
 <script>
 // דף סריקת QR מכרטיס עבודה מודפס: ?c=<מזהה כרטיס> [&r=<ריצה>]
 // סדר עדיפויות:
@@ -732,8 +732,28 @@ function showScanPages(){
   }).then(function(j){
     var runs = (j && j.runs && typeof j.runs === 'object') ? j.runs : null;
     var html = runs ? _scanPagesHtml(runs) : '';
+    /* ── 📖 דפדוף בחוברת מקופלת (בקשת-בעלים 01/09/2026) ───────────────────
+       הפרופר שקדם-הדפוס מצרף לכרטיס הוא **גיליון-אפוגי מוטבע**, ומנוע-
+       הקיפול יודע לפרוש אותו לחוברת בסדר-קריאה. זה מה שהעובד באמת רוצה:
+       לראות איך החוברת מתחילה ונגמרת, בלי שאיש יסמן לו כלום.
+       ⚠️ מוצג **רק** כשהצד השני פרסם קיפול — כלומר רק לגדלים שהמנוע
+       מכסה (16.5×24 · A4). אין ניחוש כאן: קיפול שגוי נראה אמין. */
+    var fold = (j && j.fold && typeof j.fold === 'object') ? j.fold : null;
+    var fh = '';
+    if (fold) {
+      fh = Object.keys(fold).map(function(k){
+        var f = fold[k] || {};
+        if (!f.url) return '';
+        var href = 'imposition-tool.html?auto=1&client=1&type=' + encodeURIComponent(f.type || '32')
+                 + '&proofUrl=' + encodeURIComponent(f.url)
+                 + '&name=' + encodeURIComponent(f.name || '');
+        return '<a class="btn" style="text-decoration:none" href="' + _esc(href) + '">'
+             + '📖 דפדוף בחוברת' + (k !== 'full' ? (' — ' + _esc(k)) : '') + '</a>';
+      }).join('');
+    }
+    if (fh) html = fh + (html ? ('<div style="height:14px"></div>' + html) : '');
     if (!html) {
-      body.innerHTML = '<div class="wait">קדם-הדפוס עדיין לא סימן עמודים לעבודה הזו.<br>'
+      body.innerHTML = '<div class="wait">אין עדיין מה להציג לעבודה הזו.<br>'
         + '<span style="font-size:.86rem;color:#6b7280">אפשר לבקש ממנו לסמן — במסך-הדפוס, בפריסת-הריצה, "📱 סימון לסריקה".</span></div>';
       return false;
     }
