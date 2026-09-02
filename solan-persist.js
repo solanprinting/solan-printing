@@ -110,7 +110,17 @@ function persist() {
       // עדכוני מלאי-לקוחות שנעשו במכשיר אחר (הטלפון) — 2026-07-30.
       if (window._fbSnapshot[p] === undefined &&
           (p==='inventory'||p==='inventoryDeductions'||p==='inventoryHistory'||p==='invoiceLogs'||p==='inventoryPress'
-           ||p==='customerStock'||p==='productMemory'||p==='sheetSizeMemory'||p==='managerTasks')) return;
+           ||p==='customerStock'||p==='productMemory'||p==='sheetSizeMemory'||p==='managerTasks')) {
+        /* ⚠️ תקרית 31/08/2026: הדחייה הזו הייתה **שקטה**, והמשתמש הזין 7
+           הורדות-מלאי שנראו שמורות ונמחקו ב-poll הבא. השומר נשאר (הוא
+           מונע דריסה) — אבל הוא אומר זאת, פעם אחת לכל אוסף. */
+        window._fbNoBaselineWarned = window._fbNoBaselineWarned || {};
+        if (!window._fbNoBaselineWarned[p]) {
+          window._fbNoBaselineWarned[p] = 1;
+          console.error('[persist] ' + p + ' השתנה מקומית אבל אין עדיין baseline מהשרת — הדחיפה נדחית עד לסנכרון הראשון (השינוי שמור מקומית וימוזג)');
+        }
+        return;
+      }
       // הגנת מחירון: אל תדחוף quotePricing עד שידוע שהוא אמין (נמשך מהשרת או נשמר ידנית),
       // כדי שטאב עם ברירת-מחדל ריקה לא ידרוס את המחירון התקין בשרת.
       if (p === 'quotePricing' && !window._quotePricingLoaded) return;
