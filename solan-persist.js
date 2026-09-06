@@ -137,14 +137,18 @@ function persist() {
       _pushes.push(window._fbPut(p, _paths[p]).then(function(ok) {
         window._fbPendingPuts[p] = Math.max(0, (window._fbPendingPuts[p] || 1) - 1);
         if (window._fbInFlight[p] === _json) delete window._fbInFlight[p];
-        if (ok === false) { console.error('[persist] דחיפה נכשלה — ' + p + ' (ה-baseline לא עודכן; הקריאה הבאה תנסה שוב)'); return false; }
+        if (ok === false) { console.error('[persist] דחיפה נכשלה — ' + p + ' (ה-baseline לא עודכן; הקריאה הבאה תנסה שוב)'); return p; }
         window._fbSnapshot[p] = _json;
         return true;
       }));
     });
     /* ⚠️ הסטטוס נגזר מהתוצאה ולא מהיציאה-לדרך. "🟢 מחובר · עודכן HH:MM"
-       הוצג קודם גם כשכל הדחיפות נדחו. */
-    if (_pushes.length) Promise.all(_pushes).then(function(res){ updateFBStatus(res.indexOf(false) === -1); });
+       הוצג קודם גם כשכל הדחיפות נדחו. כשל מחזיר את **שם-האוסף** —
+       והפיל "מנותק" אומר בדיוק מה נכשל (דיווח-בעלים 06/09/2026). */
+    if (_pushes.length) Promise.all(_pushes).then(function(res){
+      var bad = res.filter(function(x){ return x !== true; });
+      updateFBStatus(bad.length === 0, bad.length ? ('דחיפה נכשלה: ' + bad.join(', ')) : '');
+    });
     else updateFBStatus(true);
   }
 }
