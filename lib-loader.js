@@ -146,6 +146,7 @@
 
   /* מוודא שספרייה זמינה — עובר על המראות עד שאחת מצליחה.
      מחזיר {ok, url} או {ok:false}. */
+  var _pdfjsModernP = null;
   function ensure(name, opt) {
     opt = opt || {};
     var win = opt.win || (typeof self !== 'undefined' ? self : {});
@@ -153,6 +154,30 @@
     var load = opt.load || function (u) { return loadScript(u, doc, opt.timeoutMs); };
     var g = GLOBALS[name];
     if (!g) return Promise.resolve({ ok: false, why: 'UNKNOWN_LIB' });
+    /* ⚠️ הכרעת-בעלים 06/09/2026 — "המנוע הישן חוזר שוב ושוב, תפתור אחת
+       ולתמיד": המנוע-החדש (pdfjs-engine) היה תוספת שכל מסך צריך לזכור
+       לבקש, וכל מסך/נתיב חדש ששכח קיבל את הישן (3.11.174 — מסכות-שקיפות
+       דהויות, גופנים). מעכשיו **נקודת-הטעינה המשותפת עצמה** חדש-קודם:
+       כל ‎ensure('pdfjs')‎, מכל מסך, מנסה את המנוע-החדש ונופל לישן רק
+       בקול. ⚠️ בכוונה **לפני** קיצור-הכבר-נטען — "יש pdfjsLib" ישן היה
+       בדיוק הבאג של 20/08 (מבט חצור עמ' 15). */
+    if (name === 'pdfjs' && !opt._legacyOnly && win.PdfEngine && typeof win.PdfEngine.ensure === 'function') {
+      if (!_pdfjsModernP) {
+        _pdfjsModernP = win.PdfEngine.ensure({ win: win }).then(function (r) {
+          if (!r || r.engine !== 'new')
+            console.warn('[lib-loader] המנוע-החדש לא נטען — ממשיכים בישן', r && r.version);
+          return r;
+        }, function (e) {
+          console.error('[lib-loader] טעינת-המנוע-החדש זרקה — ממשיכים בישן', e);
+          return { ok: false, engine: 'old' };
+        });
+      }
+      return _pdfjsModernP.then(function (r) {
+        if (win[g]) return { ok: true, url: 'engine:' + ((r && r.engine) || 'old'), cached: true };
+        var lo = Object.assign({}, opt, { _legacyOnly: true });
+        return ensure('pdfjs', lo);            // אין מנוע בכלל → המראות הישנות
+      });
+    }
     if (win[g]) return Promise.resolve({ ok: true, url: 'already-loaded', cached: true });
     var list = mirrors(name), i = 0;
     function attempt() {
