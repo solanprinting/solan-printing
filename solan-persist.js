@@ -22,34 +22,34 @@ function persist() {
      ב-queue-overwrite-tests.js.
      ניקוי הוא מעכשיו פעולה מפורשת (queuePurge) עם סיבה ו-Audit. */
   // Always write to localStorage (works offline too)
-  localStorage.setItem('solanHistory',             JSON.stringify(historyDB));
-  localStorage.setItem('solanPrintLog',            JSON.stringify(printLog));
-  localStorage.setItem('solanInventory',           JSON.stringify(inventory));
-  localStorage.setItem('solanDocumentPrices',      JSON.stringify(documentPrices));
-  localStorage.setItem('solanInventoryHistory',    JSON.stringify(inventoryHistory));
-  localStorage.setItem('solanInventoryPress',      JSON.stringify(inventoryPress));
-  localStorage.setItem('solanInventoryDeductions', JSON.stringify(inventoryDeductions));
-  localStorage.setItem('solanInvoiceLogs',         JSON.stringify(invoiceLogs));
-  localStorage.setItem('solanDeliveryNotes',       JSON.stringify(deliveryNotes));
-  localStorage.setItem('solanQuotes',              JSON.stringify(quotes));
-  localStorage.setItem('solanDeletedIds',          JSON.stringify(deletedIds));
-  localStorage.setItem('solanQuotePricing',        JSON.stringify(quotePricing));
-  localStorage.setItem('solanCustomers',           JSON.stringify(customers));
-  localStorage.setItem('solanOrders',            JSON.stringify(orders));
-  localStorage.setItem('solanCards',               JSON.stringify(cards));
-  localStorage.setItem('solanNewspapers',          JSON.stringify(newspapers));
-  localStorage.setItem('solanFlyers',             JSON.stringify(flyers));
-  localStorage.setItem('solanPrintFiles',          JSON.stringify(printFiles));
-  localStorage.setItem('solanWeeklyJobs',          JSON.stringify(weeklyJobs));
-  localStorage.setItem('solanFutureJobs',          JSON.stringify(futureJobs));
-  localStorage.setItem('solanRecurringJobs',       JSON.stringify(recurringJobs));
-  localStorage.setItem('solanMachineQueue',        JSON.stringify(machineQueue));
-  localStorage.setItem('solanProductMemory',       JSON.stringify(productMemory));
-  localStorage.setItem('solanSheetSizes',          JSON.stringify(sheetSizeMemory));
-  localStorage.setItem('solanCustomerStock',       JSON.stringify(customerStock));
-  localStorage.setItem('solanManagerTasks',        JSON.stringify(managerTasks));
-  localStorage.setItem('solanUsers',               JSON.stringify(solanUsers));
-  if (apiKey) localStorage.setItem('solanApiKey', apiKey);
+  _lsSet('solanHistory',             JSON.stringify(historyDB));
+  _lsSet('solanPrintLog',            JSON.stringify(printLog));
+  _lsSet('solanInventory',           JSON.stringify(inventory));
+  _lsSet('solanDocumentPrices',      JSON.stringify(documentPrices));
+  _lsSet('solanInventoryHistory',    JSON.stringify(inventoryHistory));
+  _lsSet('solanInventoryPress',      JSON.stringify(inventoryPress));
+  _lsSet('solanInventoryDeductions', JSON.stringify(inventoryDeductions));
+  _lsSet('solanInvoiceLogs',         JSON.stringify(invoiceLogs));
+  _lsSet('solanDeliveryNotes',       JSON.stringify(deliveryNotes));
+  _lsSet('solanQuotes',              JSON.stringify(quotes));
+  _lsSet('solanDeletedIds',          JSON.stringify(deletedIds));
+  _lsSet('solanQuotePricing',        JSON.stringify(quotePricing));
+  _lsSet('solanCustomers',           JSON.stringify(customers));
+  _lsSet('solanOrders',            JSON.stringify(orders));
+  _lsSet('solanCards',               JSON.stringify(cards));
+  _lsSet('solanNewspapers',          JSON.stringify(newspapers));
+  _lsSet('solanFlyers',             JSON.stringify(flyers));
+  _lsSet('solanPrintFiles',          JSON.stringify(printFiles));
+  _lsSet('solanWeeklyJobs',          JSON.stringify(weeklyJobs));
+  _lsSet('solanFutureJobs',          JSON.stringify(futureJobs));
+  _lsSet('solanRecurringJobs',       JSON.stringify(recurringJobs));
+  _lsSet('solanMachineQueue',        JSON.stringify(machineQueue));
+  _lsSet('solanProductMemory',       JSON.stringify(productMemory));
+  _lsSet('solanSheetSizes',          JSON.stringify(sheetSizeMemory));
+  _lsSet('solanCustomerStock',       JSON.stringify(customerStock));
+  _lsSet('solanManagerTasks',        JSON.stringify(managerTasks));
+  _lsSet('solanUsers',               JSON.stringify(solanUsers));
+  if (apiKey) _lsSet('solanApiKey', apiKey);
   updateBadge();
   // סמן שבוצע כתיבה מקומית עכשיו — כדי שה-poll מה-Firebase לא ידרוס אותה
   // ברגע שהיא עדיין לא הגיעה לשרת (למשל מחיקת כרטיס שמוחזרת ע"י נתון ישן)

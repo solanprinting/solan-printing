@@ -209,6 +209,36 @@ window._machineMayWrite = function (path) {
   return false;
 };
 
+/* ── כתיבה-מקומית עמידת-מכסה ─────────────────────────────────────────────
+   ⚠️ תקרית 06/09/2026 ("למה כל פעם מנותק?"): האחסון-המקומי התמלא (9.5MB
+   מתוך 10 — תמונות-מצב + חוצצי-ביטול ישנים), ‏QuotaExceededError על
+   solanCards הפיל את **כל** סבב-הסנכרון באמצע — ה-baselines לא נקבעו,
+   הדחיפות לשרת נחסמו, והזנות-מלאי נדחו. האחסון-המקומי הוא מטמון; השרת
+   הוא האמת — כשל-מטמון אסור שיעצור סנכרון. כשל-מכסה: מנקה שאריות
+   (חוצצי-ביטול, קיצוץ תמונות-מצב לאחרונה), מנסה שוב, ואומר הכול בקול. */
+window._lsSet = function (key, val) {
+  try { localStorage.setItem(key, val); return true; }
+  catch (e) {
+    console.error('[אחסון-מקומי] כתיבת ' + key + ' נכשלה (' + ((e && e.name) || e) + ') — מנקה שאריות ומנסה שוב');
+    try {
+      for (var i = localStorage.length - 1; i >= 0; i--) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('solanPiUndo_') === 0) localStorage.removeItem(k);
+      }
+      var raw = localStorage.getItem('solanSnapshots');
+      if (raw && raw.length > 200000) {
+        var arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length > 1)
+          localStorage.setItem('solanSnapshots', JSON.stringify(arr.slice(-1)));
+      }
+    } catch (e2) { console.error('[אחסון-מקומי] ניקוי-החירום נכשל', e2); }
+    try { localStorage.setItem(key, val); return true; }
+    catch (e3) {
+      console.error('[אחסון-מקומי] גם אחרי ניקוי אין מקום — ' + key + ' לא נשמר מקומית; הסנכרון לשרת ממשיך', e3);
+      return false;
+    }
+  }
+};
 window._fbGet = async path => {
   if (!window._officeMayLoad(path)) return null;      // לא בתחום התפקיד — לא מנסים
   try {

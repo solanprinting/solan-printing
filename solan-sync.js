@@ -147,7 +147,7 @@ function _doPushCardsMerged(){
       return false;   // לא דוחפים ולא מאמצים — הסבב הרגיל של ה-poll יתיישר מול השרת
     }
     cards = merged;
-    localStorage.setItem('solanCards', JSON.stringify(cards));
+    _lsSet('solanCards', JSON.stringify(cards));
     _seedCardSnap();
     /* ⚠️ 07/08/2026 — ה-baseline נקבע רק אחרי אישור-שרת. קודם הוא נכתב לפני
        ה-PUT, ולכן דחייה הותירה baseline שקרי על נתיב-הכרטיסים הראשי, ושער
@@ -189,7 +189,7 @@ var _arrPushTimers = {};
 function _unmarkDeleted(coll, id){
   if (deletedIds[coll]) {
     deletedIds[coll] = deletedIds[coll].filter(function(x){ return x !== id; });
-    localStorage.setItem('solanDeletedIds', JSON.stringify(deletedIds));
+    _lsSet('solanDeletedIds', JSON.stringify(deletedIds));
     if (window._fbPut) window._fbPut('deletedIds', deletedIds);   // דחיפה מיידית — לפני שה-union ממכשיר אחר יחזיר
   }
 }
@@ -260,7 +260,7 @@ function _doPushArrMerged(coll){
     _stampChangedArr(coll, local);
     var merged = _filterDeleted(coll, _mergeArrById(_filterDeleted(coll, server), local, coll));
     ref.set(merged);
-    localStorage.setItem(ref.ls, JSON.stringify(merged));
+    _lsSet(ref.ls, JSON.stringify(merged));
     /* ⚠️ באג שתוקן (2026-07-30) — "עיתון שמוסיפים ונעלם שוב ושוב":
        כאן סומן "מסונכרן" (_seedArrSnap + _fbSnapshot) *לפני* שה-PUT הצליח. אם
        הדחיפה נכשלה (רשת/הרשאה/שומר-סביבה), המצב המקומי טען שהעיתון החדש כבר
@@ -272,7 +272,7 @@ function _doPushArrMerged(coll){
       if (okPut === false){ console.warn('[' + coll + '] הדחיפה נכשלה — לא מסמנים כמסונכרן'); return false; }
       merged.forEach(function(it){ if (it) delete it._pend; });   // אושר בשרת — אין יותר "ממתין"
       ref.set(merged);
-      localStorage.setItem(ref.ls, JSON.stringify(merged));
+      _lsSet(ref.ls, JSON.stringify(merged));
       _seedArrSnap(coll, merged);
       window._fbSnapshot[coll] = JSON.stringify(merged);
       return true;
@@ -313,7 +313,7 @@ function _doPushMapMerged(coll){
     var server = (typeof sv === 'object') ? sv : {};
     var merged = _mergeMapByUpdatedAt(server, ref.get());
     ref.set(merged);
-    try { localStorage.setItem(ref.ls, JSON.stringify(merged)); } catch(e){}
+    try { _lsSet(ref.ls, JSON.stringify(merged)); } catch(e){}
     window._fbSnapshot[coll] = JSON.stringify(merged);
     return window._fbPut(coll, merged);
   }).then(function(){ window._fbPendingPuts[coll] = Math.max(0, (window._fbPendingPuts[coll]||1) - 1); })
