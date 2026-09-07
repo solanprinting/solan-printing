@@ -176,6 +176,16 @@ function _pushCardsMerged(){
 }
 function _doPushCardsMerged(){
   _stampChangedCards();
+  /* ⚠️ **שער-שינוי — חיסכון-תעבורה (07/09/2026).** עשרים האוספים האחרים
+     ב-persist() נדחפים רק כשהם שונים מה-baseline; הכרטיסים היו היוצא-דופן
+     היחיד: כל קריאה ל-persist() — ומשהו קורא לה כל הזמן (מלאי, טיימרים,
+     ניקוי-כרטיסים) — הורידה את מערך-הכרטיסים **כולו** (≈320KB) רק כדי
+     לגלות שאין מה לדחוף. זה היה עיקר חריגת-ההורדות היומית ב-RTDB.
+     ‏_stampChangedCards כבר רץ למעלה, ולכן שינוי-תוכן אמיתי כבר משתקף
+     ב-JSON; זהות מלאה מול ה-baseline פירושה "אין לנו מה לומר לשרת".
+     המשיכה הנכנסת אינה נפגעת — היא באה מסבב-ה-poll עם שער-ה-_rev. */
+  if (window._fbSnapshot && window._fbSnapshot.cards !== undefined
+      && window._fbSnapshot.cards === JSON.stringify(cards)) return;
   window._fbPendingPuts = window._fbPendingPuts || {};
   window._fbPendingPuts.cards = (window._fbPendingPuts.cards || 0) + 1;
   window._fbGet('cards').then(function(sv){
