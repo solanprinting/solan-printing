@@ -81,16 +81,60 @@ function _stampChangedCards(){
 function _cardTs(v){ var t = v ? Date.parse(v) : 0; return isNaN(t) ? 0 : t; }
 function _cardDoneAt(c){ return c ? Math.max(_cardTs(c.finishedAt), _cardTs(c.printedAt)) : 0; }
 function _cardFinalized(c){ return !!(c && c.status === 'done' && _cardDoneAt(c) > 0); }
+// ── הפרופר שורד את המיזוג ─────────────────────────────────────────────────
+// ⚠️⚠️ **תקרית-ייצור 07/09/2026: "קדם-דפוס העלה פרופר והוא לא הגיע לכרטיס".**
+// המיזוג הוא **כרטיס-שלם, הכותב האחרון מנצח**. קדם-דפוס העלה פרופר ב-12:10
+// (ההעלאה הצליחה — בדיקת-הפרופר רצה ונרשמה ביומן), אבל דקה אחר-כך מישהו
+// אחר נגע באותו כרטיס — **די בפתיחתו**, כי הצפייה כותבת ‎viewedBy‎ — והעותק
+// שלו, שנקרא מהשרת לפני 12:10 ואין בו ‎proofUrl‎, קיבל ‎_upd‎ חדש יותר וניצח.
+// הפרופר נעלם בשקט. ב-12:19 ההעלאה חזרה ואיש לא נגע אחריה — ולכן "בפעם
+// השנייה זה כן עבד". שורש זהה לתקריות המלאי: מיזוג ברמת-הרשומה מאבד שדות.
+// **הכלל:** פרופר אינו "שדה ככל השדות" — הוא מסמך שהועלה, ואין דרך לשחזרו
+// מהמסך. לכן הוא נישא אל הגרסה המנצחת, אלא אם היא נושאת ניקוי **מכוון**
+// מאוחר יותר (‎proofClearedAt‎ / ‎runProofsClearedAt[runKey]‎).
+function _cardProofAt(c){ return (c && c.proofUrl) ? (Number(c.proofUploadedAt) || 1) : 0; }
+function _num(v){ var n = Number(v); return isNaN(n) ? 0 : n; }
+// מחזיר את המנצח כשהוא נושא גם את הפרופר של המפסיד (אם הוא חדש ולא נוקה במכוון).
+function _carryProof(win, lose){
+  if (!win || !lose) return win;
+  /* ⚠️ בתוך הפונקציה בכוונה: הבדיקות מחלצות פונקציות שלמות מהמקור, ומשתנה
+     ברמת-הקובץ היה מחייב אותן לשכפל אותו — כלומר לבדוק העתק ולא את המקור. */
+  var _PROOF_FIELDS = ['hasProof','proofUrl','proofPath','proofName','proofType',
+                       'proofUploadedAt','proofPagesUrl','proofPagesPath','proofCheck'];
+  var out = win, clone = function(){ if (out === win){ out = {}; for (var k in win) out[k] = win[k]; } return out; };
+  var lp = _cardProofAt(lose);
+  if (lp > _cardProofAt(win) && lp > _num(win.proofClearedAt)) {
+    clone();
+    _PROOF_FIELDS.forEach(function(fl){
+      if (lose[fl] === undefined) delete out[fl]; else out[fl] = lose[fl];
+    });
+  }
+  // פרופרי-ריצה — כל ריצה בנפרד; ריצה שהוסרה במכוון נושאת חותמת-ניקוי משלה
+  var lr = lose.runProofs;
+  if (lr) Object.keys(lr).forEach(function(rk){
+    var e = lr[rk];
+    if (!e || !e.url) return;
+    var at = _num(e.uploadedAt) || 1;
+    var cur = out.runProofs && out.runProofs[rk];
+    if (at <= (_num(cur && cur.uploadedAt) || (cur && cur.url ? 1 : 0))) return;
+    if (at <= _num(win.runProofsClearedAt && win.runProofsClearedAt[rk])) return;
+    clone();
+    var rp = {}; for (var k2 in (out.runProofs||{})) rp[k2] = out.runProofs[k2];
+    rp[rk] = e; out.runProofs = rp; out.hasProof = true;
+  });
+  return out;
+}
 // מי מנצח בין שתי גרסאות של אותו כרטיס. מחזיר את הגרסה הנבחרת.
 function _pickCardVersion(a, b){
   var fa = _cardFinalized(a), fb = _cardFinalized(b);
   if (fa !== fb){
     var fin = fa ? a : b, other = fa ? b : a;
     // פתיחה-מחדש מכוונת אחרי ההשלמה — מנצחת; אחרת ההשלמה עומדת בעינה.
-    if (_cardTs(other.reopenedAt) > _cardDoneAt(fin)) return other;
-    return fin;
+    if (_cardTs(other.reopenedAt) > _cardDoneAt(fin)) return _carryProof(other, fin);
+    return _carryProof(fin, other);
   }
-  return _cardUpd(a) > _cardUpd(b) ? a : b;   // תיקו → b (התנהגות המיזוג המקורית: השרת)
+  var win = _cardUpd(a) > _cardUpd(b) ? a : b;   // תיקו → b (התנהגות המיזוג המקורית: השרת)
+  return _carryProof(win, win === a ? b : a);
 }
 function _mergeCardArrays(server, local){
   var KEEP_LOCAL_MS = 12 * 3600 * 1000, now = Date.now(), byId = {};
