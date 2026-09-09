@@ -409,6 +409,50 @@
     };
   }
 
+  /* ── עמודים חסרים מול ההצהרה ──────────────────────────────────────────
+     ⚠️ **תקרית-ייצור 08/09/2026 — ערדניקים 286.** הלקוח העלה ריצה 1 (16
+     עמודים מתוך 112 מוצהרים); בית-הדפוס לחץ "אושר להדפסה" — והאישור סוגר
+     להעלאות. בלילה הלקוח ניסה להעלות את שש הריצות הנותרות וראה "גיליון
+     קודם — כבר הודפס והושלם". שני החורים: הדפוס לא הוזהר שחסר, והלקוח
+     קיבל הסבר שקרי. מקור-אמת אחד לשניהם: ‎pageTiles‎. */
+  function missingSummary(p) {
+    var r = p || {};
+    var declared = num(r.declaredPages) || num(r.totalPages) || 0;
+    if (!declared) return null;
+    var missing = pageTiles(r).filter(function (t) { return t.kind === 'missing'; }).length;
+    return { declared: declared, missing: missing, have: Math.max(0, declared - missing) };
+  }
+  /* ⚠️ קובץ רב-עמודים שמיועד למשבצת של עמוד אחד אינו "עמוד" — זו ריצה או
+     עיתון שהגיעו למסלול הלא-נכון (רכסים 1530: ריצה של 38MB במשבצת "עמוד 2").
+     מחזיר את השאלה ללקוח, או ‎null‎ כשהכול תואם. ההכרעה כאן ולא במסך —
+     כדי שתיבדק בהתנהגות ולא בחיפוש-מחרוזת (ביס-פרוף תפס בדיוק את זה). */
+  function pageCountVerdict(count, slots, fileName) {
+    var n = num(count), sl = (slots || []).map(num).filter(function (x) { return x > 0; });
+    if (!(n > 0) || !sl.length || n <= sl.length) return null;
+    var where = sl.length === 1 ? ('משבצת של עמוד אחד (עמוד ' + sl[0] + ')') : ('כפולה (עמודים ' + sl.join(', ') + ')');
+    var shown = sl.length === 1 ? 'העמוד הראשון יוצג' : 'שני העמודים הראשונים יוצגו';
+    return '⚠️ הקובץ "' + str(fileName) + '" מכיל ' + n + ' עמודים, אבל מיועד ל' + where + '.\n'
+      + 'רק ' + shown + ' — השאר לא ייכנסו לגיליון.\n\n'
+      + 'אם זו ריצה שלמה — בטלו והעלו אותה דרך "העלו את הריצה" בקוביית-הריצה.\n\n'
+      + 'ביטול = לא להעלות (מומלץ)\nאישור = להעלות בכל זאת';
+  }
+  /* טקסט-האזהרה לדפוס לפני אישור-הדפסה; ‎null‎ = אין מה להזהיר. */
+  function printApproveWarning(p) {
+    var m = missingSummary(p);
+    if (!m || !m.missing) return null;
+    return '⚠️ בגיליון חסרים ' + m.missing + ' עמודים מתוך ' + m.declared + ' המוצהרים (הגיעו ' + m.have + ').' +
+      '\nהאישור יסגור את הגיליון והלקוח לא יוכל להעלות את השאר.';
+  }
+  /* איזה חיווי-נעילה הלקוח רואה: 'done' = הודפס והושלם · 'closed-missing' =
+     נסגר באישור-הדפסה בעוד עמודים מוצהרים חסרים · null = לא נעול. */
+  function lockKind(p) {
+    var r = p || {};
+    if (!num(r.completedAt) && !num(r.closedAt)) return null;
+    var m = missingSummary(r);
+    if (m && m.missing > 0 && !num(r.completedAt)) return 'closed-missing';
+    return 'done';
+  }
+
   /* כותרת קריאה לגיליון. ⚠️ מספר-הגיליון הוא מה שמבדיל בין שורות באותו
      שם, ולכן הוא חלק מהכותרת ולא פרט-משנה. */
   function titleOf(p) {
@@ -769,9 +813,23 @@
        5. אחרת: ‎sure:false‎ — **שואלים ולא מנחשים.** ניחוש שקט כאן הוא
           עמוד שיודפס במקום הלא-נכון. */
   var _PAGE_WORD = 'עמודים|עמודי|עמוד|עמ׳|עמ\'|עמ|pages|page|pg|p';
+  /* ⚠️⚠️ **תקרית-ייצור 08/09/2026 — ידיעון רכסים 1530.** הלקוח העלה
+     "…ריצה 2.pdf" ו-"…ריצה 3.pdf" דרך "הוסף עמודים לגיליון". המפרק ידע
+     לפסול שנה ומספר-גיליון — אבל לא "ריצה 2", ולכן החזיר **עמוד 2, בטוח**.
+     ריצה שלמה של 38MB נכנסה בשקט למשבצת של עמוד אחד, בלי שאלה; במשבצת
+     "עמוד 2" הופיע עמוד 17 (ראשון של ריצה 2) ובמשבצת 3 עמוד 33.
+     **קובץ שנושא שם-ריצה הוא ריצה, לא עמוד** — הוא לעולם אינו "בטוח"
+     כעמוד, ומספר-הריצה חוזר בשדה ‎run‎ כדי שהמסך ינתב אותו למסלול-הריצות.
+     ‎runNoOfName‎ הוא אותו מזהה של העברת-ריצה — מקור אחד למה זה "ריצה". */
   function pagesOfName(name) {
     var s = str(name).replace(/\.[a-z0-9]{1,5}$/i, '');
     if (!s) return null;
+    var runNo = runNoOfName(s);
+    if (runNo) {
+      var s0 = s.replace(/(?:^|[^A-Za-z0-9])(?:r|ריצה)\s*[-_ ]?\s*\d{1,2}(?![0-9])/i, ' ');
+      var inner = pagesOfName(s0 + '.pdf');
+      return { nos: (inner && inner.nos) || [], spread: !!(inner && inner.spread), sure: false, run: runNo };
+    }
     if (/שער|עטיפה|cover/i.test(s)) return { nos: [1], spread: false, sure: true };
     /* כפולה: שני מספרים עוקבים עם מפריד בלבד ביניהם.
        ⚠️ הרצת-תרחישים 21/08/2026: **תאריך אינו כפולה.** "8-9-2026" ו-
@@ -1255,7 +1313,7 @@
     runShopApprovePatch: runShopApprovePatch,
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
-    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions,
+    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict,
     pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, marksIn: marksIn, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
