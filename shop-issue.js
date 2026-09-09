@@ -436,6 +436,16 @@
       + 'אם זו ריצה שלמה — בטלו והעלו אותה דרך "העלו את הריצה" בקוביית-הריצה.\n\n'
       + 'ביטול = לא להעלות (מומלץ)\nאישור = להעלות בכל זאת';
   }
+  /* חלון "העלה עיתון חדש" (בקשת-בעלים 09/09/2026): ריצות בודדות בלי מספר-
+     עמודים אינן אפשריות — בלעדיו אין קוביות ולא ידוע אילו עמודים בכל ריצה.
+     מחזיר טקסט-שגיאה, או ‎null‎ כשהקלט תקין. טהור, כדי שייבדק בהתנהגות. */
+  function newIssueMetaCheck(kind, pages) {
+    var n = parseInt(pages, 10);
+    var okPages = isFinite(n) && n >= 1 && n <= 200;
+    if (kind === 'runs' && !okPages)
+      return 'לריצות בודדות חובה לציין כמה עמודים יהיו בגיליון — כך נדע כמה ריצות ואילו עמודים בכל אחת.';
+    return null;
+  }
   /* טקסט-האזהרה לדפוס לפני אישור-הדפסה; ‎null‎ = אין מה להזהיר. */
   function printApproveWarning(p) {
     var m = missingSummary(p);
@@ -1313,7 +1323,7 @@
     runShopApprovePatch: runShopApprovePatch,
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
-    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict,
+    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, newIssueMetaCheck: newIssueMetaCheck,
     pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, marksIn: marksIn, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,

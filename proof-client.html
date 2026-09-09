@@ -12,22 +12,22 @@
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
-<script src="pdfjs-engine.js?v=1788936784"></script>
+<script src="pdfjs-engine.js?v=1788946225"></script>
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
      כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1788936784"></script>
+<script src="upload-type.js?v=1788946225"></script>
 <!-- ⚠️ 23/08: שומר-תקיעה בהעלאה. בלעדיו המסך קפא על ~98% לנצח. -->
-<script src="upload-stall.js?v=1788936784"></script>
-<script src="portal-context.js?v=1788936784"></script>
+<script src="upload-stall.js?v=1788946225"></script>
+<script src="portal-context.js?v=1788946225"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi2"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1788936784"></script>
-<script src="portal-return.js?v=1788936784"></script>
+<script src="page-replace.js?v=1788946225"></script>
+<script src="portal-return.js?v=1788946225"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -764,7 +764,7 @@ function _pcUploadAllowed(){
 }
 function startEditor(m) {
   if (!_pcUploadAllowed()) return;
-  mode = m; pages = []; sources.clear(); vIndex = 0; window._pcRun = null; window._retryPartId = null;
+  mode = m; pages = []; sources.clear(); vIndex = 0; _flipCount = 0; window._pcRun = null; window._retryPartId = null;
   if (m === 'run') setTimeout(_pcRunPicker, 80);   // שאל כמה עמודים + איזו ריצה — לזיהוי אוטומטי של כפולות-גבול
   $('editorHint').innerHTML = (m === 'full'
     ? 'העלו את <b>כל עמודי העיתון</b>. דפדפו בתצוגה, וסדרו/החליפו עמודים בסרגל הצד. אתם אחראים על הסדר.'
@@ -1499,7 +1499,7 @@ function renderSidebar() {
       
       ${p.blank ? '<span style="position:absolute;top:4px;left:4px;background:#64748b;color:#fff;font-size:.62rem;font-weight:800;border-radius:5px;padding:1px 6px">ריק</span>' : ''}
       <div class="tools"><button class="rep">החלף</button><button class="blk">רוקן</button><button class="rm">מחק</button></div>`;
-    d.onclick = e => { if (!e.target.closest('.tools') && !e.target.closest('.n')) { vIndex = alignSpread(idx); renderViewer(); renderSidebar(); } };
+    d.onclick = e => { if (!e.target.closest('.tools') && !e.target.closest('.n')) { if (alignSpread(idx) !== vIndex) _flipCount++; vIndex = alignSpread(idx); renderViewer(); renderSidebar(); } };
     d.querySelector('.rep').onclick = e => { e.stopPropagation(); replacePage(p.uid); };
     d.querySelector('.blk').onclick = e => { e.stopPropagation(); blankPage(p.uid); };
     d.querySelector('.rm').onclick  = e => { e.stopPropagation(); removePage(p.uid); };
@@ -1789,9 +1789,15 @@ function renderViewer() {
   });
 }
 
+/* ⚠️ בקשת-בעלים 09/09/2026: הדפדוף אינו חובה — אבל מי שמאשר בלי לדפדף
+   מוזהר ולוקח אחריות. סופרים תנועות-דפדוף אמיתיות (חצים, מקלדת, לחיצה
+   בסרגל); איפוס בכל טעינה של קבצים חדשים. */
+let _flipCount = 0;
 function step(d) {
   const v = buildViews();
+  const before = vIndex;
   vIndex = Math.max(0, Math.min(vIndex + d, v.length - 1));
+  if (vIndex !== before) _flipCount++;
   renderViewer(); renderSidebar();
 }
 $('vprev').onclick = () => step(-1);
@@ -2338,6 +2344,12 @@ $('approve').onclick = async () => {
     if (fresh) { record.closedAt = fresh.closedAt || null; record.completedAt = fresh.completedAt || null; }
   } catch(e){ /* אין רשת — נסתמך על מה שיש */ }
   if (!_pcUploadAllowed()) return;
+  /* ⚠️ בקשת-בעלים 09/09/2026: אישור בלי דפדוף מותר — עם הצהרת-אחריות.
+     ⚠️ עמוד יחיד: אין במה לדפדף, לא שואלים. */
+  if (pages.length > 1 && _flipCount === 0
+      && !confirm('לא דפדפתם בעמודים לפני האישור.\n\n'
+        + 'אם תהיה טעות או בעיה בעמוד — האחריות עליכם.\n\n'
+        + 'אישור = לשלוח בלי דפדוף\nביטול = לחזור ולדפדף קודם')) return;
   let runName = '';
   if (mode === 'run') {
     /* ⚠️ דיווח-בעלים 20/08/2026: "לאחר שאישרתי נשאלתי שוב למספר הריצה" —

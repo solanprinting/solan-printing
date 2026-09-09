@@ -27,11 +27,11 @@ window.addEventListener('appinstalled', function(){
 <!-- ⚠️ 20/08/2026, דיווח-בעלים (מבט חצור עמ' 15 בלי רקע): מסך-הדפוס
      רינדר ב-pdf.js 3.11.174 (lib-loader), שמצייר מסכות-שקיפות דהויות —
      בדיוק הבאג שבגללו הצופה עבר ל-5.4.149. הקובץ עצמו תקין. -->
-<script src="pdfjs-engine.js?v=1788936784"></script>
+<script src="pdfjs-engine.js?v=1788946225"></script>
 <!-- ⚠️ 23/08: שומר-תקיעה בהעלאה. בלעדיו המסך קפא על ~98% לנצח. -->
-<script src="upload-stall.js?v=1788936784"></script>
+<script src="upload-stall.js?v=1788946225"></script>
 <!-- פריסת-הגיליון — אותו מבנה בדיוק בפורטל-הלקוח (בקשת-בעלים 20/08) -->
-<script src="issue-grid.js?v=1788936784"></script>
+<script src="issue-grid.js?v=1788946225"></script>
 <!-- קישורים קצרים ללקוחות (s.html?c=CODE במקום מזהה+טוקן ארוכים) -->
 <script src="short-link.js"></script>
 <!-- לוגיקת מסך-הדפוס (פס-סטטוס · קבצים-חדשים · עמודים-חסרים · מי לא שלח היום) -->
@@ -41,33 +41,33 @@ window.addEventListener('appinstalled', function(){
 <script>try{ if(window.LibLoader) LibLoader.autoFill(['pdflib','jszip']); }catch(e){}</script>
 <script src="page-swap.js"></script>
 <script src="page-replace.js"></script>
-<script src="portal-chat.js?v=1788936784"></script>
-<script src="chat-alert.js?v=1788936784"></script>
+<script src="portal-chat.js?v=1788946225"></script>
+<script src="chat-alert.js?v=1788946225"></script>
 <!-- הקפצות-רקע גם כשהמסך סגור (21/08) — הרשמת Web Push -->
-<script src="push-client.js?v=1788936784"></script>
+<script src="push-client.js?v=1788946225"></script>
 <!-- צילומי-מסך וקבצים בשיחה (21/08) — מודול משותף -->
-<script src="chat-files.js?v=1788936784"></script>
-<script src="shop-issue.js?v=1788936784"></script>
-<script src="page-marks.js?v=1788936784"></script>
+<script src="chat-files.js?v=1788946225"></script>
+<script src="shop-issue.js?v=1788946225"></script>
+<script src="page-marks.js?v=1788946225"></script>
 <!-- ⚠️ 24/08: מספור-עמודים אמיתי (/PageLabels) גם בהורדת-הריצה של **הדפוס**.
      התיקון מ-23/08 נכנס רק ל-customer-portal, והדפוס — זה שמזין את אפוגי —
      נשאר עם 1..32. ראה downloadFile. -->
-<script src="page-labels.js?v=1788936784"></script>
-<script src="scan-pages.js?v=1788936784"></script>
+<script src="page-labels.js?v=1788946225"></script>
+<script src="scan-pages.js?v=1788946225"></script>
 <!-- ⚠️ page-box: אותה תיבה-קובעת (TrimBox) של הפורטל והדפדוף. בלעדיו
      הדפוס לא רואה את חריגת-הגודל שהלקוח כן רואה. -->
-<script src="page-box.js?v=1788936784"></script>
-<script src="kontres-split.js?v=1788936784"></script>
+<script src="page-box.js?v=1788946225"></script>
+<script src="kontres-split.js?v=1788946225"></script>
 <script src="storage-cleanup.js"></script>
 <script src="proof-trash.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3) — חייב להיטען **לפני** הסקריפט שמבקש אסימון,
      אחרת הדף היה מבקש אסימון לפני שיש מי שיענה. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1788936784"></script>
-<script src="auth-client.js?v=1788936784"></script>
+<script src="firebase-auth.bundle.js?v=1788946225"></script>
+<script src="auth-client.js?v=1788946225"></script>
 <!-- ⚠️ data-mode="enforce": ב-observe השומר נופל לאסימון אנונימי כשאין
      משתמש מחובר, והמסך הזה קורא נתונים פנימיים. עד עכשיו זה עבד רק
      מפני שלאנונימי היתה גישה מלאה למסד. אין נפילה-לאחור. -->
-<script src="auth-guard.js?v=1788936784" data-page="proof-admin.html" data-mode="enforce"></script>
+<script src="auth-guard.js?v=1788946225" data-page="proof-admin.html" data-mode="enforce"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -2775,7 +2775,24 @@ async function downloadFile(url, name, btn, seq) {
   try {
     const r = await fetch(url);
     if (!r.ok) throw new Error('השרת החזיר ' + r.status + (r.status === 403 ? ' — אין הרשאה או שהטוקן פג' : ''));
-    let blob = await r.blob();
+    /* ⚠️ בקשת-בעלים 09/09/2026: "כשלוחצים הורד ריצה אין חיווי מספיק שההורדה
+       בתהליך" — ריצה של 100MB+ הראתה "מוריד…" קפוא. קוראים בזרם ומציגים
+       אחוזים על הכפתור; כשהשרת לא מוסר אורך — מציגים MB שהגיעו. */
+    let blob;
+    if (r.body && r.body.getReader) {
+      const total = Number(r.headers.get('content-length')) || 0;
+      const reader = r.body.getReader(); const chunks = []; let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value); got += value.byteLength;
+        if (btn) btn.textContent = total ? ('מוריד… ' + Math.min(99, Math.round(got / total * 100)) + '%')
+                                        : ('מוריד… ' + (got / 1048576).toFixed(1) + 'MB');
+      }
+      blob = new Blob(chunks, { type: r.headers.get('content-type') || 'application/pdf' });
+    } else {
+      blob = await r.blob();
+    }
     /* ⚠️ 200 אינו ערובה שזה PDF — דף-שגיאה או ה-HTML של המסך חוזרים גם הם
        בקוד 200. בודקים את חתימת-הקובץ עצמה. */
     const head = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
