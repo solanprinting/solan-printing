@@ -186,6 +186,12 @@
        נכון; מה שלא-ודאי הוא **המפה**, ואומרים זאת במקום להשתיק. */
     if (o.uncertain) bits.push('<b style="color:#b91c1c">⚠️ יש כפולות בקובץ — '
       + 'מספרי-העמודים במפה אינם ודאיים (ההורדה מפצלת נכון)</b>');
+    /* ⚠️ 09/09/2026: קובץ שקטן פי-יותר-מ-2 מההצהרה אינו כפולות אלא **חלק
+       מהעיתון** — בדרך-כלל ריצה שהועלתה כקובץ-מלא. אומרים את זה במפורש,
+       כי "יש כפולות" שלח את הדפוס לחפש בעיה שאינה קיימת. */
+    if (o.partial) bits.push('<b style="color:#b45309">⚠️ הקובץ מכיל ' + o.partial.have
+      + ' עמודים מתוך ' + o.partial.declared + ' שהוצהרו — זהו חלק מהעיתון, לא הגיליון המלא; '
+      + 'המספור על האריחים הוא לפי סדר-הקובץ</b>');
     /* ⚠️ שני קבצים על אותה משבצת. הרשת נראית מלאה, אבל ההורדה תיתן עמוד
        עודף — ורק הדפוס יודע איזו גרסה נכונה. אין הכרעה אוטומטית. */
     if (o.clashes && o.clashes.length) bits.push('<b style="color:#b91c1c">⚠️ שני קבצים על עמ׳ '
@@ -235,6 +241,11 @@
       esc: esc, hint: ctx.hint, extra: ctx.headExtra,
       gotPages: gotPages, totalPages: ctx.totalPages, marked: marked,
       uncertain: tiles.some(function (t) { return t.invented; }),
+      partial: (function () {
+        var t0 = null;
+        tiles.forEach(function (t) { if (!t0 && t.partial && t.partialOf) t0 = t.partialOf; });
+        return t0;
+      })(),
       approval: ctx.approval || null,
       clashes: (function () {
         var seen = {}, out2 = [];

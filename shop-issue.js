@@ -446,6 +446,32 @@
       return 'לריצות בודדות חובה לציין כמה עמודים יהיו בגיליון — כך נדע כמה ריצות ואילו עמודים בכל אחת.';
     return null;
   }
+  /* ── לפצל כפולה, או לא? (בקשת-בעלים 09/09/2026 — קו לקו) ────────────────
+     ⚠️ **ההכרעה כאן ולא במסך.** ביס-פרוף הראה שבדיקת-מחרוזת על הקוד בפורטל
+     נשארת ירוקה גם כשהמדידה מושתקת — ואז קובץ שנקרא "18-19" היה מפוצל על
+     סמך השם בלבד, גם כשהוא עמוד בודד. כאן זה נבדק בהתנהגות.
+     מחזיר את שני החצאים בסדר-הקריאה (‎side‎ + מספר-העמוד), או ‎null‎ כשאין
+     לפצל: לא נמדד ככפולה · אין שני מספרים · יותר מעמוד-PDF אחד · אין
+     גודל-עבודה. ‏PageSpine הוא מקור-האמת לסדר; לא משוכפל כאן. */
+  function spreadSplitPlan(o) {
+    o = o || {};
+    var nos = o.nos || [];
+    if (nos.length !== 2) return null;
+    if (num(o.pdfPageCount) !== 1) return null;
+    var reqW = num(o.reqWmm), reqH = num(o.reqHmm);
+    if (!(reqW > 0 && reqH > 0)) return null;
+    /* ⚠️ בדפדפן PageSpine הוא גלובל (תגית-script), ב-node הוא מודול.
+       בלי שני המסלולים ההכרעה אינה ניתנת לבדיקה בהתנהגות — וזו הנקודה. */
+    var PS = (typeof window !== 'undefined' && window.PageSpine) || null;
+    if (!PS && typeof require === 'function') { try { PS = require('./page-spine.js'); } catch (e) { PS = null; } }
+    if (!PS || !PS.splitProvenance) return null;
+    var prov = PS.splitProvenance([{ wmm: num(o.wmm), hmm: num(o.hmm), sourceId: 0 }],
+      { readingDirection: o.readingDirection || 'rtl', reqWmm: reqW, reqHmm: reqH });
+    if (!(prov.length === 2 && prov[0].part !== 'single')) return null;
+    return prov.map(function (p, i) {
+      return { side: p.part === 'spread-right' ? 'right' : 'left', pageNo: nos[i] };
+    });
+  }
   /* טקסט-האזהרה לדפוס לפני אישור-הדפסה; ‎null‎ = אין מה להזהיר. */
   function printApproveWarning(p) {
     var m = missingSummary(p);
@@ -999,12 +1025,22 @@
          מה שכן ידוע: אם הלקוח הצהיר יותר עמודים ממה שיש בקובץ, ההפרש הוא
          כפולות — והמספור **אינו ודאי**. אומרים זאת במקום להציג מספר שקרי.
          ההורדה (✂/📚) מפצלת כפולות נכון ואינה מושפעת. */
+      /* ⚠️⚠️ **דיווח-בעלים 09/09/2026: "כתוב שיש כפולות בקובץ אבל בפועל
+         אין כפולות".** הכלל היה ‎declared > pageCount‎ — וזה נכון לכפולות
+         **וגם** לקובץ חלקי, שהם שני דברים הפוכים. בערדניקים 286 ובידיעון
+         רכסים 5656 הוצהרו 112 עמודים והקובץ הוא ריצה של 16: יחס 7.0.
+         **כפולה מכווצת פי 2 לכל היותר** — עמוד-PDF אחד נושא שני עמודי-עיתון,
+         לא שבעה. לכן ‎declared > pc*2‎ אינו כפולות אלא קובץ חלקי, ואומרים
+         את זה ולא משהו אחר. אזהרה שגויה שוחקת את הנכונות. */
       var _dec = num(r.declaredPages);
-      var _uncertain = _dec > pc;
+      var _uncertain = _dec > pc && _dec <= pc * 2;
+      var _partial = _dec > pc * 2;
       for (var i = 1; i <= Math.min(pc, 400); i++) {
         tiles.push({ kind: 'page', target: 'full', pageNo: i, page: i, url: fullUrl,
                      label: i === 1 ? 'שער' : 'עמוד ' + i, at: num(r.approvedAt) || num(r.createdAt),
-                     partId: '', invented: _uncertain, mark: markOf(r, 'full', i) });
+                     partId: '', invented: _uncertain, partial: _partial,
+                     partialOf: _partial ? { have: pc, declared: _dec } : null,
+                     mark: markOf(r, 'full', i) });
       }
     } else if (fullUrl) {
       tiles.push({ kind: 'page', target: 'full', pageNo: 1, page: 1, url: fullUrl,
@@ -1323,7 +1359,7 @@
     runShopApprovePatch: runShopApprovePatch,
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
-    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, newIssueMetaCheck: newIssueMetaCheck,
+    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, newIssueMetaCheck: newIssueMetaCheck, spreadSplitPlan: spreadSplitPlan,
     pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, marksIn: marksIn, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
