@@ -489,13 +489,41 @@
      הן רשת שטוחה, וזה בדיוק מה שהלקוח לא רוצה. לכן לריצות **שני** נתונים
      חובה: עמודים וגודל-גיליון. ‎sheet‎ לא-מועבר = מסך ישן → הכלל הישן. */
   var SHEET_OPTIONS = [32, 16];
+  /* ⚠️ תיקון-בעלים באותו יום: "הלקוח לא יודע מה גודל הגיליון — הוא יודע רק
+     מה גודל העיתון". לכן הלקוח בוחר **פורמט-עמוד** (מה שכתוב על העיתון
+     שלו), וגודל-הגיליון נגזר ממנו ב-sheetPagesFromMM — אותה טבלה שכבר
+     משמשת את הדפדוף ואת מסך-הדפוס. ⚠️ A4 ו-24×33 שניהם גיליון-16, ולכן
+     מגודל-גיליון בלבד אי-אפשר לשחזר פורמט — רק להפך. */
+  var PAGE_FORMATS = [
+    { key: '165x240', w: 165, h: 240, label: '16.5×24 ס״מ', note: 'עיתון רגיל' },
+    { key: '210x297', w: 210, h: 297, label: 'A4 — 21×29.7 ס״מ', note: '' },
+    { key: '240x330', w: 240, h: 330, label: '24×33 ס״מ', note: '' },
+  ];
+  function pageFormatOf(key) {
+    for (var i = 0; i < PAGE_FORMATS.length; i++) if (PAGE_FORMATS[i].key === str(key)) return PAGE_FORMATS[i];
+    return null;
+  }
+  /* הפורמט שמתאים למידות שנשמרו על גיליון קודם (סובלנות כמו ב-sheetPagesFromMM) */
+  function pageFormatFromMM(w, h) {
+    var mx = Math.max(num(w) || 0, num(h) || 0), mn = Math.min(num(w) || 0, num(h) || 0);
+    if (!mx || !mn) return null;
+    for (var i = 0; i < PAGE_FORMATS.length; i++) {
+      var F = PAGE_FORMATS[i];
+      if (Math.abs(mx - F.h) < 14 && Math.abs(mn - F.w) < 14) return F;
+    }
+    return null;
+  }
   function newIssueMetaCheck(kind, pages, sheet) {
     var n = parseInt(pages, 10);
     var okPages = isFinite(n) && n >= 1 && n <= 200;
     if (kind === 'runs' && !okPages)
       return 'לריצות בודדות חובה לציין כמה עמודים יהיו בגיליון — כך נדע כמה ריצות ואילו עמודים בכל אחת.';
     if (kind === 'runs' && sheet !== undefined && SHEET_OPTIONS.indexOf(parseInt(sheet, 10)) < 0)
-      return 'לריצות בודדות חובה לבחור את גודל גיליון-הדפוס (32 או 16 עמודים) — בלעדיו אי-אפשר לחלק את העיתון לריצות.';
+      return 'לריצות בודדות חובה לבחור את גודל העיתון (למשל 16.5×24) — לפיו העיתון מתחלק לריצות.';
+    /* ⚠️ ביקורת 10/09: 71 עמודים עברו את השער, ‎runLayout‎ החזיר [] על אי-זוגי,
+       והלקוח קיבל "✓ הגיליון נוצר" בלי שום ריצה. עמודי-דפוס באים בזוגות. */
+    if (kind === 'runs' && okPages && (n % 2))
+      return 'לריצות בודדות מספר-העמודים חייב להיות זוגי (' + n + ' אינו זוגי) — עמודי-דפוס באים בזוגות.';
     return null;
   }
   /* ── לפצל כפולה, או לא? (בקשת-בעלים 09/09/2026 — קו לקו) ────────────────
@@ -1411,7 +1439,7 @@
     runShopApprovePatch: runShopApprovePatch,
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
-    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, runCountVerdict: runCountVerdict, fileSlotSpan: fileSlotSpan, newIssueMetaCheck: newIssueMetaCheck, SHEET_OPTIONS: SHEET_OPTIONS, spreadSplitPlan: spreadSplitPlan,
+    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, runCountVerdict: runCountVerdict, fileSlotSpan: fileSlotSpan, newIssueMetaCheck: newIssueMetaCheck, SHEET_OPTIONS: SHEET_OPTIONS, PAGE_FORMATS: PAGE_FORMATS, pageFormatOf: pageFormatOf, pageFormatFromMM: pageFormatFromMM, spreadSplitPlan: spreadSplitPlan,
     pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, marksIn: marksIn, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,

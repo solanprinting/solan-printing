@@ -12,23 +12,23 @@
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="lib-loader.js"></script>
-<script src="pdfjs-engine.js?v=1789049793"></script>
+<script src="pdfjs-engine.js?v=1789053545"></script>
 <script src="proof-guard.js"></script>
 <!-- ⚠️ שכבת-הזהות היחידה: משחזרת את סשן-הפורטל (refresh-token) ומספקת authToken.
      כל לוגיקת-ההעלאה/דפדוף/פרופר נשארת בקובץ הזה ללא שינוי. -->
 <!-- ⚠️ מקור-האמת לסוגי-קבצים ולתקרות-הגודל, מסונכרן עם storage.rules.
      המסך הזה לא טען אותו עד 09/08/2026, ולכן שום בדיקת-גודל לא רצה
      לפני העלאה — לקוח שלח 210MB, חטף 403, וקיבל "נסו שוב". -->
-<script src="upload-type.js?v=1789049793"></script>
+<script src="upload-type.js?v=1789053545"></script>
 <!-- ⚠️ 23/08: שומר-תקיעה בהעלאה. בלעדיו המסך קפא על ~98% לנצח. -->
-<script src="upload-stall.js?v=1789049793"></script>
-<script src="portal-context.js?v=1789049793"></script>
+<script src="upload-stall.js?v=1789053545"></script>
+<script src="portal-context.js?v=1789053545"></script>
 <!-- חוק-הברזל של צד-השדרה והגלישות — מקור-אמת אחד, משותף עם הדפדוף -->
 <script src="page-spine.js?v=bidi2"></script>
-<script src="shop-issue.js?v=1789049793"></script>
+<script src="shop-issue.js?v=1789053545"></script>
 <script src="page-swap.js"></script>
-<script src="page-replace.js?v=1789049793"></script>
-<script src="portal-return.js?v=1789049793"></script>
+<script src="page-replace.js?v=1789053545"></script>
+<script src="portal-return.js?v=1789053545"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -1169,11 +1169,25 @@ function _pcAssignRunPages() {
 function _pcSuggestedRun(){
   try{ var n = record && record.parts ? Object.keys(record.parts).length : 0; return n + 1; }catch(e){ return 1; }
 }
-/* שורת "כמה עמודים בגיליון" — מוצגת *תמיד*, כדי שהחלוקה לריצות לא תהיה ניחוש
-   שקוף. אם המערכת לא יודעת, היא אומרת זאת ומבקשת לבחור. */
+/* שורת גודל-העיתון — מוצגת *תמיד*, כדי שהחלוקה לריצות לא תהיה ניחוש שקוף.
+   ⚠️ כלל-בעלים 10/09/2026: "הלקוח לא יודע מה גודל הגיליון — הוא יודע רק מה
+   גודל העיתון". הלקוח בוחר פורמט (16.5×24 · A4 · 24×33) וגודל-הגיליון נגזר
+   ב-_pcSheetFromMM. עד היום הבורר שאל "עמודים בגיליון: 32/16/8" — וכך גם
+   נשמר 8 בטעות על גיליון-283. */
+function _pcFormats(){
+  return (window.ShopIssue && ShopIssue.PAGE_FORMATS) || [
+    { key: '165x240', w: 165, h: 240, label: '16.5×24 ס״מ', note: 'עיתון רגיל' },
+    { key: '210x297', w: 210, h: 297, label: 'A4 — 21×29.7 ס״מ', note: '' },
+    { key: '240x330', w: 240, h: 330, label: '24×33 ס״מ', note: '' } ];
+}
 function _pcSheetPickHtml(){
   var s = _pcSheetSource();
-  var opt = function(v, txt){ return '<option value="'+v+'"'+(s.sheet===v?' selected':'')+'>'+txt+'</option>'; };
+  /* איזה פורמט מסומן: הבחירה הידנית · המידות של הרשומה · גיליון-32 (יחיד).
+     גיליון-16 בלי מידות אינו מכריע (A4 או 24×33) — לא מסמנים, הגיליון ידוע. */
+  var sel = window._pcFormatManual || '';
+  if (!sel) { var Fr = null; _pcFormats().forEach(function(F){ if (!Fr && _pcSheetFromMM(_toMM(record.reqW), _toMM(record.reqH)) && Math.abs(Math.max(_toMM(record.reqW),_toMM(record.reqH)) - F.h) < 14 && Math.abs(Math.min(_toMM(record.reqW),_toMM(record.reqH)) - F.w) < 14) Fr = F; }); if (Fr) sel = Fr.key; }
+  if (!sel && s.sheet === 32) sel = '165x240';
+  var opt = function(F){ return '<option value="'+F.key+'"'+(sel===F.key?' selected':'')+'>'+F.label+(F.note?' ('+F.note+')':'')+'</option>'; };
   var note = s.src==='manual' ? 'נבחר על ידיכם'
            : s.src==='req'    ? 'לפי הגודל שהוגדר לעיתון'
            : s.src==='files'  ? 'לפי הגודל של הקבצים שהעליתם'
@@ -1181,22 +1195,25 @@ function _pcSheetPickHtml(){
   return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;'
     + 'background:' + (s.sheet ? '#f8fafc' : '#fffbeb') + ';border:1px solid ' + (s.sheet ? '#e2e8f0' : '#fcd34d')
     + ';border-radius:9px;padding:8px 11px">'
-    + '<label style="font-weight:700">עמודים בגיליון:</label>'
+    + '<label style="font-weight:700">מה גודל העיתון?</label>'
     + '<select id="pc-sheet" onchange="_pcSetSheet(this.value)" style="padding:7px 9px;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem">'
-    + (s.sheet ? '' : '<option value="">— בחרו —</option>')
-    + opt(32, '32 (עיתון 16.5×24)') + opt(16, '16 (A4 / 24×33)') + opt(8, '8')
+    + (sel ? '' : '<option value="">— בחרו —</option>')
+    + _pcFormats().map(opt).join('')
     + '</select>'
     + '<span style="font-size:.8rem;color:' + (s.sheet ? '#6b7280' : '#92400e') + '">' + note + '</span></div>';
 }
 window._pcSetSheet = function(v){
-  window._pcSheetManual = parseInt(v, 10) || 0;
+  /* הערך הוא מפתח-פורמט; גודל-הגיליון נגזר ממנו — הלקוח לא בוחר גיליון */
+  var F = null; _pcFormats().forEach(function(x){ if (x.key === String(v)) F = x; });
+  window._pcFormatManual = F ? F.key : '';
+  window._pcSheetManual = F ? _pcSheetFromMM(F.w, F.h) : 0;
   var host = document.getElementById('pc-runbox');
   if (host) host.innerHTML = _pcSheetPickHtml()
     + '<div id="pc-runlist">' + _pcRunListHtml(parseInt((document.getElementById('pc-total')||{}).value) || parseInt(record.totalPages) || 0) + '</div>';
 };
 function _pcRunListHtml(total) {
   var fs = _pcFullSheet();
-  if (total && !fs) return '<div style="color:#92400e;font-size:.85rem;padding:6px 0">בחרו קודם כמה עמודים נכנסים בגיליון — אחרת החלוקה לריצות תהיה שגויה.</div>';
+  if (total && !fs) return '<div style="color:#92400e;font-size:.85rem;padding:6px 0">בחרו קודם את גודל העיתון — אחרת החלוקה לריצות תהיה שגויה.</div>';
   var runs = total ? _pcRunLayout(total, fs) : [];
   if (!runs.length) return '<div style="color:#9ca3af;font-size:.85rem;padding:6px 0">הזינו מספר עמודים כדי לראות את הריצות</div>';
   var sug = _pcSuggestedRun();
@@ -1271,7 +1288,7 @@ window._pcPickRun = function(num) {
   var total = parseInt((document.getElementById('pc-total')||{}).value) || parseInt(record.totalPages) || parseInt(record.declaredPages) || 0;
   if (!total) { alert('נא להזין את מספר העמודים בעיתון'); return; }
   var fs = _pcFullSheet();
-  if (!fs) { alert('נא לבחור כמה עמודים נכנסים בגיליון'); return; }   // לא ממשיכים על ניחוש
+  if (!fs) { alert('נא לבחור את גודל העיתון'); return; }   // לא ממשיכים על ניחוש
   record.totalPages = total; record.sheetPages = fs;
   /* ⚠️ ‏patch הוא async ואינו מומתן כאן, ולכן ה-try/catch שהיה עוטף אותו לא
      יכול היה לירות לעולם — ומאז ש-patch זורק על דחייה, הכשל היה הופך
