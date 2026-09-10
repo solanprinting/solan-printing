@@ -139,17 +139,24 @@
       }
       var mk = t.mark;
       var note = '', noteColor = '';
+      /* הערות-תקינות של הקובץ (10/09/2026): קבועות על האריח, לשני הצדדים.
+         הערת-תצוגה ("אפקטי-שקיפות") מקבלת ℹ️ ולא ⚠️ — הקובץ תקין. */
+      var fw = (ctx.fileWarnings && t.fileName && ctx.fileWarnings[t.fileName]) || [];
+      var fwCaveat = fw.length && ctx.isPreviewCaveat && fw.every(function (w) { return ctx.isPreviewCaveat(w); });
       if (mk && mk.note) note = _s(mk.note).slice(0, 48) + (mk.spot ? ' 📍' : '');
       else if (t.slotMismatch) {
         note = '⚠️ שובץ לעמוד ' + t.pageNo + ' · בשם-הקובץ כתוב ' + t.nameNo;
         noteColor = '#b45309';
+      } else if (fw.length) {
+        note = fwCaveat ? 'ℹ️ התצוגה אינה מחייבת — הקובץ תקין' : ('⚠️ ' + fw.length + ' הערות-תקינות');
+        noteColor = fwCaveat ? '#4b5563' : '#b45309';
       }
       return tileHtml({
         esc: esc, cls: mk ? (mk.kind === 'replace' ? 'mRep' : 'mOk') : '',
         attrs: _act(A, 'tileAttrs')(t, i, 'page'),
         thumbAttrs: _act(A, 'thumbAttrs')(t, i),
-        badge: mk ? (mk.kind === 'replace' ? '🔁' : '✔') : '',
-        name: t.label, title: t.label + (mk && mk.note ? ' — ' + mk.note : ''),
+        badge: mk ? (mk.kind === 'replace' ? '🔁' : '✔') : (fw.length ? (fwCaveat ? 'ℹ️' : '⚠️') : ''),
+        name: t.label, title: t.label + (mk && mk.note ? ' — ' + mk.note : '') + (fw.length ? ' — ' + fw.join(' · ') : ''),
         note: note, noteColor: noteColor,
         sub: (!note && t.at && ctx.fmt) ? ctx.fmt(t.at) : '',
         extra: _act(A, 'tileExtra')(t, i, 'page'),
@@ -189,6 +196,10 @@
     /* ⚠️ 09/09/2026: קובץ שקטן פי-יותר-מ-2 מההצהרה אינו כפולות אלא **חלק
        מהעיתון** — בדרך-כלל ריצה שהועלתה כקובץ-מלא. אומרים את זה במפורש,
        כי "יש כפולות" שלח את הדפוס לחפש בעיה שאינה קיימת. */
+    /* סיכום הערות-תקינות ברמת-הגיליון (10/09/2026): כמה קבצים, ומה הן */
+    if (o.fileWarnCount) bits.push('<b style="color:' + (o.fileWarnOnlyCaveat ? '#4b5563' : '#b45309') + '">'
+      + (o.fileWarnOnlyCaveat ? 'ℹ️ ' + o.fileWarnCount + ' עמודים עם אפקטי-שקיפות — התצוגה שלהם אינה מחייבת, הקבצים תקינים'
+                              : '⚠️ ' + o.fileWarnCount + ' קבצים עם הערות-תקינות (פרטים על האריח)') + '</b>');
     if (o.partial) bits.push('<b style="color:#b45309">⚠️ הקובץ מכיל ' + o.partial.have
       + ' עמודים מתוך ' + o.partial.declared + ' שהוצהרו — זהו חלק מהעיתון, לא הגיליון המלא; '
       + 'המספור על האריחים הוא לפי סדר-הקובץ</b>');
@@ -241,6 +252,14 @@
       esc: esc, hint: ctx.hint, extra: ctx.headExtra,
       gotPages: gotPages, totalPages: ctx.totalPages, marked: marked,
       uncertain: tiles.some(function (t) { return t.invented; }),
+      fileWarnCount: (function () {
+        var m = ctx.fileWarnings || {}; return Object.keys(m).filter(function (k) { return (m[k] || []).length; }).length;
+      })(),
+      fileWarnOnlyCaveat: (function () {
+        var m = ctx.fileWarnings || {}, ks = Object.keys(m).filter(function (k) { return (m[k] || []).length; });
+        if (!ks.length || !ctx.isPreviewCaveat) return false;
+        return ks.every(function (k) { return m[k].every(function (w) { return ctx.isPreviewCaveat(w); }); });
+      })(),
       partial: (function () {
         var t0 = null;
         tiles.forEach(function (t) { if (!t0 && t.partial && t.partialOf) t0 = t.partialOf; });

@@ -50,6 +50,41 @@
 
   function assessBytes(u8, pageCount) { return assess(countObjects(u8), pageCount); }
 
+  /* ── אפקטי-שקיפות: התצוגה-המקדימה עלולה להטעות (דיווח-בעלים 10/09/2026) ──
+     מבט-חצור 90: עמוד 77 הציג בפורטל "עיגול אפור" ועמוד 4 "מלל" — ובקובץ
+     שהורד לא היו. בבייטים: אין הערות ואין שכבות; **יש** מיזוג ‎/Overlay‎,
+     11 מסיכות-רכות ו-6 קבוצות-שקיפות. אלה בדיוק המבנים ש-pdf.js (מנוע
+     התצוגה) מרכיב אחרת מ-Acrobat — אותה משפחה של עמ' 43 הפתוח.
+     ⚠️ זו **הערה**, לא חסימה: הקובץ תקין ויודפס נכון. מה שנדרש הוא שהלקוח
+     והדפוס ידעו מראש שהתצוגה כאן אינה מחייבת — ולא יבזבזו זמן על הבדל
+     שאינו קיים בהדפסה. ספירה גולמית על הבייטים, כמו countObjects. */
+  var FX_SMASK_MIN = 3, FX_GROUP_MIN = 3;   // מסיכה בודדת (צל אחד) אינה מדאיגה
+  var FX_CAVEAT = 'אפקטי-שקיפות בקובץ (מסיכות/מיזוג) — התצוגה-המקדימה בפורטל עלולה להיות שונה מההדפסה; הקובץ עצמו תקין ויודפס כפי שהוא';
+  function _countSeq(u8, seq) {
+    if (!u8 || !u8.length) return 0;
+    var n = 0, L = seq.length;
+    for (var i = 0; i + L <= u8.length; i++) {
+      var ok = true;
+      for (var j = 0; j < L; j++) { if (u8[i + j] !== seq[j]) { ok = false; break; } }
+      if (ok) { n++; i += L - 1; }
+    }
+    return n;
+  }
+  function _seq(s) { var a = []; for (var i = 0; i < s.length; i++) a.push(s.charCodeAt(i)); return a; }
+  var _S_SMASK = _seq('/SMask'), _S_BM = _seq('/BM'), _S_BMN = _seq('/BM/Normal'), _S_BMN2 = _seq('/BM /Normal'), _S_TG = _seq('/S/Transparency'), _S_TG2 = _seq('/S /Transparency');
+  function assessFx(u8) {
+    var smask = _countSeq(u8, _S_SMASK);
+    var bmAll = _countSeq(u8, _S_BM), bmNormal = _countSeq(u8, _S_BMN) + _countSeq(u8, _S_BMN2);
+    var blend = Math.max(0, bmAll - bmNormal);
+    var groups = _countSeq(u8, _S_TG) + _countSeq(u8, _S_TG2);
+    var heavy = blend > 0 || smask >= FX_SMASK_MIN || groups >= FX_GROUP_MIN;
+    return { smask: smask, blendNonNormal: blend, groups: groups, heavy: heavy, message: heavy ? FX_CAVEAT : '' };
+  }
+  /* האם אזהרה נתונה היא "הערת-תצוגה" (ולא כשל-קובץ) — לצרכני התצוגה */
+  function isPreviewCaveat(msg) { return String(msg || '').indexOf('אפקטי-שקיפות') >= 0; }
+
   return { countObjects: countObjects, assess: assess, assessBytes: assessBytes,
+           assessFx: assessFx, isPreviewCaveat: isPreviewCaveat, FX_CAVEAT: FX_CAVEAT,
+           FX_SMASK_MIN: FX_SMASK_MIN, FX_GROUP_MIN: FX_GROUP_MIN,
            PER_PAGE_HEAVY: PER_PAGE_HEAVY, TOTAL_HEAVY: TOTAL_HEAVY };
 });
