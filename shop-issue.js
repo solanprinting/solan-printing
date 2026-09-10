@@ -422,6 +422,36 @@
     var missing = pageTiles(r).filter(function (t) { return t.kind === 'missing'; }).length;
     return { declared: declared, missing: missing, have: Math.max(0, declared - missing) };
   }
+  /* ⚠️ 10/09/2026: לקוחה העלתה קובץ של 64 עמודים כ"ריצה 2" של קונטרס-32 —
+     ריצות 2 ו-3 בקובץ אחד — והמסלול הישיר קיבל אותו בלי מילה (הדפוס ראה
+     "הגיעו 64 עמ'" רק אחרי המעשה). ריצה היא קונטרס באורך קבוע; קובץ באורך
+     אחר אינו הריצה הזו. ההכרעה כאן, טהורה, לשני מסלולי-הריצה (ישיר ודפדוף):
+       null  — תואם (או שאין פריסה לאמת מולה — לא ממציאים)
+       multi — הקובץ הוא בדיוק ריצה זו + הבאות אחריה ברצף (64 = 32+32)
+       other — האורך מתאים בדיוק לריצה אחרת אחת (ניחוש-שיוך, כמו ב-runGrid)
+       short — חסרים עמודים · long — עודף שאינו מסתדר עם שום ריצה
+     ‎block‎ = המסלול-הישיר חייב לעצור; בדפדוף ‎short‎ מטופל ע"י שאלת-החסרים. */
+  function runCountVerdict(layout, runNo, got) {
+    var lay = Array.isArray(layout) ? layout : [], rn = num(runNo) | 0, n = num(got) | 0, L = null, i;
+    for (i = 0; i < lay.length; i++) if (lay[i].num === rn) L = lay[i];
+    if (!L || !(n > 0) || n === L.pages) return null;
+    var want = L.pages, head = 'ריצה ' + rn + ' היא ' + want + ' עמודים, אבל הקובץ מכיל ' + n + '.\n';
+    var sum = want, runs = [rn];
+    for (i = 0; i < lay.length; i++) {
+      if (lay[i].num <= rn) continue;
+      sum += lay[i].pages; runs.push(lay[i].num);
+      if (sum === n) return { kind: 'multi', want: want, got: n, runs: runs, block: true,
+        text: head + 'נראה שהקובץ כולל גם את ריצה ' + runs.slice(1).join(' ו-') + '.\n\nהעלו כל ריצה בקובץ נפרד — או העלו עם דפדוף, ושם כל עמוד ישובץ למקומו.' };
+      if (sum > n) break;
+    }
+    var cands = lay.filter(function (x) { return x.pages === n && x.num !== rn; });
+    if (cands.length === 1) return { kind: 'other', want: want, got: n, likely: cands[0].num, block: true,
+      text: head + 'האורך מתאים לריצה ' + cands[0].num + ' (' + cands[0].label + '). אם זו ריצה ' + cands[0].num + ' — העלו אותה בקובייה שלה.' };
+    if (n < want) return { kind: 'short', want: want, got: n, missing: want - n, block: true,
+      text: head + 'חסרים ' + (want - n) + ' עמודים. העלו את קובץ-הריצה המלא, או העלו עם דפדוף וסמנו אילו עמודים חסרים.' };
+    return { kind: 'long', want: want, got: n, extra: n - want, block: true,
+      text: head + 'יש ' + (n - want) + ' עמודים עודפים. בדקו שזה הקובץ הנכון, והעלו את הריצה בלבד.' };
+  }
   /* ⚠️ קובץ רב-עמודים שמיועד למשבצת של עמוד אחד אינו "עמוד" — זו ריצה או
      עיתון שהגיעו למסלול הלא-נכון (רכסים 1530: ריצה של 38MB במשבצת "עמוד 2").
      מחזיר את השאלה ללקוח, או ‎null‎ כשהכול תואם. ההכרעה כאן ולא במסך —
@@ -1359,7 +1389,7 @@
     runShopApprovePatch: runShopApprovePatch,
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
-    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, newIssueMetaCheck: newIssueMetaCheck, spreadSplitPlan: spreadSplitPlan,
+    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, runCountVerdict: runCountVerdict, newIssueMetaCheck: newIssueMetaCheck, spreadSplitPlan: spreadSplitPlan,
     pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, marksIn: marksIn, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
