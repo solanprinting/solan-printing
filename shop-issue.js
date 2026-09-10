@@ -483,11 +483,19 @@
   /* חלון "העלה עיתון חדש" (בקשת-בעלים 09/09/2026): ריצות בודדות בלי מספר-
      עמודים אינן אפשריות — בלעדיו אין קוביות ולא ידוע אילו עמודים בכל ריצה.
      מחזיר טקסט-שגיאה, או ‎null‎ כשהקלט תקין. טהור, כדי שייבדק בהתנהגות. */
-  function newIssueMetaCheck(kind, pages) {
+  /* ⚠️ 10/09/2026, דיווח-בעלים: "48 עמודים, רק ריצה ראשונה בינתיים — והפריסה
+     לא לפי ריצות, כל ה-48 במשבצת אחת". גודל-הגיליון ירש "בשקט" מגיליון קודם,
+     ובלי ירושה לא הייתה פריסת-ריצות — ולא נשאל איש. ריצות בלי גודל-גיליון
+     הן רשת שטוחה, וזה בדיוק מה שהלקוח לא רוצה. לכן לריצות **שני** נתונים
+     חובה: עמודים וגודל-גיליון. ‎sheet‎ לא-מועבר = מסך ישן → הכלל הישן. */
+  var SHEET_OPTIONS = [32, 16];
+  function newIssueMetaCheck(kind, pages, sheet) {
     var n = parseInt(pages, 10);
     var okPages = isFinite(n) && n >= 1 && n <= 200;
     if (kind === 'runs' && !okPages)
       return 'לריצות בודדות חובה לציין כמה עמודים יהיו בגיליון — כך נדע כמה ריצות ואילו עמודים בכל אחת.';
+    if (kind === 'runs' && sheet !== undefined && SHEET_OPTIONS.indexOf(parseInt(sheet, 10)) < 0)
+      return 'לריצות בודדות חובה לבחור את גודל גיליון-הדפוס (32 או 16 עמודים) — בלעדיו אי-אפשר לחלק את העיתון לריצות.';
     return null;
   }
   /* ── לפצל כפולה, או לא? (בקשת-בעלים 09/09/2026 — קו לקו) ────────────────
@@ -1403,7 +1411,7 @@
     runShopApprovePatch: runShopApprovePatch,
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
-    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, runCountVerdict: runCountVerdict, fileSlotSpan: fileSlotSpan, newIssueMetaCheck: newIssueMetaCheck, spreadSplitPlan: spreadSplitPlan,
+    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, runCountVerdict: runCountVerdict, fileSlotSpan: fileSlotSpan, newIssueMetaCheck: newIssueMetaCheck, SHEET_OPTIONS: SHEET_OPTIONS, spreadSplitPlan: spreadSplitPlan,
     pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, marksIn: marksIn, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
