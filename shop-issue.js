@@ -422,6 +422,20 @@
     var missing = pageTiles(r).filter(function (t) { return t.kind === 'missing'; }).length;
     return { declared: declared, missing: missing, have: Math.max(0, declared - missing) };
   }
+  /* ⚠️ 10/09/2026 (עוצמה 416): "14-15.pdf" — כפולה, עמוד-PDF אחד על שתי
+     משבצות. רשת-הגיליון (pageTiles) כיסתה דרך ‎seq‎ והציגה נכון; הדפדוף
+     (proof-viewer) כיסה לפי ‎getPageCount()‎=1, סימן את 15 "חסר", הכניס
+     מציין-מקום, ואחרי פיצול-הכפולה כל העמודים זזו באחד (המציין "15" הופיע
+     במשבצת 16, "48 עמודים" הפכו ל-52). אותו כלל, מקור אחד, לשני הצרכנים:
+     ‎slot‎ מפורש → מספר-עמודי-ה-PDF (הכרעה ידנית גוברת, כמו ברשת) ·
+     שם-כפולה + עמוד-PDF יחיד → שתי משבצות · אחרת → מספר-עמודי-ה-PDF. */
+  function fileSlotSpan(f, pdfPages) {
+    var n = Math.max(1, num(pdfPages) | 0 || 1);
+    var slRaw = num((f || {}).slot);
+    if (Number.isInteger(slRaw) && slRaw >= 1) return n;
+    var pn = pagesOfName((f || {}).fileName);
+    return (pn && pn.spread && n === 1) ? pn.nos.length : n;
+  }
   /* ⚠️ 10/09/2026: לקוחה העלתה קובץ של 64 עמודים כ"ריצה 2" של קונטרס-32 —
      ריצות 2 ו-3 בקובץ אחד — והמסלול הישיר קיבל אותו בלי מילה (הדפוס ראה
      "הגיעו 64 עמ'" רק אחרי המעשה). ריצה היא קונטרס באורך קבוע; קובץ באורך
@@ -1389,7 +1403,7 @@
     runShopApprovePatch: runShopApprovePatch,
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
-    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, runCountVerdict: runCountVerdict, newIssueMetaCheck: newIssueMetaCheck, spreadSplitPlan: spreadSplitPlan,
+    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, runCountVerdict: runCountVerdict, fileSlotSpan: fileSlotSpan, newIssueMetaCheck: newIssueMetaCheck, spreadSplitPlan: spreadSplitPlan,
     pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, marksIn: marksIn, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
