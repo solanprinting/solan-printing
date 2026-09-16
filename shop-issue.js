@@ -1262,7 +1262,16 @@
        (שהדפוס קובע), לא מחליף אותו. תקרה 200 — הצהרה פרועה אינה מציפה
        את הרשת באלפי משבצות. */
     var declared = num(r.declaredPages);
-    if (declared >= 1) {
+    /* ⚠️ 16/09/2026 (חדש-ולעיניין, גיליון 12): קובץ-מלא של 31 עמודי-PDF
+       שהוצהר 32 — עמוד אחד הוא כפולה (רוחב-כפול; הבדיקה כבר סימנה "גדלי-
+       עמוד לא אחידים"), ולכן 31 עמודי-PDF = 32 עמודי-עיתון. הקובץ **שלם**,
+       אבל לולאת-ההצהרה סימנה "עמוד 32 חסר". כשזהו קובץ-מלא יחיד שבו ההפרש
+       מההצהרה נכנס בטווח-הכפולות (declared בין pc+1 ל-pc*2) — אלה כפולות,
+       לא עמודים חסרים; ה-‎invented‎ כבר אומר "המספור אינו ודאי". לא ממציאים
+       חוסר. (העלאה-מקובצת/ריצות אינה מושפעת — שם ‎have‎ אמין פר-משבצת.) */
+    var _fullSpread = !!(str(r.fileUrl) && num(r.pageCount) > 1 && !Object.keys(parts).length
+                         && declared > num(r.pageCount) && declared <= num(r.pageCount) * 2);
+    if (declared >= 1 && !_fullSpread) {
       for (var dp = 1; dp <= Math.min(declared, 200); dp++) {
         if (!have[dp] && pend.indexOf(dp) < 0 && pend.indexOf(String(dp)) < 0) pend.push(dp);
       }
