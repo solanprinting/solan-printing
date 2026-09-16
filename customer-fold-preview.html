@@ -17,10 +17,10 @@
 <!-- ⚠️ 20/08/2026, דיווח-לקוח (מבט חצור עמ' 15): המסך רינדר ב-pdf.js
      הישן, שמצייר מסכות-שקיפות דהויות — רקע-העמוד נעלם ללקוח בעוד
      שבקובץ הוא תקין. מודול-המנוע מביא 5.4.149 (vendor/ כמראה אחרונה). -->
-<script src="pdfjs-engine.js?v=1789548775"></script>
+<script src="pdfjs-engine.js?v=1789549989"></script>
 <!-- ⚠️ 23/08: מקור-האמת לתקרות-הגודל, מסונכרן עם חוקי-האחסון. המסך הזה
      העלה 97MB ורק בסוף קיבל 403 — בלי שום בדיקה מוקדמת. -->
-<script src="upload-type.js?v=1789548775"></script>
+<script src="upload-type.js?v=1789549989"></script>
 <script src="imposition-decoder.js"></script>
 <script src="imposition-decoder-exec.js"></script>
 <script src="imposition-tpl-parser.js"></script>
@@ -33,9 +33,9 @@
 <script src="proof-context.js"></script>
 <!-- ⚠️ שומר-הכניסה (B+3.2) — חייב להיטען **לפני** הסקריפט שמבקש אסימון.
      data-mode="observe" — רואה ומדווח, עדיין לא חוסם. ראה auth-guard.js. -->
-<script src="firebase-auth.bundle.js?v=1789548775"></script>
-<script src="auth-client.js?v=1789548775"></script>
-<script src="auth-guard.js?v=1789548775" data-page="customer-fold-preview.html" data-mode="observe"></script>
+<script src="firebase-auth.bundle.js?v=1789549989"></script>
+<script src="auth-client.js?v=1789549989"></script>
+<script src="auth-guard.js?v=1789549989" data-page="customer-fold-preview.html" data-mode="observe"></script>
 <style>
   /* עיצוב תואם-אפליקציה (סולן): Heebo · בז' חמים · נייבי --press · זהב --gold · כרטיסים לבנים */
   :root{--press:#2d3561;--gold:#c9a84c;--gold-light:#e8d5a3;--line:#d0c8b8;--danger:#c62828;
@@ -1761,7 +1761,7 @@ async function _cLoadBook(versionId, expectedHash, hasStoragePath){
   const _slowTimer=setTimeout(function(){ _dlSlow=true;
     const el=$('cLoad'); if(el && /מוריד את הפרופר/.test(el.innerHTML) && el.innerHTML.indexOf('להימשך עד שתי דקות')<0) el.innerHTML+=_bigMsg;
   }, 4000);
-  let bytes=null;
+  let bytes=null, _dlErr=null;
   if(hasStoragePath){
     try{
       bytes=new Uint8Array(await _cStorageFetch(versionId, function(received,total){
@@ -1772,10 +1772,28 @@ async function _cLoadBook(versionId, expectedHash, hasStoragePath){
           +'<div style="height:8px;background:#334155;border-radius:5px;margin:10px auto 0;max-width:340px"><div style="height:100%;width:'+pct+'%;background:#16a34a;border-radius:5px;transition:width .2s"></div></div>'
           +(_dlSlow?_bigMsg:''));
       }));
-    }catch(e){}
+    }catch(e){
+      /* ⚠️ 16/09/2026 (תקלת-ייצור, ערדניקים R-2): עד היום ה-catch היה ריק —
+         "טעינת החוברת נכשלה" בלי שום סיבה, גם לנו. עכשיו הסיבה נגזרת מקוד-
+         ה-HTTP (‏_cStorageFetch דוחה עם 'storage <status>'), נרשמת ל-console
+         עם מזהה-התקלה, ומיתרגמת להודעה שאומרת ללקוח מה לעשות. */
+      _dlErr=e; console.error('הורדת-הפרופר נכשלה ['+_incidentId+']', e);
+    }
   }
   clearTimeout(_slowTimer);
-  if(!bytes){ $('cBook').style.display='none'; $('cTitle').innerHTML+=' <span class="bad">(טעינת החוברת נכשלה)</span>'; $('cMeta').innerHTML+=_loadFailMsg(); return false; }
+  /* ניקוי תגי-כשל קודמים מהכותרת — אחרת כל "נסה שוב" הוסיף עוד "(נכשלה)"
+     (16/09/2026: הכותרת הצטברה ל-3 עותקים במסך של הלקוחה). */
+  (function(){ var tt=$('cTitle'); if(tt) tt.querySelectorAll('.bad').forEach(function(x){ x.remove(); }); })();
+  if(!bytes){
+    $('cBook').style.display='none';
+    $('cTitle').innerHTML+=' <span class="bad">(טעינת החוברת נכשלה)</span>';
+    var _st=_dlErr&&/storage (\d+)/.exec(String(_dlErr.message||'')), _code=_st?Number(_st[1]):0;
+    var _why = _code===403 ? 'ייתכן שהרשת שלכם (סינון/אינטרנט-כשר) חוסמת את שרת-הקבצים, או שתוקף-הצפייה הסתיים. נסו מרשת אחרת, או בקשו מבית-הדפוס קישור חדש.'
+             : (_code>=500 ? 'שגיאה זמנית בשרת בזמן הכנת הקובץ. נסו שוב בעוד רגע.'
+             : (_code ? ('שגיאת-שרת (' + _code + ').') : 'ייתכן חיבור-רשת איטי או חסום. נסו שוב, או מרשת אחרת.'));
+    $('cMeta').innerHTML+=_loadFailMsg(_why);
+    return false;
+  }
   // הוכחת-זהות: ה-bytes שהתקבלו === outputHash שברשומה. ⚠️ אי-התאמה נעצרת
   // כאן במפורש (לא "אזהרה וממשיכים") — קובץ חתוך/שגוי לא מגיע ל-pdf.js,
   // שהיה קורס בשקט (InvalidPDFException בלתי-מטופלת) ומשאיר מסך לבן.
