@@ -561,6 +561,24 @@
   }
   /* איזה חיווי-נעילה הלקוח רואה: 'done' = הודפס והושלם · 'closed-missing' =
      נסגר באישור-הדפסה בעוד עמודים מוצהרים חסרים · null = לא נעול. */
+  /* ⚠️ ניתוח-לקחים 16/09/2026: לקוח אחד יצר חמש רשומות לאותו גיליון (בסל-
+     המיחזור: "גיליון 283" פעמיים, "555", בלי-מספר…) — העמודים התפזרו בין
+     רשומות, כל רשומה נראתה "חסרה", והדפוס ראה "לא הצליח להעלות". החלון
+     "איזה עיתון" הציע "הוסף עמודים ל:" רק לרשומות-קבצים פתוחות; גיליון-ריצות
+     או מספר שכבר קיים עברו בשקט ל"עיתון חדש". ההכרעה כאן: רשומה **פתוחה**
+     (לא נסגרה/הושלמה, לא בסל) של אותו לקוח עם אותו מספר-גיליון. */
+  function dupIssueOf(list, issue) {
+    var want = str(issue).trim();
+    if (!want) return null;
+    var hit = null;
+    (list || []).forEach(function (p) {
+      if (!p || p._deleted) return;
+      if (str(p.issue).trim() !== want) return;
+      if (num(p.closedAt) > 0 || num(p.completedAt) > 0) return;
+      if (!hit || num(p.createdAt) > num(hit.createdAt)) hit = p;
+    });
+    return hit;
+  }
   function lockKind(p) {
     var r = p || {};
     if (!num(r.completedAt) && !num(r.closedAt)) return null;
@@ -1439,7 +1457,7 @@
     runShopApprovePatch: runShopApprovePatch,
     splitPast: splitPast,
     seenAt: seenAt, hasArrived: hasArrived, isDraft: isDraft,
-    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, pageCountVerdict: pageCountVerdict, runCountVerdict: runCountVerdict, fileSlotSpan: fileSlotSpan, newIssueMetaCheck: newIssueMetaCheck, SHEET_OPTIONS: SHEET_OPTIONS, PAGE_FORMATS: PAGE_FORMATS, pageFormatOf: pageFormatOf, pageFormatFromMM: pageFormatFromMM, spreadSplitPlan: spreadSplitPlan,
+    unitsOf: unitsOf, summaryOf: summaryOf, titleOf: titleOf, cardActions: cardActions, missingSummary: missingSummary, printApproveWarning: printApproveWarning, lockKind: lockKind, dupIssueOf: dupIssueOf, pageCountVerdict: pageCountVerdict, runCountVerdict: runCountVerdict, fileSlotSpan: fileSlotSpan, newIssueMetaCheck: newIssueMetaCheck, SHEET_OPTIONS: SHEET_OPTIONS, PAGE_FORMATS: PAGE_FORMATS, pageFormatOf: pageFormatOf, pageFormatFromMM: pageFormatFromMM, spreadSplitPlan: spreadSplitPlan,
     pageNoOf: pageNoOf, pagesOfName: pagesOfName, dropPlan: dropPlan, pageTiles: pageTiles, runGrid: runGrid, runLayout: runLayout, layoutOf: layoutOf, markOf: markOf, marksIn: marksIn, markPatch: markPatch,
     MARK_KINDS: MARK_KINDS, MARK_LABELS: MARK_LABELS,
     printApprovePatch: printApprovePatch, printApproveLabel: printApproveLabel,
