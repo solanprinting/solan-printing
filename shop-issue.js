@@ -1314,6 +1314,20 @@
       var span = Math.min(Math.max(1, num(t.pages) | 0), 400);
       for (var j = 0; j < span; j++) at[t.pageNo + j] = i;
     });
+    /* ⚠️ 16/09/2026 (חדש-ולעיניין 12): קובץ-מלא יחיד עם כפולה — 31 עמודי-
+       PDF שנושאים את כל 32 עמודי-העיתון — כיסה רק 1..31 ב-‎at‎, והריצה של
+       32 דיווחה "חסר עמ׳ 32". פותרים כמו ב-pageTiles: כשזהו קובץ-מלא יחיד
+       (בלי parts) ומספר-עמודי-ה-PDF קטן מסך-הפריסה אך בטווח-הכפולות
+       (‏layTotal בין pc+1 ל-pc*2) — הכפולות משלימות את ההפרש, והקובץ מכסה
+       את כל הפריסה. ‏layTotal מסך-הפריסה עצמה, אמין גם כשההצהרה ריקה. */
+    var _fullTileIdx = -1;
+    tiles.forEach(function (t, i) { if (t.kind === 'page' && t.target === 'full' && _fullTileIdx < 0) _fullTileIdx = i; });
+    var _pcFull = num(r.pageCount);
+    var _layTotal = lay.reduce(function (s, L) { return s + num(L.pages); }, 0);
+    if (_fullTileIdx >= 0 && str(r.fileUrl) && !Object.keys((r.parts && typeof r.parts === 'object') ? r.parts : {}).length
+        && _pcFull > 1 && _layTotal > _pcFull && _layTotal <= _pcFull * 2) {
+      lay.forEach(function (L) { L.seq.forEach(function (q) { if (at[q] == null) at[q] = _fullTileIdx; }); });
+    }
     /* ריצה שהועלתה מוצמדת לקונטרס **לפי מספר-הריצה שבשמה** — לא לפי
        עמוד-פתיחה. זה מה שהלקוח כתב על הקובץ, וזה מה שהדפוס קורא. */
     var byNo = {}, dupRuns = {};
